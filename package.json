@@ -1,0 +1,14 @@
+{
+  "name": "gantt-flow",
+  "private": true,
+  "version": "0.0.0",
+  "description": "工程表とスイムレーン業務フロー図を単一データから同期するデスクトップアプリ",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

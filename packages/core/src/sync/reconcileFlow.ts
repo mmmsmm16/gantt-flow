@@ -1,0 +1,148 @@
+// 同期の心臓部（`docs/04-sync-spec.md`）。指定粒度ビューを現在のコアに合わせて再構築する純粋関数。
+// 不変条件: 「対象タスク 1 件 ⇄ タスクノード 1 個」/ 手動配置(x,y)は保持 / pinned エッジは消さない / 冪等。
+// v1 スコープ: タスクノード + 依存由来エッジ + 自動配置 + レーン。I/O・課題オブジェクトは次段で追加。
+import type {
+  Core,
+  TaskDetail,
+  FlowLevelView,
+  FlowTaskNode,
+  FlowEdge,
+  Id,
+  FlowNodeId,
+} from '../model/types';
+import type { IdGen } from '../ids';
+
+export interface SyncReport {
+  added: FlowNodeId[]; // 自動追加したノード
+  removed: FlowNodeId[]; // 対象外/削除で撤去したノード（孤立）
+}
+
+const MARGIN = 40;
+const COL_W = 220;
+const ROW_H = 120;
+
+const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
+  (a ?? undefined) === (b ?? undefined);
+
+export function reconcileFlow(
+  core: Core,
+  _details: Record<Id, TaskDetail>,
+  view: FlowLevelView,
+  idGen: IdGen,
+): { view: FlowLevelView; report: SyncReport } {
+  const next: FlowLevelView = structuredClone(view);
+  const report: SyncReport = { added: [], removed: [] };
+
+  // 1. 対象タスク（この粒度・このスコープの兄弟）を決定論順で
+  const targets = Object.values(core.tasks)
+    .filter((t) => t.level === view.level && sameScope(t.parentId, view.scopeParentId))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const targetIds = new Set(targets.map((t) => t.id));
+
+  // 2. レーン: 参照される担当ごとに 1 本（既存は再利用、無ければ作成）
+  const laneByAssignee = new Map<Id, Id>();
+  for (const lane of Object.values(next.lanes)) {
+    if (lane.assigneeId) laneByAssignee.set(lane.assigneeId, lane.id);
+  }
+  const ensureLane = (assigneeId: Id | undefined): Id | undefined => {
+    if (!assigneeId) return undefined;
+    const existing = laneByAssignee.get(assigneeId);
+    if (existing) return existing;
+    const id = idGen();
+    const order = Object.keys(next.lanes).length;
+    next.lanes[id] = {
+      id,
+      assigneeId,
+      title: core.assignees[assigneeId]?.name ?? assigneeId,
+      order,
+    };
+    laneByAssignee.set(assigneeId, id);
+    return id;
+  };
+  // 決定論的なレーン生成順（対象タスクのソート順）
+  for (const t of targets) ensureLane(t.assigneeId);
+  const laneOrderOf = (assigneeId: Id | undefined): number => {
+    if (!assigneeId) return 0;
+    const id = laneByAssignee.get(assigneeId);
+    return (id && next.lanes[id]?.order) || 0;
+  };
+
+  // 3. 孤立ノード撤去: 対象外になったタスクノードを消す（移動/削除）→ report
+  for (const n of Object.values(next.nodes)) {
+    if (n.kind === 'task' && !targetIds.has(n.taskId)) {
+      delete next.nodes[n.id];
+      report.removed.push(n.id);
+    }
+  }
+
+  // 4. タスクノード保証: 既存は x/y 据え置き（担当のみ更新）、無ければ自動配置
+  const taskNodeByTask = new Map<Id, FlowTaskNode>();
+  for (const n of Object.values(next.nodes)) {
+    if (n.kind === 'task') taskNodeByTask.set(n.taskId, n);
+  }
+  targets.forEach((t, i) => {
+    const laneId = t.assigneeId ? laneByAssignee.get(t.assigneeId) : undefined;
+    const existing = taskNodeByTask.get(t.id);
+    if (existing) {
+      existing.laneId = laneId; // 担当が変わればレーンを更新（位置は保持）
+      return;
+    }
+    const id = idGen();
+    const node: FlowTaskNode = {
+      id,
+      kind: 'task',
+      taskId: t.id,
+      x: MARGIN + i * COL_W,
+      y: MARGIN + laneOrderOf(t.assigneeId) * ROW_H,
+      laneId,
+    };
+    next.nodes[id] = node;
+    taskNodeByTask.set(t.id, node);
+    report.added.push(id);
+  });
+
+  // 5. エッジ: コア依存を導出エッジに反映（pinned/ユーザー経路は尊重・消さない）
+  const nodeIdByTask = new Map<Id, FlowNodeId>();
+  for (const n of Object.values(next.nodes)) {
+    if (n.kind === 'task') nodeIdByTask.set(n.taskId, n.id);
+  }
+  const depsInScope = Object.values(core.dependencies).filter(
+    (d) =>
+      sameScope(d.scopeParentId, view.scopeParentId) &&
+      targetIds.has(d.from) &&
+      targetIds.has(d.to),
+  );
+  const depIds = new Set(depsInScope.map((d) => d.id));
+
+  // 5a. 不要な導出エッジを撤去（pinned は残す / 端点消失も撤去）
+  for (const e of Object.values(next.edges)) {
+    const depGone = e.derivedFromDependencyId && !depIds.has(e.derivedFromDependencyId);
+    const danglingEndpoint = !next.nodes[e.source] || !next.nodes[e.target];
+    if (!e.pinned && (depGone || danglingEndpoint)) delete next.edges[e.id];
+  }
+
+  // 5b. 各依存に導出エッジを 1 本保証（既に s->t を結ぶ線があれば張らない）
+  const pairExists = new Set<string>();
+  for (const e of Object.values(next.edges)) pairExists.add(`${e.source}->${e.target}`);
+  const derivedByDep = new Map<Id, FlowEdge>();
+  for (const e of Object.values(next.edges)) {
+    if (e.derivedFromDependencyId) derivedByDep.set(e.derivedFromDependencyId, e);
+  }
+  for (const d of depsInScope) {
+    const s = nodeIdByTask.get(d.from);
+    const t = nodeIdByTask.get(d.to);
+    if (!s || !t) continue;
+    const existing = derivedByDep.get(d.id);
+    if (existing) {
+      existing.source = s;
+      existing.target = t;
+      continue;
+    }
+    if (pairExists.has(`${s}->${t}`)) continue; // pinned/ユーザー経路が既にある
+    const id = idGen();
+    next.edges[id] = { id, source: s, target: t, derivedFromDependencyId: d.id, role: 'flow' };
+    pairExists.add(`${s}->${t}`);
+  }
+
+  return { view: next, report };
+}
