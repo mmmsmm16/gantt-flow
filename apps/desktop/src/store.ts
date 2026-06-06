@@ -20,6 +20,7 @@ import {
   reconcileProject,
   ensureLevelView,
   importCsv,
+  rowsToProject,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
@@ -99,6 +100,7 @@ export interface AppState {
   redo: () => void;
   loadProject: (project: Project) => void;
   importCsvText: (text: string) => void;
+  importRows: (rows: string[][]) => void;
   newProject: () => void;
 }
 
@@ -322,6 +324,11 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
     importCsvText: (text) => {
       const { project } = importCsv(text, uuid);
+      const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
+      adopt(project, hasLarge ? 'large' : 'medium', undefined);
+    },
+    importRows: (rows) => {
+      const { project } = rowsToProject(rows, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
       adopt(project, hasLarge ? 'large' : 'medium', undefined);
     },

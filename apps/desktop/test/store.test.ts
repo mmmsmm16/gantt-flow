@@ -80,6 +80,17 @@ describe('app store（command → reconcile → history）', () => {
     expect(s.getState().canUndo).toBe(false); // 取り込みは履歴リセット
   });
 
+  it('行列(Excel相当)取り込みで新規プロジェクトになる', () => {
+    const s = createAppStore();
+    s.getState().importRows([
+      ['作業名', '粒度', '担当'],
+      ['受注', '中', '営業'],
+      ['出荷', '中', '倉庫'],
+    ]);
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(2);
+    expect(Object.keys(s.getState().project.core.assignees)).toHaveLength(2);
+  });
+
   it('別レーンへドラッグすると担当が書き戻る（逆同期）', () => {
     const s = createAppStore();
     // 2 つの担当（=2 レーン）を用意

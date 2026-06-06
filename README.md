@@ -21,7 +21,8 @@
 | 粒度切替・親範囲バンド・課題レイヤ・逆同期(レーン→担当)・取り込み(CSV) | ✅ 実装 |
 | `crates/fsstore`（Rust: アトミック保存＋助言ロック=同時編集の核） | ✅ 実装（cargo test 6件 green） |
 | `apps/desktop/src-tauri`（Tauri 2 殻） | 🟡 スキャフォールド済（ビルドは各自環境・[手順](apps/desktop/src-tauri/README.md)） |
-| 取り込み(Excel) / 出力(Excel・画像) / E2E(Playwright) | ⛔ 未実装 |
+| 取り込み(CSV/Excel) / 出力(Excel・CSV・SVG画像) | ✅ 実装 |
+| E2E(Playwright) / Tauri 配下のファイル保存配線 | ⛔ 未実装 |
 
 ## はじめかた（クローン → 起動）
 

@@ -1,9 +1,16 @@
-import type { ProcessLevel } from '@gantt-flow/core';
-import { useApp } from './store';
+import { findView, useApp } from './store';
+import { type ProcessLevel } from '@gantt-flow/core';
 import { TableView } from './TableView';
 import { FlowCanvas } from './FlowCanvas';
 import { Inspector } from './Inspector';
-import { saveProjectToFile, openProjectFromFile } from './persistence';
+import {
+  saveProjectToFile,
+  openProjectFromFile,
+  readTableFile,
+  exportExcelFile,
+  exportCsvFile,
+  exportSvgFile,
+} from './persistence';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -55,13 +62,22 @@ export function App() {
   const onImport = () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.csv,text/csv';
+    input.accept = '.csv,.xlsx,text/csv';
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      useApp.getState().importCsvText(await file.text());
+      try {
+        useApp.getState().importRows(await readTableFile(file));
+      } catch {
+        alert('取り込みに失敗しました（CSV / Excel を確認してください）。');
+      }
     };
     input.click();
+  };
+  const onExportSvg = () => {
+    const st = useApp.getState();
+    const view = findView(st.project, st.level, st.scopeParentId);
+    if (view) exportSvgFile(st.project, view);
   };
 
   return (
@@ -107,9 +123,16 @@ export function App() {
         </button>
         <span className="sep" />
         <button onClick={onNew}>新規</button>
-        <button onClick={onImport}>取り込み(CSV)</button>
+        <button onClick={onImport}>取り込み</button>
         <button onClick={onOpen}>開く</button>
         <button onClick={onSave}>保存</button>
+        <span className="sep" />
+        <span className="export-group">
+          出力:
+          <button onClick={() => exportExcelFile(useApp.getState().project)}>Excel</button>
+          <button onClick={() => exportCsvFile(useApp.getState().project)}>CSV</button>
+          <button onClick={onExportSvg}>画像</button>
+        </span>
       </header>
       <div className={`panes${selectedTaskId ? ' with-inspector' : ''}`}>
         <section className="pane table-pane">

@@ -695,3 +695,15 @@ button.danger:hover {
   border-style: solid;
   border-color: var(--faint);
 }
+
+.export-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.export-group button {
+  padding: 5px 9px;
+  font-size: 12px;
+}

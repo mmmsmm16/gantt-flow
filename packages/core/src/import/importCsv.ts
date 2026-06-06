@@ -74,13 +74,20 @@ const splitMulti = (s: string): string[] =>
     .filter(Boolean);
 
 export function importCsv(text: string, idGen: IdGen): { project: Project; report: ImportReport } {
+  return rowsToProject(parseCsv(text), idGen);
+}
+
+// 行列（CSV/Excel 共通）→ 新規 Project。Excel 取り込みは app 側でパースして本関数に渡す。
+export function rowsToProject(
+  rows: string[][],
+  idGen: IdGen,
+): { project: Project; report: ImportReport } {
   const report: ImportReport = {
     created: { tasks: 0, ios: 0, issues: 0, dependencies: 0 },
     unresolvedDeps: [],
     hierarchyIssues: [],
     warnings: [],
   };
-  const rows = parseCsv(text);
   const now = new Date().toISOString();
   const project: Project = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
