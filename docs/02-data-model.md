@@ -228,6 +228,7 @@ interface Project {
 
 - すべての ID は app 生成の **UUID v4 文字列**。prefix（`task_` 等）は人間／デバッグ用で、ロジックで解釈しない。
 - コアが `taskId` / `dependencyId` の権威。オーバーレイは**参照のみ**で、新しいコア ID を発明しない。
+- **外部→内部 ID の発番が起こるのは Importer のみ**（Excel/CSV の初回取り込み時に UUID を採番。`05-persistence.md` §6）。それ以外でアプリ起動後に外部キーへ依存しない。
 - `validate(project)` で次を保証し、壊れた参照は `quarantine` へ退避（共有フォルダ上で手編集・破損し得るため落とさない）:
   - 各 `Dependency.from/to`・`TaskDetail.taskId`・`FlowTaskNode.taskId` が実在タスクを指す。
   - `ProcessTask.parentId` が実在し、循環が無い（木である）。

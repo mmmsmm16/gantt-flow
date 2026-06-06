@@ -32,6 +32,7 @@
 │   ・commands   コア変更コマンド (+ undo 用の逆操作) │
 │   ・sync       reconcile（純粋関数・最重要）        │
 │   ・persistence ファイル読み書き（IF 越し）         │
+│   ・import     取り込み（IF 越し・Excel/CSV→新規）   │
 │   ・export     出力（IF 越し・将来 Excel）          │
 │   ・validate   参照整合性チェック                  │
 └──────────────────────────────────────────────┘
@@ -61,6 +62,10 @@ gantt-flow/
 │       │   │   ├── json.ts            # Phase1: 単一 JSON
 │       │   │   ├── bundle.ts          # Phase3: .gflow ZIP
 │       │   │   └── migrations/        # スキーマ移行（純粋関数 + フィクスチャ）
+│       │   ├── import/
+│       │   │   ├── Importer.ts       # 取り込み IF { id, label, run(file) } → { project, report }
+│       │   │   ├── excel.ts          # Excel→Project（初回ブートストラップ・外部→内部ID発番）
+│       │   │   └── csv.ts            # CSV→Project
 │       │   ├── export/
 │       │   │   ├── Exporter.ts        # 出力 IF { id, label, run(project) }
 │       │   │   └── excel/             # 将来: ExcelJS 実装
