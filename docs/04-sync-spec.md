@@ -79,17 +79,18 @@ function reconcileFlow(core, view):
     if dependency(e) removed or now superseded by user path:
       delete next.edges[e.id]
 
-  // 4. 帳票/課題オブジェクト: 表（TaskDetail）を源泉に存在を導出。配置/表示状態は保持
-  //    安定 ID で突き合わせる（doc: DocItem.id / issue: IssueItem.id）。複数帳票・複数課題に対応
+  // 4. I/O・課題オブジェクト: 表（TaskDetail）を源泉に存在を導出。配置/表示状態は保持
+  //    安定 ID で突き合わせる（io: IoItem.id / issue: IssueItem.id）。複数 I/O・複数課題に対応
+  //    I/O は IoItem.kind（doc=帳票/info=情報、中/小で変わる）で見た目が決まる。配置はレベル別
   for task in targets:
     d = details[task.id]
-    // 4a. 帳票: inputs[]/outputs[] の各 DocItem に doc ノードを 1 個保証（過不足を解消）
-    wantDocIds = { item.id for io in ["inputs","outputs"] for item in d[io] }
+    // 4a. I/O: inputs[]/outputs[] の各 IoItem に I/O ノードを 1 個保証（過不足を解消）
+    wantIoIds = { item.id for io in ["inputs","outputs"] for item in d[io] }
     for io in ["inputs","outputs"]:
       for item in d[io]:
         ensureDocNode(next, task.id, ioOf(io), item.id)  // 無ければ工程の近傍に自動配置、有れば x/y 据え置き
     for n in next.nodes where kind=="doc" and n.taskId==task.id:
-      if n.docId not in wantDocIds: remove n            // 帳票が削除されたら対応ノードを撤去
+      if n.ioId not in wantIoIds: remove n              // I/O が削除されたら対応ノードを撤去
     // 4b. 課題: issues[] の各 IssueItem に issue ノードを 1 個保証。対象を解決
     for item in d.issues:
       n = ensureIssueNote(next, task.id, item.id)        // 無ければ作成（visible 既定）
@@ -98,7 +99,7 @@ function reconcileFlow(core, view):
     for n in next.nodes where kind=="issue" and n.taskId==task.id:
       if n.issueId not in wantIssueIds: remove n
   // 内容（本文）はコピーせず TaskDetail から live 表示。ここで保持するのは配置と visible のみ。
-  // 複数帳票は autoPlace で工程の入力側/出力側に縦に積んで初期配置（決定論）。
+  // 複数 I/O は autoPlace で工程の入力側/出力側に縦に積んで初期配置（決定論）。
 
   // 5. レーン: 参照されている担当のレーンを保証。非空レーンは自動削除しない
   return { view: next, report }
@@ -118,8 +119,8 @@ function reconcileFlow(core, view):
 | 担当を変更 | ノードが別レーンへ移動（位置はバンド内で再配置を提案）。 |
 | 親（上位工程）を変更＝インデント変更 | 該当ノードが別の親バンドへ移動。粒度ビューの所属も更新。 |
 | 前後関係（流れ）を変更 | 矢印（導出エッジ）が更新。ユーザー経路があれば尊重。 |
-| インプット/アウトプットに帳票を追加/削除 | 帳票 1 件ごとに**帳票オブジェクト**（入力色/出力色）を 1 個 自動配置／撤去（複数帳票は積んで配置）。 |
-| 課題を追加/削除 | 課題 1 件ごとに**赤四角の課題オブジェクト**を 1 個 作成／撤去。対象＝既定でそのタスク（特定帳票も指定可）。 |
+| インプット/アウトプットに I/O を追加/削除 | I/O 1 件ごとに**オブジェクト**（中=帳票形/小=情報チップ、入力色/出力色）を 1 個 自動配置／撤去（複数は積んで配置）。 |
+| 課題を追加/削除 | 課題 1 件ごとに**赤四角の課題オブジェクト**を 1 個 作成／撤去。対象＝既定でそのタスク（特定の I/O も指定可）。 |
 | 行を削除 | **確認ダイアログ**を出し、OK ならノード削除＋**前後の矢印を繋ぎ直し**（A→[削除]→B を A→B に）。付随する帳票/課題オブジェクトも撤去。 |
 
 ## 6. フロー → 表（唯一の逆方向同期）
@@ -141,6 +142,6 @@ function reconcileFlow(core, view):
 - 各粒度ビューで「対象タスク 1 件 ⇄ タスクノード 1 個」。
 - `reconcile(reconcile(x)) == reconcile(x)`（冪等）。
 - pinned エッジ・制御ノードは同期で消えない。
-- 帳票/課題オブジェクトは「DocItem 1 件 ⇔ 帳票ノード 1 個」「IssueItem 1 件 ⇔ 課題ノード 1 個」（安定 ID で突き合わせ、再 reconcile で増殖しない）。
-- 課題オブジェクトの `targetNodeId` は常に実在ノード（task/doc）を指す（対象帳票の消失時はタスクへ寄せる）。
+- I/O・課題オブジェクトは「IoItem 1 件 ⇔ I/O ノード 1 個」「IssueItem 1 件 ⇔ 課題ノード 1 個」（安定 ID で突き合わせ、再 reconcile で増殖しない）。
+- 課題オブジェクトの `targetNodeId` は常に実在ノード（task/io）を指す（対象 I/O の消失時はタスクへ寄せる）。
 - ダングリング参照を生まない。

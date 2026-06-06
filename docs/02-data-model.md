@@ -70,17 +70,21 @@ interface Core {
 type Automation = "manual" | "system" | "partial";   // 手作業 / システム自動 / 一部自動
 type Difficulty = "H" | "M" | "L";                   // 作業難易度
 
-// 帳票（インプット/アウトプットの 1 件）。複数帳票に対応するため配列要素にする。
-interface DocItem {
-  id: Id;                               // 安定ID。フロー帳票オブジェクトの突き合わせ・課題の接続先に使う
-  name: string;                         // 帳票名／データ名（例 "注文書"）
-  formInfo?: string;                    // 帳票様式・保管（様式番号・保管場所/期間）。任意＝あれば記入
+// I/O 1 件（帳票 or 情報）。複数に対応するため配列要素にする。
+// 粒度は工程の粒度に連動する: 中工程では帳票(doc)、小工程では情報(info)が単位になりやすい。
+// 「情報が集まって帳票になる」包含関係（帳票 ⊃ 情報）はあるが、当面はデータ上で繋がない＝フラット。
+// 将来この連動を明示したくなったら info に partOfDocId? を足して昇格できる（YAGNI）。
+interface IoItem {
+  id: Id;                               // 安定ID。フロー帳票/情報オブジェクトの突き合わせ・課題の接続先に使う
+  name: string;                         // 帳票名／情報名（例 "注文書" / "顧客名"）
+  kind: "doc" | "info";                 // 帳票（中で多い）/ 情報（小で多い）。見た目（帳票形/情報チップ）を分ける
+  formInfo?: string;                    // 帳票様式・保管（様式番号・保管場所/期間）。任意・kind:"doc" で主に使う
 }
 
 // 課題（1 件）。各々が方策と「線を引く対象」を持つ。
 type IssueTarget =
   | { kind: "task" }                    // 工程ノード本体へ（既定）
-  | { kind: "doc"; docId: Id };         // 特定の帳票（DocItem.id）へ
+  | { kind: "io"; ioId: Id };           // 特定の帳票/情報（IoItem.id）へ
 interface IssueItem {
   id: Id;                               // 安定ID。フロー課題オブジェクトの突き合わせに使う
   issue: string;                        // 課題
@@ -93,8 +97,8 @@ interface TaskDetail {
 
   // --- 標準（一部は表が源泉でフローにオブジェクト投影） ---
   how?: string;                         // 業務内容（どうやって・手順・方法）
-  inputs?: DocItem[];                   // インプット帳票（0..n）→ フローに帳票オブジェクト（入力色）
-  outputs?: DocItem[];                  // アウトプット帳票（0..n）→ フローに帳票オブジェクト（出力色）
+  inputs?: IoItem[];                    // インプット（帳票/情報 0..n）→ フローに入力色オブジェクト
+  outputs?: IoItem[];                   // アウトプット（帳票/情報 0..n）→ フローに出力色オブジェクト
   system?: string;                      // 使用システム／ツール（複数は改行で列挙）
   effortHours?: number;                 // 工数。時間（0.5h 単位。例 0.5, 2.0）
   note?: string;                        // 備考
@@ -110,10 +114,11 @@ interface TaskDetail {
 }
 ```
 
-> **複数値の持ち方の原則**: フローにオブジェクトとして出る **I/O（帳票）と課題は、安定ID付きの構造化リスト**（個々をフロー側で参照・配置・接続するため）。
+> **複数値の持ち方の原則**: フローにオブジェクトとして出る **I/O と課題は、安定ID付きの構造化リスト**（個々をフロー側で参照・配置・接続するため）。
 > それ以外の「表のみ」の複数値（使用システム・データ連携先・関連規程・例外対応）は**自由テキスト（改行で複数記入）**に留める。
 > 個別参照や集計・連携が必要になった列は、後から `string[]` や構造化リストへ昇格できる（YAGNI）。
-> **帳票様式・保管**は独立列をやめ、各帳票（`DocItem.formInfo`）の任意属性に統合。
+> **I/O 粒度は工程粒度に連動**: 中工程は帳票(`kind:"doc"`)、小工程は情報(`kind:"info"`)が単位になりやすい。`帳票 ⊃ 情報` の包含は当面**繋がない（フラット）**。必要になれば info に `partOfDocId?` を足して昇格。
+> **帳票様式・保管**は独立列をやめ、各 I/O（`IoItem.formInfo`、主に帳票）の任意属性に統合。
 > 工数は時間・0.5h 単位。工程No は `ProcessTask.code`（自動採番＋手動上書き）。
 
 ## 4. フロー詳細（フローのみ・同期で保持）
@@ -141,15 +146,17 @@ interface FlowControlNode {
   laneId?: Id;
 }
 
-// 帳票（インプット/アウトプット）オブジェクト。表の I/O 列の DocItem が源泉（§3）。
-// 帳票 1 件＝ノード 1 個（複数帳票なら複数並ぶ）。内容は DocItem を live 表示（コピーしない）。
-// 存在は DocItem の有無で導出、配置(x/y)はフローオーバーレイとして同期で保持。
+// I/O（帳票/情報）オブジェクト。表の I/O 列の IoItem が源泉（§3）。
+// I/O 1 件＝ノード 1 個（複数なら複数並ぶ）。内容は IoItem を live 表示（コピーしない）。
+// 見た目は IoItem.kind で分ける（doc=帳票形 / info=情報チップ）、色は入力/出力で分ける。
+// 存在は IoItem の有無で導出、配置(x/y)はフローオーバーレイとして同期で保持。
+// I/O の単位がレベルで変わる（中=帳票, 小=情報）ため、ノードは粒度ビューごとに別物＝配置もレベル別が自然。
 interface FlowDocNode {
   id: FlowNodeId;
-  kind: "doc";
-  io: "input" | "output";               // 形は帳票（ドキュメント）形、色は入力/出力で分ける
+  kind: "doc";                          // 内部種別。表示形状は参照先 IoItem.kind で決める
+  io: "input" | "output";               // 色は入力/出力で分ける
   taskId: Id;                           // -> ProcessTask.id（どの工程の I/O か）
-  docId: Id;                            // -> DocItem.id（複数帳票を区別する安定キー）
+  ioId: Id;                             // -> IoItem.id（複数 I/O を区別する安定キー）
   x: number; y: number;
   laneId?: Id;
 }
@@ -225,8 +232,8 @@ interface Project {
   - 各 `Dependency.from/to`・`TaskDetail.taskId`・`FlowTaskNode.taskId` が実在タスクを指す。
   - `ProcessTask.parentId` が実在し、循環が無い（木である）。
   - 制御ノードはタスクを参照しない。
-  - `DocItem.id`・`IssueItem.id` は `TaskDetail` 内で一意。`FlowDocNode.docId`・`FlowIssueNote.issueId` が実在の DocItem/IssueItem を指す。
-  - `IssueItem.target`（kind:"doc"）と `FlowIssueNote.targetNodeId` が実在の帳票/タスクノードを指す（消失時はタスクへ寄せる）。
+  - `IoItem.id`・`IssueItem.id` は `TaskDetail` 内で一意。`FlowDocNode.ioId`・`FlowIssueNote.issueId` が実在の IoItem/IssueItem を指す。
+  - `IssueItem.target`（kind:"io"）と `FlowIssueNote.targetNodeId` が実在の I/O（帳票/情報）/タスクノードを指す（消失時はタスクへ寄せる）。
 
 ## 7. 同期される項目／されない項目（一覧）
 
@@ -236,8 +243,8 @@ interface Project {
 | 担当 | コア | ✅ 表→フロー（レーン）。**レーン移動→表 の逆方向も可（唯一）** |
 | 階層（親子・粒度） | コア | ✅ 表→フロー（粒度ビュー・親バンド） |
 | 流れ（依存） | コア | ✅ 表→フロー（矢印） |
-| インプット／アウトプット | 表詳細 | ✅ 表→フロー（**帳票オブジェクト 0..n**。各 DocItem が 1 個。表が源泉、配置は手動・同期で保持） |
-| 帳票様式・保管 | 表詳細 | 帳票（DocItem）の属性。帳票オブジェクトに付随表示 |
+| インプット／アウトプット | 表詳細 | ✅ 表→フロー（**I/O オブジェクト 0..n**。各 IoItem が 1 個。中=帳票/小=情報、配置はレベル別・手動で同期保持） |
+| 帳票様式・保管 | 表詳細 | I/O（IoItem、主に帳票）の属性。オブジェクトに付随表示 |
 | 課題／方策 | 表詳細 | ✅ 表→フロー（**赤四角の課題オブジェクト 0..n**。各 IssueItem が 1 個。対象＝工程/帳票、表示トグル） |
 | 工数 | 表詳細 | ⛔ 表のみ |
 | 使用システム | 表詳細 | ⛔ 表のみ |
