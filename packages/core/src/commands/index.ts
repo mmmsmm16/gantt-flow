@@ -63,6 +63,13 @@ export function renameTask(p: Project, taskId: Id, name: string): Project {
   return next;
 }
 
+export function setTaskLevel(p: Project, taskId: Id, level: ProcessLevel): Project {
+  const next = clone(p);
+  const task = next.core.tasks[taskId];
+  if (task) task.level = level;
+  return next;
+}
+
 export function setAssignee(p: Project, taskId: Id, assigneeId: Id | undefined): Project {
   const next = clone(p);
   const task = next.core.tasks[taskId];

@@ -98,4 +98,36 @@ describe('app store（command → reconcile → history）', () => {
     s.getState().moveNode(aNode.id, 300, 40 + soukoOrder * 120);
     expect(s.getState().project.core.tasks[a]!.assigneeId).toBe(view.lanes[laneByName('倉庫').id]!.assigneeId);
   });
+
+  it('大工程に子を足すと一段細かい中工程になる', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('large');
+    const large = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().addChildTask(large.id);
+    const child = Object.values(s.getState().project.core.tasks).find((t) => t.parentId === large.id)!;
+    expect(child.level).toBe('medium');
+  });
+
+  it('removeTask で削除、setTaskLevel で粒度を変えられる', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('medium');
+    const t = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().setTaskLevel(t.id, 'small');
+    expect(s.getState().project.core.tasks[t.id]!.level).toBe('small');
+    s.getState().removeTask(t.id);
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(0);
+  });
+
+  it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = taskNodes(s)[0]!.taskId;
+    s.getState().setAssigneeByName(a, '営業'); // lane order 0 → y=40
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(40);
+    s.getState().addTask('B');
+    const b = Object.values(s.getState().project.core.tasks).find((t) => t.name === 'B')!.id;
+    s.getState().setAssigneeByName(b, '倉庫'); // 2 本目のレーン order 1
+    s.getState().setAssigneeByName(a, '倉庫'); // A を倉庫レーンへ → y=40+120
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(160);
+  });
 });

@@ -25,7 +25,6 @@ export function App() {
   const canUndo = useApp((s) => s.canUndo);
   const canRedo = useApp((s) => s.canRedo);
 
-  const addTask = useApp((s) => s.addTask);
   const setLevel = useApp((s) => s.setLevel);
   const setScope = useApp((s) => s.setScope);
   const toggleIssues = useApp((s) => s.toggleIssues);
@@ -98,7 +97,6 @@ export function App() {
           課題
         </label>
         <span className="spacer" />
-        <button onClick={() => addTask('新規作業')}>＋作業を追加</button>
         <button onClick={undo} disabled={!canUndo}>
           戻す
         </button>

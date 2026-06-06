@@ -118,7 +118,11 @@ export function reconcileFlow(
     const laneId = t.assigneeId ? laneByAssignee.get(t.assigneeId) : undefined;
     const existing = taskNodeByTask.get(t.id);
     if (existing) {
-      existing.laneId = laneId; // 担当が変わればレーンを更新（位置は保持）
+      // 担当（レーン）が変わったら、そのレーンの行へ縦移動（横位置 x は保持）
+      if (existing.laneId !== laneId) {
+        existing.laneId = laneId;
+        existing.y = MARGIN + laneOrderOf(t.assigneeId) * ROW_H;
+      }
       return;
     }
     const id = idGen();

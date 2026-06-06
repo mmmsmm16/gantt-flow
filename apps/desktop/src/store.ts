@@ -16,11 +16,13 @@ import {
   importCsv,
   addTask as cAddTask,
   renameTask as cRenameTask,
+  setTaskLevel as cSetTaskLevel,
   setAssignee as cSetAssignee,
   addAssignee as cAddAssignee,
   addDependency as cAddDependency,
   addIoItem as cAddIoItem,
   addIssueItem as cAddIssueItem,
+  deleteTask as cDeleteTask,
 } from '@gantt-flow/core';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
@@ -57,6 +59,10 @@ export interface AppState {
   showIssues: boolean;
 
   addTask: (name: string) => void;
+  addRootTask: (level: ProcessLevel) => void;
+  addChildTask: (parentId: Id) => void;
+  removeTask: (taskId: Id) => void;
+  setTaskLevel: (taskId: Id, level: ProcessLevel) => void;
   renameTask: (taskId: Id, name: string) => void;
   setAssigneeByName: (taskId: Id, name: string) => void;
   addDependency: (from: Id, to: Id) => void;
@@ -131,6 +137,20 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           uuid,
         ),
       ),
+
+    addRootTask: (level) =>
+      commit(cAddTask(get().project, { name: '新規工程', level, parentId: undefined }, uuid)),
+
+    addChildTask: (parentId) => {
+      const parent = get().project.core.tasks[parentId];
+      if (!parent) return;
+      const childLevel = LEVELS[RANK[parent.level] + 1] ?? 'detail';
+      commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId }, uuid));
+    },
+
+    removeTask: (taskId) => commit(cDeleteTask(get().project, taskId)),
+
+    setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level)),
 
     renameTask: (taskId, name) => commit(cRenameTask(get().project, taskId, name)),
 
