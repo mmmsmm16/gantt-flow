@@ -174,9 +174,9 @@ def shell():
     band_x = grid_left
     n1x, n1y = grid_left+118, top+157     # 注文書受付 (営業帯) highlighted
     n2x, n2y = grid_left+216, top+287     # 出荷準備 (倉庫帯)
-    # node1 highlighted
-    s.append(rect(n1x, n1y, 150, 40, ACC_FILL, ACC, rx=6, sw=2))
-    s.append(t(n1x+75, n1y+25, "注文書受付", 13, ACC, "bold", "middle"))
+    # node1: 工程は無色(白)。リンク選択は「枠の強調」だけで示す(塗りつぶさない)
+    s.append(rect(n1x, n1y, 150, 40, "#ffffff", ACC, rx=6, sw=2.6))
+    s.append(t(n1x+75, n1y+25, "注文書受付", 13, INK, "bold", "middle"))
     # I/O は工程の「角に重ねて添える」: 入力=左上 / 出力=右下（接続線なし・重なりOK）
     s.append(doc(n1x-28, n1y-22, 54, 34, BLU, BLU_F, "注文書"))   # 入力: 左上に重ねる
     s.append(doc(n1x+124, n1y+26, 54, 34, GRN, GRN_F, "受付票"))  # 出力: 右下に重ねる
