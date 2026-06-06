@@ -63,6 +63,13 @@ export function renameTask(p: Project, taskId: Id, name: string): Project {
   return next;
 }
 
+export function setTaskLevel(p: Project, taskId: Id, level: ProcessLevel): Project {
+  const next = clone(p);
+  const task = next.core.tasks[taskId];
+  if (task) task.level = level;
+  return next;
+}
+
 export function setAssignee(p: Project, taskId: Id, assigneeId: Id | undefined): Project {
   const next = clone(p);
   const task = next.core.tasks[taskId];
@@ -161,6 +168,32 @@ export function deleteTask(p: Project, taskId: Id): Project {
   return next;
 }
 
+// ---- 工程表詳細: スカラ項目の更新（行インスペクタ用） ----
+
+export type TaskDetailPatch = Partial<
+  Pick<
+    TaskDetail,
+    | 'how'
+    | 'system'
+    | 'effortMinutes'
+    | 'note'
+    | 'volume'
+    | 'exception'
+    | 'automation'
+    | 'dataLink'
+    | 'regulation'
+    | 'difficulty'
+  >
+>;
+
+export function updateTaskDetail(p: Project, taskId: Id, patch: TaskDetailPatch): Project {
+  const next = clone(p);
+  if (!next.core.tasks[taskId]) return next;
+  const d = ensureDetail(next, taskId);
+  Object.assign(d, patch);
+  return next;
+}
+
 // ---- 工程表詳細: I/O（帳票/情報） ----
 
 export interface AddIoArgs {
@@ -193,6 +226,20 @@ export function removeIoItem(p: Project, taskId: Id, ioId: Id): Project {
   return next;
 }
 
+export function updateIoItem(
+  p: Project,
+  taskId: Id,
+  ioId: Id,
+  patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>,
+): Project {
+  const next = clone(p);
+  const d = next.details[taskId];
+  if (!d) return next;
+  const item = [...(d.inputs ?? []), ...(d.outputs ?? [])].find((i) => i.id === ioId);
+  if (item) Object.assign(item, patch);
+  return next;
+}
+
 // ---- 工程表詳細: 課題 ----
 
 export interface AddIssueArgs {
@@ -219,6 +266,18 @@ export function removeIssueItem(p: Project, taskId: Id, issueId: Id): Project {
   const next = clone(p);
   const d = next.details[taskId];
   if (d?.issues) d.issues = d.issues.filter((i) => i.id !== issueId);
+  return next;
+}
+
+export function updateIssueItem(
+  p: Project,
+  taskId: Id,
+  issueId: Id,
+  patch: Partial<Pick<IssueItem, 'issue' | 'measure' | 'target'>>,
+): Project {
+  const next = clone(p);
+  const item = next.details[taskId]?.issues?.find((i) => i.id === issueId);
+  if (item) Object.assign(item, patch);
   return next;
 }
 

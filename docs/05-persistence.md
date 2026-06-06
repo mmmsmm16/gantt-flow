@@ -70,6 +70,7 @@ SMB/NFS 上では「部分書き込みによる破損」と「複数人の同時
 
 > これらの I/O（ダイアログ・アトミック書き込み・stat 監視・**ロック作成/ハートビート/解放**・autosave タイマー）は
 > **Tauri の Rust 側**で実装し、`packages/core` の `ProjectRepository` IF から呼ぶ。
+> 実装: `crates/fsstore`（WebKit 非依存の純 Rust。`atomic_save` / `stat_updated_at` / 助言ロック `acquire/refresh/release/steal/read`。`cargo test` 済み）。Tauri 殻はこれを薄く包む。
 
 ## 4. スキーマ versioning とマイグレーション
 

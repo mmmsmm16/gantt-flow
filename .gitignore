@@ -3,3 +3,7 @@ dist/
 *.tsbuildinfo
 .DS_Store
 coverage/
+target/
+crates/fsstore/Cargo.lock
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/Cargo.lock
