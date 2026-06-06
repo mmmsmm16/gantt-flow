@@ -31,6 +31,7 @@ interface ProcessTask {
   level: ProcessLevel;                  // この作業の粒度
   order: number;                        // 同一親内の並び順（安定ソートキー）
   assigneeId?: Id;                      // -> Assignee.id（担当＝レーン軸）
+  code?: string;                        // 工程No の手動上書き。未設定なら木の位置から自動採番（1 / 1-2 / 1-2-3）
 }
 
 type DependencyType = "FS";             // 当面は finish-start 相当（順序）のみ。将来拡張可
@@ -65,19 +66,34 @@ interface Core {
 ## 3. 工程表詳細（表のみ・フロー非表示）
 
 ```ts
+type Automation = "manual" | "system" | "partial";   // 手作業 / システム自動 / 一部自動
+type Difficulty = "H" | "M" | "L";                   // 作業難易度
+
 interface TaskDetail {
   taskId: Id;                           // -> ProcessTask.id（1:1）
-  // 以下は最低限セットを後で整合（TBD）。例:
-  effort?: string;                      // 工数（"10分", "0.5人日" 等。単位は後で整合）
-  input?: string;                       // インプット（帳票・データ）
-  output?: string;                      // アウトプット
-  system?: string;                      // 使用システム
-  how?: string;                         // どうやって（手順・方法）
+
+  // --- 標準（表のみ） ---
+  how?: string;                         // 業務内容（どうやって・手順・方法）
+  input?: string;                       // インプット（入力帳票・データ）
+  output?: string;                      // アウトプット（出力帳票・成果物）
+  system?: string;                      // 使用システム／ツール
+  effortHours?: number;                 // 工数。時間（0.5h 単位。例 0.5, 2.0）
   note?: string;                        // 備考
+
+  // --- 任意（採用済み） ---
+  volume?: string;                      // 処理件数・ボリューム（1回/月あたり等）
+  issue?: string;                       // 課題・改善メモ（コンサル視点）
+  exception?: string;                   // 例外・イレギュラー対応
+  automation?: Automation;              // 自動化区分（手/自動/一部）
+  formInfo?: string;                    // 帳票様式・保管（様式番号・保管場所/期間）
+  dataLink?: string;                    // データ連携先（次に渡す部署/システム）
+  regulation?: string;                  // 関連規程・統制（マニュアル/内部統制ポイント）
+  difficulty?: Difficulty;              // 作業難易度（H/M/L）
 }
 ```
 
-> 列項目（最低限セット）は **TBD**。`how`（どうやって）を含め、ヒアリング実務に合わせて確定する。
+> 列セットは確定済み（下表）。すべて**表のみ**で、フローへは同期しない。
+> 工数は時間・0.5h 単位。工程No は `ProcessTask.code`（自動採番＋手動上書き）。
 
 ## 4. フロー詳細（フローのみ・同期で保持）
 
