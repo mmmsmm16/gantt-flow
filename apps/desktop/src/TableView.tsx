@@ -1,5 +1,6 @@
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
 import { useApp } from './store';
+import { useUI } from './ui/useUI';
 
 const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -149,9 +150,33 @@ export function TableView() {
                     </select>
                   </td>
                   <td className="c-io" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => addIo(t.id, 'inputs', prompt('入力（帳票名）') ?? '')}>＋入</button>
-                    <button onClick={() => addIo(t.id, 'outputs', prompt('出力（帳票名）') ?? '')}>＋出</button>
-                    <button onClick={() => addIssue(t.id, prompt('課題') ?? '')}>＋課題</button>
+                    <button
+                      title="入力（帳票/情報）を追加"
+                      onClick={() => {
+                        addIo(t.id, 'inputs', '帳票');
+                        select(t.id);
+                      }}
+                    >
+                      ＋入
+                    </button>
+                    <button
+                      title="出力（帳票/情報）を追加"
+                      onClick={() => {
+                        addIo(t.id, 'outputs', '帳票');
+                        select(t.id);
+                      }}
+                    >
+                      ＋出
+                    </button>
+                    <button
+                      title="課題を追加"
+                      onClick={() => {
+                        addIssue(t.id, '課題');
+                        select(t.id);
+                      }}
+                    >
+                      ＋課題
+                    </button>
                     {(ioCount > 0 || issueCount > 0) && (
                       <span className="counts">
                         I/O {ioCount}・課題 {issueCount}
@@ -167,8 +192,15 @@ export function TableView() {
                     <button
                       className="danger"
                       title="削除"
-                      onClick={() => {
-                        if (confirm(`「${t.name}」を削除します（配下も削除）。`)) removeTask(t.id);
+                      aria-label={`「${t.name}」を削除`}
+                      onClick={async () => {
+                        const ok = await useUI.getState().confirm({
+                          title: '工程を削除',
+                          message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
+                          confirmLabel: '削除',
+                          danger: true,
+                        });
+                        if (ok) removeTask(t.id);
                       }}
                     >
                       ×

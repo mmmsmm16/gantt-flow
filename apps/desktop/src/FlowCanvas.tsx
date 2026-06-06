@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, findView } from './store';
+import { useUI } from './ui/useUI';
 import {
   SIZE,
   deriveBands,
@@ -14,6 +15,9 @@ const MARGIN = 40; // = core の MARGIN_Y（ノード行の基準）
 const LABEL_W = 96; // 左のレーン名列
 const BAND_TOP = MARGIN - 16;
 const FULL_W = 3000;
+const CANVAS_W = 1600; // フロー配置の論理サイズ（はみ出しはスクロール）
+const CANVAS_H = 1400;
+const clampScale = (s: number) => Math.min(2.5, Math.max(0.4, +s.toFixed(3)));
 const CONTROL_LABEL: Record<ControlKind, string> = {
   start: '開始',
   end: '終了',
@@ -47,11 +51,28 @@ export function FlowCanvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
+  const [scale, setScale] = useState(1);
+  const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
 
   const relPoint = (e: PointerEvent | React.PointerEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
-    return rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : { x: 0, y: 0 };
+    return rect
+      ? { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale }
+      : { x: 0, y: 0 };
   };
+
+  // Ctrl/⌘ + ホイールでズーム（通常ホイールはスクロールに委ねる）。passive:false で preventDefault。
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return undefined;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      setScale((s) => clampScale(s * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   useEffect(() => {
     if (!drag) return;
@@ -146,11 +167,37 @@ export function FlowCanvas() {
         <button onClick={() => addControlNode('end')}>終了</button>
         <button onClick={() => addControlNode('decision')}>判断◇</button>
         <button onClick={() => addControlNode('merge')}>合流</button>
-        <button onClick={() => addComment(prompt('コメント') ?? '')}>付箋</button>
-        <span className="palette-hint">ノード右の○をドラッグで矢印を引く</span>
+        <button
+          onClick={async () => {
+            const text = await useUI.getState().promptText({
+              title: '付箋を追加',
+              placeholder: 'コメント',
+              confirmLabel: '追加',
+            });
+            if (text !== null) addComment(text);
+          }}
+        >
+          付箋
+        </button>
+        <span className="palette-zoom">
+          <button onClick={() => zoomBy(1 / 1.2)} aria-label="縮小" title="縮小">
+            −
+          </button>
+          <button onClick={() => setScale(1)} aria-label="ズームを100%に戻す" title="100%にリセット">
+            {Math.round(scale * 100)}%
+          </button>
+          <button onClick={() => zoomBy(1.2)} aria-label="拡大" title="拡大">
+            ＋
+          </button>
+        </span>
+        <span className="palette-hint">○ドラッグで矢印 / Ctrl+ホイールで拡大縮小</span>
       </div>
 
       <div className="flow-canvas" ref={canvasRef}>
+        <div
+          className="flow-scale"
+          style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})` }}
+        >
         {bands.map((b) => (
           <div
             key={b.taskId}
@@ -220,8 +267,13 @@ export function FlowCanvas() {
                   d={d}
                   className="edge-hit"
                   style={{ pointerEvents: 'stroke' }}
-                  onClick={() => {
-                    const l = prompt('分岐ラベル（空で消去）', e.label ?? '');
+                  onClick={async () => {
+                    const l = await useUI.getState().promptText({
+                      title: '分岐ラベル',
+                      placeholder: '空で消去',
+                      defaultValue: e.label ?? '',
+                      confirmLabel: '設定',
+                    });
                     if (l !== null) setEdgeLabel(e.id, l);
                   }}
                   onContextMenu={(ev) => {
@@ -317,6 +369,7 @@ export function FlowCanvas() {
                 <button
                   className="del"
                   title="削除"
+                  aria-label="ノードを削除"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -332,6 +385,7 @@ export function FlowCanvas() {
         {!nodes.some((n) => n.kind === 'task') && (
           <div className="flow-empty">工程を追加すると、ここにフロー図が表示されます。</div>
         )}
+        </div>
       </div>
     </div>
   );

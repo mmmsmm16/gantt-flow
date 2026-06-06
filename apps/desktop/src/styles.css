@@ -208,6 +208,12 @@ button:hover {
 button:active {
   transform: translateY(0.5px);
 }
+button:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
 button:disabled {
   opacity: 0.4;
   cursor: default;
@@ -442,9 +448,12 @@ button.danger:hover {
 /* ---- Flow canvas ---- */
 .flow-canvas {
   position: relative;
-  width: 100%;
-  min-width: 1100px;
-  height: 1400px;
+  min-width: 100%;
+  background: var(--canvas-bg);
+}
+.flow-scale {
+  position: relative;
+  transform-origin: 0 0;
   background:
     radial-gradient(circle, var(--canvas-dot) 1px, transparent 1px) 0 0 / 22px 22px,
     var(--canvas-bg);
@@ -786,10 +795,21 @@ button.danger:hover {
   padding: 3px 9px;
   font-size: 12px;
 }
-.palette-hint {
+.palette-zoom {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.palette-zoom button {
+  padding: 3px 8px;
+  font-size: 12px;
+  min-width: 32px;
+}
+.palette-hint {
   color: var(--faint);
   font-size: 11px;
+  margin-left: 12px;
 }
 .handle {
   position: absolute;
@@ -882,4 +902,148 @@ button.danger:hover {
   border-radius: 10px;
   padding: 12px 18px;
   box-shadow: var(--shadow);
+}
+
+/* ---- Modal / Toast ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fade-in 0.12s ease-out;
+}
+.modal {
+  width: min(420px, 100%);
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 18px 18px 14px;
+  animation: pop-in 0.14s ease-out;
+}
+.modal-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.modal-msg {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.modal-input {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--input-bg);
+  color: var(--ink);
+  margin-bottom: 14px;
+}
+.modal-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.modal-actions .danger-solid {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+.modal-actions .danger-solid:hover {
+  filter: brightness(0.96);
+  border-color: var(--red);
+}
+
+.toaster {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(380px, 90vw);
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-pop);
+  padding: 10px 10px 10px 12px;
+  font-size: 13px;
+  animation: toast-in 0.16s ease-out;
+}
+.toast span {
+  flex: 1;
+}
+.toast-error {
+  border-left-color: var(--red);
+}
+.toast-success {
+  border-left-color: var(--out);
+}
+.toast-info {
+  border-left-color: var(--accent);
+}
+.toast-x {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.toast-x:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

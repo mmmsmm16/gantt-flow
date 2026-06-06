@@ -34,7 +34,7 @@ export function Inspector() {
           </span>
           <strong>{task.name || '（無題）'}</strong>
         </div>
-        <button className="x" onClick={() => select(undefined)}>
+        <button className="x" aria-label="インスペクタを閉じる" onClick={() => select(undefined)}>
           ×
         </button>
       </div>
@@ -92,7 +92,11 @@ export function Inspector() {
                 defaultValue={item.formInfo ?? ''}
                 onBlur={(e) => updateIo(taskId, item.id, { formInfo: e.target.value || undefined })}
               />
-              <button className="x" onClick={() => removeIo(taskId, item.id)}>
+              <button
+                className="x"
+                aria-label={`${item.name || '項目'}を削除`}
+                onClick={() => removeIo(taskId, item.id)}
+              >
                 ×
               </button>
             </div>
@@ -137,7 +141,11 @@ export function Inspector() {
                     </option>
                   ))}
                 </select>
-                <button className="x" onClick={() => removeIssue(taskId, iss.id)}>
+                <button
+                  className="x"
+                  aria-label="この課題を削除"
+                  onClick={() => removeIssue(taskId, iss.id)}
+                >
                   ×
                 </button>
               </div>

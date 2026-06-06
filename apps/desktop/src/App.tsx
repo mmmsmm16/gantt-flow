@@ -12,6 +12,7 @@ import {
   exportSvgFile,
 } from './persistence';
 import { useUI } from './ui/useUI';
+import { Modal, Toaster } from './ui/Dialogs';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -54,13 +55,17 @@ export function App() {
       const p = await openProjectFromFile();
       if (p) useApp.getState().loadProject(p);
     } catch {
-      alert('ファイルを開けませんでした（形式が不正です）。');
+      useUI.getState().toast('ファイルを開けませんでした（形式が不正です）。', 'error');
     }
   };
-  const onNew = () => {
-    if (confirm('新規プロジェクトを作成します。未保存の変更は失われます。')) {
-      useApp.getState().newProject();
-    }
+  const onNew = async () => {
+    const ok = await useUI.getState().confirm({
+      title: '新規プロジェクト',
+      message: '新規プロジェクトを作成します。未保存の変更は失われます。',
+      confirmLabel: '作成',
+      danger: true,
+    });
+    if (ok) useApp.getState().newProject();
   };
   const onImport = () => {
     const input = document.createElement('input');
@@ -72,7 +77,7 @@ export function App() {
       try {
         useApp.getState().importRows(await readTableFile(file));
       } catch {
-        alert('取り込みに失敗しました（CSV / Excel を確認してください）。');
+        useUI.getState().toast('取り込みに失敗しました（CSV / Excel を確認してください）。', 'error');
       }
     };
     input.click();
@@ -171,6 +176,8 @@ export function App() {
           </section>
         )}
       </div>
+      <Modal />
+      <Toaster />
     </div>
   );
 }
