@@ -35,14 +35,16 @@
 <text x="756" y="288" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">コメント（付箋）</text>
 <rect x="803.0" y="320" width="100" height="44" rx="4" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.6"/>
 <text x="853.0" y="347" font-family="IPAGothic, sans-serif" font-size="12" fill="#ca8a04" font-weight="normal" text-anchor="middle">付箋メモ</text>
-<text x="40" y="432" font-family="IPAGothic, sans-serif" font-size="16" fill="#334155" font-weight="bold" text-anchor="start">コネクタ / 線（3 種を必ず描き分ける）</text>
+<text x="40" y="432" font-family="IPAGothic, sans-serif" font-size="16" fill="#334155" font-weight="bold" text-anchor="start">コネクタ / 線（矢印は工程間だけ・帳票には引かない）</text>
 <line x1="60" y1="462" x2="240" y2="462" stroke="#475569" stroke-width="2.2" marker-end="url(#arr)"/>
 <text x="270" y="467" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">プロセス矢印（flow）</text>
 <text x="470" y="467" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">工程→工程の流れ・経路解決に影響</text>
-<line x1="60" y1="512" x2="240" y2="512" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arr)"/>
-<text x="270" y="517" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">I/O 接続線</text>
-<text x="470" y="517" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">工程↔帳票/情報・向きで IN/OUT・経路に影響しない</text>
-<line x1="60" y1="562" x2="240" y2="562" stroke="#dc2626" stroke-width="1.6" marker-end="url(#arr)" stroke-dasharray="4 4"/>
-<text x="270" y="567" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">課題注釈線</text>
-<text x="470" y="567" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">課題→対象（工程 or I/O）・経路に影響しない</text>
+<line x1="60" y1="512" x2="240" y2="512" stroke="#dc2626" stroke-width="1.6" marker-end="url(#arr)" stroke-dasharray="4 4"/>
+<text x="270" y="517" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">課題注釈線</text>
+<text x="470" y="517" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">課題→対象（工程 or I/O）・経路に影響しない</text>
+<path d="M70,544 h50 v34 q-12.5,7 -25.0,0 q-12.5,-7 -25.0,0 z" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="270" y="567" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">帳票/情報は「添える」</text>
+<text x="470" y="567" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">線は引かず工程の入力/出力側に置く・位置＋色で IN/OUT</text>
+<text x="60" y="611" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="start">※ 例外:</text>
+<text x="130" y="611" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">フローの起点となる帳票/情報からは、最初の工程へプロセス矢印を引いてよい</text>
 </svg>
