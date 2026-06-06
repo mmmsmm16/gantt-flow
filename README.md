@@ -17,8 +17,9 @@
 |---|---|
 | 設計書（`docs/`） | ✅ 完了（仕様・決定事項・UIワイヤー） |
 | `packages/core`（モデル・コマンド・同期`reconcile`・永続化・履歴） | ✅ 実装（Vitest 40件 green） |
-| `apps/desktop`（React 最小UI: 工程表＋フロー＋Undo/Redo） | ✅ Web版が起動可（Vitest 4件 green） |
-| Tauri デスクトップ殻 / 取り込み(Excel) / 粒度ビュー切替 | ⛔ 未実装 |
+| `apps/desktop`（React 最小UI: 工程表＋フロー＋Undo/Redo＋保存/開く） | ✅ Web版が起動可（Vitest 5件 green） |
+| `crates/fsstore`（Rust: アトミック保存＋助言ロック=同時編集の核） | ✅ 実装（cargo test 6件 green） |
+| Tauri デスクトップ殻（webview）/ 取り込み(Excel) / 粒度ビュー切替 | ⛔ 未実装 |
 
 ## はじめかた（クローン → 起動）
 
@@ -38,18 +39,22 @@ npm run dev -w @gantt-flow/desktop
 
 起動したら **「＋作業を追加」** で工程を足し、表で担当・前工程・I/O・課題を編集すると、
 右の **業務フロー図が自動で同期** されます。フローのノードはドラッグで動かせ、配置は編集を跨いで保持されます（戻す/やり直しも可）。
+**「保存」で `.json` を書き出し、「開く」で読み込めます。**
 
 ### 開発（テスト・型チェック・ビルド）
 
 ```bash
-npm test            # 全ワークスペースのテスト（core 40 + desktop 4）
+npm test            # TS 全ワークスペースのテスト（core 41 + desktop 5）
 npm run typecheck   # 型チェック
-npm run build -w @gantt-flow/desktop   # 本番ビルド
+npm run build -w @gantt-flow/desktop          # 本番ビルド
+cargo test --manifest-path crates/fsstore/Cargo.toml   # Rust（保存/ロック層）
 ```
 
 `packages/core` 単体で作業する場合は `cd packages/core && npm run test:watch`。
 
-> Tauri デスクトップ殻（ローカルファイル保存・同時編集ロック等）は未実装です。進め方は [docs/06-roadmap.md](docs/06-roadmap.md) を参照。
+> **Tauri デスクトップ殻（webview）は未実装。** デスクトップ保存の核（アトミック書き込み・助言ロック）は
+> `crates/fsstore` に Rust で実装＆テスト済みで、Tauri 殻がこれを呼ぶ設計です。殻のビルドには Linux で
+> `libwebkit2gtk-4.1-dev` 等と画面が要るため各自の環境で行います。進め方は [docs/06-roadmap.md](docs/06-roadmap.md) を参照。
 
 ### UI ワイヤーフレーム（参考）
 
@@ -70,8 +75,10 @@ gantt-flow/
 │       └── test/
 ├── apps/
 │   └── desktop/          # React 最小UI（Vite）。store は core を薄く包む
-│       ├── src/          # App / TableView / FlowCanvas / store
+│       ├── src/          # App / TableView / FlowCanvas / store / persistence
 │       └── test/
+├── crates/
+│   └── fsstore/          # Rust: アトミック保存＋助言ロック（Tauri 殻が呼ぶ／cargo test）
 ├── package.json          # npm workspaces ルート
 └── README.md
 ```

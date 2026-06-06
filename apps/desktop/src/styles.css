@@ -51,6 +51,12 @@ body {
 .toolbar .spacer {
   flex: 1;
 }
+.toolbar .sep {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+  margin: 0 4px;
+}
 button {
   font: inherit;
   font-size: 13px;

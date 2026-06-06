@@ -48,6 +48,8 @@ export interface AppState {
   select: (taskId?: Id) => void;
   undo: () => void;
   redo: () => void;
+  loadProject: (project: Project) => void; // ファイルを開く
+  newProject: () => void; // 新規
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
@@ -124,6 +126,16 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
     redo: () => {
       if (history.redo()) sync();
+    },
+
+    loadProject: (project) => {
+      // 開いたプロジェクトをそのまま採用（フロー配置も保持）。履歴はリセット。
+      history.reset(project);
+      sync({ selectedTaskId: undefined });
+    },
+    newProject: () => {
+      history.reset(initialProject());
+      sync({ selectedTaskId: undefined });
     },
   };
 };

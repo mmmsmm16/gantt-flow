@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createAppStore } from '../src/store';
+import { serializeProject, deserializeProject } from '@gantt-flow/core';
 import type { FlowTaskNode, FlowDocNode } from '@gantt-flow/core';
 
 const view0 = (s: ReturnType<typeof createAppStore>) => s.getState().project.flow.byLevel[0]!;
@@ -47,5 +48,18 @@ describe('app store（command → reconcile → history）', () => {
     const taskId = taskNodes(s)[0]!.taskId;
     s.getState().setAssigneeByName(taskId, '営業');
     expect(Object.values(view0(s).lanes).length).toBe(1);
+  });
+
+  it('保存→開く 相当のラウンドトリップで状態が復元し、履歴はリセットされる', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    s.getState().addTask('出荷');
+    // 保存相当
+    const json = serializeProject(s.getState().project);
+    // 別ストアで開く相当
+    const s2 = createAppStore();
+    s2.getState().loadProject(deserializeProject(json));
+    expect(taskNodes(s2)).toHaveLength(2);
+    expect(s2.getState().canUndo).toBe(false); // 開いた直後は履歴なし
   });
 });

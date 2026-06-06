@@ -11,6 +11,7 @@ export interface History<T> {
   replaceTop(state: T): void; // 直近エントリを置換（連続ジェスチャ等のコアレッシング）。
   undo(): T | undefined; // 1 つ戻す。戻れなければ undefined。
   redo(): T | undefined; // 1 つ進める。進めなければ undefined。
+  reset(state: T): void; // 履歴を破棄し、与えた状態のみにする（ファイルを開く/新規時）。
   canUndo(): boolean;
   canRedo(): boolean;
   size(): number;
@@ -51,6 +52,11 @@ export function createHistory<T>(initial: T, opts: HistoryOptions = {}): History
       if (cursor >= stack.length - 1) return undefined;
       cursor += 1;
       return stack[cursor]!;
+    },
+
+    reset(state: T) {
+      stack = [state];
+      cursor = 0;
     },
 
     canUndo: () => cursor > 0,

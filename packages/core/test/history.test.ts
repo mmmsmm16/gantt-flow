@@ -58,4 +58,15 @@ describe('history（スナップショット Undo/Redo）', () => {
     h.undo();
     expect(h.canRedo()).toBe(true);
   });
+
+  it('reset で履歴を破棄して 1 エントリにする', () => {
+    const h = createHistory(0);
+    h.push(1);
+    h.push(2);
+    h.reset(99);
+    expect(h.current()).toBe(99);
+    expect(h.canUndo()).toBe(false);
+    expect(h.canRedo()).toBe(false);
+    expect(h.size()).toBe(1);
+  });
 });
