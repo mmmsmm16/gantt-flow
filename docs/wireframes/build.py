@@ -149,20 +149,31 @@ def shell():
     s.append(rect(flw_x, top, flw_w, 34, HDR, LINE, rx=8))
     s.append(t(flw_x + 14, top + 22, "工程フロー（中工程・スコープ: 大1 受注処理）",
                14, INK, "bold"))
-    # band background (大: 受注処理)
-    band_x, band_y, band_w, band_h = flw_x+96, top+74, flw_w-120, pane_h-150
-    s.append(rect(band_x, band_y, band_w, band_h, BAND_F, LINE, rx=6, dash="6 4"))
-    s.append(t(band_x + 12, band_y + 22, "大: 受注処理（祖先範囲バンド）", 12, MUT))
-    # lanes
-    lanes = [("営業", top+185), ("倉庫", top+300)]
-    for name, ly in lanes:
-        s.append(f'<line x1="{flw_x+16}" y1="{ly}" x2="{flw_x+flw_w-16}" '
-                 f'y2="{ly}" stroke="{LANE}" stroke-width="1" stroke-dasharray="2 3"/>')
-        s.append(rect(flw_x+14, ly-22, 70, 30, HDR, LINE, rx=5))
-        s.append(t(flw_x+49, ly-2, name, 12, INK, "bold", "middle"))
-    # nodes (decluttered: no start/end pills; pills are in the legend)
-    n1x, n1y = band_x+150, top+162    # 注文書受付 (営業) highlighted
-    n2x, n2y = band_x+250, top+278    # 出荷準備 (倉庫)
+    # ----- スイムレーン（横）× バンド（縦）のグリッド
+    lbl_x = flw_x+14            # 左のレーンラベル列
+    grid_left = flw_x+92       # ラベル列の右＝バンド/レーン本体の左端
+    grid_right = flw_x+flw_w-16
+    band_top = top+86          # バンド見出し帯の上端
+    lane_top = top+112         # レーン領域の上端
+    lane_mid = top+242         # 営業 / 倉庫 の境界
+    lane_bot = top+372         # レーン領域の下端
+    # バンド（大: 受注処理）＝縦の祖先範囲。薄い枠＋見出し帯
+    s.append(rect(grid_left, band_top, grid_right-grid_left, lane_bot-band_top,
+                  BAND_F, LINE, rx=4, dash="6 4"))
+    s.append(rect(grid_left, band_top, grid_right-grid_left, 22, HDR, LINE, rx=0))
+    s.append(t(grid_left+10, band_top+16, "大: 受注処理（祖先範囲バンド）", 11, MUT))
+    # スイムレーン: 薄い水平線で全幅を区切る
+    for y in (lane_top, lane_mid, lane_bot):
+        s.append(f'<line x1="{lbl_x}" y1="{y}" x2="{grid_right}" y2="{y}" '
+                 f'stroke="{LANE}" stroke-width="1.2"/>')
+    s.append(f'<line x1="{grid_left}" y1="{lane_top}" x2="{grid_left}" '
+             f'y2="{lane_bot}" stroke="{LANE}" stroke-width="1.2"/>')  # ラベル列の縦区切り
+    for name, y0, y1 in [("営業", lane_top, lane_mid), ("倉庫", lane_mid, lane_bot)]:
+        s.append(t(lbl_x+38, (y0+y1)/2+5, name, 12, INK, "bold", "middle"))
+    # nodes（各レーン帯の中央に配置）
+    band_x = grid_left
+    n1x, n1y = grid_left+118, top+157     # 注文書受付 (営業帯) highlighted
+    n2x, n2y = grid_left+216, top+287     # 出荷準備 (倉庫帯)
     # node1 highlighted
     s.append(rect(n1x, n1y, 150, 40, ACC_FILL, ACC, rx=6, sw=2))
     s.append(t(n1x+75, n1y+25, "注文書受付", 13, ACC, "bold", "middle"))
