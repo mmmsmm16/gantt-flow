@@ -77,7 +77,7 @@
 <line x1="680" y1="176" x2="680" y2="436" stroke="#e2e8f0" stroke-width="1.2"/>
 <text x="640" y="246.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="bold" text-anchor="middle">営業</text>
 <text x="640" y="376.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="bold" text-anchor="middle">倉庫</text>
-<rect x="798" y="221" width="150" height="40" rx="6" fill="#ffffff" stroke="#475569" stroke-width="2.8"/>
+<rect x="798" y="221" width="150" height="40" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
 <text x="873" y="246" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">注文書受付</text>
 <path d="M770,199 h54 v34 q-13.5,7 -27.0,0 q-13.5,-7 -27.0,0 z" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/><text x="797.0" y="220.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#2563eb" font-weight="bold" text-anchor="middle">注文書</text>
 <path d="M922,247 h54 v34 q-13.5,7 -27.0,0 q-13.5,-7 -27.0,0 z" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/><text x="949.0" y="268.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#16a34a" font-weight="bold" text-anchor="middle">受付票</text>
