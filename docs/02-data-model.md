@@ -14,7 +14,7 @@
 | **フロー詳細** | ノード座標・判断/合流ノード・コメント等、**図にだけ**ある情報。 | フローのみ（同期で保持） |
 
 > 重要: **工程表の全項目をフローへ反映するわけではない。**
-> フローに出るのは「作業名・担当・階層／流れ」＋**インプット/アウトプット（帳票オブジェクト）**・**課題/方策（課題オブジェクト）**。
+> フローに出るのは「作業名・担当・階層／流れ」＋**インプット/アウトプット（I/O オブジェクト）**・**課題/方策（課題オブジェクト）**。
 > 工数・使用システム・どうやって・備考などは表の中だけで完結する（詳細は §7）。
 
 ## 2. コア（単一の真実・同期対象）
@@ -163,7 +163,7 @@ interface FlowDocNode {
 }
 
 // 課題オブジェクト（赤四角）。表の IssueItem が源泉（§3）。課題 1 件＝ノード 1 個。
-// 対象（工程ノード or 帳票ノード）へ注釈線で接続。表示/非表示を切替可能。
+// 対象（工程ノード or I/O（帳票/情報）ノード）へ注釈線で接続。表示/非表示を切替可能。
 interface FlowIssueNote {
   id: FlowNodeId;
   kind: "issue";
@@ -174,7 +174,16 @@ interface FlowIssueNote {
   visible: boolean;                     // 個別の表示/非表示（ビュー側の一括トグルと併用、§03）
 }
 
-type FlowNode = FlowTaskNode | FlowControlNode | FlowDocNode | FlowIssueNote;
+// 図にだけ置く自由コメント（付箋）。タスク等を参照せず、同期もしない（フロー固有）。
+interface FlowComment {
+  id: FlowNodeId;
+  kind: "comment";
+  text: string;                         // 自由テキスト（図側で直接編集）
+  x: number; y: number;
+  laneId?: Id;
+}
+
+type FlowNode = FlowTaskNode | FlowControlNode | FlowDocNode | FlowIssueNote | FlowComment;
 
 interface FlowEdge {
   id: Id;
@@ -234,7 +243,7 @@ interface Project {
 - `validate(project)` で次を保証し、壊れた参照は `quarantine` へ退避（共有フォルダ上で手編集・破損し得るため落とさない）:
   - 各 `Dependency.from/to`・`TaskDetail.taskId`・`FlowTaskNode.taskId` が実在タスクを指す。
   - `ProcessTask.parentId` が実在し、循環が無い（木である）。
-  - 制御ノードはタスクを参照しない。
+  - 制御ノード・コメントはタスクを参照しない。
   - `IoItem.id`・`IssueItem.id` は `TaskDetail` 内で一意。`FlowDocNode.ioId`・`FlowIssueNote.issueId` が実在の IoItem/IssueItem を指す。
   - `IssueItem.target`（kind:"io"）と `FlowIssueNote.targetNodeId` が実在の I/O（帳票/情報）/タスクノードを指す（消失時はタスクへ寄せる）。
 
@@ -248,11 +257,11 @@ interface Project {
 | 流れ（依存） | コア | ✅ 表→フロー（矢印） |
 | インプット／アウトプット | 表詳細 | ✅ 表→フロー（**I/O オブジェクト 0..n**。各 IoItem が 1 個。中=帳票/小=情報、配置はレベル別・手動で同期保持） |
 | 帳票様式・保管 | 表詳細 | I/O（IoItem、主に帳票）の属性。オブジェクトに付随表示 |
-| 課題／方策 | 表詳細 | ✅ 表→フロー（**赤四角の課題オブジェクト 0..n**。各 IssueItem が 1 個。対象＝工程/帳票、表示トグル） |
+| 課題／方策 | 表詳細 | ✅ 表→フロー（**赤四角の課題オブジェクト 0..n**。各 IssueItem が 1 個。対象＝工程/I/O、表示トグル） |
 | 工数 | 表詳細 | ⛔ 表のみ |
 | 使用システム | 表詳細 | ⛔ 表のみ |
 | どうやって／備考 | 表詳細 | ⛔ 表のみ |
 | ノード座標・レーン配置 | フロー詳細 | フローのみ（同期で保持） |
-| 帳票/課題オブジェクトの配置・表示状態 | フロー詳細 | フローのみ（内容は表が源泉、レイアウトは同期で保持） |
+| I/O/課題オブジェクトの配置・表示状態 | フロー詳細 | フローのみ（内容は表が源泉、レイアウトは同期で保持） |
 | 分岐（判断）・合流 | フロー詳細 | フローのみ（表には持たない） |
-| コメント | フロー詳細 | フローのみ |
+| コメント（付箋・`FlowComment`） | フロー詳細 | フローのみ（自由テキスト・同期しない） |

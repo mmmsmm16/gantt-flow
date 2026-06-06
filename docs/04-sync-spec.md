@@ -21,7 +21,7 @@
 // 既存の手動配置・分岐・合流・pinned エッジは保持する。flow は変更せず新しい値を返す。
 function reconcileFlow(
   core: Core,
-  details: Record<Id, TaskDetail>, // 帳票/課題オブジェクトの存在判定に使う（I/O・課題/方策が源泉）
+  details: Record<Id, TaskDetail>, // I/O・課題オブジェクトの存在判定に使う（I/O・課題/方策が源泉）
   view: FlowLevelView,          // 対象の粒度ビュー（level, scopeParentId, 既存レイアウト）
   idGen: () => Id,              // テスト用に注入可能（ID 決定論化）
 ): { view: FlowLevelView; report: SyncReport };
@@ -39,7 +39,7 @@ function reconcileFlow(
 ## 4. reconcile アルゴリズム（擬似コード）
 
 ```
-function reconcileFlow(core, view):
+function reconcileFlow(core, details, view, idGen):
   next = clone(view)
   targets = tasks in core where level == view.level and parentId == view.scopeParentId
 
@@ -122,7 +122,7 @@ function reconcileFlow(core, view):
 | 前後関係（流れ）を変更 | 矢印（導出エッジ）が更新。ユーザー経路があれば尊重。 |
 | インプット/アウトプットに I/O を追加/削除 | I/O 1 件ごとに**オブジェクト**（中=帳票形/小=情報チップ、入力色/出力色）を 1 個 自動配置／撤去（複数は積んで配置）。 |
 | 課題を追加/削除 | 課題 1 件ごとに**赤四角の課題オブジェクト**を 1 個 作成／撤去。対象＝既定でそのタスク（特定の I/O も指定可）。 |
-| 行を削除 | **確認ダイアログ**を出し、OK ならノード削除＋**前後の矢印を繋ぎ直し**（A→[削除]→B を A→B に）。付随する帳票/課題オブジェクトも撤去。 |
+| 行を削除 | **確認ダイアログ**を出し、OK ならノード削除＋**前後の矢印を繋ぎ直し**（A→[削除]→B を A→B に）。付随する I/O/課題オブジェクトも撤去。 |
 
 ## 6. フロー → 表（唯一の逆方向同期）
 
@@ -132,7 +132,7 @@ function reconcileFlow(core, view):
 ## 7. フロー固有要素の保護（不変条件）
 
 同期を何度実行しても、以下は壊れない:
-- **制御ノード**（開始／終了／判断／合流）は削除・改変されない。
+- **制御ノード**（開始／終了／判断／合流）・**コメント（付箋）**は削除・改変されない（reconcile が参照しない純フロー要素）。
 - **`pinned` エッジ**（ユーザーが描いた/編集した線）は削除されない。
 - 生き残るタスクノードの **x/y 座標は、データだけの編集では変化しない**（手動配置の保持）。
 - **帳票/課題オブジェクトの配置(x/y)・課題の表示状態(visible)・接続先**は、対象が生き続ける限り同期で保持される

@@ -58,3 +58,4 @@
 | `05-persistence.md` | ファイル形式・保存・共有フォルダ運用。 |
 | `06-roadmap.md` | MVP の段階分け。 |
 | `07-open-questions.md` | 後で整合する未確定事項。 |
+| `08-testing.md` | テスト戦略（同期エンジンを中心に）。 |

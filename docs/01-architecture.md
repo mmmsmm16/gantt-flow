@@ -93,7 +93,7 @@ gantt-flow/
 コマンド（commands/*）  ── コアを変更し、必要なら工程表詳細も更新
         │
         ▼
-reconcileFlow(core, details, flow, level)  ── 純粋関数。フローを再構築（手動配置・分岐・I/O/課題オブジェクトは保持）
+reconcileFlow(core, details, view, idGen)  ── 純粋関数。対象粒度ビューを再構築（手動配置・分岐・I/O/課題オブジェクトは保持。`04`）
         │
         ▼
 ストアが結果状態を履歴へ push（undo/redo の 1 単位。§6）
