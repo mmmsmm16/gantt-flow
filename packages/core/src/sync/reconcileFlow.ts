@@ -28,6 +28,36 @@ const ROW_H = 120;
 const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
   (a ?? undefined) === (b ?? undefined);
 
+// flow エッジ（ioLink を除く）をたどって from から to に到達できるか。
+// ユーザーが A→判断→B のように経路を作っていれば、直接 A→B を張らないための判定。
+function reachableFlow(
+  edges: Record<Id, { source: FlowNodeId; target: FlowNodeId; role?: 'flow' | 'ioLink' }>,
+  from: FlowNodeId,
+  to: FlowNodeId,
+): boolean {
+  if (from === to) return true;
+  const adj = new Map<FlowNodeId, FlowNodeId[]>();
+  for (const e of Object.values(edges)) {
+    if (e.role === 'ioLink') continue;
+    const list = adj.get(e.source);
+    if (list) list.push(e.target);
+    else adj.set(e.source, [e.target]);
+  }
+  const seen = new Set<FlowNodeId>([from]);
+  const queue: FlowNodeId[] = [from];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const nxt of adj.get(cur) ?? []) {
+      if (nxt === to) return true;
+      if (!seen.has(nxt)) {
+        seen.add(nxt);
+        queue.push(nxt);
+      }
+    }
+  }
+  return false;
+}
+
 export function reconcileFlow(
   core: Core,
   details: Record<Id, TaskDetail>,
@@ -125,9 +155,9 @@ export function reconcileFlow(
     if (!e.pinned && (depGone || danglingEndpoint)) delete next.edges[e.id];
   }
 
-  // 5b. 各依存に導出エッジを 1 本保証（既に s->t を結ぶ線があれば張らない）
-  const pairExists = new Set<string>();
-  for (const e of Object.values(next.edges)) pairExists.add(`${e.source}->${e.target}`);
+  // 5b. 各依存に導出エッジを 1 本保証。ただし
+  //     ・既存の導出エッジは端点更新で使い回す
+  //     ・ユーザー経路（pinned 直結 or A→判断→B）で既に到達可能なら直接エッジを張らない
   const derivedByDep = new Map<Id, FlowEdge>();
   for (const e of Object.values(next.edges)) {
     if (e.derivedFromDependencyId) derivedByDep.set(e.derivedFromDependencyId, e);
@@ -142,10 +172,9 @@ export function reconcileFlow(
       existing.target = t;
       continue;
     }
-    if (pairExists.has(`${s}->${t}`)) continue; // pinned/ユーザー経路が既にある
+    if (reachableFlow(next.edges, s, t)) continue; // 既存経路を尊重
     const id = idGen();
     next.edges[id] = { id, source: s, target: t, derivedFromDependencyId: d.id, role: 'flow' };
-    pairExists.add(`${s}->${t}`);
   }
 
   // 6. I/O・課題オブジェクト: 表(TaskDetail)を源泉に存在を導出。配置/表示は安定IDで保持。
