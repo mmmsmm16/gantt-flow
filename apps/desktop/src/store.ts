@@ -8,6 +8,11 @@ import {
   type ProcessLevel,
   type FlowNodeId,
   type FlowLevelView,
+  type IoKind,
+  type IssueTarget,
+  type TaskDetailPatch,
+  type IoItem,
+  type IssueItem,
   CURRENT_SCHEMA_VERSION,
   uuid,
   createHistory,
@@ -21,7 +26,12 @@ import {
   addAssignee as cAddAssignee,
   addDependency as cAddDependency,
   addIoItem as cAddIoItem,
+  removeIoItem as cRemoveIoItem,
+  updateIoItem as cUpdateIoItem,
   addIssueItem as cAddIssueItem,
+  removeIssueItem as cRemoveIssueItem,
+  updateIssueItem as cUpdateIssueItem,
+  updateTaskDetail as cUpdateTaskDetail,
   deleteTask as cDeleteTask,
 } from '@gantt-flow/core';
 
@@ -67,7 +77,12 @@ export interface AppState {
   setAssigneeByName: (taskId: Id, name: string) => void;
   addDependency: (from: Id, to: Id) => void;
   addIo: (taskId: Id, io: 'inputs' | 'outputs', name: string) => void;
+  updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>) => void;
+  removeIo: (taskId: Id, ioId: Id) => void;
   addIssue: (taskId: Id, text: string) => void;
+  updateIssue: (taskId: Id, issueId: Id, patch: Partial<Pick<IssueItem, 'issue' | 'measure' | 'target'>>) => void;
+  removeIssue: (taskId: Id, issueId: Id) => void;
+  updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
   select: (taskId?: Id) => void;
   setLevel: (level: ProcessLevel) => void;
@@ -177,10 +192,18 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(cAddDependency(get().project, from, to, uuid));
     },
 
-    addIo: (taskId, io, name) =>
-      commit(cAddIoItem(get().project, taskId, io, { name: name || '帳票', kind: 'doc' }, uuid)),
+    addIo: (taskId, io, name) => {
+      const lv = get().project.core.tasks[taskId]?.level;
+      const kind: IoKind = lv === 'small' || lv === 'detail' ? 'info' : 'doc';
+      commit(cAddIoItem(get().project, taskId, io, { name: name || '帳票', kind }, uuid));
+    },
+    updateIo: (taskId, ioId, patch) => commit(cUpdateIoItem(get().project, taskId, ioId, patch)),
+    removeIo: (taskId, ioId) => commit(cRemoveIoItem(get().project, taskId, ioId)),
 
     addIssue: (taskId, text) => commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid)),
+    updateIssue: (taskId, issueId, patch) => commit(cUpdateIssueItem(get().project, taskId, issueId, patch)),
+    removeIssue: (taskId, issueId) => commit(cRemoveIssueItem(get().project, taskId, issueId)),
+    updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     moveNode: (nodeId, x, y) => {

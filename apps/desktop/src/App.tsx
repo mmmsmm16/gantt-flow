@@ -2,6 +2,7 @@ import type { ProcessLevel } from '@gantt-flow/core';
 import { useApp } from './store';
 import { TableView } from './TableView';
 import { FlowCanvas } from './FlowCanvas';
+import { Inspector } from './Inspector';
 import { saveProjectToFile, openProjectFromFile } from './persistence';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
@@ -31,6 +32,7 @@ export function App() {
   const undo = useApp((s) => s.undo);
   const redo = useApp((s) => s.redo);
 
+  const selectedTaskId = useApp((s) => s.selectedTaskId);
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
@@ -109,7 +111,7 @@ export function App() {
         <button onClick={onOpen}>開く</button>
         <button onClick={onSave}>保存</button>
       </header>
-      <div className="panes">
+      <div className={`panes${selectedTaskId ? ' with-inspector' : ''}`}>
         <section className="pane table-pane">
           <h2>工程表（手順一覧表）</h2>
           <TableView />
@@ -118,6 +120,11 @@ export function App() {
           <h2>工程フロー</h2>
           <FlowCanvas />
         </section>
+        {selectedTaskId && (
+          <section className="pane inspector-pane">
+            <Inspector />
+          </section>
+        )}
       </div>
     </div>
   );

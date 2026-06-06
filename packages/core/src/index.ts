@@ -9,6 +9,7 @@ export * from './sync/autoPlace';
 export * from './sync/bands';
 export * from './history/history';
 export * from './validate';
+export * from './metrics';
 export * from './import/importCsv';
 export * from './persistence/migrate';
 export * from './persistence/json';
