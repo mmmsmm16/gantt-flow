@@ -437,6 +437,34 @@ button.danger:hover {
 .panes.table-wide.with-inspector {
   grid-template-columns: 1fr 360px;
 }
+
+/* 行のドラッグ並べ替え / 階層移動 */
+.c-grip {
+  width: 22px;
+  text-align: center;
+}
+.row-grip {
+  cursor: grab;
+  color: var(--faint);
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+}
+.row-grip:active {
+  cursor: grabbing;
+}
+.grid tbody tr.dragging {
+  opacity: 0.5;
+}
+.grid tbody tr.drop-child > td {
+  background: var(--accent-soft);
+}
+.grid tbody tr.drop-before > td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.grid tbody tr.drop-after > td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 .grid input:hover,
 .grid select:hover {
   background: var(--panel);

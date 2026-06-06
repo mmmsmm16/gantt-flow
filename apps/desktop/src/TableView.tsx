@@ -50,6 +50,11 @@ export function TableView() {
   const addChildTask = useApp((s) => s.addChildTask);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const removeTask = useApp((s) => s.removeTask);
+  const moveTaskUp = useApp((s) => s.moveTaskUp);
+  const moveTaskDown = useApp((s) => s.moveTaskDown);
+  const indentTask = useApp((s) => s.indentTask);
+  const outdentTask = useApp((s) => s.outdentTask);
+  const dropTask = useApp((s) => s.dropTask);
   const tableWide = useUI((s) => s.tableWide);
   const toggleTableWide = useUI((s) => s.toggleTableWide);
 
@@ -60,6 +65,10 @@ export function TableView() {
 
   // 新しく追加した行の作業名入力にフォーカスする（連続入力）。
   const [focusId, setFocusId] = useState<Id | null>(null);
+  const [dragId, setDragId] = useState<Id | null>(null);
+  const [dropInfo, setDropInfo] = useState<{ id: Id; mode: 'before' | 'after' | 'child' } | null>(
+    null,
+  );
   const nameRefs = useRef<Map<Id, HTMLInputElement>>(new Map());
   useEffect(() => {
     if (!focusId) return;
@@ -106,6 +115,7 @@ export function TableView() {
           <table className="grid">
             <thead>
               <tr>
+                <th className="c-grip" aria-hidden="true"></th>
                 <th className="c-level">粒度</th>
                 <th>作業名</th>
                 <th className="c-assignee">担当</th>
@@ -126,9 +136,56 @@ export function TableView() {
                 return (
                   <tr
                     key={t.id}
-                    className={t.id === selectedTaskId ? 'selected' : ''}
+                    className={[
+                      t.id === selectedTaskId ? 'selected' : '',
+                      dragId === t.id ? 'dragging' : '',
+                      dropInfo?.id === t.id ? `drop-${dropInfo.mode}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                     onClick={() => openRow(t)}
+                    onDragOver={(e) => {
+                      if (!dragId || dragId === t.id) return;
+                      e.preventDefault();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const y = e.clientY - rect.top;
+                      const mode =
+                        y < rect.height * 0.28
+                          ? 'before'
+                          : y > rect.height * 0.72
+                            ? 'after'
+                            : 'child';
+                      if (dropInfo?.id !== t.id || dropInfo.mode !== mode) {
+                        setDropInfo({ id: t.id, mode });
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragId && dropInfo && dragId !== t.id) {
+                        dropTask(dragId, t.id, dropInfo.mode);
+                      }
+                      setDragId(null);
+                      setDropInfo(null);
+                    }}
                   >
+                    <td className="c-grip" onClick={(e) => e.stopPropagation()}>
+                      <span
+                        className="row-grip"
+                        draggable
+                        title="ドラッグで移動（上下＝並べ替え / 中央＝子にする）"
+                        aria-label="行をドラッグして移動"
+                        onDragStart={(e) => {
+                          setDragId(t.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragEnd={() => {
+                          setDragId(null);
+                          setDropInfo(null);
+                        }}
+                      >
+                        ⠿
+                      </span>
+                    </td>
                     <td className="c-level" onClick={(e) => e.stopPropagation()}>
                       <select
                         className={`lvl lvl-${t.level}`}
@@ -165,6 +222,18 @@ export function TableView() {
                             } else if (e.key === 'Escape') {
                               e.currentTarget.value = t.name;
                               e.currentTarget.blur();
+                            } else if (e.key === 'Tab') {
+                              e.preventDefault();
+                              commitName(t, e.currentTarget.value);
+                              if (e.shiftKey) outdentTask(t.id);
+                              else indentTask(t.id);
+                              setFocusId(t.id);
+                            } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                              e.preventDefault();
+                              commitName(t, e.currentTarget.value);
+                              if (e.key === 'ArrowUp') moveTaskUp(t.id);
+                              else moveTaskDown(t.id);
+                              setFocusId(t.id);
                             }
                           }}
                           onBlur={(e) => commitName(t, e.target.value)}

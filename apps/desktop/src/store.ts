@@ -36,6 +36,8 @@ import {
   updateIssueItem as cUpdateIssueItem,
   updateTaskDetail as cUpdateTaskDetail,
   deleteTask as cDeleteTask,
+  reorderTask as cReorderTask,
+  reparentTask as cReparentTask,
 } from '@gantt-flow/core';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
@@ -81,6 +83,11 @@ export interface AppState {
   addDependency: (from: Id, to: Id) => void;
   removeDependency: (depId: Id) => void;
   addSiblingOf: (taskId: Id) => Id | undefined;
+  moveTaskUp: (taskId: Id) => void;
+  moveTaskDown: (taskId: Id) => void;
+  indentTask: (taskId: Id) => void;
+  outdentTask: (taskId: Id) => void;
+  dropTask: (dragId: Id, targetId: Id, mode: 'before' | 'after' | 'child') => void;
   addIo: (taskId: Id, io: 'inputs' | 'outputs', name: string) => void;
   updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>) => void;
   removeIo: (taskId: Id, ioId: Id) => void;
@@ -160,6 +167,27 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     return candidate?.id;
   };
 
+  // 同一親グループの兄弟を order 昇順で返す。
+  const siblingsOf = (taskId: Id) =>
+    Object.values(get().project.core.tasks)
+      .filter(
+        (o) =>
+          (o.parentId ?? undefined) ===
+          (get().project.core.tasks[taskId]?.parentId ?? undefined),
+      )
+      .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+
+  // reparent は実質変化があるときだけコミット（深さ超過・循環などの no-op で履歴を汚さない）。
+  const commitReparent = (taskId: Id, newParentId: Id | undefined, index?: number) => {
+    const cur = get().project;
+    const applied = cReparentTask(cur, taskId, newParentId, index);
+    const a = cur.core.tasks[taskId];
+    const b = applied.core.tasks[taskId];
+    if (a && b && (a.parentId !== b.parentId || a.level !== b.level || a.order !== b.order)) {
+      commit(applied);
+    }
+  };
+
   return {
     project: history.current(),
     canUndo: false,
@@ -226,6 +254,55 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const before = new Set(Object.keys(get().project.core.tasks));
       commit(cAddTask(get().project, { name: '', level: t.level, parentId: t.parentId }, uuid));
       return Object.keys(get().project.core.tasks).find((id) => !before.has(id));
+    },
+
+    moveTaskUp: (taskId) => {
+      const sibs = siblingsOf(taskId);
+      const idx = sibs.findIndex((t) => t.id === taskId);
+      if (idx > 0) commit(cReorderTask(get().project, taskId, idx - 1));
+    },
+    moveTaskDown: (taskId) => {
+      const sibs = siblingsOf(taskId);
+      const idx = sibs.findIndex((t) => t.id === taskId);
+      if (idx >= 0 && idx < sibs.length - 1) commit(cReorderTask(get().project, taskId, idx + 1));
+    },
+    indentTask: (taskId) => {
+      const sibs = siblingsOf(taskId);
+      const idx = sibs.findIndex((t) => t.id === taskId);
+      if (idx > 0) commitReparent(taskId, sibs[idx - 1]!.id); // 直前の兄弟の子へ
+    },
+    outdentTask: (taskId) => {
+      const t = get().project.core.tasks[taskId];
+      if (!t || t.parentId === undefined) return; // 既に root
+      const parent = get().project.core.tasks[t.parentId];
+      if (!parent) return;
+      const gpSibs = Object.values(get().project.core.tasks)
+        .filter((o) => (o.parentId ?? undefined) === (parent.parentId ?? undefined))
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+      const parentIdx = gpSibs.findIndex((o) => o.id === parent.id);
+      commitReparent(taskId, parent.parentId, parentIdx + 1); // 親の直後（祖父母の子）へ
+    },
+    dropTask: (dragId, targetId, mode) => {
+      if (dragId === targetId) return;
+      const drag = get().project.core.tasks[dragId];
+      const target = get().project.core.tasks[targetId];
+      if (!drag || !target) return;
+      if (mode === 'child') {
+        commitReparent(dragId, targetId);
+        return;
+      }
+      const targetParent = target.parentId;
+      const sibs = Object.values(get().project.core.tasks)
+        .filter((o) => (o.parentId ?? undefined) === (targetParent ?? undefined))
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+      const ti = sibs.findIndex((o) => o.id === targetId);
+      if ((drag.parentId ?? undefined) === (targetParent ?? undefined)) {
+        const di = sibs.findIndex((o) => o.id === dragId); // 同一グループ → 並べ替え
+        const tiPost = di < ti ? ti - 1 : ti;
+        commit(cReorderTask(get().project, dragId, mode === 'after' ? tiPost + 1 : tiPost));
+      } else {
+        commitReparent(dragId, targetParent, mode === 'after' ? ti + 1 : ti); // 別グループ → 移動
+      }
     },
 
     addIo: (taskId, io, name) => {
