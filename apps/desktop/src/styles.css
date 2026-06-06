@@ -597,3 +597,101 @@ button.danger:hover {
   background: var(--red-fill);
   color: var(--red);
 }
+
+/* ---- Flow editing ---- */
+.flow-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.flow-palette {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px 10px;
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--muted);
+}
+.flow-palette button {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.palette-hint {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11px;
+}
+.handle {
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.node:hover .handle {
+  opacity: 1;
+}
+.node .del {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  opacity: 0;
+}
+.node:hover .del {
+  opacity: 1;
+}
+.node .del:hover {
+  background: var(--red-fill);
+  color: var(--red);
+  border-color: var(--red);
+}
+.edge-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  fill: none;
+  cursor: pointer;
+}
+.edge.connecting {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+.edge-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--muted);
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+}
+.node.control {
+  background: #fff;
+  border: 1.6px solid var(--line-strong);
+  border-radius: 18px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.node.control-decision {
+  border-style: solid;
+  border-color: var(--faint);
+}

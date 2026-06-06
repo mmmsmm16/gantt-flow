@@ -118,6 +118,27 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(0);
   });
 
+  it('制御ノード追加・手動エッジ接続・削除（フロー固有要素）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const taskNode = taskNodes(s)[0]!;
+    s.getState().addControlNode('decision');
+    const ctrl = Object.values(view0(s).nodes).find((n) => n.kind === 'control')!;
+    // 手動エッジ（pinned）で接続
+    s.getState().connect(taskNode.id, ctrl.id);
+    let edge = Object.values(view0(s).edges).find((e) => e.source === taskNode.id && e.target === ctrl.id)!;
+    expect(edge.pinned).toBe(true);
+    // ラベル付与
+    s.getState().setEdgeLabel(edge.id, 'OK');
+    expect(Object.values(view0(s).edges).find((e) => e.id === edge.id)!.label).toBe('OK');
+    // エッジ削除
+    s.getState().deleteEdge(edge.id);
+    expect(view0(s).edges[edge.id]).toBeUndefined();
+    // 制御ノード削除
+    s.getState().deleteFlowNode(ctrl.id);
+    expect(Object.values(view0(s).nodes).some((n) => n.kind === 'control')).toBe(false);
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');

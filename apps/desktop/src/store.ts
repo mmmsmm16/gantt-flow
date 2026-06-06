@@ -8,6 +8,7 @@ import {
   type ProcessLevel,
   type FlowNodeId,
   type FlowLevelView,
+  type ControlKind,
   type IoKind,
   type IssueTarget,
   type TaskDetailPatch,
@@ -84,6 +85,12 @@ export interface AppState {
   removeIssue: (taskId: Id, issueId: Id) => void;
   updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
+  addControlNode: (control: ControlKind) => void;
+  addComment: (text: string) => void;
+  connect: (source: FlowNodeId, target: FlowNodeId) => void;
+  setEdgeLabel: (edgeId: Id, label: string) => void;
+  deleteFlowNode: (nodeId: FlowNodeId) => void;
+  deleteEdge: (edgeId: Id) => void;
   select: (taskId?: Id) => void;
   setLevel: (level: ProcessLevel) => void;
   setScope: (scopeParentId?: Id) => void;
@@ -110,6 +117,19 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
   const commit = (p: Project) => {
     const withView = ensureLevelView(p, get().level, get().scopeParentId);
     history.push(reconcileProject(withView, uuid));
+    sync();
+  };
+
+  // 現在ビューのオーバーレイ（制御ノード/コメント/手動エッジ等）を直接編集して履歴に積む。
+  const editView = (fn: (view: FlowLevelView, project: Project) => void) => {
+    const { level, scopeParentId } = get();
+    const p = structuredClone(get().project);
+    const view = p.flow.byLevel.find(
+      (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+    );
+    if (!view) return;
+    fn(view, p);
+    history.push(p);
     sync();
   };
 
@@ -232,6 +252,45 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       history.push(p);
       sync();
     },
+
+    // フロー固有要素（制御ノード/コメント/手動エッジ）の編集。view を直接いじって push。
+    addControlNode: (control) =>
+      editView((view) => {
+        const id = uuid();
+        const k = Object.values(view.nodes).filter((n) => n.kind === 'control').length;
+        view.nodes[id] = { id, kind: 'control', control, x: 420 + k * 28, y: 44 + k * 18 };
+      }),
+    addComment: (text) =>
+      editView((view) => {
+        const id = uuid();
+        const k = Object.values(view.nodes).filter((n) => n.kind === 'comment').length;
+        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: 420, y: 320 + k * 24 };
+      }),
+    connect: (source, target) =>
+      editView((view) => {
+        if (source === target) return;
+        if (Object.values(view.edges).some((e) => e.source === source && e.target === target)) return;
+        const id = uuid();
+        view.edges[id] = { id, source, target, pinned: true, role: 'flow' };
+      }),
+    setEdgeLabel: (edgeId, label) =>
+      editView((view) => {
+        const e = view.edges[edgeId];
+        if (e) e.label = label || undefined;
+      }),
+    deleteFlowNode: (nodeId) =>
+      editView((view) => {
+        const n = view.nodes[nodeId];
+        if (!n || (n.kind !== 'control' && n.kind !== 'comment')) return; // 図固有要素のみ削除可
+        delete view.nodes[nodeId];
+        for (const e of Object.values(view.edges)) {
+          if (e.source === nodeId || e.target === nodeId) delete view.edges[e.id];
+        }
+      }),
+    deleteEdge: (edgeId) =>
+      editView((view) => {
+        delete view.edges[edgeId];
+      }),
 
     select: (taskId) => set({ selectedTaskId: taskId }),
 
