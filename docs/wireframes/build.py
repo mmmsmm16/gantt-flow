@@ -12,6 +12,13 @@ GRN = "#16a34a"; GRN_F = "#dcfce7"
 RED = "#dc2626"; RED_F = "#fee2e2"
 YEL = "#ca8a04"; YEL_F = "#fef9c3"
 NODE = "#475569"; BAND_F = "#f8fafc"; LANE = "#e2e8f0"
+ANN = "#aab2bd"  # 課題注釈線: 薄い・矢頭なし
+
+
+def pline(x1, y1, x2, y2, col=ANN, sw=1.0):
+    """plain thin line, no arrowhead (for issue annotation)."""
+    return (f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
+            f'stroke="{col}" stroke-width="{sw}"/>')
 
 
 def t(x, y, s, size=13, col=INK, w="normal", anchor="start"):
@@ -170,17 +177,17 @@ def shell():
     # node2
     s.append(rect(n2x, n2y, 150, 40, "#ffffff", NODE, rx=6))
     s.append(t(n2x+75, n2y+25, "出荷準備", 13, INK, "bold", "middle"))
-    # issue (red) ABOVE node2 with dotted annotation line down
-    s.append(rect(n2x+40, n2y-44, 90, 32, RED_F, RED, rx=5))
-    s.append(t(n2x+85, n2y-23, "課題", 12, RED, "bold", "middle"))
-    s.append(arrow(n2x+85, n2y-12, n2x+82, n2y-2, RED, dash="3 3", sw=1.4))
+    # issue (red, 直角) ABOVE node2; plain thin light line (no arrow) to node2
+    s.append(rect(n2x+40, n2y-46, 90, 32, RED_F, RED, rx=0))
+    s.append(t(n2x+85, n2y-25, "課題", 12, RED, "bold", "middle"))
+    s.append(pline(n2x+82, n2y-14, n2x+78, n2y-1))
     # legend mini
     ly0 = top+pane_h-40
     s.append(arrow(flw_x+20, ly0-4, flw_x+50, ly0-4, NODE, sw=2))
     s.append(t(flw_x+58, ly0, "流れ(工程間)", 11, NODE))
     s.append(t(flw_x+150, ly0, "帳票/情報=添える(線なし)・色で入出力", 11, MUT))
-    s.append(arrow(flw_x+390, ly0-4, flw_x+420, ly0-4, RED, dash="4 4", sw=1.4))
-    s.append(t(flw_x+428, ly0, "課題注釈線", 11, RED))
+    s.append(pline(flw_x+390, ly0-4, flw_x+420, ly0-4))
+    s.append(t(flw_x+428, ly0, "課題の線(細・薄)", 11, MUT))
 
     # ===== linked selection connector (table row -> flow node top)
     s.append(f'<path d="M{tbl_x+tbl_w-8},{hl_row_y} C{flw_x-30},{hl_row_y} '
@@ -257,7 +264,7 @@ def legend():
             s.append(doc(mx-78, my-26, 60, 42, GRN, GRN_F, "帳票"))
             s.append(chip(mx+6, my-16, 64, 26, GRN, GRN_F, "情報"))
         elif kind == "issue":
-            s.append(rect(mx-32, my-22, 64, 44, RED_F, RED, rx=4, sw=1.8))
+            s.append(rect(mx-32, my-22, 64, 44, RED_F, RED, rx=0, sw=1.8))
             s.append(t(mx, my+5, "課題", 13, RED, "bold", "middle"))
         elif kind == "se":
             s.append(rect(mx-55, my-18, 110, 36, "#ffffff", NODE, rx=18, sw=1.8))
@@ -276,7 +283,7 @@ def legend():
     s.append(t(40, sy, "コネクタ / 線（矢印は工程間だけ・帳票には引かない）", 16, INK, "bold"))
     rows = [
         ("プロセス矢印（flow）", "工程→工程の流れ・経路解決に影響", "solid"),
-        ("課題注釈線", "課題→対象（工程 or I/O）・経路に影響しない", "issue"),
+        ("課題の線（注釈）", "課題 ↔ 対象（工程 or I/O）・矢頭なし・細く薄い・経路に影響しない", "issue"),
     ]
     ly = sy + 30
     for label, desc, kind in rows:
@@ -284,7 +291,7 @@ def legend():
         if kind == "solid":
             s.append(arrow(x1, ly, x2, ly, NODE, sw=2.2))
         elif kind == "issue":
-            s.append(arrow(x1, ly, x2, ly, RED, dash="4 4", sw=1.6))
+            s.append(pline(x1, ly, x2, ly))
         s.append(t(270, ly+5, label, 14, INK, "bold"))
         s.append(t(470, ly+5, desc, 13, MUT))
         ly += 50

@@ -163,7 +163,7 @@ interface FlowDocNode {
 }
 
 // 課題オブジェクト（赤四角）。表の IssueItem が源泉（§3）。課題 1 件＝ノード 1 個。
-// 対象（工程ノード or I/O（帳票/情報）ノード）へ注釈線で接続。表示/非表示を切替可能。
+// 対象（工程ノード or I/O（帳票/情報）ノード）へ細い薄線（矢頭なし）で接続。四角は直角。表示/非表示を切替可能。
 interface FlowIssueNote {
   id: FlowNodeId;
   kind: "issue";
