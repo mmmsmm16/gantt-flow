@@ -71,9 +71,10 @@ function reconcileFlow(core, view):
   // 3. 導出エッジ: コア依存を矢印として反映。ただし
   //    ・pinned（ユーザー）エッジは消さない
   //    ・ユーザーが A→判断→B の経路を作っていれば直接 A→B を張らない
+  //    ・role=="ioLink"（同一帳票リンク）は「流れ」ではないので経路解決から除外
   for dep in core.dependencies where dep.scopeParentId == view.scopeParentId:
     s = taskNodeOf(dep.from); t = taskNodeOf(dep.to)
-    if s and t and not userPathExists(next, s, t):   // userPathExists: pinned/制御ノード経由の到達を BFS
+    if s and t and not userPathExists(next, s, t):   // userPathExists: role=="flow" の pinned/制御ノード経由のみ BFS（ioLink は無視）
       upsertDerivedEdge(next, dep.id, s, t)
   for e in next.edges where e.derivedFromDependencyId and not e.pinned:
     if dependency(e) removed or now superseded by user path:

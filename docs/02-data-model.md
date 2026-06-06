@@ -182,6 +182,7 @@ interface FlowEdge {
   label?: string;                       // 分岐条件 "OK"/"NG" など
   derivedFromDependencyId?: Id;         // コア依存から自動生成された線
   pinned?: boolean;                     // ユーザーが描いた/編集した線 → 同期で消さない
+  role?: "flow" | "ioLink";             // 既定 "flow"。"ioLink"=同一帳票リンク（装飾・経路解決に無関係。03 §2-4）
 }
 
 interface Swimlane {
