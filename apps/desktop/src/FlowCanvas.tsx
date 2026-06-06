@@ -259,8 +259,9 @@ export function FlowCanvas() {
             const y1 = sp.y + ss.h / 2;
             const x2 = tp.x;
             const y2 = tp.y + ts.h / 2;
-            const dx = Math.max(30, Math.abs(x2 - x1) / 2);
-            const d = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+            const midX = (x1 + x2) / 2;
+            // 直角（オーソゴナル）コネクタ: 水平 → 垂直 → 水平
+            const d = `M${x1},${y1} H${midX} V${y2} H${x2}`;
             return (
               <g key={e.id}>
                 <path

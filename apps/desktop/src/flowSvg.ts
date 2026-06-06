@@ -83,9 +83,10 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const y1 = s.y + ss.h / 2;
     const x2 = t.x;
     const y2 = t.y + ts.h / 2;
-    const dx = Math.max(30, Math.abs(x2 - x1) / 2);
+    const midX = (x1 + x2) / 2;
+    // 直角（オーソゴナル）コネクタ: 水平 → 垂直 → 水平
     parts.push(
-      `<path d="M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"/>`,
+      `<path d="M${x1},${y1} H${midX} V${y2} H${x2}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"/>`,
     );
     if (e.label) {
       parts.push(
