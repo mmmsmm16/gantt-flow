@@ -21,7 +21,8 @@ export interface SyncReport {
   removed: FlowNodeId[]; // 対象外/削除で撤去したノード（孤立）
 }
 
-const MARGIN = 40;
+const MARGIN_X = 120; // レーン名の列（左）を空けて、その右からノードを並べる
+const MARGIN_Y = 40;
 const COL_W = 220;
 const ROW_H = 120;
 
@@ -121,7 +122,7 @@ export function reconcileFlow(
       // 担当（レーン）が変わったら、そのレーンの行へ縦移動（横位置 x は保持）
       if (existing.laneId !== laneId) {
         existing.laneId = laneId;
-        existing.y = MARGIN + laneOrderOf(t.assigneeId) * ROW_H;
+        existing.y = MARGIN_Y + laneOrderOf(t.assigneeId) * ROW_H;
       }
       return;
     }
@@ -130,8 +131,8 @@ export function reconcileFlow(
       id,
       kind: 'task',
       taskId: t.id,
-      x: MARGIN + i * COL_W,
-      y: MARGIN + laneOrderOf(t.assigneeId) * ROW_H,
+      x: MARGIN_X + i * COL_W,
+      y: MARGIN_Y + laneOrderOf(t.assigneeId) * ROW_H,
       laneId,
     };
     next.nodes[id] = node;

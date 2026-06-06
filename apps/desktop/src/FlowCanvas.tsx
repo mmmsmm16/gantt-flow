@@ -10,7 +10,10 @@ import {
 } from '@gantt-flow/core';
 
 const ROW_H = 120;
-const MARGIN = 40;
+const MARGIN = 40; // = core の MARGIN_Y（ノード行の基準）
+const LABEL_W = 96; // 左のレーン名列
+const BAND_TOP = MARGIN - 16;
+const FULL_W = 3000;
 const CONTROL_LABEL: Record<ControlKind, string> = {
   start: '開始',
   end: '終了',
@@ -160,8 +163,12 @@ export function FlowCanvas() {
           </div>
         ))}
 
-        {lanes.map((lane) => (
-          <div key={`ll-${lane.id}`} className="lane-label" style={{ top: MARGIN + lane.order * ROW_H - 8 }}>
+        {(lanes.length ? lanes : [{ id: '_', title: '（未割当）', order: 0 }]).map((lane) => (
+          <div
+            key={`ll-${lane.id}`}
+            className="lane-label"
+            style={{ top: BAND_TOP + lane.order * ROW_H, height: ROW_H }}
+          >
             {lane.title}
           </div>
         ))}
@@ -173,10 +180,25 @@ export function FlowCanvas() {
             </marker>
           </defs>
 
-          {lanes.map((lane) => {
-            const y = MARGIN + lane.order * ROW_H + 60;
-            return <line key={`lane-${lane.id}`} className="lane-line" x1={0} y1={y} x2={3000} y2={y} />;
-          })}
+          {/* スイムレーン: 左にラベル列・薄い水平線で全幅を帯に区切る */}
+          {(() => {
+            const cnt = Math.max(1, lanes.length);
+            const bottom = BAND_TOP + cnt * ROW_H;
+            const els: JSX.Element[] = [
+              <rect key="labelcol" x={0} y={BAND_TOP} width={LABEL_W} height={cnt * ROW_H} fill="#f8fafc" />,
+            ];
+            for (let i = 0; i < cnt; i++) {
+              if (i % 2 === 1)
+                els.push(
+                  <rect key={`bg-${i}`} x={LABEL_W} y={BAND_TOP + i * ROW_H} width={FULL_W} height={ROW_H} fill="rgba(2,6,23,0.015)" />,
+                );
+            }
+            for (let i = 0; i <= cnt; i++) {
+              els.push(<line key={`lh-${i}`} className="lane-line" x1={0} y1={BAND_TOP + i * ROW_H} x2={FULL_W} y2={BAND_TOP + i * ROW_H} />);
+            }
+            els.push(<line key="vdiv" className="lane-divider" x1={LABEL_W} y1={BAND_TOP} x2={LABEL_W} y2={bottom} />);
+            return els;
+          })()}
 
           {Object.values(view.edges).map((e) => {
             const s = view.nodes[e.source];

@@ -40,13 +40,23 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     parts.push(`<text x="${b.x}" y="${top + 16}" font-size="11" fill="#64748b">${esc(label)}</text>`);
   }
 
-  // lanes
+  // swimlanes: 左ラベル列 + 全幅の水平区切り
   const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
+  const cnt = Math.max(1, lanes.length);
+  const BAND_TOP = 24;
+  const LABEL_W = 96;
+  parts.push(`<rect x="0" y="${BAND_TOP}" width="${LABEL_W}" height="${cnt * 120}" fill="#f8fafc"/>`);
+  for (let i = 0; i < cnt; i++) {
+    if (i % 2 === 1)
+      parts.push(`<rect x="${LABEL_W}" y="${BAND_TOP + i * 120}" width="${maxX}" height="120" fill="rgba(2,6,23,0.015)"/>`);
+  }
+  for (let i = 0; i <= cnt; i++) {
+    parts.push(`<line x1="0" y1="${BAND_TOP + i * 120}" x2="${maxX}" y2="${BAND_TOP + i * 120}" stroke="#e2e8f0" stroke-width="1.2"/>`);
+  }
+  parts.push(`<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${BAND_TOP + cnt * 120}" stroke="#cbd5e1" stroke-width="1.4"/>`);
   for (const lane of lanes) {
-    const y = 40 + lane.order * 120 + 60;
-    parts.push(`<line x1="0" y1="${y}" x2="${maxX}" y2="${y}" stroke="#eef2f6" stroke-width="1.5"/>`);
     parts.push(
-      `<text x="10" y="${40 + lane.order * 120 + 6}" font-size="12" font-weight="700" fill="#1e293b">${esc(lane.title)}</text>`,
+      `<text x="${LABEL_W / 2}" y="${BAND_TOP + lane.order * 120 + 64}" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">${esc(lane.title)}</text>`,
     );
   }
 

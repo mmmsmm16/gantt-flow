@@ -338,8 +338,12 @@ button.danger:hover {
   overflow: visible;
 }
 .lane-line {
-  stroke: #eef2f6;
-  stroke-width: 1.5;
+  stroke: #e2e8f0;
+  stroke-width: 1.2;
+}
+.lane-divider {
+  stroke: var(--line-strong);
+  stroke-width: 1.4;
 }
 .edge {
   stroke: #94a3b8;
@@ -399,16 +403,17 @@ button.danger:hover {
 }
 .lane-label {
   position: absolute;
-  left: 6px;
+  left: 0;
+  width: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   z-index: 1;
   font-size: 12px;
   font-weight: 700;
   color: var(--ink);
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 4px 10px;
-  box-shadow: var(--shadow);
+  padding: 0 6px;
 }
 
 .node {
