@@ -27,21 +27,49 @@ project.gflow  (ZIP)
 - 利点: 1 ファイルとして共有フォルダへ置ける／メール添付不要、部分復旧しやすい、バイナリ同梱可。
 - ユーザー体験は「1 ファイルを開く／保存する」で一貫。
 
-## 3. 共有フォルダ向けの安全な書き込み
+## 3. 共有フォルダでの同時編集と安全な書き込み
 
-SMB/NFS 上では部分書き込みがファイル破損につながるため:
+SMB/NFS 上では「部分書き込みによる破損」と「複数人の同時編集による上書き喪失」の 2 つを防ぐ必要がある。
+ロックサーバを持たないため、**助言ロック（開く時）＋競合検知（保存時）の二重の安全網**で「作業を黙って失わせない」を担保する。
 
-- **アトミック保存**: **同一ディレクトリ内**の一時ファイル（`*.tmp-<rand>`）に書き、`fsync` 後に
-  対象へ **rename（原子的置換）**。OS の temp ディレクトリは別ボリュームになり rename が原子的でなくなるため使わない。
-- **競合検知（advisory）**: ロックサーバを持たないため、
-  - 読込時に `meta.updatedAt` ＋セッション乱数を記録。
-  - 保存直前にディスク上の `updatedAt` を読み直し、読込時から変わっていれば
-    「ファイルがディスク上で変更されています（上書き／再読込／別名保存）」と警告。
-- **自動保存**: 変更後デバウンス（例 5 秒）で**サイドカー**（`*.autosave`）へ保存。ユーザー本体ファイルへは直接 autosave しない。
+### アトミック保存（破損防止）
+- **同一ディレクトリ内**の一時ファイル（`*.tmp-<rand>`）に書き、`fsync` 後に対象へ **rename（原子的置換）**。
+  OS の temp ディレクトリは別ボリュームになり rename が原子的でなくなるため使わない。
+
+### 助言ロック（開く時点の検知。2026-06-06 確定）
+- ファイルを**編集モードで開く時**、同ディレクトリに `<file>.lock` を**アトミックに作成**
+  （tmp→rename で EEXIST 判定。SMB/NFS では `O_EXCL` が不確実なため rename トリックを使う）。
+- 内容: `{ user, host, sessionId, openedAt, heartbeatAt, appVersion }`。
+- **ハートビート**: 編集中は一定間隔（例 30s）で `heartbeatAt` を書き直す（autosave タイマーに相乗り）。
+  クリーン終了・保存完了時にロックを**解放（削除）**。クラッシュ時は残るが `heartbeatAt` が古くなる。
+- 既にロックがある状態で開く場合:
+  - **新鮮**（`heartbeatAt` がしきい値内＝例 3×間隔=90s）→「○○ が編集中」。**読み取り専用で開く**／別名で開く を提示（本体への上書き保存はさせない）。
+  - **古い／自分のクラッシュ残骸**（しきい値超過）→「前回の編集が残っています」。**ロックを引き継いで編集（steal）**を許可。
+- ロックは**助言的（advisory）**。排他作成を保証しない FS に備え、下記の保存時検知を**必ず併用**する。
+
+### 競合検知（保存時・最後の安全網）
+- 読込時に `meta.updatedAt` ＋セッション乱数を記録。
+- 保存直前にディスク上の `updatedAt` を読み直し、読込時から変わっていれば衝突とみなす
+  （ロックをすり抜けた場合でもここで捕捉）。
+
+### 衝突時の解決（自動マージしない）
+- 構造グラフのため**自動マージは行わない**。ダイアログで提示:
+  - **別名保存（推奨デフォルト）**: 自分の版を新ファイルへ。両者の作業を失わない。
+  - **上書き保存**: 相手の変更を捨てる（明示確認）。
+  - **破棄して再読込**: 自分の未保存変更を捨て、ディスク版を開く。
+- 「何が変わったか」の差分要約表示は任意機能として保留。
+
+### 自動保存（名前空間で衝突回避）
+- 変更後デバウンス（例 5s）で**サイドカー** `<file>.<user>@<host>.autosave` へ保存
+  （2 人が同じ本体を開いても autosave 同士が衝突しない）。本体へは直接 autosave しない。
   次回起動時に新しい autosave があれば復旧を促す。
 
-> これらの I/O（ダイアログ・アトミック書き込み・stat 監視・autosave タイマー）は **Tauri の Rust 側**で実装し、
-> `packages/core` の `ProjectRepository` IF から呼ぶ。
+### 粒度
+- ロック・競合検知は**ファイル単位（プロジェクト全体）**。サブ文書ロックは持たない
+  （1 案件=1 ファイル・数十〜低百タスクには過剰）。
+
+> これらの I/O（ダイアログ・アトミック書き込み・stat 監視・**ロック作成/ハートビート/解放**・autosave タイマー）は
+> **Tauri の Rust 側**で実装し、`packages/core` の `ProjectRepository` IF から呼ぶ。
 
 ## 4. スキーマ versioning とマイグレーション
 
@@ -53,11 +81,23 @@ SMB/NFS 上では部分書き込みがファイル破損につながるため:
 ## 5. `ProjectRepository` インターフェース（イメージ）
 
 ```ts
+interface LockInfo {
+  user: string; host: string; sessionId: string;
+  openedAt: string; heartbeatAt: string; appVersion: string;
+}
+
 interface ProjectRepository {
   open(path: string): Promise<{ project: Project; report: LoadReport }>;
   save(path: string, project: Project): Promise<void>;       // アトミック書き込み
   statUpdatedAt(path: string): Promise<string | null>;       // 競合検知用
-  writeAutosave(path: string, project: Project): Promise<void>;
+  writeAutosave(path: string, project: Project, owner: LockInfo): Promise<void>; // 名前空間付きサイドカー
+
+  // --- 同時編集（助言ロック） ---
+  acquireLock(path: string, owner: LockInfo):                // 取得 or 既存ロック情報を返す
+    Promise<{ ok: true } | { ok: false; held: LockInfo; stale: boolean }>;
+  refreshLock(path: string, owner: LockInfo): Promise<void>; // ハートビート（heartbeatAt 更新）
+  releaseLock(path: string, owner: LockInfo): Promise<void>; // 解放（削除）
+  readLock(path: string): Promise<LockInfo | null>;          // 表示用
 }
 ```
 
