@@ -88,7 +88,7 @@ gantt-flow/
 コマンド（commands/*）  ── コアを変更し、必要なら工程表詳細も更新
         │                （undo 用に逆操作を積む）
         ▼
-reconcileFlow(core, flow, level)  ── 純粋関数。フローを再構築（手動配置・分岐は保持）
+reconcileFlow(core, details, flow, level)  ── 純粋関数。フローを再構築（手動配置・分岐・帳票/課題オブジェクトは保持）
         │
         ▼
 Zustand ストア更新 → React 再描画（表・フロー）

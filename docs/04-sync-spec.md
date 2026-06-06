@@ -21,6 +21,7 @@
 // 既存の手動配置・分岐・合流・pinned エッジは保持する。flow は変更せず新しい値を返す。
 function reconcileFlow(
   core: Core,
+  details: Record<Id, TaskDetail>, // 帳票/課題オブジェクトの存在判定に使う（I/O・課題/方策が源泉）
   view: FlowLevelView,          // 対象の粒度ビュー（level, scopeParentId, 既存レイアウト）
   idGen: () => Id,              // テスト用に注入可能（ID 決定論化）
 ): { view: FlowLevelView; report: SyncReport };
@@ -78,7 +79,23 @@ function reconcileFlow(core, view):
     if dependency(e) removed or now superseded by user path:
       delete next.edges[e.id]
 
-  // 4. レーン: 参照されている担当のレーンを保証。非空レーンは自動削除しない
+  // 4. 帳票/課題オブジェクト: 表（TaskDetail）を源泉に存在を導出。配置/表示状態は保持
+  //    安定 ID で突き合わせる（doc: (taskId, io) / issue: (taskId)）
+  for task in targets:
+    d = details[task.id]
+    for io in ["input", "output"]:
+      if d[io] is non-empty:
+        ensureDocNode(next, task.id, io)        // 無ければ近傍に自動配置、有れば x/y 据え置き
+      else:
+        removeDocNode(next, task.id, io)         // 列が空になったら対応オブジェクトを撤去
+    if d.issue is non-empty or d.measure is non-empty:
+      n = ensureIssueNote(next, task.id)         // 無ければ作成（target 既定=当該タスクノード, visible 既定）
+      if targetNodeOf(n) is missing: n.targetNodeId = taskNodeOf(task.id)  // 対象消失時はタスクへ寄せる
+    else:
+      removeIssueNote(next, task.id)
+  // 内容（本文）はコピーせず TaskDetail から live 表示。ここで保持するのは配置と visible のみ。
+
+  // 5. レーン: 参照されている担当のレーンを保証。非空レーンは自動削除しない
   return { view: next, report }
 ```
 
@@ -96,7 +113,9 @@ function reconcileFlow(core, view):
 | 担当を変更 | ノードが別レーンへ移動（位置はバンド内で再配置を提案）。 |
 | 親（上位工程）を変更＝インデント変更 | 該当ノードが別の親バンドへ移動。粒度ビューの所属も更新。 |
 | 前後関係（流れ）を変更 | 矢印（導出エッジ）が更新。ユーザー経路があれば尊重。 |
-| 行を削除 | **確認ダイアログ**を出し、OK ならノード削除＋**前後の矢印を繋ぎ直し**（A→[削除]→B を A→B に）。 |
+| インプット/アウトプット列を入力 | 当該工程に**帳票オブジェクト**（入力色/出力色）を自動配置。空にすると撤去。 |
+| 課題/方策列を入力 | 当該工程に**赤四角の課題オブジェクト**を作成（対象＝既定でそのタスク）。両方空にすると撤去。 |
+| 行を削除 | **確認ダイアログ**を出し、OK ならノード削除＋**前後の矢印を繋ぎ直し**（A→[削除]→B を A→B に）。付随する帳票/課題オブジェクトも撤去。 |
 
 ## 6. フロー → 表（唯一の逆方向同期）
 
@@ -109,10 +128,14 @@ function reconcileFlow(core, view):
 - **制御ノード**（開始／終了／判断／合流）は削除・改変されない。
 - **`pinned` エッジ**（ユーザーが描いた/編集した線）は削除されない。
 - 生き残るタスクノードの **x/y 座標は、データだけの編集では変化しない**（手動配置の保持）。
+- **帳票/課題オブジェクトの配置(x/y)・課題の表示状態(visible)・接続先**は、対象が生き続ける限り同期で保持される
+  （内容は表が源泉のため都度 live 反映、レイアウトはオーバーレイとして不変）。
 - 親範囲バンドはツリーから毎回導出するため、階層変更に追従しつつレイアウトを壊さない。
 
 ## 8. 不変条件（テストで担保 — `08-testing.md` 参照）
 - 各粒度ビューで「対象タスク 1 件 ⇄ タスクノード 1 個」。
 - `reconcile(reconcile(x)) == reconcile(x)`（冪等）。
 - pinned エッジ・制御ノードは同期で消えない。
+- 帳票/課題オブジェクトは「I/O・課題/方策 列が非空 ⇔ オブジェクト 1 個」（安定 ID で突き合わせ、再 reconcile で増殖しない）。
+- 課題オブジェクトの `targetNodeId` は常に実在ノード（task/doc）を指す（対象消失時はタスクへ寄せる）。
 - ダングリング参照を生まない。
