@@ -70,33 +70,50 @@ interface Core {
 type Automation = "manual" | "system" | "partial";   // 手作業 / システム自動 / 一部自動
 type Difficulty = "H" | "M" | "L";                   // 作業難易度
 
+// 帳票（インプット/アウトプットの 1 件）。複数帳票に対応するため配列要素にする。
+interface DocItem {
+  id: Id;                               // 安定ID。フロー帳票オブジェクトの突き合わせ・課題の接続先に使う
+  name: string;                         // 帳票名／データ名（例 "注文書"）
+  formInfo?: string;                    // 帳票様式・保管（様式番号・保管場所/期間）。任意＝あれば記入
+}
+
+// 課題（1 件）。各々が方策と「線を引く対象」を持つ。
+type IssueTarget =
+  | { kind: "task" }                    // 工程ノード本体へ（既定）
+  | { kind: "doc"; docId: Id };         // 特定の帳票（DocItem.id）へ
+interface IssueItem {
+  id: Id;                               // 安定ID。フロー課題オブジェクトの突き合わせに使う
+  issue: string;                        // 課題
+  measure?: string;                     // 方策（課題への対応策）。任意
+  target?: IssueTarget;                 // 線を引く対象（未指定なら工程ノード）
+}
+
 interface TaskDetail {
   taskId: Id;                           // -> ProcessTask.id（1:1）
 
-  // --- 標準（表が源泉。フローにオブジェクトとして表示） ---
+  // --- 標準（一部は表が源泉でフローにオブジェクト投影） ---
   how?: string;                         // 業務内容（どうやって・手順・方法）
-  input?: string;                       // インプット（入力帳票・データ）→ フローに帳票オブジェクト（入力色）
-  output?: string;                      // アウトプット（出力帳票・成果物）→ フローに帳票オブジェクト（出力色）
-  system?: string;                      // 使用システム／ツール
+  inputs?: DocItem[];                   // インプット帳票（0..n）→ フローに帳票オブジェクト（入力色）
+  outputs?: DocItem[];                  // アウトプット帳票（0..n）→ フローに帳票オブジェクト（出力色）
+  system?: string;                      // 使用システム／ツール（複数は改行で列挙）
   effortHours?: number;                 // 工数。時間（0.5h 単位。例 0.5, 2.0）
   note?: string;                        // 備考
 
   // --- 任意（採用済み） ---
   volume?: string;                      // 処理件数・ボリューム（1回/月あたり等）
-  issue?: string;                       // 課題（コンサル視点）→ フローに赤四角の課題オブジェクトで表示
-  measure?: string;                     // 方策（課題への対応策）→ 課題オブジェクトに併記
-  exception?: string;                   // 例外・イレギュラー対応
+  issues?: IssueItem[];                 // 課題（0..n。各々 方策・対象を持つ）→ フローに赤四角オブジェクト
+  exception?: string;                   // 例外・イレギュラー対応（複数は改行で列挙）
   automation?: Automation;              // 自動化区分（手/自動/一部）
-  formInfo?: string;                    // 帳票様式・保管（様式番号・保管場所/期間）
-  dataLink?: string;                    // データ連携先（次に渡す部署/システム）
-  regulation?: string;                  // 関連規程・統制（マニュアル/内部統制ポイント）
+  dataLink?: string;                    // データ連携先（複数は改行で列挙）
+  regulation?: string;                  // 関連規程・統制（複数は改行で列挙）
   difficulty?: Difficulty;              // 作業難易度（H/M/L）
 }
 ```
 
-> `how` / `system` / `effortHours` / `note` ほかは**表のみ**。
-> **インプット／アウトプット**は表が源泉で、フローに**帳票オブジェクト**として表示（`§4`）。
-> **課題／方策**は表が源泉で、フローに**赤四角の課題オブジェクト**として表示（表示/非表示トグル）。
+> **複数値の持ち方の原則**: フローにオブジェクトとして出る **I/O（帳票）と課題は、安定ID付きの構造化リスト**（個々をフロー側で参照・配置・接続するため）。
+> それ以外の「表のみ」の複数値（使用システム・データ連携先・関連規程・例外対応）は**自由テキスト（改行で複数記入）**に留める。
+> 個別参照や集計・連携が必要になった列は、後から `string[]` や構造化リストへ昇格できる（YAGNI）。
+> **帳票様式・保管**は独立列をやめ、各帳票（`DocItem.formInfo`）の任意属性に統合。
 > 工数は時間・0.5h 単位。工程No は `ProcessTask.code`（自動採番＋手動上書き）。
 
 ## 4. フロー詳細（フローのみ・同期で保持）
@@ -124,25 +141,27 @@ interface FlowControlNode {
   laneId?: Id;
 }
 
-// 帳票（インプット/アウトプット）オブジェクト。表の I/O 列が源泉（§3）。
-// 内容は TaskDetail[io] を live 表示（コピーしない）。存在は I/O 列が非空のとき導出され、
-// 配置(x/y)はフローオーバーレイとして同期で保持される。
+// 帳票（インプット/アウトプット）オブジェクト。表の I/O 列の DocItem が源泉（§3）。
+// 帳票 1 件＝ノード 1 個（複数帳票なら複数並ぶ）。内容は DocItem を live 表示（コピーしない）。
+// 存在は DocItem の有無で導出、配置(x/y)はフローオーバーレイとして同期で保持。
 interface FlowDocNode {
   id: FlowNodeId;
   kind: "doc";
   io: "input" | "output";               // 形は帳票（ドキュメント）形、色は入力/出力で分ける
   taskId: Id;                           // -> ProcessTask.id（どの工程の I/O か）
+  docId: Id;                            // -> DocItem.id（複数帳票を区別する安定キー）
   x: number; y: number;
   laneId?: Id;
 }
 
-// 課題オブジェクト（赤四角）。表の「課題」「方策」列が源泉（§3）。
+// 課題オブジェクト（赤四角）。表の IssueItem が源泉（§3）。課題 1 件＝ノード 1 個。
 // 対象（工程ノード or 帳票ノード）へ注釈線で接続。表示/非表示を切替可能。
 interface FlowIssueNote {
   id: FlowNodeId;
   kind: "issue";
-  taskId: Id;                           // 内容（課題/方策）の源泉 -> TaskDetail.issue/measure
-  targetNodeId: FlowNodeId;             // 線を引く対象（kind: "task" or "doc"。"control"/エッジには付けない）
+  taskId: Id;                           // 内容（課題/方策）の源泉が属する工程
+  issueId: Id;                          // -> IssueItem.id（複数課題を区別する安定キー）
+  targetNodeId: FlowNodeId;             // 線を引く対象（IssueItem.target を解決した task/doc ノード。control/エッジ不可）
   x: number; y: number;
   visible: boolean;                     // 個別の表示/非表示（ビュー側の一括トグルと併用、§03）
 }
@@ -206,6 +225,8 @@ interface Project {
   - 各 `Dependency.from/to`・`TaskDetail.taskId`・`FlowTaskNode.taskId` が実在タスクを指す。
   - `ProcessTask.parentId` が実在し、循環が無い（木である）。
   - 制御ノードはタスクを参照しない。
+  - `DocItem.id`・`IssueItem.id` は `TaskDetail` 内で一意。`FlowDocNode.docId`・`FlowIssueNote.issueId` が実在の DocItem/IssueItem を指す。
+  - `IssueItem.target`（kind:"doc"）と `FlowIssueNote.targetNodeId` が実在の帳票/タスクノードを指す（消失時はタスクへ寄せる）。
 
 ## 7. 同期される項目／されない項目（一覧）
 
@@ -215,8 +236,9 @@ interface Project {
 | 担当 | コア | ✅ 表→フロー（レーン）。**レーン移動→表 の逆方向も可（唯一）** |
 | 階層（親子・粒度） | コア | ✅ 表→フロー（粒度ビュー・親バンド） |
 | 流れ（依存） | コア | ✅ 表→フロー（矢印） |
-| インプット／アウトプット | 表詳細 | ✅ 表→フロー（**帳票オブジェクト**。表が源泉、配置は手動・同期で保持） |
-| 課題／方策 | 表詳細 | ✅ 表→フロー（**赤四角の課題オブジェクト**。表が源泉、表示/非表示トグル） |
+| インプット／アウトプット | 表詳細 | ✅ 表→フロー（**帳票オブジェクト 0..n**。各 DocItem が 1 個。表が源泉、配置は手動・同期で保持） |
+| 帳票様式・保管 | 表詳細 | 帳票（DocItem）の属性。帳票オブジェクトに付随表示 |
+| 課題／方策 | 表詳細 | ✅ 表→フロー（**赤四角の課題オブジェクト 0..n**。各 IssueItem が 1 個。対象＝工程/帳票、表示トグル） |
 | 工数 | 表詳細 | ⛔ 表のみ |
 | 使用システム | 表詳細 | ⛔ 表のみ |
 | どうやって／備考 | 表詳細 | ⛔ 表のみ |
