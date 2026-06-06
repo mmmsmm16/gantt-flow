@@ -1,20 +1,47 @@
+import type { ProcessLevel } from '@gantt-flow/core';
 import { useApp } from './store';
 import { TableView } from './TableView';
 import { FlowCanvas } from './FlowCanvas';
 import { saveProjectToFile, openProjectFromFile } from './persistence';
 
+const LEVELS: { key: ProcessLevel; label: string }[] = [
+  { key: 'large', label: '大' },
+  { key: 'medium', label: '中' },
+  { key: 'small', label: '小' },
+  { key: 'detail', label: '詳細' },
+];
+const PARENT_LEVEL: Record<ProcessLevel, ProcessLevel | null> = {
+  large: null,
+  medium: 'large',
+  small: 'medium',
+  detail: 'small',
+};
+
 export function App() {
-  const addTask = useApp((s) => s.addTask);
-  const undo = useApp((s) => s.undo);
-  const redo = useApp((s) => s.redo);
+  const project = useApp((s) => s.project);
+  const level = useApp((s) => s.level);
+  const scopeParentId = useApp((s) => s.scopeParentId);
+  const showIssues = useApp((s) => s.showIssues);
   const canUndo = useApp((s) => s.canUndo);
   const canRedo = useApp((s) => s.canRedo);
+
+  const addTask = useApp((s) => s.addTask);
+  const setLevel = useApp((s) => s.setLevel);
+  const setScope = useApp((s) => s.setScope);
+  const toggleIssues = useApp((s) => s.toggleIssues);
+  const undo = useApp((s) => s.undo);
+  const redo = useApp((s) => s.redo);
+
+  const parentLevel = PARENT_LEVEL[level];
+  const scopeOptions = parentLevel
+    ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
+    : [];
 
   const onSave = () => saveProjectToFile(useApp.getState().project);
   const onOpen = async () => {
     try {
-      const project = await openProjectFromFile();
-      if (project) useApp.getState().loadProject(project);
+      const p = await openProjectFromFile();
+      if (p) useApp.getState().loadProject(p);
     } catch {
       alert('ファイルを開けませんでした（形式が不正です）。');
     }
@@ -24,12 +51,52 @@ export function App() {
       useApp.getState().newProject();
     }
   };
+  const onImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,text/csv';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      useApp.getState().importCsvText(await file.text());
+    };
+    input.click();
+  };
 
   return (
     <div className="app">
       <header className="toolbar">
         <strong className="brand">gantt-flow</strong>
-        <span className="seg">粒度: 中工程</span>
+        <span className="seg">
+          粒度
+          {LEVELS.map((l) => (
+            <button
+              key={l.key}
+              className={l.key === level ? 'on' : ''}
+              onClick={() => setLevel(l.key)}
+            >
+              {l.label}
+            </button>
+          ))}
+        </span>
+        {parentLevel && (
+          <select
+            className="scope"
+            value={scopeParentId ?? ''}
+            onChange={(e) => setScope(e.target.value || undefined)}
+          >
+            <option value="">（スコープ: 全体）</option>
+            {scopeOptions.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <label className="toggle">
+          <input type="checkbox" checked={showIssues} onChange={toggleIssues} />
+          課題
+        </label>
         <span className="spacer" />
         <button onClick={() => addTask('新規作業')}>＋作業を追加</button>
         <button onClick={undo} disabled={!canUndo}>
@@ -40,6 +107,7 @@ export function App() {
         </button>
         <span className="sep" />
         <button onClick={onNew}>新規</button>
+        <button onClick={onImport}>取り込み(CSV)</button>
         <button onClick={onOpen}>開く</button>
         <button onClick={onSave}>保存</button>
       </header>

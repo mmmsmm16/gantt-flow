@@ -62,4 +62,40 @@ describe('app store（command → reconcile → history）', () => {
     expect(taskNodes(s2)).toHaveLength(2);
     expect(s2.getState().canUndo).toBe(false); // 開いた直後は履歴なし
   });
+
+  it('粒度切替は undo 対象にならない（replaceTop）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    expect(s.getState().canUndo).toBe(true);
+    s.getState().setLevel('large');
+    expect(s.getState().level).toBe('large');
+    // 切替直後も「直前のA追加」までは戻れる（切替自体は履歴を増やさない）
+    expect(s.getState().canUndo).toBe(true);
+  });
+
+  it('CSV 取り込みで新規プロジェクトになる', () => {
+    const s = createAppStore();
+    s.getState().importCsvText('作業名,粒度\nA,中\nB,中');
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(2);
+    expect(s.getState().canUndo).toBe(false); // 取り込みは履歴リセット
+  });
+
+  it('別レーンへドラッグすると担当が書き戻る（逆同期）', () => {
+    const s = createAppStore();
+    // 2 つの担当（=2 レーン）を用意
+    s.getState().addTask('A');
+    const a = taskNodes(s)[0]!.taskId;
+    s.getState().setAssigneeByName(a, '営業');
+    s.getState().addTask('B');
+    const b = Object.values(s.getState().project.core.tasks).find((t) => t.name === 'B')!.id;
+    s.getState().setAssigneeByName(b, '倉庫');
+
+    const view = view0(s);
+    const laneByName = (name: string) => Object.values(view.lanes).find((l) => l.title === name)!;
+    const soukoOrder = laneByName('倉庫').order;
+    // A のノードを倉庫レーンの y へドラッグ
+    const aNode = taskNodes(s).find((n) => n.taskId === a)!;
+    s.getState().moveNode(aNode.id, 300, 40 + soukoOrder * 120);
+    expect(s.getState().project.core.tasks[a]!.assigneeId).toBe(view.lanes[laneByName('倉庫').id]!.assigneeId);
+  });
 });

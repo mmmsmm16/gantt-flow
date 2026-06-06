@@ -11,12 +11,16 @@ export function TableView() {
   const addIo = useApp((s) => s.addIo);
   const addIssue = useApp((s) => s.addIssue);
 
-  const tasks: ProcessTask[] = Object.values(project.core.tasks).sort(
-    (a, b) => a.order - b.order,
-  );
+  const level = useApp((s) => s.level);
+  const scopeParentId = useApp((s) => s.scopeParentId);
+
+  // 現在の粒度・スコープの兄弟だけを表示（粒度フィルタ）
+  const tasks: ProcessTask[] = Object.values(project.core.tasks)
+    .filter((t) => t.level === level && (t.parentId ?? undefined) === (scopeParentId ?? undefined))
+    .sort((a, b) => a.order - b.order);
 
   if (tasks.length === 0) {
-    return <p className="empty">「＋作業を追加」から始めてください。</p>;
+    return <p className="empty">この粒度・スコープには作業がありません。「＋作業を追加」から始めてください。</p>;
   }
 
   return (

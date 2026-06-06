@@ -1,16 +1,19 @@
-// アプリ状態（Zustand）。core のコマンド＋reconcileProject＋history を薄く包むだけ。
+// アプリ状態（Zustand）。core のコマンド＋reconcileProject＋history を薄く包む。
 // 「コマンド → reconcileProject → history.push」が 1 編集＝1 undo 単位（docs/01-architecture §6）。
 import { create } from 'zustand';
 import { createStore, type StateCreator } from 'zustand/vanilla';
 import {
   type Project,
   type Id,
+  type ProcessLevel,
   type FlowNodeId,
+  type FlowLevelView,
   CURRENT_SCHEMA_VERSION,
   uuid,
   createHistory,
   reconcileProject,
   ensureLevelView,
+  importCsv,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setAssignee as cSetAssignee,
@@ -19,6 +22,18 @@ import {
   addIoItem as cAddIoItem,
   addIssueItem as cAddIssueItem,
 } from '@gantt-flow/core';
+
+const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
+const LEVELS: ProcessLevel[] = ['large', 'medium', 'small', 'detail'];
+
+export const findView = (
+  p: Project,
+  level: ProcessLevel,
+  scopeParentId?: Id,
+): FlowLevelView | undefined =>
+  p.flow.byLevel.find(
+    (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+  );
 
 function initialProject(): Project {
   const now = new Date().toISOString();
@@ -37,6 +52,9 @@ export interface AppState {
   canUndo: boolean;
   canRedo: boolean;
   selectedTaskId?: Id;
+  level: ProcessLevel;
+  scopeParentId?: Id;
+  showIssues: boolean;
 
   addTask: (name: string) => void;
   renameTask: (taskId: Id, name: string) => void;
@@ -46,10 +64,14 @@ export interface AppState {
   addIssue: (taskId: Id, text: string) => void;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
   select: (taskId?: Id) => void;
+  setLevel: (level: ProcessLevel) => void;
+  setScope: (scopeParentId?: Id) => void;
+  toggleIssues: () => void;
   undo: () => void;
   redo: () => void;
-  loadProject: (project: Project) => void; // ファイルを開く
-  newProject: () => void; // 新規
+  loadProject: (project: Project) => void;
+  importCsvText: (text: string) => void;
+  newProject: () => void;
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
@@ -63,10 +85,33 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       ...extra,
     });
 
-  // core/details を変えるコマンド: reconcile して履歴に積む（1 undo 単位）
+  // core/details を変えるコマンド: 現在ビューを保証 → reconcile → 履歴 push（1 undo 単位）
   const commit = (p: Project) => {
-    history.push(reconcileProject(p, uuid));
+    const withView = ensureLevelView(p, get().level, get().scopeParentId);
+    history.push(reconcileProject(withView, uuid));
     sync();
+  };
+
+  // ファイルを開く/新規/取り込み: 既定ビューを保証して履歴をリセット（undo 不可の境界）
+  const adopt = (p: Project, level: ProcessLevel, scopeParentId?: Id) => {
+    const reconciled = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
+    history.reset(reconciled);
+    set({
+      project: reconciled,
+      canUndo: false,
+      canRedo: false,
+      selectedTaskId: undefined,
+      level,
+      scopeParentId,
+    });
+  };
+
+  const defaultScopeFor = (level: ProcessLevel): Id | undefined => {
+    if (level === 'large') return undefined;
+    const parentRank = RANK[level] - 1;
+    const parentLevel = LEVELS[parentRank]!;
+    const candidate = Object.values(get().project.core.tasks).find((t) => t.level === parentLevel);
+    return candidate?.id;
   };
 
   return {
@@ -74,8 +119,18 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     canUndo: false,
     canRedo: false,
     selectedTaskId: undefined,
+    level: 'medium',
+    scopeParentId: undefined,
+    showIssues: true,
 
-    addTask: (name) => commit(cAddTask(get().project, { name: name || '新規作業', level: 'medium' }, uuid)),
+    addTask: (name) =>
+      commit(
+        cAddTask(
+          get().project,
+          { name: name || '新規作業', level: get().level, parentId: get().scopeParentId },
+          uuid,
+        ),
+      ),
 
     renameTask: (taskId, name) => commit(cRenameTask(get().project, taskId, name)),
 
@@ -107,19 +162,50 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
     addIssue: (taskId, text) => commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid)),
 
-    // フローのオーバーレイ移動（ドラッグ確定）。reconcile 不要、配置だけ変えて履歴に積む。
+    // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     moveNode: (nodeId, x, y) => {
+      const { level, scopeParentId } = get();
       const p = structuredClone(get().project);
-      const view = p.flow.byLevel[0];
+      const vi = p.flow.byLevel.findIndex(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      const view = p.flow.byLevel[vi];
       const node = view?.nodes[nodeId];
-      if (!node) return;
+      if (!view || !node) return;
       node.x = x;
       node.y = y;
+
+      if (node.kind === 'task') {
+        const laneOrder = Math.max(0, Math.round((y - 40) / 120));
+        const lane = Object.values(view.lanes).find((l) => l.order === laneOrder);
+        const task = p.core.tasks[node.taskId];
+        if (lane?.assigneeId && task && task.assigneeId !== lane.assigneeId) {
+          task.assigneeId = lane.assigneeId; // 逆同期: レーン → 担当
+          history.push(reconcileProject(p, uuid));
+          sync();
+          return;
+        }
+      }
       history.push(p);
       sync();
     },
 
     select: (taskId) => set({ selectedTaskId: taskId }),
+
+    setLevel: (level) => {
+      const scopeParentId = defaultScopeFor(level);
+      const reconciled = reconcileProject(ensureLevelView(get().project, level, scopeParentId), uuid);
+      history.replaceTop(reconciled); // 粒度切替はビュー状態（undo 対象外）
+      set({ project: reconciled, level, scopeParentId, selectedTaskId: undefined });
+    },
+
+    setScope: (scopeParentId) => {
+      const reconciled = reconcileProject(ensureLevelView(get().project, get().level, scopeParentId), uuid);
+      history.replaceTop(reconciled);
+      set({ project: reconciled, scopeParentId, selectedTaskId: undefined });
+    },
+
+    toggleIssues: () => set({ showIssues: !get().showIssues }),
 
     undo: () => {
       if (history.undo()) sync();
@@ -129,19 +215,17 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     loadProject: (project) => {
-      // 開いたプロジェクトをそのまま採用（フロー配置も保持）。履歴はリセット。
-      history.reset(project);
-      sync({ selectedTaskId: undefined });
+      const first = project.flow.byLevel[0];
+      adopt(project, first?.level ?? 'medium', first?.scopeParentId);
     },
-    newProject: () => {
-      history.reset(initialProject());
-      sync({ selectedTaskId: undefined });
+    importCsvText: (text) => {
+      const { project } = importCsv(text, uuid);
+      const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
+      adopt(project, hasLarge ? 'large' : 'medium', undefined);
     },
+    newProject: () => adopt(initialProject(), 'medium', undefined),
   };
 };
 
-// React 用シングルトン
 export const useApp = create<AppState>(appStateCreator);
-
-// テスト用にヘッドレスな vanilla ストアを作る
 export const createAppStore = () => createStore<AppState>(appStateCreator);
