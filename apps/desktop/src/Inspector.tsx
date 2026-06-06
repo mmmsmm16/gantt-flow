@@ -1,4 +1,4 @@
-import type { Automation, Difficulty, IoItem, IoKind, IssueItem } from '@gantt-flow/core';
+import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem } from '@gantt-flow/core';
 import { effortRollupMinutes, formatMinutes } from '@gantt-flow/core';
 import { useApp } from './store';
 
@@ -13,6 +13,8 @@ export function Inspector() {
   const addIssue = useApp((s) => s.addIssue);
   const updateIssue = useApp((s) => s.updateIssue);
   const removeIssue = useApp((s) => s.removeIssue);
+  const addDependency = useApp((s) => s.addDependency);
+  const removeDependency = useApp((s) => s.removeDependency);
 
   if (!taskId) return null;
   const task = project.core.tasks[taskId];
@@ -24,6 +26,20 @@ export function Inspector() {
     ...(d?.inputs ?? []).map((item) => ({ item, io: 'inputs' as const })),
     ...(d?.outputs ?? []).map((item) => ({ item, io: 'outputs' as const })),
   ];
+
+  const deps = Object.values(project.core.dependencies);
+  const preds = deps.filter((dep) => dep.to === taskId);
+  const succs = deps.filter((dep) => dep.from === taskId);
+  const predIds = new Set(preds.map((dep) => dep.from));
+  const succIds = new Set(succs.map((dep) => dep.to));
+  const siblings = Object.values(project.core.tasks).filter(
+    (o) =>
+      o.id !== taskId &&
+      (o.parentId ?? undefined) === (task.parentId ?? undefined) &&
+      o.level === task.level,
+  );
+  const depCandidates = siblings.filter((o) => !predIds.has(o.id) && !succIds.has(o.id));
+  const nameOf = (id: Id) => project.core.tasks[id]?.name ?? '（不明）';
 
   return (
     <aside className="inspector" key={taskId}>
@@ -60,6 +76,65 @@ export function Inspector() {
           )}
           <label>備考</label>
           <textarea defaultValue={d?.note ?? ''} onBlur={(e) => updateDetail(taskId, { note: e.target.value })} />
+        </section>
+
+        <section>
+          <h3>前工程 / 次工程</h3>
+          <label>前工程（この工程の前に行う）</label>
+          {preds.length === 0 && <p className="hint">なし</p>}
+          {preds.map((dep) => (
+            <div className="dep-row" key={dep.id}>
+              <span className="dep-name">{nameOf(dep.from)}</span>
+              <button className="x" aria-label="前工程を解除" onClick={() => removeDependency(dep.id)}>
+                ×
+              </button>
+            </div>
+          ))}
+          {depCandidates.length > 0 && (
+            <select
+              className="dep-add"
+              value=""
+              aria-label="前工程を追加"
+              onChange={(e) => {
+                if (e.target.value) addDependency(e.target.value, taskId);
+              }}
+            >
+              <option value="">＋ 前工程を追加…</option>
+              {depCandidates.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <label>次工程（この工程の後に行う）</label>
+          {succs.length === 0 && <p className="hint">なし</p>}
+          {succs.map((dep) => (
+            <div className="dep-row" key={dep.id}>
+              <span className="dep-name">{nameOf(dep.to)}</span>
+              <button className="x" aria-label="次工程を解除" onClick={() => removeDependency(dep.id)}>
+                ×
+              </button>
+            </div>
+          ))}
+          {depCandidates.length > 0 && (
+            <select
+              className="dep-add"
+              value=""
+              aria-label="次工程を追加"
+              onChange={(e) => {
+                if (e.target.value) addDependency(taskId, e.target.value);
+              }}
+            >
+              <option value="">＋ 次工程を追加…</option>
+              {depCandidates.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          )}
         </section>
 
         <section>

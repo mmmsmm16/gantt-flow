@@ -27,6 +27,7 @@ import {
   setAssignee as cSetAssignee,
   addAssignee as cAddAssignee,
   addDependency as cAddDependency,
+  removeDependency as cRemoveDependency,
   addIoItem as cAddIoItem,
   removeIoItem as cRemoveIoItem,
   updateIoItem as cUpdateIoItem,
@@ -78,6 +79,8 @@ export interface AppState {
   renameTask: (taskId: Id, name: string) => void;
   setAssigneeByName: (taskId: Id, name: string) => void;
   addDependency: (from: Id, to: Id) => void;
+  removeDependency: (depId: Id) => void;
+  addSiblingOf: (taskId: Id) => Id | undefined;
   addIo: (taskId: Id, io: 'inputs' | 'outputs', name: string) => void;
   updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>) => void;
   removeIo: (taskId: Id, ioId: Id) => void;
@@ -212,6 +215,17 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     addDependency: (from, to) => {
       if (!from || !to || from === to) return;
       commit(cAddDependency(get().project, from, to, uuid));
+    },
+
+    removeDependency: (depId) => commit(cRemoveDependency(get().project, depId)),
+
+    // 「次行を追加」: 同じ親・同じ粒度の兄弟を末尾に足し、新タスクの id を返す（フォーカス用）。
+    addSiblingOf: (taskId) => {
+      const t = get().project.core.tasks[taskId];
+      if (!t) return undefined;
+      const before = new Set(Object.keys(get().project.core.tasks));
+      commit(cAddTask(get().project, { name: '', level: t.level, parentId: t.parentId }, uuid));
+      return Object.keys(get().project.core.tasks).find((id) => !before.has(id));
     },
 
     addIo: (taskId, io, name) => {

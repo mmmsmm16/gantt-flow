@@ -44,6 +44,7 @@ export function App() {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
+  const tableWide = useUI((s) => s.tableWide);
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
@@ -161,15 +162,19 @@ export function App() {
           {theme === 'dark' ? '☀' : '☾'}
         </button>
       </header>
-      <div className={`panes${selectedTaskId ? ' with-inspector' : ''}`}>
+      <div
+        className={`panes${selectedTaskId ? ' with-inspector' : ''}${tableWide ? ' table-wide' : ''}`}
+      >
         <section className="pane table-pane">
           <h2>工程表（手順一覧表）</h2>
           <TableView />
         </section>
-        <section className="pane flow-pane">
-          <h2>工程フロー</h2>
-          <FlowCanvas />
-        </section>
+        {!tableWide && (
+          <section className="pane flow-pane">
+            <h2>工程フロー</h2>
+            <FlowCanvas />
+          </section>
+        )}
         {selectedTaskId && (
           <section className="pane inspector-pane">
             <Inspector />

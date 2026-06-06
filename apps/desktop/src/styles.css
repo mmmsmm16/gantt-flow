@@ -348,7 +348,7 @@ button.danger:hover {
 }
 .grid td {
   border-bottom: 1px solid var(--line-faint);
-  padding: 3px 8px;
+  padding: 5px 8px;
   vertical-align: middle;
 }
 .grid tbody tr {
@@ -367,10 +367,75 @@ button.danger:hover {
   font-size: 13px;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 5px 7px;
+  padding: 6px 8px;
   width: 100%;
   background: transparent;
   color: var(--ink);
+}
+
+/* ---- 工程表（入力強化: 列・チップ・前後工程・全幅） ---- */
+.outline-actions .wide-toggle {
+  margin-left: auto;
+}
+.c-effort {
+  width: 78px;
+}
+.c-detail {
+  width: 92px;
+}
+.effort-input {
+  text-align: right;
+}
+.effort-roll {
+  display: block;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding-right: 7px;
+}
+.detail-chips {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.detail-empty {
+  color: var(--faint);
+  padding-left: 4px;
+}
+.chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.chip-io {
+  background: var(--in-fill);
+  color: var(--in);
+}
+.chip-issue {
+  background: var(--red-fill);
+  color: var(--red);
+}
+.dep-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.dep-row .dep-name {
+  flex: 1;
+  font-size: 13px;
+}
+.dep-add {
+  margin-top: 4px;
+}
+.panes.table-wide {
+  grid-template-columns: 1fr;
+}
+.panes.table-wide.with-inspector {
+  grid-template-columns: 1fr 360px;
 }
 .grid input:hover,
 .grid select:hover {
@@ -389,7 +454,7 @@ button.danger:hover {
   width: 64px;
 }
 .c-assignee {
-  width: 110px;
+  width: 132px;
 }
 .c-prev {
   width: 110px;

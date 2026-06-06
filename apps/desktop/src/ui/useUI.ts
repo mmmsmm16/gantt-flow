@@ -1,5 +1,5 @@
 // UI 状態（ドメインストアとは別系統。undo/redo 履歴を汚さない）。
-// テーマ＋自前ダイアログ（confirm/prompt）＋トースト。素の window.* を置き換える。
+// テーマ＋自前ダイアログ（confirm/prompt）＋トースト＋表レイアウト（表を広く）。
 import { create } from 'zustand';
 
 export type Theme = 'light' | 'dark';
@@ -54,6 +54,10 @@ interface UIState {
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 
+  /** 工程表に集中するため、フローを畳んで表を全幅にする。 */
+  tableWide: boolean;
+  toggleTableWide: () => void;
+
   dialog: Dialog | null;
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
   promptText: (opts: PromptOpts) => Promise<string | null>;
@@ -82,6 +86,9 @@ export const useUI = create<UIState>((set, get) => ({
     set({ theme });
   },
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
+
+  tableWide: false,
+  toggleTableWide: () => set({ tableWide: !get().tableWide }),
 
   dialog: null,
   confirm: (opts) =>
