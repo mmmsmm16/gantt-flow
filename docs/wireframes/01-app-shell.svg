@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 z" fill="#475569"/></marker><marker id="arrB" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 z" fill="#2563eb"/></marker></defs>
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#ffffff" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="0" y="0" width="1440" height="52" rx="0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="24" y="33" font-family="IPAGothic, sans-serif" font-size="18" fill="#334155" font-weight="bold" text-anchor="start">gantt-flow</text>
+<text x="490" y="33" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">粒度</text>
+<rect x="560" y="14" width="54" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="587" y="31" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">大</text>
+<rect x="614" y="14" width="54" height="26" rx="6" fill="#2563eb" stroke="#2563eb" stroke-width="1.4"/>
+<text x="641" y="31" font-family="IPAGothic, sans-serif" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">中</text>
+<rect x="668" y="14" width="54" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="695" y="31" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">小</text>
+<rect x="722" y="14" width="54" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="749" y="31" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">詳細</text>
+<rect x="1344" y="14" width="72" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="1380" y="31" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="middle">保存</text>
+<rect x="1190" y="14" width="66" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="1223" y="31" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="middle">戻す</text>
+<rect x="1264" y="14" width="72" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="1300" y="31" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="middle">やり直し</text>
+<rect x="16" y="64" width="556" height="820" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<rect x="16" y="64" width="556" height="34" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="30" y="86" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">工程表（手順一覧表）</text>
+<text x="30" y="120" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">工程No</text>
+<text x="102" y="120" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">作業名</text>
+<text x="316" y="120" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">担当</text>
+<text x="406" y="120" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">粒度</text>
+<text x="476" y="120" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">工数</text>
+<line x1="26" y1="128" x2="562" y2="128" stroke="#cbd5e1" stroke-width="1"/>
+<text x="30" y="160" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="bold" text-anchor="start">1</text>
+<polygon points="88,151 88,159 95,155" fill="#64748b"/>
+<text x="102" y="160" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="bold" text-anchor="start">受注処理</text>
+<text x="316" y="160" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">営業部</text>
+<text x="406" y="160" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="normal" text-anchor="start">大</text>
+<text x="476" y="160" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="normal" text-anchor="start">2.5h*</text>
+<rect x="24" y="174" width="540" height="30" rx="5" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="30" y="194" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1-1</text>
+<polygon points="104,185 104,193 111,189" fill="#64748b"/>
+<text x="118" y="194" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">注文書受付</text>
+<text x="316" y="194" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">営業</text>
+<text x="406" y="194" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="normal" text-anchor="start">中</text>
+<text x="476" y="194" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1.0h</text>
+<text x="30" y="228" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1-1-1</text>
+<circle cx="123" cy="223" r="2.4" fill="#64748b"/>
+<text x="134" y="228" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">受注内容を確認</text>
+<text x="316" y="228" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">営業</text>
+<text x="406" y="228" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="normal" text-anchor="start">小</text>
+<text x="476" y="228" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">10分</text>
+<text x="30" y="262" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1-1-2</text>
+<circle cx="123" cy="257" r="2.4" fill="#64748b"/>
+<text x="134" y="262" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">在庫を引当</text>
+<text x="316" y="262" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">倉庫</text>
+<text x="406" y="262" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="normal" text-anchor="start">小</text>
+<text x="476" y="262" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">5分</text>
+<text x="30" y="296" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1-2</text>
+<polygon points="104,287 104,295 111,291" fill="#64748b"/>
+<text x="118" y="296" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">出荷準備</text>
+<text x="316" y="296" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">倉庫</text>
+<text x="406" y="296" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="normal" text-anchor="start">中</text>
+<text x="476" y="296" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1.5h</text>
+<text x="30" y="330" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1-2-1</text>
+<circle cx="123" cy="325" r="2.4" fill="#64748b"/>
+<text x="134" y="330" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">出荷指示</text>
+<text x="316" y="330" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">倉庫</text>
+<text x="406" y="330" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="normal" text-anchor="start">小</text>
+<text x="476" y="330" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">5分</text>
+<text x="30" y="360" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="normal" text-anchor="start">* 親の工数=子の合計（集計・読み取り専用）</text>
+<rect x="588" y="64" width="612" height="820" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<rect x="588" y="64" width="612" height="34" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="602" y="86" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">工程フロー（中工程・スコープ: 大1 受注処理）</text>
+<rect x="680" y="150" width="504" height="286" rx="4" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="680" y="150" width="504" height="22" rx="0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="690" y="166" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="normal" text-anchor="start">大: 受注処理（祖先範囲バンド）</text>
+<line x1="602" y1="176" x2="1184" y2="176" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="602" y1="306" x2="1184" y2="306" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="602" y1="436" x2="1184" y2="436" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="680" y1="176" x2="680" y2="436" stroke="#e2e8f0" stroke-width="1.2"/>
+<text x="640" y="246.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="bold" text-anchor="middle">営業</text>
+<text x="640" y="376.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="bold" text-anchor="middle">倉庫</text>
+<rect x="798" y="221" width="150" height="40" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<text x="873" y="246" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">注文書受付</text>
+<path d="M770,199 h54 v34 q-13.5,7 -27.0,0 q-13.5,-7 -27.0,0 z" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/><text x="797.0" y="220.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#2563eb" font-weight="bold" text-anchor="middle">注文書</text>
+<path d="M922,247 h54 v34 q-13.5,7 -27.0,0 q-13.5,-7 -27.0,0 z" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/><text x="949.0" y="268.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#16a34a" font-weight="bold" text-anchor="middle">受付票</text>
+<line x1="873" y1="261" x2="971" y2="349" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="896" y="351" width="150" height="40" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<text x="971" y="376" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">出荷準備</text>
+<line x1="1046" y1="371" x2="1064" y2="371" stroke="#aab2bd" stroke-width="1.0"/>
+<rect x="1064" y="353" width="72" height="36" rx="0" fill="#fee2e2" stroke="#dc2626" stroke-width="1.4"/>
+<text x="1100" y="375" font-family="IPAGothic, sans-serif" font-size="12" fill="#dc2626" font-weight="bold" text-anchor="middle">課題</text>
+<line x1="608" y1="840" x2="638" y2="840" stroke="#475569" stroke-width="2" marker-end="url(#arr)"/>
+<text x="646" y="844" font-family="IPAGothic, sans-serif" font-size="11" fill="#475569" font-weight="normal" text-anchor="start">流れ(工程間)</text>
+<text x="738" y="844" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="normal" text-anchor="start">帳票=角に重ねる(入=左上/出=右下)</text>
+<line x1="998" y1="840" x2="1028" y2="840" stroke="#aab2bd" stroke-width="1.0"/>
+<text x="1036" y="844" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="normal" text-anchor="start">課題=重ねず空きに</text>
+<path d="M564,189.0 C558,189.0 906,161 906,219" fill="none" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrB)"/>
+<text x="596" y="183.0" font-family="IPAGothic, sans-serif" font-size="11" fill="#2563eb" font-weight="bold" text-anchor="middle">リンク選択</text>
+<rect x="1216" y="64" width="208" height="820" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<rect x="1216" y="64" width="208" height="34" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="1228" y="86" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">行インスペクタ</text>
+<text x="1228" y="120" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="bold" text-anchor="start">作業名</text>
+<text x="1228" y="136" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">注文書受付</text>
+<text x="1228" y="160" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="bold" text-anchor="start">担当</text>
+<text x="1228" y="176" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">営業</text>
+<text x="1228" y="200" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="bold" text-anchor="start">インプット</text>
+<rect x="1228" y="206" width="70" height="22" rx="11.0" fill="#dbeafe" stroke="#2563eb" stroke-width="1.4"/><text x="1263.0" y="221.0" font-family="IPAGothic, sans-serif" font-size="11" fill="#2563eb" font-weight="bold" text-anchor="middle">注文書</text>
+<text x="1228" y="244" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="bold" text-anchor="start">アウトプット</text>
+<rect x="1228" y="250" width="70" height="22" rx="11.0" fill="#dcfce7" stroke="#16a34a" stroke-width="1.4"/><text x="1263.0" y="265.0" font-family="IPAGothic, sans-serif" font-size="11" fill="#16a34a" font-weight="bold" text-anchor="middle">受付票</text>
+<text x="1228" y="290" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="bold" text-anchor="start">課題 / 方策</text>
+<rect x="1228" y="296" width="184" height="46" rx="5" fill="#fee2e2" stroke="#dc2626" stroke-width="1.4"/>
+<text x="1236" y="312" font-family="IPAGothic, sans-serif" font-size="11" fill="#dc2626" font-weight="normal" text-anchor="start">確認漏れ</text>
+<text x="1236" y="330" font-family="IPAGothic, sans-serif" font-size="11" fill="#334155" font-weight="normal" text-anchor="start">→ チェックリスト化</text>
+<text x="1228" y="364" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="bold" text-anchor="start">使用システム</text>
+<text x="1228" y="380" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">販売管理SYS</text>
+<text x="1228" y="404" font-family="IPAGothic, sans-serif" font-size="11" fill="#64748b" font-weight="bold" text-anchor="start">工数</text>
+<text x="1228" y="420" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="start">1.0h（= 子の合計）</text>
+<text x="1228" y="450" font-family="IPAGothic, sans-serif" font-size="10" fill="#64748b" font-weight="normal" text-anchor="start">（構造化セルは</text>
+<text x="1228" y="464" font-family="IPAGothic, sans-serif" font-size="10" fill="#64748b" font-weight="normal" text-anchor="start"> ここで追加/編集）</text>
+</svg>

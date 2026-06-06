@@ -8,7 +8,70 @@
 - 工程は **大 > 中 > 小 > 詳細** の階層（4 階層は型・深さは可変）で扱い、フローはどの粒度でも閲覧でき、
   親範囲（大/中工程）を帯で可視化する。
 
-> 現段階の成果物は **設計書** です（アプリは未実装）。技術スタックは Tauri 2 + React + TypeScript を想定。
+> 技術スタックは Tauri 2 + React + TypeScript を想定。現在は **設計書 + ドメイン層（`packages/core`）** まで実装済みで、
+> **起動できる GUI アプリはまだありません**（下記「現在の状態」を参照）。
+
+## 現在の状態
+
+| レイヤ | 状態 |
+|---|---|
+| 設計書（`docs/`） | ✅ 完了（仕様・決定事項・UIワイヤー） |
+| `packages/core`（純粋TSドメイン: モデル・コマンド・同期`reconcile`・検証） | ✅ 第1版（Vitest 16件 green） |
+| 永続化 / ストア(Undo) / UI(表・フロー) / Tauri 殻 | ⛔ 未実装 |
+
+→ いま「動かせる」のは **`packages/core` のテスト・型チェック** です。GUI の起動はまだできません。
+
+## はじめかた（開発セットアップ）
+
+前提: **Node.js 22+**（`node -v` で確認）／ npm 10+。
+
+```bash
+# 1. クローン
+git clone https://github.com/mmmsmm16/gantt-flow.git
+cd gantt-flow
+
+# 2. 依存をインストール（npm workspaces）
+npm install
+
+# 3. ドメイン層のテストを実行（同期エンジン等）
+npm test
+
+# 4. 型チェック
+npm run typecheck
+```
+
+`packages/core` 単体で作業する場合:
+
+```bash
+cd packages/core
+npm run test:watch   # 変更監視でテスト
+```
+
+### アプリの起動について
+
+GUI（工程表ビュー / フロービュー）と Tauri デスクトップ殻は**未実装**のため、現時点で起動コマンドはありません。
+実装の進め方は [docs/06-roadmap.md](docs/06-roadmap.md)（Phase 1〜）を参照。起動手順は GUI 実装後にここへ追記します。
+
+### UI ワイヤーフレーム（参考）
+
+`docs/wireframes/` に画面イメージ（PNG）があります。再生成する場合は Python + cairosvg + 日本語フォント(IPAGothic 等)が必要:
+
+```bash
+cd docs/wireframes && python3 build.py
+```
+
+## リポジトリ構成
+
+```
+gantt-flow/
+├── docs/                 # 設計書（00〜08）＋ wireframes/
+├── packages/
+│   └── core/             # 純粋TSドメイン層（UI非依存・Vitest）
+│       ├── src/          # model / commands / sync(reconcile) / validate
+│       └── test/
+├── package.json          # npm workspaces ルート
+└── README.md
+```
 
 ## 設計ドキュメント
 

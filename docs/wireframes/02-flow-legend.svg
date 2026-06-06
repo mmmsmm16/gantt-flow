@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760">
+<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 z" fill="#475569"/></marker><marker id="arrB" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 z" fill="#2563eb"/></marker></defs>
+<rect x="0" y="0" width="1000" height="760" rx="0" fill="#ffffff" stroke="#ffffff" stroke-width="1.4"/>
+<text x="40" y="50" font-family="IPAGothic, sans-serif" font-size="24" fill="#334155" font-weight="bold" text-anchor="start">業務フロー 凡例 / Flow Legend</text>
+<line x1="40" y1="64" x2="960" y2="64" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="40" y="100" font-family="IPAGothic, sans-serif" font-size="16" fill="#334155" font-weight="bold" text-anchor="start">オブジェクト（形＝種類 / 色＝入出力）</text>
+<rect x="40" y="120" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="54" y="144" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">工程（タスク）</text>
+<rect x="86.0" y="176" width="130" height="40" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.8"/>
+<text x="151.0" y="202" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">受注確認</text>
+<rect x="274" y="120" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="288" y="144" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">インプット = 青</text>
+<path d="M307.0,172 h60 v42 q-15.0,7 -30.0,0 q-15.0,-7 -30.0,0 z" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/><text x="337.0" y="197.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#2563eb" font-weight="bold" text-anchor="middle">帳票</text>
+<rect x="391.0" y="182" width="64" height="26" rx="13.0" fill="#dbeafe" stroke="#2563eb" stroke-width="1.4"/><text x="423.0" y="199.0" font-family="IPAGothic, sans-serif" font-size="11" fill="#2563eb" font-weight="bold" text-anchor="middle">情報</text>
+<rect x="508" y="120" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="522" y="144" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">アウトプット = 緑</text>
+<path d="M541.0,172 h60 v42 q-15.0,7 -30.0,0 q-15.0,-7 -30.0,0 z" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/><text x="571.0" y="197.0" font-family="IPAGothic, sans-serif" font-size="12" fill="#16a34a" font-weight="bold" text-anchor="middle">帳票</text>
+<rect x="625.0" y="182" width="64" height="26" rx="13.0" fill="#dcfce7" stroke="#16a34a" stroke-width="1.4"/><text x="657.0" y="199.0" font-family="IPAGothic, sans-serif" font-size="11" fill="#16a34a" font-weight="bold" text-anchor="middle">情報</text>
+<rect x="742" y="120" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="756" y="144" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">課題</text>
+<rect x="821.0" y="176" width="64" height="44" rx="0" fill="#fee2e2" stroke="#dc2626" stroke-width="1.8"/>
+<text x="853.0" y="203" font-family="IPAGothic, sans-serif" font-size="13" fill="#dc2626" font-weight="bold" text-anchor="middle">課題</text>
+<rect x="40" y="264" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="54" y="288" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">開始 / 終了</text>
+<rect x="96.0" y="324" width="110" height="36" rx="18" fill="#ffffff" stroke="#475569" stroke-width="1.8"/>
+<text x="151.0" y="347" font-family="IPAGothic, sans-serif" font-size="12" fill="#334155" font-weight="normal" text-anchor="middle">start / end</text>
+<rect x="274" y="264" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="288" y="288" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">判断（decision）</text>
+<polygon points="385.0,314 413.0,342 385.0,370 357.0,342" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="385.0" y="347" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="middle">?</text>
+<rect x="508" y="264" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="522" y="288" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">合流（merge）</text>
+<circle cx="619.0" cy="342" r="16" fill="#ffffff" stroke="#475569" stroke-width="1.8"/>
+<rect x="742" y="264" width="222" height="130" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.4"/>
+<text x="756" y="288" font-family="IPAGothic, sans-serif" font-size="12" fill="#64748b" font-weight="bold" text-anchor="start">コメント（付箋）</text>
+<rect x="803.0" y="320" width="100" height="44" rx="4" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.6"/>
+<text x="853.0" y="347" font-family="IPAGothic, sans-serif" font-size="12" fill="#ca8a04" font-weight="normal" text-anchor="middle">付箋メモ</text>
+<text x="40" y="432" font-family="IPAGothic, sans-serif" font-size="16" fill="#334155" font-weight="bold" text-anchor="start">コネクタ / 線（矢印は工程間だけ・帳票には引かない）</text>
+<line x1="60" y1="462" x2="240" y2="462" stroke="#475569" stroke-width="2.2" marker-end="url(#arr)"/>
+<text x="270" y="467" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">プロセス矢印（flow）</text>
+<text x="470" y="467" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">工程→工程の流れ・経路解決に影響</text>
+<line x1="60" y1="512" x2="240" y2="512" stroke="#aab2bd" stroke-width="1.0"/>
+<text x="270" y="517" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">課題の線（注釈）</text>
+<text x="470" y="517" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">課題 ↔ 対象（工程 or I/O）・矢頭なし・細く薄い・経路に影響しない</text>
+<path d="M70,544 h50 v34 q-12.5,7 -25.0,0 q-12.5,-7 -25.0,0 z" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="270" y="567" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">帳票/情報は「添える」</text>
+<text x="470" y="567" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">線なし・工程の角に重ねる（入力=左上 / 出力=右下）・色で IN/OUT</text>
+<text x="60" y="611" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="start">※ 例外:</text>
+<text x="130" y="611" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">フローの起点となる帳票/情報からは、最初の工程へプロセス矢印を引いてよい</text>
+</svg>
