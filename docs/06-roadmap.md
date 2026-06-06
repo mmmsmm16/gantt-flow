@@ -23,7 +23,7 @@
 - 制御ノード（開始／終了／**判断**／合流）、`pinned` エッジ、分岐条件ラベル。
 - `userPathExists` による経路尊重（A→判断→B を直接 A→B で潰さない）。
 - レーン移動 → 担当更新（唯一の逆方向同期）。
-- undo/redo（コマンドの逆操作）。
+- undo/redo（コマンド単位のスナップショット復元。`01-architecture.md` §6）。
 - 永続化を `.gflow` ZIP バンドルへ拡張＋マイグレーション v1→v2、autosave／競合検知。
 
 ## Phase 4 — 入出力（pluggable）
