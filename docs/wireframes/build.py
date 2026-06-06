@@ -163,35 +163,33 @@ def shell():
     # nodes (decluttered: no start/end pills; pills are in the legend)
     n1x, n1y = band_x+150, top+162    # 注文書受付 (営業) highlighted
     n2x, n2y = band_x+250, top+278    # 出荷準備 (倉庫)
-    # input doc (blue) — フローの起点トリガなので例外的にプロセス矢印を引く
-    s.append(doc(band_x+24, n1y+1, 56, 38, BLU, BLU_F, "注文書"))
-    s.append(t(band_x+52, n1y-7, "起点", 10, MUT, "normal", "middle"))
-    s.append(arrow(band_x+82, n1y+20, n1x-3, n1y+20, NODE))  # 起点帳票→最初の工程＝流れ矢印
     # node1 highlighted
     s.append(rect(n1x, n1y, 150, 40, ACC_FILL, ACC, rx=6, sw=2))
     s.append(t(n1x+75, n1y+25, "注文書受付", 13, ACC, "bold", "middle"))
-    # output doc (green) — 「添える」だけ（接続線なし）。出力側にぴったり寄せる
-    s.append(doc(n1x+156, n1y+1, 56, 38, GRN, GRN_F, "受付票"))
+    # I/O は工程の「角に重ねて添える」: 入力=左上 / 出力=右下（接続線なし・重なりOK）
+    s.append(doc(n1x-28, n1y-22, 54, 34, BLU, BLU_F, "注文書"))   # 入力: 左上に重ねる
+    s.append(doc(n1x+124, n1y+26, 54, 34, GRN, GRN_F, "受付票"))  # 出力: 右下に重ねる
     # arrow node1 -> node2 (営業 → 倉庫, crosses lanes)
     s.append(arrow(n1x+75, n1y+40, n2x+75, n2y-2, NODE))
     # node2
     s.append(rect(n2x, n2y, 150, 40, "#ffffff", NODE, rx=6))
     s.append(t(n2x+75, n2y+25, "出荷準備", 13, INK, "bold", "middle"))
-    # issue (red, 直角) ABOVE node2; plain thin light line (no arrow) to node2
-    s.append(rect(n2x+40, n2y-46, 90, 32, RED_F, RED, rx=0))
-    s.append(t(n2x+85, n2y-25, "課題", 12, RED, "bold", "middle"))
-    s.append(pline(n2x+82, n2y-14, n2x+78, n2y-1))
+    # issue (red, 直角) — 他オブジェクトと重ならない空きスペース(node2の右)へ配置
+    iqx, iqy = n2x+168, n2y+2
+    s.append(pline(n2x+150, n2y+20, iqx, iqy+18))      # 細い薄線(矢頭なし)
+    s.append(rect(iqx, iqy, 72, 36, RED_F, RED, rx=0))
+    s.append(t(iqx+36, iqy+22, "課題", 12, RED, "bold", "middle"))
     # legend mini
     ly0 = top+pane_h-40
     s.append(arrow(flw_x+20, ly0-4, flw_x+50, ly0-4, NODE, sw=2))
     s.append(t(flw_x+58, ly0, "流れ(工程間)", 11, NODE))
-    s.append(t(flw_x+150, ly0, "帳票/情報=添える(線なし)・色で入出力", 11, MUT))
-    s.append(pline(flw_x+390, ly0-4, flw_x+420, ly0-4))
-    s.append(t(flw_x+428, ly0, "課題の線(細・薄)", 11, MUT))
+    s.append(t(flw_x+150, ly0, "帳票=角に重ねる(入=左上/出=右下)", 11, MUT))
+    s.append(pline(flw_x+410, ly0-4, flw_x+440, ly0-4))
+    s.append(t(flw_x+448, ly0, "課題=重ねず空きに", 11, MUT))
 
-    # ===== linked selection connector (table row -> flow node top)
+    # ===== linked selection connector (table row -> flow node top, 左上の帳票を避けて右寄り)
     s.append(f'<path d="M{tbl_x+tbl_w-8},{hl_row_y} C{flw_x-30},{hl_row_y} '
-             f'{n1x+30},{n1y-60} {n1x+30},{n1y-2}" fill="none" stroke="{ACC}" '
+             f'{n1x+108},{n1y-60} {n1x+108},{n1y-2}" fill="none" stroke="{ACC}" '
              f'stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrB)"/>')
     s.append(t(flw_x+8, hl_row_y-6, "リンク選択", 11, ACC, "bold", "middle"))
 
@@ -298,7 +296,7 @@ def legend():
     # I/O rule note
     s.append(doc(70, ly-18, 50, 34, BLU, BLU_F, ""))
     s.append(t(270, ly+5, "帳票/情報は「添える」", 14, INK, "bold"))
-    s.append(t(470, ly+5, "線は引かず工程の入力/出力側に置く・位置＋色で IN/OUT", 13, MUT))
+    s.append(t(470, ly+5, "線なし・工程の角に重ねる（入力=左上 / 出力=右下）・色で IN/OUT", 13, MUT))
     ly += 44
     s.append(t(60, ly+5, "※ 例外:", 13, INK, "bold"))
     s.append(t(130, ly+5, "フローの起点となる帳票/情報からは、最初の工程へプロセス矢印を引いてよい", 13, MUT))

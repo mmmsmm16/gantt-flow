@@ -44,7 +44,7 @@
 <text x="470" y="517" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">課題 ↔ 対象（工程 or I/O）・矢頭なし・細く薄い・経路に影響しない</text>
 <path d="M70,544 h50 v34 q-12.5,7 -25.0,0 q-12.5,-7 -25.0,0 z" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
 <text x="270" y="567" font-family="IPAGothic, sans-serif" font-size="14" fill="#334155" font-weight="bold" text-anchor="start">帳票/情報は「添える」</text>
-<text x="470" y="567" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">線は引かず工程の入力/出力側に置く・位置＋色で IN/OUT</text>
+<text x="470" y="567" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">線なし・工程の角に重ねる（入力=左上 / 出力=右下）・色で IN/OUT</text>
 <text x="60" y="611" font-family="IPAGothic, sans-serif" font-size="13" fill="#334155" font-weight="bold" text-anchor="start">※ 例外:</text>
 <text x="130" y="611" font-family="IPAGothic, sans-serif" font-size="13" fill="#64748b" font-weight="normal" text-anchor="start">フローの起点となる帳票/情報からは、最初の工程へプロセス矢印を引いてよい</text>
 </svg>
