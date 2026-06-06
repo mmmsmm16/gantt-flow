@@ -6,11 +6,15 @@ import type {
   TaskDetail,
   FlowLevelView,
   FlowTaskNode,
+  FlowDocNode,
+  FlowIssueNote,
   FlowEdge,
+  IssueTarget,
   Id,
   FlowNodeId,
 } from '../model/types';
 import type { IdGen } from '../ids';
+import { placeInputDoc, placeOutputDoc, placeClear } from './autoPlace';
 
 export interface SyncReport {
   added: FlowNodeId[]; // 自動追加したノード
@@ -26,7 +30,7 @@ const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
 
 export function reconcileFlow(
   core: Core,
-  _details: Record<Id, TaskDetail>,
+  details: Record<Id, TaskDetail>,
   view: FlowLevelView,
   idGen: IdGen,
 ): { view: FlowLevelView; report: SyncReport } {
@@ -142,6 +146,95 @@ export function reconcileFlow(
     const id = idGen();
     next.edges[id] = { id, source: s, target: t, derivedFromDependencyId: d.id, role: 'flow' };
     pairExists.add(`${s}->${t}`);
+  }
+
+  // 6. I/O・課題オブジェクト: 表(TaskDetail)を源泉に存在を導出。配置/表示は安定IDで保持。
+  //    帳票/情報は工程の角に重ねて配置、課題は重ならない空きへ。
+  for (const t of targets) {
+    const taskNodeId = nodeIdByTask.get(t.id);
+    if (!taskNodeId) continue;
+    const taskNode = next.nodes[taskNodeId] as FlowTaskNode;
+    const d = details[t.id];
+    const inputs = d?.inputs ?? [];
+    const outputs = d?.outputs ?? [];
+    const issues = d?.issues ?? [];
+
+    // 6a. I/O ノード（IoItem 1件 ⇔ doc ノード 1個）
+    const docByIo = new Map<Id, FlowDocNode>();
+    for (const n of Object.values(next.nodes)) {
+      if (n.kind === 'doc' && n.taskId === t.id) docByIo.set(n.ioId, n);
+    }
+    const ensureDoc = (ioId: Id, io: 'input' | 'output', index: number) => {
+      const existing = docByIo.get(ioId);
+      if (existing) {
+        existing.io = io; // x/y は保持
+        return;
+      }
+      const id = idGen();
+      const pos = io === 'input' ? placeInputDoc(taskNode, index) : placeOutputDoc(taskNode, index);
+      const node: FlowDocNode = { id, kind: 'doc', io, taskId: t.id, ioId, x: pos.x, y: pos.y };
+      next.nodes[id] = node;
+      docByIo.set(ioId, node);
+      report.added.push(id);
+    };
+    const wantIo = new Set<Id>();
+    inputs.forEach((item, k) => {
+      wantIo.add(item.id);
+      ensureDoc(item.id, 'input', k);
+    });
+    outputs.forEach((item, k) => {
+      wantIo.add(item.id);
+      ensureDoc(item.id, 'output', k);
+    });
+    for (const n of Object.values(next.nodes)) {
+      if (n.kind === 'doc' && n.taskId === t.id && !wantIo.has(n.ioId)) {
+        delete next.nodes[n.id];
+        report.removed.push(n.id);
+      }
+    }
+
+    // 6b. 課題ノード（IssueItem 1件 ⇔ issue ノード 1個）。対象を解決（消失時はタスクへ寄せる）。
+    const resolveTarget = (target: IssueTarget | undefined): FlowNodeId => {
+      if (target && target.kind === 'io') {
+        const doc = docByIo.get(target.ioId);
+        if (doc && next.nodes[doc.id]) return doc.id; // 実在する doc のみ。消失時はタスクへ
+      }
+      return taskNode.id;
+    };
+    const noteByIssue = new Map<Id, FlowIssueNote>();
+    for (const n of Object.values(next.nodes)) {
+      if (n.kind === 'issue' && n.taskId === t.id) noteByIssue.set(n.issueId, n);
+    }
+    const wantIssue = new Set<Id>();
+    for (const item of issues) {
+      wantIssue.add(item.id);
+      const existing = noteByIssue.get(item.id);
+      if (existing) {
+        existing.targetNodeId = resolveTarget(item.target); // x/y・visible は保持
+        continue;
+      }
+      const id = idGen();
+      const pos = placeClear(taskNode, Object.values(next.nodes));
+      const node: FlowIssueNote = {
+        id,
+        kind: 'issue',
+        taskId: t.id,
+        issueId: item.id,
+        targetNodeId: resolveTarget(item.target),
+        x: pos.x,
+        y: pos.y,
+        visible: true,
+      };
+      next.nodes[id] = node;
+      noteByIssue.set(item.id, node);
+      report.added.push(id);
+    }
+    for (const n of Object.values(next.nodes)) {
+      if (n.kind === 'issue' && n.taskId === t.id && !wantIssue.has(n.issueId)) {
+        delete next.nodes[n.id];
+        report.removed.push(n.id);
+      }
+    }
   }
 
   return { view: next, report };

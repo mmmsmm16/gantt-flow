@@ -6,11 +6,25 @@ import type {
   ProcessLevel,
   Dependency,
   Assignee,
+  IoItem,
+  IoKind,
+  IssueItem,
+  IssueTarget,
+  TaskDetail,
   Id,
 } from '../model/types';
 import type { IdGen } from '../ids';
 
 const clone = <T>(x: T): T => structuredClone(x);
+
+function ensureDetail(p: Project, taskId: Id): TaskDetail {
+  let d = p.details[taskId];
+  if (!d) {
+    d = { taskId };
+    p.details[taskId] = d;
+  }
+  return d;
+}
 
 export interface AddTaskArgs {
   name: string;
@@ -144,6 +158,67 @@ export function deleteTask(p: Project, taskId: Id): Project {
     delete next.core.tasks[id];
     delete next.details[id];
   }
+  return next;
+}
+
+// ---- 工程表詳細: I/O（帳票/情報） ----
+
+export interface AddIoArgs {
+  name: string;
+  kind: IoKind;
+  formInfo?: string;
+}
+
+export function addIoItem(
+  p: Project,
+  taskId: Id,
+  io: 'inputs' | 'outputs',
+  args: AddIoArgs,
+  idGen: IdGen,
+): Project {
+  const next = clone(p);
+  if (!next.core.tasks[taskId]) return next;
+  const d = ensureDetail(next, taskId);
+  const item: IoItem = { id: idGen(), name: args.name, kind: args.kind, formInfo: args.formInfo };
+  d[io] = [...(d[io] ?? []), item];
+  return next;
+}
+
+export function removeIoItem(p: Project, taskId: Id, ioId: Id): Project {
+  const next = clone(p);
+  const d = next.details[taskId];
+  if (!d) return next;
+  if (d.inputs) d.inputs = d.inputs.filter((i) => i.id !== ioId);
+  if (d.outputs) d.outputs = d.outputs.filter((i) => i.id !== ioId);
+  return next;
+}
+
+// ---- 工程表詳細: 課題 ----
+
+export interface AddIssueArgs {
+  issue: string;
+  measure?: string;
+  target?: IssueTarget;
+}
+
+export function addIssueItem(p: Project, taskId: Id, args: AddIssueArgs, idGen: IdGen): Project {
+  const next = clone(p);
+  if (!next.core.tasks[taskId]) return next;
+  const d = ensureDetail(next, taskId);
+  const item: IssueItem = {
+    id: idGen(),
+    issue: args.issue,
+    measure: args.measure,
+    target: args.target,
+  };
+  d.issues = [...(d.issues ?? []), item];
+  return next;
+}
+
+export function removeIssueItem(p: Project, taskId: Id, issueId: Id): Project {
+  const next = clone(p);
+  const d = next.details[taskId];
+  if (d?.issues) d.issues = d.issues.filter((i) => i.id !== issueId);
   return next;
 }
 
