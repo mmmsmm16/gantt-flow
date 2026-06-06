@@ -176,7 +176,7 @@ export function FlowCanvas() {
         <svg className="edges">
           <defs>
             <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
-              <path d="M0,0 L7,3 L0,6 z" fill="#64748b" />
+              <path d="M0,0 L7,3 L0,6 z" className="arrow-head" />
             </marker>
           </defs>
 
@@ -185,12 +185,12 @@ export function FlowCanvas() {
             const cnt = Math.max(1, lanes.length);
             const bottom = BAND_TOP + cnt * ROW_H;
             const els: JSX.Element[] = [
-              <rect key="labelcol" x={0} y={BAND_TOP} width={LABEL_W} height={cnt * ROW_H} fill="#f8fafc" />,
+              <rect key="labelcol" className="lane-col-bg" x={0} y={BAND_TOP} width={LABEL_W} height={cnt * ROW_H} />,
             ];
             for (let i = 0; i < cnt; i++) {
               if (i % 2 === 1)
                 els.push(
-                  <rect key={`bg-${i}`} x={LABEL_W} y={BAND_TOP + i * ROW_H} width={FULL_W} height={ROW_H} fill="rgba(2,6,23,0.015)" />,
+                  <rect key={`bg-${i}`} className="lane-stripe" x={LABEL_W} y={BAND_TOP + i * ROW_H} width={FULL_W} height={ROW_H} />,
                 );
             }
             for (let i = 0; i <= cnt; i++) {
@@ -329,6 +329,9 @@ export function FlowCanvas() {
             </div>
           );
         })}
+        {!nodes.some((n) => n.kind === 'task') && (
+          <div className="flow-empty">工程を追加すると、ここにフロー図が表示されます。</div>
+        )}
       </div>
     </div>
   );

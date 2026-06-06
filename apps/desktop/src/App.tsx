@@ -11,6 +11,7 @@ import {
   exportCsvFile,
   exportSvgFile,
 } from './persistence';
+import { useUI } from './ui/useUI';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -40,6 +41,8 @@ export function App() {
   const redo = useApp((s) => s.redo);
 
   const selectedTaskId = useApp((s) => s.selectedTaskId);
+  const theme = useUI((s) => s.theme);
+  const toggleTheme = useUI((s) => s.toggleTheme);
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
@@ -83,7 +86,17 @@ export function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <strong className="brand">gantt-flow</strong>
+        <span className="brand">
+          <svg className="brand-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+            <rect className="bg" width="18" height="18" rx="5" />
+            <rect className="bar" x="3.5" y="3.8" width="8" height="2.2" rx="1.1" />
+            <rect className="bar b2" x="6" y="7.9" width="8.5" height="2.2" rx="1.1" />
+            <rect className="bar b3" x="3.5" y="12" width="6" height="2.2" rx="1.1" />
+          </svg>
+          <span className="brand-name">
+            gantt-<span className="brand-accent">flow</span>
+          </span>
+        </span>
         <span className="seg">
           粒度
           {LEVELS.map((l) => (
@@ -133,6 +146,15 @@ export function App() {
           <button onClick={() => exportCsvFile(useApp.getState().project)}>CSV</button>
           <button onClick={onExportSvg}>画像</button>
         </span>
+        <span className="sep" />
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'ライトテーマに切替' : 'ダークテーマに切替'}
+          title={theme === 'dark' ? 'ライトに切替' : 'ダークに切替'}
+        >
+          {theme === 'dark' ? '☀' : '☾'}
+        </button>
       </header>
       <div className={`panes${selectedTaskId ? ' with-inspector' : ''}`}>
         <section className="pane table-pane">
