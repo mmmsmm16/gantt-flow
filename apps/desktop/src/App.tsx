@@ -13,6 +13,8 @@ import {
 } from './persistence';
 import { useUI } from './ui/useUI';
 import { Modal, Toaster } from './ui/Dialogs';
+import * as Icons from './ui/icons';
+import { Menu, MenuItem } from './ui/Menu';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -103,13 +105,13 @@ export function App() {
             gantt-<span className="brand-accent">flow</span>
           </span>
         </span>
-        <span className="seg">
-          粒度
+        <span className="seg" role="group" aria-label="粒度">
           {LEVELS.map((l) => (
             <button
               key={l.key}
               className={l.key === level ? 'on' : ''}
               onClick={() => setLevel(l.key)}
+              title={`${l.label}工程の粒度で表示`}
             >
               {l.label}
             </button>
@@ -120,6 +122,7 @@ export function App() {
             className="scope"
             value={scopeParentId ?? ''}
             onChange={(e) => setScope(e.target.value || undefined)}
+            title="表示するスコープ（親工程）"
           >
             <option value="">（スコープ: 全体）</option>
             {scopeOptions.map((t) => (
@@ -129,37 +132,75 @@ export function App() {
             ))}
           </select>
         )}
-        <label className="toggle">
-          <input type="checkbox" checked={showIssues} onChange={toggleIssues} />
-          課題
-        </label>
-        <span className="spacer" />
-        <button onClick={undo} disabled={!canUndo}>
-          戻す
-        </button>
-        <button onClick={redo} disabled={!canRedo}>
-          やり直し
-        </button>
-        <span className="sep" />
-        <button onClick={onNew}>新規</button>
-        <button onClick={onImport}>取り込み</button>
-        <button onClick={onOpen}>開く</button>
-        <button onClick={onSave}>保存</button>
-        <span className="sep" />
-        <span className="export-group">
-          出力:
-          <button onClick={() => exportExcelFile(useApp.getState().project)}>Excel</button>
-          <button onClick={() => exportCsvFile(useApp.getState().project)}>CSV</button>
-          <button onClick={onExportSvg}>画像</button>
-        </span>
-        <span className="sep" />
         <button
-          className="theme-toggle"
+          className={`icon-btn toggle-btn${showIssues ? ' on' : ''}`}
+          onClick={toggleIssues}
+          aria-pressed={showIssues}
+          aria-label="課題レイヤの表示切替"
+          title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
+        >
+          {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
+        </button>
+
+        <span className="spacer" />
+
+        <span className="tool-group" role="group" aria-label="履歴">
+          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す">
+            <Icons.Undo />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={redo}
+            disabled={!canRedo}
+            aria-label="やり直し"
+            title="やり直し"
+          >
+            <Icons.Redo />
+          </button>
+        </span>
+
+        <span className="tool-group" role="group" aria-label="ファイル">
+          <button className="icon-btn" onClick={onNew} aria-label="新規" title="新規プロジェクト">
+            <Icons.FilePlus />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={onImport}
+            aria-label="取り込み"
+            title="取り込み（CSV / Excel）"
+          >
+            <Icons.Upload />
+          </button>
+          <button className="icon-btn" onClick={onOpen} aria-label="開く" title="開く">
+            <Icons.FolderOpen />
+          </button>
+          <button className="icon-btn" onClick={onSave} aria-label="保存" title="保存">
+            <Icons.Save />
+          </button>
+        </span>
+
+        <Menu
+          className="icon-btn menu-trigger"
+          title="出力"
+          label={
+            <>
+              <Icons.Download />
+              <Icons.ChevronDown />
+            </>
+          }
+        >
+          <MenuItem onClick={() => exportExcelFile(useApp.getState().project)}>Excel (.xlsx)</MenuItem>
+          <MenuItem onClick={() => exportCsvFile(useApp.getState().project)}>CSV (.csv)</MenuItem>
+          <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
+        </Menu>
+
+        <button
+          className="icon-btn"
           onClick={toggleTheme}
           aria-label={theme === 'dark' ? 'ライトテーマに切替' : 'ダークテーマに切替'}
           title={theme === 'dark' ? 'ライトに切替' : 'ダークに切替'}
         >
-          {theme === 'dark' ? '☀' : '☾'}
+          {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
         </button>
       </header>
       <div

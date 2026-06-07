@@ -246,7 +246,7 @@ button.danger:hover {
   background: var(--hdr);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 2px 6px 2px 10px;
+  padding: 2px 4px;
 }
 .seg button {
   border: none;
@@ -964,21 +964,88 @@ button.danger:hover {
   stroke-width: 3px;
 }
 
-.export-group {
+/* ---- ツールバー: アイコンボタン / グループ / メニュー ---- */
+.icon-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  padding: 0;
   color: var(--muted);
 }
-.export-group button {
-  padding: 5px 9px;
-  font-size: 12px;
+.icon-btn:hover {
+  color: var(--ink);
 }
-.theme-toggle {
-  padding: 6px 9px;
-  font-size: 14px;
-  line-height: 1;
+.icon-btn:disabled {
+  opacity: 0.4;
+}
+.toggle-btn.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.tool-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--btn-bg);
+  overflow: hidden;
+}
+.tool-group .icon-btn {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  border-right: 1px solid var(--line);
+}
+.tool-group .icon-btn:last-child {
+  border-right: none;
+}
+.tool-group .icon-btn:not(:disabled):hover {
+  background: var(--hdr);
+  color: var(--ink);
+}
+.menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.menu-trigger {
+  width: auto;
+  gap: 1px;
+  padding: 0 7px;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 150px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-pop);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: pop-in 0.12s ease-out;
+}
+.menu-item {
+  border: none;
+  background: transparent;
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 13px;
+}
+.menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
 }
 
 /* フローの空状態 */
