@@ -403,13 +403,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const scopeParentId = defaultScopeFor(level);
       const reconciled = reconcileProject(ensureLevelView(get().project, level, scopeParentId), uuid);
       history.replaceTop(reconciled); // 粒度切替はビュー状態（undo 対象外）
-      set({ project: reconciled, level, scopeParentId, selectedTaskId: undefined });
+      set({ project: reconciled, level, scopeParentId });
     },
 
     setScope: (scopeParentId) => {
       const reconciled = reconcileProject(ensureLevelView(get().project, get().level, scopeParentId), uuid);
       history.replaceTop(reconciled);
-      set({ project: reconciled, scopeParentId, selectedTaskId: undefined });
+      set({ project: reconciled, scopeParentId });
     },
 
     toggleIssues: () => set({ showIssues: !get().showIssues }),
