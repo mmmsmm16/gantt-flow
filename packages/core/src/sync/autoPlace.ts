@@ -58,7 +58,7 @@ export function placeOutputDoc(task: Pos, index: number): Pos {
 // I/O アイコンの「集約表示」レイアウト（純粋・描画専用。モデル/配置は変えない）。
 // 入力=工程の左上 / 出力=工程の右下 に重ね、複数の I/O は 1 枚のアイコンに名前を縦列挙する。
 // 画面(FlowCanvas)と画像出力(flowSvg)の 2 レンダラで寸法を一致させるためここに集約する。
-export const IO_ICON = { w: 76, line: 14, padTop: 6, padBottom: 9, overlap: 20 } as const;
+export const IO_ICON = { w: 76, line: 14, padTop: 6, padBottom: 9, overlap: 12 } as const;
 
 export function ioIconHeight(count: number): number {
   return IO_ICON.padTop + Math.max(1, count) * IO_ICON.line + IO_ICON.padBottom;

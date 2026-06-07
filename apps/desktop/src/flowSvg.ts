@@ -199,11 +199,6 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     if (!items.length) return;
     const r = ioIconRect(task, io, items.length);
     const pal = io === 'input' ? FLOW_LIGHT.ioIn : FLOW_LIGHT.ioOut;
-    if (items.length > 1) {
-      parts.push(
-        `<rect x="${r.x + 4}" y="${r.y + 4}" width="${r.w}" height="${r.h}" rx="6" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.2" opacity="0.55"/>`,
-      );
-    }
     if (items[0]?.kind === 'info') {
       parts.push(
         `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="8" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,

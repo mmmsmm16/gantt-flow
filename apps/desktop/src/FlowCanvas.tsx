@@ -188,9 +188,6 @@ export function FlowCanvas() {
     const path = `M${r.x},${r.y} h${r.w} v${r.h - wave} q${-r.w / 4},${wave} ${-r.w / 2},0 q${-r.w / 4},${-wave} ${-r.w / 2},0 z`;
     return (
       <g className={`io-icon io-${io}`}>
-        {items.length > 1 && (
-          <rect className="io-sheet" x={r.x + 4} y={r.y + 4} width={r.w} height={r.h} rx={6} />
-        )}
         {items[0]?.kind === 'info' ? (
           <rect className="io-main" x={r.x} y={r.y} width={r.w} height={r.h} rx={8} />
         ) : (

@@ -715,20 +715,14 @@ button.danger:hover {
   pointer-events: none;
   overflow: visible;
 }
-.io-icon .io-main,
-.io-icon .io-sheet {
+.io-icon .io-main {
   stroke-width: 1.4;
 }
-.io-icon .io-sheet {
-  opacity: 0.55;
-}
-.io-icon.io-input .io-main,
-.io-icon.io-input .io-sheet {
+.io-icon.io-input .io-main {
   fill: var(--in-fill);
   stroke: var(--in);
 }
-.io-icon.io-output .io-main,
-.io-icon.io-output .io-sheet {
+.io-icon.io-output .io-main {
   fill: var(--out-fill);
   stroke: var(--out);
 }
