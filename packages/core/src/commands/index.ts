@@ -17,6 +17,9 @@ import type { IdGen } from '../ids';
 
 const clone = <T>(x: T): T => structuredClone(x);
 
+const LEVEL_RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
+const LEVELS_ORDER: ProcessLevel[] = ['large', 'medium', 'small', 'detail'];
+
 function ensureDetail(p: Project, taskId: Id): TaskDetail {
   let d = p.details[taskId];
   if (!d) {
@@ -67,6 +70,14 @@ export function setTaskLevel(p: Project, taskId: Id, level: ProcessLevel): Proje
   const next = clone(p);
   const task = next.core.tasks[taskId];
   if (task) task.level = level;
+  return next;
+}
+
+// 工程No の手動上書き。空なら未設定（木の位置から自動採番に戻す）。
+export function setTaskCode(p: Project, taskId: Id, code: string | undefined): Project {
+  const next = clone(p);
+  const task = next.core.tasks[taskId];
+  if (task) task.code = code && code.trim() ? code.trim() : undefined;
   return next;
 }
 
@@ -164,6 +175,84 @@ export function deleteTask(p: Project, taskId: Id): Project {
   for (const id of toRemove) {
     delete next.core.tasks[id];
     delete next.details[id];
+  }
+  return next;
+}
+
+// 兄弟内での並べ替え。toIndex は同一親グループ内の目標位置。order を 0..n-1 に正規化する。
+export function reorderTask(p: Project, taskId: Id, toIndex: number): Project {
+  const next = clone(p);
+  const task = next.core.tasks[taskId];
+  if (!task) return next;
+  const siblings = Object.values(next.core.tasks)
+    .filter((t) => (t.parentId ?? undefined) === (task.parentId ?? undefined))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const from = siblings.findIndex((t) => t.id === taskId);
+  if (from < 0) return next;
+  const to = Math.max(0, Math.min(siblings.length - 1, toIndex));
+  if (to === from) return next;
+  const [moved] = siblings.splice(from, 1);
+  siblings.splice(to, 0, moved!);
+  siblings.forEach((t, i) => (t.order = i));
+  return next;
+}
+
+// サブツリーを別親へ移動。level は新しい深さに合わせて再計算（レベルスキップ禁止）。
+// 移動ルート(taskId)が端点の依存は撤去（旧兄弟との流れは無効になるため）。
+// 循環（自分の子孫の下へ）・深さ超過（detail より深い）になる移動は no-op。
+export function reparentTask(
+  p: Project,
+  taskId: Id,
+  newParentId: Id | undefined,
+  index?: number,
+): Project {
+  const next = clone(p);
+  const task = next.core.tasks[taskId];
+  if (!task) return next;
+  if (newParentId === taskId) return next;
+  const newParent = newParentId ? next.core.tasks[newParentId] : undefined;
+  if (newParentId && !newParent) return next;
+
+  // 移動サブツリー（taskId とその子孫）
+  const subtree = new Set<Id>();
+  const stack: Id[] = [taskId];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (subtree.has(cur)) continue;
+    subtree.add(cur);
+    for (const t of Object.values(next.core.tasks)) if (t.parentId === cur) stack.push(t.id);
+  }
+  if (newParentId && subtree.has(newParentId)) return next; // 循環防止
+
+  // 新しい深さに合わせて level をシフト。サブツリーが範囲外（large 未満 / detail 超）なら中止。
+  const newRank = newParent ? LEVEL_RANK[newParent.level] + 1 : 0;
+  if (newRank > 3) return next; // detail の子は作れない
+  const delta = newRank - LEVEL_RANK[task.level];
+  for (const id of subtree) {
+    const r = LEVEL_RANK[next.core.tasks[id]!.level] + delta;
+    if (r < 0 || r > 3) return next;
+  }
+  for (const id of subtree) {
+    const t = next.core.tasks[id]!;
+    t.level = LEVELS_ORDER[LEVEL_RANK[t.level] + delta]!;
+  }
+
+  // 親を付け替え、order を決定（index 指定なら挿入位置、なければ末尾）。
+  task.parentId = newParentId;
+  const newSiblings = Object.values(next.core.tasks)
+    .filter((t) => t.id !== taskId && (t.parentId ?? undefined) === (newParentId ?? undefined))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  if (index === undefined || index >= newSiblings.length) {
+    task.order = newSiblings.length ? Math.max(...newSiblings.map((s) => s.order)) + 1 : 0;
+  } else {
+    const at = Math.max(0, index);
+    newSiblings.forEach((s, i) => (s.order = i < at ? i : i + 1));
+    task.order = at;
+  }
+
+  // 移動ルートが端点の依存を撤去（旧兄弟との流れは無効）。サブツリー内部の依存は保持。
+  for (const dep of Object.values(next.core.dependencies)) {
+    if (dep.from === taskId || dep.to === taskId) delete next.core.dependencies[dep.id];
   }
   return next;
 }

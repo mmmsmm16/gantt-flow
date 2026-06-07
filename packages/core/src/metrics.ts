@@ -19,3 +19,8 @@ export function formatMinutes(min: number): string {
   const m = min % 60;
   return m ? `${h}時間${m}分` : `${h}時間`;
 }
+
+// 「分」を時間表示に（0.5h 単位想定）。例: 90 → "1.5h", 120 → "2h", 0 → "0h"。
+export function formatHours(min: number): string {
+  return `${parseFloat((min / 60).toFixed(2))}h`;
+}

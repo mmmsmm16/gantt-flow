@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, findView } from './store';
+import { useUI } from './ui/useUI';
 import {
   SIZE,
   deriveBands,
+  ioIconRect,
+  IO_ICON,
   type ControlKind,
   type FlowNode,
-  type FlowDocNode,
   type FlowNodeId,
 } from '@gantt-flow/core';
 
@@ -14,6 +16,9 @@ const MARGIN = 40; // = core の MARGIN_Y（ノード行の基準）
 const LABEL_W = 96; // 左のレーン名列
 const BAND_TOP = MARGIN - 16;
 const FULL_W = 3000;
+const CANVAS_W = 1600; // フロー配置の論理サイズ（はみ出しはスクロール）
+const CANVAS_H = 1400;
+const clampScale = (s: number) => Math.min(2.5, Math.max(0.4, +s.toFixed(3)));
 const CONTROL_LABEL: Record<ControlKind, string> = {
   start: '開始',
   end: '終了',
@@ -37,6 +42,7 @@ export function FlowCanvas() {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const moveNode = useApp((s) => s.moveNode);
+  const addTaskAt = useApp((s) => s.addTaskAt);
   const connect = useApp((s) => s.connect);
   const addControlNode = useApp((s) => s.addControlNode);
   const addComment = useApp((s) => s.addComment);
@@ -47,11 +53,54 @@ export function FlowCanvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
+  const [scale, setScale] = useState(1);
+  const [panning, setPanning] = useState(false);
+  const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
 
-  const relPoint = (e: PointerEvent | React.PointerEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    return rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : { x: 0, y: 0 };
+  // 何も掴んでいない（ノード以外の）空白をドラッグ → 画面をパン（スクロール）する。
+  const onCanvasPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const el = e.target as HTMLElement;
+    if (el.closest('.node, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
+    const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
+    if (!scroller) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const sl = scroller.scrollLeft;
+    const st = scroller.scrollTop;
+    setPanning(true);
+    const onMove = (ev: PointerEvent) => {
+      scroller.scrollLeft = sl - (ev.clientX - startX);
+      scroller.scrollTop = st - (ev.clientY - startY);
+    };
+    const onUp = () => {
+      setPanning(false);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
+
+  const relPoint = (e: { clientX: number; clientY: number }) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    return rect
+      ? { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale }
+      : { x: 0, y: 0 };
+  };
+
+  // Ctrl/⌘ + ホイールでズーム（通常ホイールはスクロールに委ねる）。passive:false で preventDefault。
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return undefined;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      setScale((s) => clampScale(s * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   useEffect(() => {
     if (!drag) return;
@@ -106,7 +155,6 @@ export function FlowCanvas() {
   if (!showIssues) nodes = nodes.filter((n) => n.kind !== 'issue');
   const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
   const bands = deriveBands(project.core, view);
-  const docNodes = nodes.filter((n): n is FlowDocNode => n.kind === 'doc');
   const divNodes = nodes.filter((n) => n.kind !== 'doc');
 
   const posOf = (n: FlowNode) => (drag && drag.id === n.id ? { x: drag.x, y: drag.y } : { x: n.x, y: n.y });
@@ -115,13 +163,49 @@ export function FlowCanvas() {
     const s = sizeOf(n);
     return { cx: p.x + s.w / 2, cy: p.y + s.h / 2 };
   };
-  const ioKindOf = (n: FlowDocNode) => {
-    const d = project.details[n.taskId];
-    return [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((i) => i.id === n.ioId)?.kind ?? 'doc';
+  // 課題線の終点。対象が I/O(doc) なら集約アイコンの中心へ寄せる（個別ノードは非表示のため）。
+  const targetCenter = (t: FlowNode) => {
+    if (t.kind === 'doc') {
+      const owner = nodes.find((nn) => nn.kind === 'task' && nn.taskId === t.taskId);
+      if (owner) {
+        const d = project.details[t.taskId];
+        const items = t.io === 'input' ? (d?.inputs ?? []) : (d?.outputs ?? []);
+        const r = ioIconRect(posOf(owner), t.io, items.length || 1);
+        return { cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
+      }
+    }
+    return center(t);
   };
-  const docLabel = (n: FlowDocNode) => {
-    const d = project.details[n.taskId];
-    return [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((i) => i.id === n.ioId)?.name ?? '帳票';
+  // I/O 集約アイコン（入力=左上 / 出力=右下に重ね、複数は1枚に名前を縦列挙）。
+  const renderIoIcon = (
+    taskPos: { x: number; y: number },
+    io: 'input' | 'output',
+    items: { id: string; name: string; kind: 'doc' | 'info' }[],
+  ) => {
+    if (!items.length) return null;
+    const r = ioIconRect(taskPos, io, items.length);
+    const wave = 6;
+    const path = `M${r.x},${r.y} h${r.w} v${r.h - wave} q${-r.w / 4},${wave} ${-r.w / 2},0 q${-r.w / 4},${-wave} ${-r.w / 2},0 z`;
+    return (
+      <g className={`io-icon io-${io}`}>
+        {items[0]?.kind === 'info' ? (
+          <rect className="io-main" x={r.x} y={r.y} width={r.w} height={r.h} rx={8} />
+        ) : (
+          <path className="io-main" d={path} />
+        )}
+        {items.map((it, i) => (
+          <text
+            key={it.id}
+            className="io-name"
+            x={r.x + r.w / 2}
+            y={r.y + IO_ICON.padTop + i * IO_ICON.line + IO_ICON.line - 3}
+            textAnchor="middle"
+          >
+            {it.name || '帳票'}
+          </text>
+        ))}
+      </g>
+    );
   };
   const labelOf = (n: FlowNode): string => {
     if (n.kind === 'task') return project.core.tasks[n.taskId]?.name ?? '';
@@ -142,15 +226,61 @@ export function FlowCanvas() {
     <div className="flow-wrap">
       <div className="flow-palette">
         <span>追加:</span>
+        <button
+          className="add-task"
+          title="工程を追加（ダブルクリックでも作成）"
+          onClick={() => {
+            const k = nodes.filter((n) => n.kind === 'task').length;
+            addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
+          }}
+        >
+          工程＋
+        </button>
         <button onClick={() => addControlNode('start')}>開始</button>
         <button onClick={() => addControlNode('end')}>終了</button>
         <button onClick={() => addControlNode('decision')}>判断◇</button>
         <button onClick={() => addControlNode('merge')}>合流</button>
-        <button onClick={() => addComment(prompt('コメント') ?? '')}>付箋</button>
-        <span className="palette-hint">ノード右の○をドラッグで矢印を引く</span>
+        <button
+          onClick={async () => {
+            const text = await useUI.getState().promptText({
+              title: '付箋を追加',
+              placeholder: 'コメント',
+              confirmLabel: '追加',
+            });
+            if (text !== null) addComment(text);
+          }}
+        >
+          付箋
+        </button>
+        <span className="palette-zoom">
+          <button onClick={() => zoomBy(1 / 1.2)} aria-label="縮小" title="縮小">
+            −
+          </button>
+          <button onClick={() => setScale(1)} aria-label="ズームを100%に戻す" title="100%にリセット">
+            {Math.round(scale * 100)}%
+          </button>
+          <button onClick={() => zoomBy(1.2)} aria-label="拡大" title="拡大">
+            ＋
+          </button>
+        </span>
+        <span className="palette-hint">○ドラッグで矢印 / Ctrl+ホイールで拡大縮小</span>
       </div>
 
-      <div className="flow-canvas" ref={canvasRef}>
+      <div
+        className={`flow-canvas${panning ? ' panning' : ''}`}
+        ref={canvasRef}
+        onPointerDown={onCanvasPointerDown}
+        onDoubleClick={(e) => {
+          const el = e.target as HTMLElement;
+          if (el.closest('.node, .handle, .del, button, input, a')) return; // 既存要素上は無視
+          const p = relPoint(e);
+          addTaskAt(p.x, p.y);
+        }}
+      >
+        <div
+          className="flow-scale"
+          style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})` }}
+        >
         {bands.map((b) => (
           <div
             key={b.taskId}
@@ -176,7 +306,7 @@ export function FlowCanvas() {
         <svg className="edges">
           <defs>
             <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
-              <path d="M0,0 L7,3 L0,6 z" fill="#64748b" />
+              <path d="M0,0 L7,3 L0,6 z" className="arrow-head" />
             </marker>
           </defs>
 
@@ -185,12 +315,12 @@ export function FlowCanvas() {
             const cnt = Math.max(1, lanes.length);
             const bottom = BAND_TOP + cnt * ROW_H;
             const els: JSX.Element[] = [
-              <rect key="labelcol" x={0} y={BAND_TOP} width={LABEL_W} height={cnt * ROW_H} fill="#f8fafc" />,
+              <rect key="labelcol" className="lane-col-bg" x={0} y={BAND_TOP} width={LABEL_W} height={cnt * ROW_H} />,
             ];
             for (let i = 0; i < cnt; i++) {
               if (i % 2 === 1)
                 els.push(
-                  <rect key={`bg-${i}`} x={LABEL_W} y={BAND_TOP + i * ROW_H} width={FULL_W} height={ROW_H} fill="rgba(2,6,23,0.015)" />,
+                  <rect key={`bg-${i}`} className="lane-stripe" x={LABEL_W} y={BAND_TOP + i * ROW_H} width={FULL_W} height={ROW_H} />,
                 );
             }
             for (let i = 0; i <= cnt; i++) {
@@ -212,16 +342,22 @@ export function FlowCanvas() {
             const y1 = sp.y + ss.h / 2;
             const x2 = tp.x;
             const y2 = tp.y + ts.h / 2;
-            const dx = Math.max(30, Math.abs(x2 - x1) / 2);
-            const d = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+            const midX = (x1 + x2) / 2;
+            // 直角（オーソゴナル）コネクタ: 水平 → 垂直 → 水平
+            const d = `M${x1},${y1} H${midX} V${y2} H${x2}`;
             return (
               <g key={e.id}>
                 <path
                   d={d}
                   className="edge-hit"
                   style={{ pointerEvents: 'stroke' }}
-                  onClick={() => {
-                    const l = prompt('分岐ラベル（空で消去）', e.label ?? '');
+                  onClick={async () => {
+                    const l = await useUI.getState().promptText({
+                      title: '分岐ラベル',
+                      placeholder: '空で消去',
+                      defaultValue: e.label ?? '',
+                      confirmLabel: '設定',
+                    });
                     if (l !== null) setEdgeLabel(e.id, l);
                   }}
                   onContextMenu={(ev) => {
@@ -249,37 +385,10 @@ export function FlowCanvas() {
               const target = view.nodes[n.targetNodeId];
               if (!target) return null;
               const a = center(n);
-              const b = center(target);
+              const b = targetCenter(target);
               return <line key={`il-${n.id}`} x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} className="issue-line" />;
             })}
 
-          {docNodes.map((n) => {
-            const p = posOf(n);
-            const s = SIZE.doc;
-            const cls = `io-${n.io}`;
-            const tx = p.x + s.w / 2;
-            const ty = p.y + s.h / 2 + 4;
-            if (ioKindOf(n) === 'info') {
-              return (
-                <g key={n.id} className={`doc-shape ${cls}`}>
-                  <rect x={p.x} y={p.y} width={s.w} height={s.h} rx={s.h / 2} />
-                  <text x={tx} y={ty} textAnchor="middle">
-                    {docLabel(n)}
-                  </text>
-                </g>
-              );
-            }
-            const wave = 6;
-            const d = `M${p.x},${p.y} h${s.w} v${s.h - wave} q${-s.w / 4},${wave} ${-s.w / 2},0 q${-s.w / 4},${-wave} ${-s.w / 2},0 z`;
-            return (
-              <g key={n.id} className={`doc-shape ${cls}`}>
-                <path d={d} />
-                <text x={tx} y={ty} textAnchor="middle">
-                  {docLabel(n)}
-                </text>
-              </g>
-            );
-          })}
         </svg>
 
         {divNodes.map((n) => {
@@ -309,7 +418,17 @@ export function FlowCanvas() {
                 if (n.kind === 'task') select(n.taskId);
               }}
             >
-              {labelOf(n)}
+              {n.kind === 'control' && (n.control === 'decision' || n.control === 'merge') && (
+                <svg
+                  className="control-diamond"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <polygon points="50,1 99,50 50,99 1,50" />
+                </svg>
+              )}
+              <span className="node-label">{labelOf(n)}</span>
               {connectable && (
                 <span className="handle" title="ドラッグして矢印を引く" onPointerDown={(e) => startConnect(n, e)} />
               )}
@@ -317,6 +436,7 @@ export function FlowCanvas() {
                 <button
                   className="del"
                   title="削除"
+                  aria-label="ノードを削除"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -329,6 +449,24 @@ export function FlowCanvas() {
             </div>
           );
         })}
+        <svg className="io-overlay" width={CANVAS_W} height={CANVAS_H}>
+          {nodes.map((n) => {
+            if (n.kind !== 'task') return null;
+            const d = project.details[n.taskId];
+            const p = posOf(n);
+            return (
+              <g key={`io-${n.id}`}>
+                {renderIoIcon(p, 'input', d?.inputs ?? [])}
+                {renderIoIcon(p, 'output', d?.outputs ?? [])}
+              </g>
+            );
+          })}
+        </svg>
+
+        {!nodes.some((n) => n.kind === 'task') && (
+          <div className="flow-empty">工程を追加すると、ここにフロー図が表示されます。</div>
+        )}
+        </div>
       </div>
     </div>
   );

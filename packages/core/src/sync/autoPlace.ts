@@ -8,7 +8,7 @@ export interface Pos {
   x: number;
   y: number;
 }
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
@@ -53,6 +53,24 @@ export function placeInputDoc(task: Pos, index: number): Pos {
 // 出力帳票: 工程の「右下」角に重ねる。複数は右へ積む。
 export function placeOutputDoc(task: Pos, index: number): Pos {
   return { x: task.x + SIZE.task.w - 30 + index * DOC_STACK, y: task.y + SIZE.task.h - 20 };
+}
+
+// I/O アイコンの「集約表示」レイアウト（純粋・描画専用。モデル/配置は変えない）。
+// 入力=工程の左上 / 出力=工程の右下 に重ね、複数の I/O は 1 枚のアイコンに名前を縦列挙する。
+// 画面(FlowCanvas)と画像出力(flowSvg)の 2 レンダラで寸法を一致させるためここに集約する。
+export const IO_ICON = { w: 76, line: 14, padTop: 6, padBottom: 9, overlap: 12 } as const;
+
+export function ioIconHeight(count: number): number {
+  return IO_ICON.padTop + Math.max(1, count) * IO_ICON.line + IO_ICON.padBottom;
+}
+
+// owner 工程ノードの位置から、入力/出力アイコンの矩形を求める（角に overlap 分だけ重ねる）。
+export function ioIconRect(task: Pos, io: 'input' | 'output', count: number): Rect {
+  const h = ioIconHeight(count);
+  const w = IO_ICON.w;
+  return io === 'input'
+    ? { x: task.x - w + IO_ICON.overlap, y: task.y - h + IO_ICON.overlap, w, h }
+    : { x: task.x + SIZE.task.w - IO_ICON.overlap, y: task.y + SIZE.task.h - IO_ICON.overlap, w, h };
 }
 
 // 課題/コメント: 工程の右から走査し、既存ノードと重ならない最初の空きへ（決定論）。

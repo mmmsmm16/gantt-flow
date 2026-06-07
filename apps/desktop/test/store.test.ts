@@ -150,6 +150,44 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.values(view0(s).nodes).some((n) => n.kind === 'control')).toBe(false);
   });
 
+  it('フローで工程を作成すると表に追加され、ドロップ位置のレーンの担当になる（逆同期）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = taskNodes(s)[0]!.taskId;
+    s.getState().setAssigneeByName(a, '営業'); // lane order 0 → y=40
+    const before = Object.keys(s.getState().project.core.tasks).length;
+
+    s.getState().addTaskAt(320, 40); // 営業レーンの行へドロップ
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(before + 1);
+    const newNode = taskNodes(s).find((n) => n.x === 320 && n.y === 40);
+    expect(newNode).toBeDefined(); // ドロップ位置に配置されている
+    const eigyo = Object.values(view0(s).lanes).find((l) => l.title === '営業')!;
+    expect(s.getState().project.core.tasks[newNode!.taskId]!.assigneeId).toBe(eigyo.assigneeId);
+  });
+
+  it('フローでの工程作成は 1 undo で取り消せる', () => {
+    const s = createAppStore();
+    s.getState().addTaskAt(300, 40);
+    expect(taskNodes(s)).toHaveLength(1);
+    s.getState().undo();
+    expect(taskNodes(s)).toHaveLength(0);
+  });
+
+  it('工程ノードどうしの矢印接続で依存（前後関係）が表に作られる', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const aNode = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const bNode = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    expect(Object.keys(s.getState().project.core.dependencies)).toHaveLength(0);
+
+    s.getState().connect(aNode.id, bNode.id);
+    const deps = Object.values(s.getState().project.core.dependencies);
+    expect(deps).toHaveLength(1); // pinned エッジでなくコア依存になる
+    expect(deps[0]!.from).toBe(aNode.taskId);
+    expect(deps[0]!.to).toBe(bNode.taskId);
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');
