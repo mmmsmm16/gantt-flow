@@ -225,6 +225,17 @@ describe('app store（command → reconcile → history）', () => {
     expect(taskNodes(s).find((n) => n.taskId === b.taskId)!.x).toBe(1234);
   });
 
+  it('restoreProject は未保存(dirty)として読み込む（保存を促すため）', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const json = serializeProject(s.getState().project);
+    const s2 = createAppStore();
+    s2.getState().restoreProject(deserializeProject(json));
+    expect(Object.keys(s2.getState().project.core.tasks)).toHaveLength(1);
+    expect(s2.getState().dirty).toBe(true); // 復元直後は未保存扱い
+    expect(s2.getState().canUndo).toBe(false); // 履歴はリセット
+  });
+
   it('レーンの高さを変えると、その下のレーンのノードが連動シフトする', () => {
     const s = createAppStore();
     s.getState().addTask('A');

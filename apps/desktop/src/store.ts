@@ -130,6 +130,8 @@ export interface AppState {
   importRows: (rows: string[][]) => ImportReport;
   newProject: () => void;
   loadSample: () => void;
+  /** 自動退避データから復元（未保存＝dirty 扱い。ファイル保存を促す）。 */
+  restoreProject: (project: Project) => void;
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
@@ -528,6 +530,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     loadProject: (project) => {
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId);
+    },
+    restoreProject: (project) => {
+      const first = project.flow.byLevel[0];
+      adopt(project, first?.level ?? 'medium', first?.scopeParentId, true); // 未保存扱い
     },
     importCsvText: (text) => {
       const { project, report } = importCsv(text, uuid);

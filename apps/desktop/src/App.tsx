@@ -20,6 +20,7 @@ import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
+import { loadAutosave, clearAutosave } from './autosave';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -180,6 +181,39 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // 未保存のまま閉じようとしたら確認（データ消失の防止）。
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (useApp.getState().dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // 起動時: 自動退避データがあれば復元を提案（クラッシュ/誤クローズからの復旧）。
+  useEffect(() => {
+    const saved = loadAutosave();
+    if (!saved) return;
+    void (async () => {
+      const ok = await useUI.getState().confirm({
+        title: '前回の作業を復元しますか？',
+        message:
+          '保存されていない作業が見つかりました（自動退避）。復元するとその状態から再開できます。破棄すると元に戻せません。',
+        confirmLabel: '復元する',
+        cancelLabel: '破棄',
+      });
+      if (ok) {
+        useApp.getState().restoreProject(saved);
+        useUI.getState().toast('前回の未保存データを復元しました。保存をお忘れなく。', 'success');
+      } else {
+        clearAutosave();
+      }
+    })();
   }, []);
 
   return (

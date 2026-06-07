@@ -170,7 +170,18 @@ export function TableView() {
               <option key={n} value={n} />
             ))}
           </datalist>
-          <table className="grid">
+          <table
+            className="grid"
+            style={{
+              // 固定列の合計 + 作業名の最小幅。狭いペインではペインが横スクロールする。
+              minWidth:
+                354 +
+                160 +
+                (columnVisibility.prev ? 132 : 0) +
+                (columnVisibility.effort ? 78 : 0) +
+                (columnVisibility.io ? 224 : 0),
+            }}
+          >
             <thead>
               <tr>
                 <th className="c-grip" aria-hidden="true"></th>
