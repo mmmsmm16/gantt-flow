@@ -16,7 +16,7 @@ interface Row {
   depth: number;
 }
 
-function buildOutline(tasks: ProcessTask[]): Row[] {
+function buildOutline(tasks: ProcessTask[], collapsed: Set<Id>): Row[] {
   const byParent = new Map<Id | undefined, ProcessTask[]>();
   for (const t of tasks) {
     const key = t.parentId ?? undefined;
@@ -29,7 +29,7 @@ function buildOutline(tasks: ProcessTask[]): Row[] {
   const walk = (parentId: Id | undefined, depth: number) => {
     for (const t of byParent.get(parentId) ?? []) {
       rows.push({ task: t, depth });
-      walk(t.id, depth + 1);
+      if (!collapsed.has(t.id)) walk(t.id, depth + 1); // 折りたたみ配下はスキップ
     }
   };
   walk(undefined, 0);
@@ -59,7 +59,8 @@ export function TableView() {
   const toggleTableWide = useUI((s) => s.toggleTableWide);
 
   const tasks = Object.values(project.core.tasks);
-  const rows = buildOutline(tasks);
+  const [collapsed, setCollapsed] = useState<Set<Id>>(new Set());
+  const rows = buildOutline(tasks, collapsed);
   const codes = computeCodes(project.core);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
@@ -76,6 +77,14 @@ export function TableView() {
     nameRefs.current.get(focusId)?.focus();
     setFocusId(null);
   }, [focusId, rows.length]);
+
+  const toggleCollapse = (id: Id) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const openRow = (t: ProcessTask) => {
     select(t.id);
@@ -94,6 +103,19 @@ export function TableView() {
           ＋ 大工程
         </button>
         <button onClick={() => addRootTask('medium')}>＋ 中工程</button>
+        {parentsWithChildren.size > 0 && (
+          <span className="outline-collapse">
+            <button onClick={() => setCollapsed(new Set())} title="すべて展開">
+              全展開
+            </button>
+            <button
+              onClick={() => setCollapsed(new Set(parentsWithChildren))}
+              title="すべて折りたたみ"
+            >
+              全折りたたみ
+            </button>
+          </span>
+        )}
         <button
           className="wide-toggle"
           onClick={toggleTableWide}
@@ -207,7 +229,21 @@ export function TableView() {
                     </td>
                     <td>
                       <div className="name-cell" style={{ paddingLeft: depth * 18 }}>
-                        {depth > 0 && <span className="tree-twig">└</span>}
+                        {hasChildren ? (
+                          <button
+                            className="caret"
+                            aria-label={collapsed.has(t.id) ? '展開' : '折りたたみ'}
+                            title={collapsed.has(t.id) ? '展開' : '折りたたみ'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleCollapse(t.id);
+                            }}
+                          >
+                            {collapsed.has(t.id) ? '▶' : '▼'}
+                          </button>
+                        ) : (
+                          depth > 0 && <span className="tree-twig">└</span>
+                        )}
                         <input
                           className="name-input"
                           ref={(el) => {
