@@ -22,6 +22,7 @@ import {
   ensureLevelView,
   importCsv,
   rowsToProject,
+  createSampleProject,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
@@ -119,6 +120,7 @@ export interface AppState {
   importCsvText: (text: string) => ImportReport;
   importRows: (rows: string[][]) => ImportReport;
   newProject: () => void;
+  loadSample: () => void;
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
@@ -491,6 +493,14 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       return report;
     },
     newProject: () => adopt(initialProject(), 'medium', undefined),
+    loadSample: () => {
+      const sample = createSampleProject(uuid, new Date().toISOString());
+      // 受注業務（最初の大工程）配下の中ビューを既定で開く（リッチなフローが見える）。
+      const firstLarge = Object.values(sample.core.tasks)
+        .filter((t) => t.level === 'large')
+        .sort((a, b) => a.order - b.order)[0];
+      adopt(sample, 'medium', firstLarge?.id);
+    },
   };
 };
 

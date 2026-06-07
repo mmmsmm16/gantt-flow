@@ -102,3 +102,37 @@ export const Moon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
   </Svg>
 );
+export const Sparkles = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M12 3l1.9 4.6L18.5 9.5 13.9 11.4 12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" />
+    <path d="M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
+  </Svg>
+);
+export const Search = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m21 21-4.3-4.3" />
+  </Svg>
+);
+export const Keyboard = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+  </Svg>
+);
+export const Maximize = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M16 21h3a2 2 0 0 0 2-2v-3M8 21H5a2 2 0 0 1-2-2v-3" />
+  </Svg>
+);
+export const Wand = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="m3 21 12-12" />
+    <path d="M15 4V2M15 10V8M19 6h2M11 6h-1M17.8 8.8l1.4 1.4M17.8 3.2l1.4-1.4" />
+  </Svg>
+);
+export const Trash = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+  </Svg>
+);

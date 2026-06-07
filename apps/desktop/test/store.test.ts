@@ -188,6 +188,22 @@ describe('app store（command → reconcile → history）', () => {
     expect(deps[0]!.to).toBe(bNode.taskId);
   });
 
+  it('サンプルを読み込むと中ビュー（受注業務）が開き、履歴はリセットされる', () => {
+    const s = createAppStore();
+    s.getState().loadSample();
+    expect(Object.keys(s.getState().project.core.tasks).length).toBeGreaterThan(10);
+    expect(s.getState().level).toBe('medium');
+    expect(s.getState().scopeParentId).toBeDefined();
+    expect(s.getState().canUndo).toBe(false); // 読み込み直後は履歴なし
+    // 既定ビュー（中・スコープ=受注業務）に中工程ノードが 4 つ並ぶ
+    const cur = s
+      .getState()
+      .project.flow.byLevel.find(
+        (v) => v.level === 'medium' && v.scopeParentId === s.getState().scopeParentId,
+      )!;
+    expect(Object.values(cur.nodes).filter((n) => n.kind === 'task')).toHaveLength(4);
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');

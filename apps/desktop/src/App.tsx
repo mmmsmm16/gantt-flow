@@ -16,6 +16,7 @@ import { useUI } from './ui/useUI';
 import { Modal, Toaster } from './ui/Dialogs';
 import * as Icons from './ui/icons';
 import { Menu, MenuItem } from './ui/Menu';
+import { Welcome } from './ui/Welcome';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -46,6 +47,7 @@ export function App() {
   const redo = useApp((s) => s.redo);
 
   const selectedTaskId = useApp((s) => s.selectedTaskId);
+  const isEmpty = Object.keys(project.core.tasks).length === 0;
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
   const tableWide = useUI((s) => s.tableWide);
@@ -107,6 +109,10 @@ export function App() {
       }
     };
     input.click();
+  };
+  const onSample = () => {
+    useApp.getState().loadSample();
+    useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
   };
   const onExportSvg = () => {
     const st = useApp.getState();
@@ -242,63 +248,67 @@ export function App() {
           {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
         </button>
       </header>
-      <div
-        className={`panes${selectedTaskId ? ' with-inspector' : ''}${tableWide ? ' table-wide' : ''}`}
-      >
-        <section className="pane table-pane">
-          <h2>工程表（手順一覧表）</h2>
-          <TableView />
-        </section>
-        {!tableWide && (
-          <section className="pane flow-pane">
-            <div className="flow-head">
-              <h2>工程フロー</h2>
-              <span className="seg" role="group" aria-label="粒度">
-                {LEVELS.map((l) => (
-                  <button
-                    key={l.key}
-                    className={l.key === level ? 'on' : ''}
-                    onClick={() => setLevel(l.key)}
-                    title={`${l.label}工程の粒度で表示`}
-                  >
-                    {l.label}
-                  </button>
-                ))}
-              </span>
-              {parentLevel && (
-                <select
-                  className="scope"
-                  value={scopeParentId ?? ''}
-                  onChange={(e) => setScope(e.target.value || undefined)}
-                  title="表示するスコープ（親工程）"
-                >
-                  <option value="">（スコープ: 全体）</option>
-                  {scopeOptions.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
+      {isEmpty ? (
+        <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} />
+      ) : (
+        <div
+          className={`panes${selectedTaskId ? ' with-inspector' : ''}${tableWide ? ' table-wide' : ''}`}
+        >
+          <section className="pane table-pane">
+            <h2>工程表（手順一覧表）</h2>
+            <TableView />
+          </section>
+          {!tableWide && (
+            <section className="pane flow-pane">
+              <div className="flow-head">
+                <h2>工程フロー</h2>
+                <span className="seg" role="group" aria-label="粒度">
+                  {LEVELS.map((l) => (
+                    <button
+                      key={l.key}
+                      className={l.key === level ? 'on' : ''}
+                      onClick={() => setLevel(l.key)}
+                      title={`${l.label}工程の粒度で表示`}
+                    >
+                      {l.label}
+                    </button>
                   ))}
-                </select>
-              )}
-              <button
-                className={`icon-btn toggle-btn${showIssues ? ' on' : ''}`}
-                onClick={toggleIssues}
-                aria-pressed={showIssues}
-                aria-label="課題レイヤの表示切替"
-                title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
-              >
-                {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
-              </button>
-            </div>
-            <FlowCanvas />
-          </section>
-        )}
-        {selectedTaskId && (
-          <section className="pane inspector-pane">
-            <Inspector />
-          </section>
-        )}
-      </div>
+                </span>
+                {parentLevel && (
+                  <select
+                    className="scope"
+                    value={scopeParentId ?? ''}
+                    onChange={(e) => setScope(e.target.value || undefined)}
+                    title="表示するスコープ（親工程）"
+                  >
+                    <option value="">（スコープ: 全体）</option>
+                    {scopeOptions.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  className={`icon-btn toggle-btn${showIssues ? ' on' : ''}`}
+                  onClick={toggleIssues}
+                  aria-pressed={showIssues}
+                  aria-label="課題レイヤの表示切替"
+                  title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
+                >
+                  {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
+                </button>
+              </div>
+              <FlowCanvas />
+            </section>
+          )}
+          {selectedTaskId && (
+            <section className="pane inspector-pane">
+              <Inspector />
+            </section>
+          )}
+        </div>
+      )}
       <Modal />
       <Toaster />
     </div>
