@@ -204,11 +204,9 @@ export function FlowCanvas() {
   const bands = deriveBands(project.core, view);
   const divNodes = nodes.filter((n) => n.kind !== 'doc');
 
-  // レーン幾何（可変高さ）。リサイズ中は対象レーンの高さをプレビュー値で上書き。
-  const effectiveLanes = laneResize
-    ? lanes.map((l) => (l.id === laneResize.laneId ? { ...l, height: laneResize.height } : l))
-    : lanes;
-  const laneBoxes: LaneBox[] = laneLayout(effectiveLanes);
+  // レーン幾何（可変高さ）。確定済みの高さで描画し、リサイズ中は破線ガイドだけ動かす
+  // （ドラッグ中にレーンとノードがズレて見えるのを避け、確定時にまとめて反映）。
+  const laneBoxes: LaneBox[] = laneLayout(lanes);
   const fallbackBox: LaneBox = {
     lane: { id: '_', title: '（未割当）', order: 0 },
     top: BAND_TOP,
@@ -452,17 +450,12 @@ export function FlowCanvas() {
             els.push(<line key="vdiv" className="lane-divider" x1={LABEL_W} y1={BAND_TOP} x2={LABEL_W} y2={lanesBottomY} />);
             if (laneResize) {
               const rb = boxes.find((b) => b.lane.id === laneResize.laneId);
-              if (rb)
+              if (rb) {
+                const gy = rb.top + laneResize.height; // 確定済み上端 + プレビュー高さ
                 els.push(
-                  <line
-                    key="resize-guide"
-                    className="lane-resize-guide"
-                    x1={0}
-                    y1={rb.top + rb.height}
-                    x2={FULL_W}
-                    y2={rb.top + rb.height}
-                  />,
+                  <line key="resize-guide" className="lane-resize-guide" x1={0} y1={gy} x2={FULL_W} y2={gy} />,
                 );
+              }
             }
             return els;
           })()}

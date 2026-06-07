@@ -20,7 +20,7 @@ import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
-import { loadAutosave, clearAutosave } from './autosave';
+import { takeAutosaveForRestore, clearAutosave } from './autosave';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -197,7 +197,7 @@ export function App() {
 
   // 起動時: 自動退避データがあれば復元を提案（クラッシュ/誤クローズからの復旧）。
   useEffect(() => {
-    const saved = loadAutosave();
+    const saved = takeAutosaveForRestore();
     if (!saved) return;
     void (async () => {
       const ok = await useUI.getState().confirm({

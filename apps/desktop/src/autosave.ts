@@ -19,6 +19,14 @@ export function loadAutosave(): Project | null {
   }
 }
 
+// 起動時の復元提案は 1 セッション 1 回だけ（React StrictMode の二重実行などで重複させない）。
+let restoreConsumed = false;
+export function takeAutosaveForRestore(): Project | null {
+  if (restoreConsumed) return null;
+  restoreConsumed = true;
+  return loadAutosave();
+}
+
 export function clearAutosave(): void {
   if (timer) clearTimeout(timer);
   try {
