@@ -204,6 +204,42 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.values(cur.nodes).filter((n) => n.kind === 'task')).toHaveLength(4);
   });
 
+  it('整列（tidyFlow）で配置が決定論的に組み直され、1 undo で戻せる', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    s.getState().connect(a.id, b.id); // A→B 依存
+    // B を変な位置へ
+    s.getState().moveNode(b.id, 1234, 999);
+    expect(taskNodes(s).find((n) => n.taskId === b.taskId)!.x).toBe(1234);
+    s.getState().tidyFlow();
+    // 依存先 B は A より右の段へ整列される
+    const ax = taskNodes(s).find((n) => n.taskId === a.taskId)!.x;
+    const bx = taskNodes(s).find((n) => n.taskId === b.taskId)!.x;
+    expect(bx).toBeGreaterThan(ax);
+    expect(bx).not.toBe(1234);
+    expect(s.getState().canUndo).toBe(true);
+    s.getState().undo();
+    expect(taskNodes(s).find((n) => n.taskId === b.taskId)!.x).toBe(1234);
+  });
+
+  it('導出エッジを削除すると元の依存（前後関係）も消える', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    s.getState().connect(a.id, b.id);
+    expect(Object.keys(s.getState().project.core.dependencies)).toHaveLength(1);
+    const derived = Object.values(view0(s).edges).find((e) => e.derivedFromDependencyId)!;
+    s.getState().deleteEdge(derived.id);
+    // 依存が消え、再同期しても矢印は復活しない
+    expect(Object.keys(s.getState().project.core.dependencies)).toHaveLength(0);
+    expect(Object.values(view0(s).edges).filter((e) => e.derivedFromDependencyId)).toHaveLength(0);
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');

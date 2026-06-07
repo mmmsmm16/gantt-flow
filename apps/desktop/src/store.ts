@@ -23,6 +23,7 @@ import {
   importCsv,
   rowsToProject,
   createSampleProject,
+  tidyFlowView,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
@@ -105,6 +106,8 @@ export interface AppState {
   addTaskAt: (x: number, y: number) => void;
   addControlNode: (control: ControlKind) => void;
   addComment: (text: string) => void;
+  /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
+  tidyFlow: () => void;
   connect: (source: FlowNodeId, target: FlowNodeId) => void;
   setEdgeLabel: (edgeId: Id, label: string) => void;
   deleteFlowNode: (nodeId: FlowNodeId) => void;
@@ -406,6 +409,17 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const k = Object.values(view.nodes).filter((n) => n.kind === 'comment').length;
         view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: 420, y: 320 + k * 24 };
       }),
+    tidyFlow: () => {
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const vi = p.flow.byLevel.findIndex(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      if (vi < 0) return;
+      p.flow.byLevel[vi] = tidyFlowView(p.core, p.details, p.flow.byLevel[vi]!);
+      history.push(p);
+      sync();
+    },
     // 矢印接続。両端が工程ノードなら「依存（前後関係）」をコアに作る→工程表へ反映。
     // 制御ノード等を含む接続は従来どおり pinned な図固有エッジ（reconcile で消えない）。
     connect: (source, target) => {
@@ -443,10 +457,19 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           if (e.source === nodeId || e.target === nodeId) delete view.edges[e.id];
         }
       }),
-    deleteEdge: (edgeId) =>
-      editView((view) => {
-        delete view.edges[edgeId];
-      }),
+    deleteEdge: (edgeId) => {
+      const view = findView(get().project, get().level, get().scopeParentId);
+      const edge = view?.edges[edgeId];
+      // 導出エッジは元の依存（前後関係）を消す＝表にも反映し再同期でも復活しない。
+      // 手動（pinned）エッジは図からのみ取り除く。
+      if (edge?.derivedFromDependencyId) {
+        commit(cRemoveDependency(get().project, edge.derivedFromDependencyId));
+        return;
+      }
+      editView((v) => {
+        delete v.edges[edgeId];
+      });
+    },
 
     select: (taskId) => set({ selectedTaskId: taskId }),
 

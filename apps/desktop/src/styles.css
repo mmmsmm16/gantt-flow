@@ -1785,3 +1785,42 @@ kbd {
   font-size: 11.5px;
   color: var(--faint);
 }
+
+/* ---- フロー: 要素選択 / 整列・全体ボタン ---- */
+.node.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
+}
+.node.control-decision.sel,
+.node.control-merge.sel {
+  outline: none;
+  box-shadow: none;
+}
+.control-diamond {
+  /* 選択時は菱形ポリゴンを強調（下の .sel ルールで色付け） */
+}
+.node.control-decision.sel .control-diamond polygon,
+.node.control-merge.sel .control-diamond polygon {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.edge.sel {
+  stroke: var(--accent);
+  stroke-width: 2.6;
+}
+.palette-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 2px;
+}
+.flow-palette .palette-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.flow-palette .palette-act svg {
+  width: 14px;
+  height: 14px;
+}

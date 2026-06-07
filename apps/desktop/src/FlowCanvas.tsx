@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, findView } from './store';
 import { useUI } from './ui/useUI';
+import * as Icons from './ui/icons';
 import {
   SIZE,
   deriveBands,
@@ -49,12 +50,15 @@ export function FlowCanvas() {
   const setEdgeLabel = useApp((s) => s.setEdgeLabel);
   const deleteEdge = useApp((s) => s.deleteEdge);
   const deleteFlowNode = useApp((s) => s.deleteFlowNode);
+  const tidyFlow = useApp((s) => s.tidyFlow);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [panning, setPanning] = useState(false);
+  // フロー固有要素（制御ノード/付箋/矢印）の選択。Delete で削除・Esc で解除。
+  const [sel, setSel] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null);
   const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
 
   // 何も掴んでいない（ノード以外の）空白をドラッグ → 画面をパン（スクロール）する。
@@ -64,6 +68,7 @@ export function FlowCanvas() {
     if (el.closest('.node, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
     const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
     if (!scroller) return;
+    setSel(null); // 空白クリックで選択解除
     const startX = e.clientX;
     const startY = e.clientY;
     const sl = scroller.scrollLeft;
@@ -149,6 +154,42 @@ export function FlowCanvas() {
     };
   }, [conn, view, connect]);
 
+  // Delete=選択中のフロー要素を削除（制御ノード/付箋/矢印のみ）・Esc=選択解除。
+  // テキスト編集中やオーバーレイ表示中は無視。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || useUI.getState().overlay) return;
+      const el = document.activeElement;
+      const editable =
+        el instanceof HTMLElement &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable);
+      if (editable) return;
+      if (e.key === 'Escape') {
+        setSel(null);
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
+        if (sel.kind === 'edge') {
+          e.preventDefault();
+          deleteEdge(sel.id);
+          setSel(null);
+        } else if (view) {
+          const n = view.nodes[sel.id];
+          if (n && (n.kind === 'control' || n.kind === 'comment')) {
+            e.preventDefault();
+            deleteFlowNode(sel.id);
+            setSel(null);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sel, view, deleteEdge, deleteFlowNode]);
+
   if (!view) return <p className="empty">ビューがありません。</p>;
 
   let nodes = Object.values(view.nodes);
@@ -156,6 +197,32 @@ export function FlowCanvas() {
   const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
   const bands = deriveBands(project.core, view);
   const divNodes = nodes.filter((n) => n.kind !== 'doc');
+
+  // 全体表示: 全ノードの外接矩形を計算し、画面に収まる倍率と位置へスクロール（拡大は100%まで）。
+  const fitView = () => {
+    const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
+    if (!scroller || !nodes.length) return;
+    let minX = 0;
+    let minY = BAND_TOP;
+    let maxX = LABEL_W;
+    let maxY = BAND_TOP;
+    for (const n of nodes) {
+      const s = sizeOf(n);
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + s.w);
+      maxY = Math.max(maxY, n.y + s.h);
+    }
+    const pad = 56;
+    const contentW = maxX - minX + pad * 2;
+    const contentH = maxY - minY + pad * 2;
+    const s = clampScale(Math.min(1, scroller.clientWidth / contentW, scroller.clientHeight / contentH));
+    setScale(s);
+    requestAnimationFrame(() => {
+      scroller.scrollLeft = Math.max(0, (minX - pad) * s);
+      scroller.scrollTop = Math.max(0, (minY - pad) * s);
+    });
+  };
 
   const posOf = (n: FlowNode) => (drag && drag.id === n.id ? { x: drag.x, y: drag.y } : { x: n.x, y: n.y });
   const center = (n: FlowNode) => {
@@ -252,6 +319,15 @@ export function FlowCanvas() {
         >
           付箋
         </button>
+        <span className="palette-sep" aria-hidden="true" />
+        <button className="palette-act" onClick={tidyFlow} title="自動整列（依存で段組み・レーンで縦配置）">
+          <Icons.Wand />
+          整列
+        </button>
+        <button className="palette-act" onClick={fitView} title="全体表示（画面に合わせる）">
+          <Icons.Maximize />
+          全体
+        </button>
         <span className="palette-zoom">
           <button onClick={() => zoomBy(1 / 1.2)} aria-label="縮小" title="縮小">
             −
@@ -263,7 +339,7 @@ export function FlowCanvas() {
             ＋
           </button>
         </span>
-        <span className="palette-hint">○ドラッグで矢印 / Ctrl+ホイールで拡大縮小</span>
+        <span className="palette-hint">○ドラッグで矢印 / Delete で削除 / Ctrl+ホイールで拡大縮小</span>
       </div>
 
       <div
@@ -351,7 +427,8 @@ export function FlowCanvas() {
                   d={d}
                   className="edge-hit"
                   style={{ pointerEvents: 'stroke' }}
-                  onClick={async () => {
+                  onClick={() => setSel({ kind: 'edge', id: e.id })}
+                  onDoubleClick={async () => {
                     const l = await useUI.getState().promptText({
                       title: '分岐ラベル',
                       placeholder: '空で消去',
@@ -365,7 +442,12 @@ export function FlowCanvas() {
                     deleteEdge(e.id);
                   }}
                 />
-                <path d={d} className="edge" fill="none" markerEnd="url(#arrow)" />
+                <path
+                  d={d}
+                  className={`edge${sel?.kind === 'edge' && sel.id === e.id ? ' sel' : ''}`}
+                  fill="none"
+                  markerEnd="url(#arrow)"
+                />
                 {e.label && (
                   <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} className="edge-label" textAnchor="middle">
                     {e.label}
@@ -396,14 +478,16 @@ export function FlowCanvas() {
           const draggable = n.kind === 'task' || n.kind === 'control' || n.kind === 'comment';
           const deletable = n.kind === 'control' || n.kind === 'comment';
           const connectable = n.kind === 'task' || n.kind === 'control';
+          const isSel = sel?.kind === 'node' && sel.id === n.id;
+          const selCls = isSel ? ' sel' : '';
           const cls =
             n.kind === 'task'
-              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}`
+              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${selCls}`
               : n.kind === 'issue'
-                ? 'node issue'
+                ? `node issue${selCls}`
                 : n.kind === 'comment'
-                  ? 'node comment'
-                  : `node control control-${n.control}`;
+                  ? `node comment${selCls}`
+                  : `node control control-${n.control}${selCls}`;
           return (
             <div
               key={n.id}
@@ -414,8 +498,14 @@ export function FlowCanvas() {
                 const pt = relPoint(e);
                 setDrag({ id: n.id, x: n.x, y: n.y, offX: pt.x - n.x, offY: pt.y - n.y });
               }}
-              onClick={() => {
-                if (n.kind === 'task') select(n.taskId);
+              onClick={(e) => {
+                e.stopPropagation();
+                if (n.kind === 'task') {
+                  select(n.taskId);
+                  setSel(null);
+                } else {
+                  setSel({ kind: 'node', id: n.id });
+                }
               }}
             >
               {n.kind === 'control' && (n.control === 'decision' || n.control === 'merge') && (
