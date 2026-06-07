@@ -162,43 +162,6 @@ export function App() {
             gantt-<span className="brand-accent">flow</span>
           </span>
         </span>
-        <span className="seg" role="group" aria-label="粒度">
-          {LEVELS.map((l) => (
-            <button
-              key={l.key}
-              className={l.key === level ? 'on' : ''}
-              onClick={() => setLevel(l.key)}
-              title={`${l.label}工程の粒度で表示`}
-            >
-              {l.label}
-            </button>
-          ))}
-        </span>
-        {parentLevel && (
-          <select
-            className="scope"
-            value={scopeParentId ?? ''}
-            onChange={(e) => setScope(e.target.value || undefined)}
-            title="表示するスコープ（親工程）"
-          >
-            <option value="">（スコープ: 全体）</option>
-            {scopeOptions.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <button
-          className={`icon-btn toggle-btn${showIssues ? ' on' : ''}`}
-          onClick={toggleIssues}
-          aria-pressed={showIssues}
-          aria-label="課題レイヤの表示切替"
-          title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
-        >
-          {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
-        </button>
-
         <span className="spacer" />
 
         <span className="tool-group" role="group" aria-label="履歴">
@@ -288,7 +251,45 @@ export function App() {
         </section>
         {!tableWide && (
           <section className="pane flow-pane">
-            <h2>工程フロー</h2>
+            <div className="flow-head">
+              <h2>工程フロー</h2>
+              <span className="seg" role="group" aria-label="粒度">
+                {LEVELS.map((l) => (
+                  <button
+                    key={l.key}
+                    className={l.key === level ? 'on' : ''}
+                    onClick={() => setLevel(l.key)}
+                    title={`${l.label}工程の粒度で表示`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </span>
+              {parentLevel && (
+                <select
+                  className="scope"
+                  value={scopeParentId ?? ''}
+                  onChange={(e) => setScope(e.target.value || undefined)}
+                  title="表示するスコープ（親工程）"
+                >
+                  <option value="">（スコープ: 全体）</option>
+                  {scopeOptions.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                className={`icon-btn toggle-btn${showIssues ? ' on' : ''}`}
+                onClick={toggleIssues}
+                aria-pressed={showIssues}
+                aria-label="課題レイヤの表示切替"
+                title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
+              >
+                {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
+              </button>
+            </div>
             <FlowCanvas />
           </section>
         )}
