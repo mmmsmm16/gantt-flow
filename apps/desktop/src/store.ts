@@ -25,6 +25,7 @@ import {
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
+  setTaskCode as cSetTaskCode,
   setAssignee as cSetAssignee,
   addAssignee as cAddAssignee,
   addDependency as cAddDependency,
@@ -80,6 +81,7 @@ export interface AppState {
   addChildTask: (parentId: Id) => void;
   removeTask: (taskId: Id) => void;
   setTaskLevel: (taskId: Id, level: ProcessLevel) => void;
+  setTaskCode: (taskId: Id, code: string | undefined) => void;
   renameTask: (taskId: Id, name: string) => void;
   setAssigneeByName: (taskId: Id, name: string) => void;
   addDependency: (from: Id, to: Id) => void;
@@ -228,6 +230,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     removeTask: (taskId) => commit(cDeleteTask(get().project, taskId)),
 
     setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level)),
+    setTaskCode: (taskId, code) => commit(cSetTaskCode(get().project, taskId, code)),
 
     renameTask: (taskId, name) => commit(cRenameTask(get().project, taskId, name)),
 

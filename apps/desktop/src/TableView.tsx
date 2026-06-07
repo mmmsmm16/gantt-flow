@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { effortRollupMinutes, formatMinutes } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatMinutes } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 
@@ -60,6 +60,7 @@ export function TableView() {
 
   const tasks = Object.values(project.core.tasks);
   const rows = buildOutline(tasks);
+  const codes = computeCodes(project.core);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
 
@@ -116,6 +117,7 @@ export function TableView() {
             <thead>
               <tr>
                 <th className="c-grip" aria-hidden="true"></th>
+                <th className="c-code">No.</th>
                 <th className="c-level">粒度</th>
                 <th>作業名</th>
                 <th className="c-assignee">担当</th>
@@ -185,6 +187,9 @@ export function TableView() {
                       >
                         ⠿
                       </span>
+                    </td>
+                    <td className="c-code" title={codes[t.id]}>
+                      {codes[t.id]}
                     </td>
                     <td className="c-level" onClick={(e) => e.stopPropagation()}>
                       <select

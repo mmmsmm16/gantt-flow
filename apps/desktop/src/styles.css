@@ -481,6 +481,15 @@ button.danger:hover {
 .c-level {
   width: 64px;
 }
+.c-code {
+  width: 58px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .c-assignee {
   width: 132px;
 }

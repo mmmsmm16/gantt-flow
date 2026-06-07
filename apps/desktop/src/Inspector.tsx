@@ -1,5 +1,5 @@
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem } from '@gantt-flow/core';
-import { effortRollupMinutes, formatMinutes } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatMinutes } from '@gantt-flow/core';
 import { useApp } from './store';
 
 export function Inspector() {
@@ -13,6 +13,7 @@ export function Inspector() {
   const addIssue = useApp((s) => s.addIssue);
   const updateIssue = useApp((s) => s.updateIssue);
   const removeIssue = useApp((s) => s.removeIssue);
+  const setTaskCode = useApp((s) => s.setTaskCode);
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
 
@@ -58,6 +59,12 @@ export function Inspector() {
       <div className="insp-scroll">
         <section>
           <h3>基本</h3>
+          <label>工程No（空欄で自動採番）</label>
+          <input
+            defaultValue={task.code ?? ''}
+            placeholder={computeCodes(project.core)[taskId] ?? ''}
+            onBlur={(e) => setTaskCode(taskId, e.target.value)}
+          />
           <label>業務内容（どうやって）</label>
           <textarea defaultValue={d?.how ?? ''} onBlur={(e) => updateDetail(taskId, { how: e.target.value })} />
           <label>使用システム</label>

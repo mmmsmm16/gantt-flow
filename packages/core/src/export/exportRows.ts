@@ -1,5 +1,6 @@
 // 出力（`docs/06-roadmap.md` Phase4）。Project → 表の行列。Excel/CSV はこの行列を各形式に流す。
 import type { Project, ProcessTask, ProcessLevel, Id } from '../model/types';
+import { computeCodes } from '../codes';
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = {
   large: '大',
@@ -33,12 +34,13 @@ export function projectToRows(project: Project): string[][] {
   for (const arr of byParent.values()) arr.sort((a, b) => a.order - b.order);
 
   const nameOf = (id: Id) => tasks[id]?.name ?? '';
+  const codes = computeCodes(project.core);
   const rows: string[][] = [EXPORT_HEADER];
 
-  const walk = (parentId: Id | undefined, prefix: string) => {
+  const walk = (parentId: Id | undefined) => {
     const arr = byParent.get(parentId) ?? [];
-    arr.forEach((t, i) => {
-      const no = t.code ?? (prefix ? `${prefix}-${i + 1}` : `${i + 1}`);
+    arr.forEach((t) => {
+      const no = codes[t.id]!;
       const d = project.details[t.id];
       const prev = Object.values(dependencies)
         .filter((dep) => dep.to === t.id)
@@ -58,10 +60,10 @@ export function projectToRows(project: Project): string[][] {
         d?.effortMinutes != null ? String(d.effortMinutes) : '',
         d?.note ?? '',
       ]);
-      walk(t.id, no);
+      walk(t.id);
     });
   };
-  walk(undefined, '');
+  walk(undefined);
   return rows;
 }
 

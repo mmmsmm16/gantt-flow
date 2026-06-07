@@ -73,6 +73,14 @@ export function setTaskLevel(p: Project, taskId: Id, level: ProcessLevel): Proje
   return next;
 }
 
+// 工程No の手動上書き。空なら未設定（木の位置から自動採番に戻す）。
+export function setTaskCode(p: Project, taskId: Id, code: string | undefined): Project {
+  const next = clone(p);
+  const task = next.core.tasks[taskId];
+  if (task) task.code = code && code.trim() ? code.trim() : undefined;
+  return next;
+}
+
 export function setAssignee(p: Project, taskId: Id, assigneeId: Id | undefined): Project {
   const next = clone(p);
   const task = next.core.tasks[taskId];
