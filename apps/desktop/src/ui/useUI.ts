@@ -90,6 +90,10 @@ interface UIState {
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
 
+  /** 全画面オーバーレイ（ヘルプ / コマンドパレット）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | null;
+  setOverlay: (overlay: 'help' | 'palette' | null) => void;
+
   dialog: Dialog | null;
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
   promptText: (opts: PromptOpts) => Promise<string | null>;
@@ -121,6 +125,9 @@ export const useUI = create<UIState>((set, get) => ({
 
   tableWide: false,
   toggleTableWide: () => set({ tableWide: !get().tableWide }),
+
+  overlay: null,
+  setOverlay: (overlay) => set({ overlay }),
 
   columnVisibility: readInitialColumns(),
   toggleColumn: (key) => {

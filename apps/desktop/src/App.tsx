@@ -17,6 +17,9 @@ import { Modal, Toaster } from './ui/Dialogs';
 import * as Icons from './ui/icons';
 import { Menu, MenuItem } from './ui/Menu';
 import { Welcome } from './ui/Welcome';
+import { HelpDialog } from './ui/HelpDialog';
+import { StatusBar } from './ui/StatusBar';
+import { CommandPalette } from './ui/CommandPalette';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -114,6 +117,14 @@ export function App() {
     useApp.getState().loadSample();
     useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
   };
+  const onExportExcel = () => {
+    const n = exportExcelFile(useApp.getState().project);
+    useUI.getState().toast(`出力しました（${n}）`, 'success');
+  };
+  const onExportCsv = () => {
+    const n = exportCsvFile(useApp.getState().project);
+    useUI.getState().toast(`出力しました（${n}）`, 'success');
+  };
   const onExportSvg = () => {
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
@@ -123,17 +134,12 @@ export function App() {
     }
   };
 
-  // グローバルショートカット: Ctrl/⌘+Z=戻す, Ctrl+Y / Ctrl+Shift+Z=やり直し, Ctrl/⌘+S=保存。
-  // IME 変換中は無視し、テキスト編集中の undo/redo はネイティブを優先（保存は常に握る）。
+  // グローバルショートカット: Ctrl/⌘+K=パレット, Ctrl/⌘+S=保存, Ctrl/⌘+Z=戻す,
+  // Ctrl+Y / Ctrl+Shift+Z=やり直し, ?=ヘルプ。IME 変換中は無視。テキスト編集中の
+  // undo/redo はネイティブ優先（保存・パレットは常に握る）。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || !(e.ctrlKey || e.metaKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === 's') {
-        e.preventDefault();
-        saveProjectToFile(useApp.getState().project);
-        return;
-      }
+      if (e.isComposing) return;
       const el = document.activeElement;
       const editable =
         el instanceof HTMLElement &&
@@ -141,6 +147,28 @@ export function App() {
           el.tagName === 'TEXTAREA' ||
           el.tagName === 'SELECT' ||
           el.isContentEditable);
+
+      // 修飾なし: ? でショートカット一覧（編集中は無視）。
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === '?' && !editable) {
+          e.preventDefault();
+          useUI.getState().setOverlay(useUI.getState().overlay === 'help' ? null : 'help');
+        }
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey)) return;
+
+      const k = e.key.toLowerCase();
+      if (k === 'k') {
+        e.preventDefault();
+        useUI.getState().setOverlay(useUI.getState().overlay === 'palette' ? null : 'palette');
+        return;
+      }
+      if (k === 's') {
+        e.preventDefault();
+        onSave();
+        return;
+      }
       if (editable) return;
       if (k === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -220,22 +248,8 @@ export function App() {
             </>
           }
         >
-          <MenuItem
-            onClick={() => {
-              const n = exportExcelFile(useApp.getState().project);
-              useUI.getState().toast(`出力しました（${n}）`, 'success');
-            }}
-          >
-            Excel (.xlsx)
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              const n = exportCsvFile(useApp.getState().project);
-              useUI.getState().toast(`出力しました（${n}）`, 'success');
-            }}
-          >
-            CSV (.csv)
-          </MenuItem>
+          <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
+          <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
           <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
         </Menu>
 
@@ -246,6 +260,14 @@ export function App() {
           title={theme === 'dark' ? 'ライトに切替' : 'ダークに切替'}
         >
           {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => useUI.getState().setOverlay('help')}
+          aria-label="キーボードショートカット"
+          title="キーボードショートカット (?)"
+        >
+          <Icons.Keyboard />
         </button>
       </header>
       {isEmpty ? (
@@ -309,6 +331,18 @@ export function App() {
           )}
         </div>
       )}
+      {!isEmpty && <StatusBar />}
+      <CommandPalette
+        onNew={onNew}
+        onSave={onSave}
+        onOpen={onOpen}
+        onImport={onImport}
+        onSample={onSample}
+        onExportExcel={onExportExcel}
+        onExportCsv={onExportCsv}
+        onExportSvg={onExportSvg}
+      />
+      <HelpDialog />
       <Modal />
       <Toaster />
     </div>
