@@ -636,6 +636,20 @@ button.danger:hover {
   position: relative;
   min-width: 100%;
   background: var(--canvas-bg);
+  cursor: grab;
+}
+.flow-canvas.panning {
+  cursor: grabbing;
+}
+/* ノード等は固有カーソルを優先（パンの grab を上書き） */
+.flow-canvas .node {
+  cursor: move;
+}
+.flow-canvas button {
+  cursor: pointer;
+}
+.flow-canvas .handle {
+  cursor: crosshair;
 }
 .flow-scale {
   position: relative;

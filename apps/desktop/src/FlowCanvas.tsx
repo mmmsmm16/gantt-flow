@@ -53,7 +53,33 @@ export function FlowCanvas() {
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
+  const [panning, setPanning] = useState(false);
   const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
+
+  // 何も掴んでいない（ノード以外の）空白をドラッグ → 画面をパン（スクロール）する。
+  const onCanvasPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const el = e.target as HTMLElement;
+    if (el.closest('.node, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
+    const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
+    if (!scroller) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const sl = scroller.scrollLeft;
+    const st = scroller.scrollTop;
+    setPanning(true);
+    const onMove = (ev: PointerEvent) => {
+      scroller.scrollLeft = sl - (ev.clientX - startX);
+      scroller.scrollTop = st - (ev.clientY - startY);
+    };
+    const onUp = () => {
+      setPanning(false);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   const relPoint = (e: PointerEvent | React.PointerEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -232,7 +258,11 @@ export function FlowCanvas() {
         <span className="palette-hint">○ドラッグで矢印 / Ctrl+ホイールで拡大縮小</span>
       </div>
 
-      <div className="flow-canvas" ref={canvasRef}>
+      <div
+        className={`flow-canvas${panning ? ' panning' : ''}`}
+        ref={canvasRef}
+        onPointerDown={onCanvasPointerDown}
+      >
         <div
           className="flow-scale"
           style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})` }}
