@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { findView, useApp } from './store';
 import { type ProcessLevel } from '@gantt-flow/core';
 import { TableView } from './TableView';
@@ -91,6 +92,37 @@ export function App() {
     if (view) exportSvgFile(st.project, view);
   };
 
+  // グローバルショートカット: Ctrl/⌘+Z=戻す, Ctrl+Y / Ctrl+Shift+Z=やり直し, Ctrl/⌘+S=保存。
+  // IME 変換中は無視し、テキスト編集中の undo/redo はネイティブを優先（保存は常に握る）。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || !(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 's') {
+        e.preventDefault();
+        saveProjectToFile(useApp.getState().project);
+        return;
+      }
+      const el = document.activeElement;
+      const editable =
+        el instanceof HTMLElement &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable);
+      if (editable) return;
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        useApp.getState().undo();
+      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        useApp.getState().redo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="app">
       <header className="toolbar">
@@ -145,7 +177,7 @@ export function App() {
         <span className="spacer" />
 
         <span className="tool-group" role="group" aria-label="履歴">
-          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す">
+          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す (Ctrl+Z)">
             <Icons.Undo />
           </button>
           <button
@@ -153,7 +185,7 @@ export function App() {
             onClick={redo}
             disabled={!canRedo}
             aria-label="やり直し"
-            title="やり直し"
+            title="やり直し (Ctrl+Y)"
           >
             <Icons.Redo />
           </button>
@@ -174,7 +206,7 @@ export function App() {
           <button className="icon-btn" onClick={onOpen} aria-label="開く" title="開く">
             <Icons.FolderOpen />
           </button>
-          <button className="icon-btn" onClick={onSave} aria-label="保存" title="保存">
+          <button className="icon-btn" onClick={onSave} aria-label="保存" title="保存 (Ctrl+S)">
             <Icons.Save />
           </button>
         </span>
