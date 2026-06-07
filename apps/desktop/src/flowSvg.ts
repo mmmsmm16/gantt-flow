@@ -3,6 +3,10 @@
 import { SIZE, deriveBands, type Project, type FlowLevelView, type FlowNode } from '@gantt-flow/core';
 import { FLOW_LIGHT } from './theme';
 
+// 画面 (--font-ui) と一致させる和文優先スタック。出力＝画面の体験を保つ。styles.css と同期。
+const FONT_STACK =
+  "system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Noto Sans JP', Meiryo, sans-serif";
+
 const esc = (s: string) =>
   s.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
 
@@ -25,7 +29,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   }
   const parts: string[] = [];
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" viewBox="0 0 ${maxX} ${maxY}" font-family="sans-serif">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" viewBox="0 0 ${maxX} ${maxY}" font-family="${FONT_STACK}">`,
   );
   parts.push(`<rect width="100%" height="100%" fill="${FLOW_LIGHT.bg}"/>`);
   parts.push(
@@ -154,9 +158,17 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
       );
     } else if (n.kind === 'control') {
       const label = { start: '開始', end: '終了', decision: '判断', merge: '合流' }[n.control];
-      parts.push(
-        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="16" fill="${FLOW_LIGHT.control.fill}" stroke="${FLOW_LIGHT.control.stroke}" stroke-width="1.6"/>`,
-      );
+      if (n.control === 'decision' || n.control === 'merge') {
+        const mx = n.x + s.w / 2;
+        const my = n.y + s.h / 2;
+        parts.push(
+          `<polygon points="${mx},${n.y} ${n.x + s.w},${my} ${mx},${n.y + s.h} ${n.x},${my}" fill="${FLOW_LIGHT.control.fill}" stroke="${FLOW_LIGHT.control.stroke}" stroke-width="1.6"/>`,
+        );
+      } else {
+        parts.push(
+          `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="16" fill="${FLOW_LIGHT.control.fill}" stroke="${FLOW_LIGHT.control.stroke}" stroke-width="1.6"/>`,
+        );
+      }
       parts.push(
         `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="11" fill="${FLOW_LIGHT.control.text}" text-anchor="middle">${esc(label)}</text>`,
       );

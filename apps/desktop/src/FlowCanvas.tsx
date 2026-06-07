@@ -362,7 +362,17 @@ export function FlowCanvas() {
                 if (n.kind === 'task') select(n.taskId);
               }}
             >
-              {labelOf(n)}
+              {n.kind === 'control' && (n.control === 'decision' || n.control === 'merge') && (
+                <svg
+                  className="control-diamond"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <polygon points="50,1 99,50 50,99 1,50" />
+                </svg>
+              )}
+              <span className="node-label">{labelOf(n)}</span>
               {connectable && (
                 <span className="handle" title="ドラッグして矢印を引く" onPointerDown={(e) => startConnect(n, e)} />
               )}

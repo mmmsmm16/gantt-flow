@@ -702,6 +702,30 @@ button.danger:hover {
   border-style: solid;
   border-color: var(--faint);
 }
+/* 判断/合流は菱形（箱に内接する SVG）。div は透明にして当たり/ハンドルはそのまま。 */
+.node.control-decision,
+.node.control-merge {
+  background: transparent;
+  border: none;
+}
+.control-diamond {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.control-diamond polygon {
+  fill: var(--node-task-bg);
+  stroke: var(--faint);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+.node-label {
+  position: relative;
+  z-index: 1;
+}
 
 /* ---- Inspector ---- */
 .inspector {
