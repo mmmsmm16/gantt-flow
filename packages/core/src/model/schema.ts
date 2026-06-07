@@ -114,6 +114,7 @@ const Swimlane = z.object({
   assigneeId: z.string().optional(),
   title: z.string(),
   order: z.number(),
+  height: z.number().optional(),
 });
 
 const FlowLevelView = z.object({

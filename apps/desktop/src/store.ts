@@ -24,6 +24,10 @@ import {
   rowsToProject,
   createSampleProject,
   tidyFlowView,
+  nearestLaneOrder,
+  laneTaskBaseY,
+  laneHeight,
+  LANE_MIN_H,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
@@ -108,6 +112,8 @@ export interface AppState {
   addComment: (text: string) => void;
   /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
   tidyFlow: () => void;
+  /** レーンの高さを変更（手動リサイズ）。下のレーンのノードを連動シフトして整合を保つ。 */
+  setLaneHeight: (laneId: Id, height: number) => void;
   connect: (source: FlowNodeId, target: FlowNodeId) => void;
   setEdgeLabel: (edgeId: Id, label: string) => void;
   deleteFlowNode: (nodeId: FlowNodeId) => void;
@@ -351,7 +357,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       node.y = y;
 
       if (node.kind === 'task') {
-        const laneOrder = Math.max(0, Math.round((y - 40) / 120));
+        const laneOrder = nearestLaneOrder(view.lanes, y);
         const lane = Object.values(view.lanes).find((l) => l.order === laneOrder);
         const task = p.core.tasks[node.taskId];
         if (lane?.assigneeId && task && task.assigneeId !== lane.assigneeId) {
@@ -369,7 +375,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     addTaskAt: (x, y) => {
       const { level, scopeParentId } = get();
       const view0 = findView(get().project, level, scopeParentId);
-      const laneOrder = Math.max(0, Math.round((y - 40) / 120));
+      const laneOrder = view0 ? nearestLaneOrder(view0.lanes, y) : 0;
       const lane = view0
         ? Object.values(view0.lanes).find((l) => l.order === laneOrder)
         : undefined;
@@ -417,6 +423,26 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       );
       if (vi < 0) return;
       p.flow.byLevel[vi] = tidyFlowView(p.core, p.details, p.flow.byLevel[vi]!);
+      history.push(p);
+      sync();
+    },
+    setLaneHeight: (laneId, height) => {
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const view = p.flow.byLevel.find(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      const lane = view?.lanes[laneId];
+      if (!view || !lane) return;
+      const clamped = Math.max(LANE_MIN_H, Math.round(height));
+      const delta = clamped - laneHeight(lane);
+      if (delta === 0) return;
+      // 変更前の「次レーン基準 y」より下のノードは、レーン拡縮ぶん連動シフト（絶対 y の整合）。
+      const threshold = laneTaskBaseY(view.lanes, lane.order + 1);
+      lane.height = clamped;
+      for (const n of Object.values(view.nodes)) {
+        if (n.y >= threshold) n.y += delta;
+      }
       history.push(p);
       sync();
     },

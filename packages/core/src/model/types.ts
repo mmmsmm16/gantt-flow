@@ -154,6 +154,7 @@ export interface Swimlane {
   assigneeId?: Id;
   title: string;
   order: number;
+  height?: number; // レーンの高さ（px）。未指定＝既定。並行工程で太く / 手動リサイズで保持。
 }
 
 export type Orientation = 'horizontal' | 'vertical';

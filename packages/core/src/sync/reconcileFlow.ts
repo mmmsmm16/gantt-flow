@@ -15,6 +15,7 @@ import type {
 } from '../model/types';
 import type { IdGen } from '../ids';
 import { placeInputDoc, placeOutputDoc, placeClear } from './autoPlace';
+import { laneTaskBaseY } from './lanes';
 
 export interface SyncReport {
   added: FlowNodeId[]; // 自動追加したノード
@@ -22,9 +23,8 @@ export interface SyncReport {
 }
 
 const MARGIN_X = 120; // レーン名の列（左）を空けて、その右からノードを並べる
-const MARGIN_Y = 40;
 const COL_W = 220;
-const ROW_H = 120;
+// 縦位置は lanes.ts の laneTaskBaseY（可変レーン高さに対応）に集約。
 
 const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
   (a ?? undefined) === (b ?? undefined);
@@ -122,7 +122,7 @@ export function reconcileFlow(
       // 担当（レーン）が変わったら、そのレーンの行へ縦移動（横位置 x は保持）
       if (existing.laneId !== laneId) {
         existing.laneId = laneId;
-        existing.y = MARGIN_Y + laneOrderOf(t.assigneeId) * ROW_H;
+        existing.y = laneTaskBaseY(next.lanes, laneOrderOf(t.assigneeId));
       }
       return;
     }
@@ -132,7 +132,7 @@ export function reconcileFlow(
       kind: 'task',
       taskId: t.id,
       x: MARGIN_X + i * COL_W,
-      y: MARGIN_Y + laneOrderOf(t.assigneeId) * ROW_H,
+      y: laneTaskBaseY(next.lanes, laneOrderOf(t.assigneeId)),
       laneId,
     };
     next.nodes[id] = node;

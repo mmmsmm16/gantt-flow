@@ -7,6 +7,9 @@ import {
   deriveBands,
   ioIconRect,
   IO_ICON,
+  laneLayout,
+  LANE_MIN_H,
+  type LaneBox,
   type ControlKind,
   type FlowNode,
   type FlowNodeId,
@@ -51,6 +54,7 @@ export function FlowCanvas() {
   const deleteEdge = useApp((s) => s.deleteEdge);
   const deleteFlowNode = useApp((s) => s.deleteFlowNode);
   const tidyFlow = useApp((s) => s.tidyFlow);
+  const setLaneHeight = useApp((s) => s.setLaneHeight);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
@@ -59,6 +63,8 @@ export function FlowCanvas() {
   const [panning, setPanning] = useState(false);
   // フロー固有要素（制御ノード/付箋/矢印）の選択。Delete で削除・Esc で解除。
   const [sel, setSel] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null);
+  // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
+  const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
   const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
 
   // 何も掴んでいない（ノード以外の）空白をドラッグ → 画面をパン（スクロール）する。
@@ -197,6 +203,41 @@ export function FlowCanvas() {
   const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
   const bands = deriveBands(project.core, view);
   const divNodes = nodes.filter((n) => n.kind !== 'doc');
+
+  // レーン幾何（可変高さ）。リサイズ中は対象レーンの高さをプレビュー値で上書き。
+  const effectiveLanes = laneResize
+    ? lanes.map((l) => (l.id === laneResize.laneId ? { ...l, height: laneResize.height } : l))
+    : lanes;
+  const laneBoxes: LaneBox[] = laneLayout(effectiveLanes);
+  const fallbackBox: LaneBox = {
+    lane: { id: '_', title: '（未割当）', order: 0 },
+    top: BAND_TOP,
+    height: ROW_H,
+    base: MARGIN,
+  };
+  const boxes = laneBoxes.length ? laneBoxes : [fallbackBox];
+  const lanesBottomY = boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height;
+
+  // レーン下端の手動リサイズ（ラベル列のグリップをドラッグ）。確定時に setLaneHeight（下のレーンも連動）。
+  const onLaneResizeDown = (box: LaneBox, e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = box.height;
+    const s = scale;
+    setLaneResize({ laneId: box.lane.id, height: startH });
+    const heightAt = (ev: PointerEvent) => Math.max(LANE_MIN_H, startH + (ev.clientY - startY) / s);
+    const onMove = (ev: PointerEvent) => setLaneResize({ laneId: box.lane.id, height: heightAt(ev) });
+    const onUp = (ev: PointerEvent) => {
+      const h = heightAt(ev);
+      setLaneResize(null);
+      setLaneHeight(box.lane.id, h);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   // 全体表示: 全ノードの外接矩形を計算し、画面に収まる倍率と位置へスクロール（拡大は100%まで）。
   const fitView = () => {
@@ -369,13 +410,22 @@ export function FlowCanvas() {
           </div>
         ))}
 
-        {(lanes.length ? lanes : [{ id: '_', title: '（未割当）', order: 0 }]).map((lane) => (
+        {boxes.map((box) => (
           <div
-            key={`ll-${lane.id}`}
+            key={`ll-${box.lane.id}`}
             className="lane-label"
-            style={{ top: BAND_TOP + lane.order * ROW_H, height: ROW_H }}
+            style={{ top: box.top, height: box.height }}
           >
-            {lane.title}
+            {box.lane.title}
+            {box.lane.id !== '_' && (
+              <span
+                className="lane-resize"
+                role="separator"
+                aria-label={`${box.lane.title}レーンの高さを変更`}
+                title="ドラッグでレーンの高さを変更"
+                onPointerDown={(e) => onLaneResizeDown(box, e)}
+              />
+            )}
           </div>
         ))}
 
@@ -386,23 +436,34 @@ export function FlowCanvas() {
             </marker>
           </defs>
 
-          {/* スイムレーン: 左にラベル列・薄い水平線で全幅を帯に区切る */}
+          {/* スイムレーン: 左にラベル列・可変高さの帯で区切る（並行工程で太く / 手動リサイズ） */}
           {(() => {
-            const cnt = Math.max(1, lanes.length);
-            const bottom = BAND_TOP + cnt * ROW_H;
             const els: JSX.Element[] = [
-              <rect key="labelcol" className="lane-col-bg" x={0} y={BAND_TOP} width={LABEL_W} height={cnt * ROW_H} />,
+              <rect key="labelcol" className="lane-col-bg" x={0} y={BAND_TOP} width={LABEL_W} height={lanesBottomY - BAND_TOP} />,
             ];
-            for (let i = 0; i < cnt; i++) {
+            boxes.forEach((box, i) => {
               if (i % 2 === 1)
                 els.push(
-                  <rect key={`bg-${i}`} className="lane-stripe" x={LABEL_W} y={BAND_TOP + i * ROW_H} width={FULL_W} height={ROW_H} />,
+                  <rect key={`bg-${box.lane.id}`} className="lane-stripe" x={LABEL_W} y={box.top} width={FULL_W} height={box.height} />,
+                );
+              els.push(<line key={`lh-${box.lane.id}`} className="lane-line" x1={0} y1={box.top} x2={FULL_W} y2={box.top} />);
+            });
+            els.push(<line key="lh-bottom" className="lane-line" x1={0} y1={lanesBottomY} x2={FULL_W} y2={lanesBottomY} />);
+            els.push(<line key="vdiv" className="lane-divider" x1={LABEL_W} y1={BAND_TOP} x2={LABEL_W} y2={lanesBottomY} />);
+            if (laneResize) {
+              const rb = boxes.find((b) => b.lane.id === laneResize.laneId);
+              if (rb)
+                els.push(
+                  <line
+                    key="resize-guide"
+                    className="lane-resize-guide"
+                    x1={0}
+                    y1={rb.top + rb.height}
+                    x2={FULL_W}
+                    y2={rb.top + rb.height}
+                  />,
                 );
             }
-            for (let i = 0; i <= cnt; i++) {
-              els.push(<line key={`lh-${i}`} className="lane-line" x1={0} y1={BAND_TOP + i * ROW_H} x2={FULL_W} y2={BAND_TOP + i * ROW_H} />);
-            }
-            els.push(<line key="vdiv" className="lane-divider" x1={LABEL_W} y1={BAND_TOP} x2={LABEL_W} y2={bottom} />);
             return els;
           })()}
 

@@ -225,6 +225,29 @@ describe('app store（command → reconcile → history）', () => {
     expect(taskNodes(s).find((n) => n.taskId === b.taskId)!.x).toBe(1234);
   });
 
+  it('レーンの高さを変えると、その下のレーンのノードが連動シフトする', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = taskNodes(s)[0]!.taskId;
+    s.getState().setAssigneeByName(a, '営業'); // lane 0, y=40
+    s.getState().addTask('B');
+    const b = Object.values(s.getState().project.core.tasks).find((t) => t.name === 'B')!.id;
+    s.getState().setAssigneeByName(b, '倉庫'); // lane 1, y=160
+    const bNode = () => taskNodes(s).find((n) => n.taskId === b)!;
+    expect(bNode().y).toBe(160);
+
+    const lane0 = Object.values(view0(s).lanes).find((l) => l.order === 0)!;
+    s.getState().setLaneHeight(lane0.id, 220); // +100 → 下のレーンのノードが +100
+    expect(view0(s).lanes[lane0.id]!.height).toBe(220);
+    expect(bNode().y).toBe(260);
+    // A（同レーン）は動かない
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(40);
+    // 1 undo で戻る
+    s.getState().undo();
+    expect(bNode().y).toBe(160);
+    expect(view0(s).lanes[lane0.id]!.height).toBeUndefined();
+  });
+
   it('導出エッジを削除すると元の依存（前後関係）も消える', () => {
     const s = createAppStore();
     s.getState().addTask('A');

@@ -1824,3 +1824,42 @@ kbd {
   width: 14px;
   height: 14px;
 }
+
+/* ---- フロー: レーン高さの手動リサイズ ---- */
+.lane-label {
+  position: relative;
+}
+.lane-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+.lane-resize::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 26px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.lane-label:hover .lane-resize::after,
+.lane-resize:hover::after {
+  opacity: 1;
+}
+.lane-resize:hover::after {
+  background: var(--accent);
+}
+.lane-resize-guide {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+}

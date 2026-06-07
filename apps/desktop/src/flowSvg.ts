@@ -5,6 +5,7 @@ import {
   deriveBands,
   ioIconRect,
   IO_ICON,
+  laneLayout,
   type Project,
   type FlowLevelView,
   type FlowNode,
@@ -45,6 +46,13 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
+  // レーン幾何（可変高さ）。総高がノードより大きいときはキャンバスを広げる。
+  const BAND_TOP = 24;
+  const LABEL_W = 96;
+  const boxes = laneLayout(view.lanes);
+  const laneBottom = boxes.length ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP + 120;
+  maxY = Math.max(maxY, laneBottom + 40);
+
   const taskNodeFor = (taskId: string): FlowNode | undefined =>
     nodes.find((nn) => nn.kind === 'task' && nn.taskId === taskId);
   // 課題線の終点。対象が I/O(doc) なら集約アイコンの中心へ寄せる（個別ノードは非表示のため）。
@@ -83,31 +91,28 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     );
   }
 
-  // swimlanes: 左ラベル列 + 全幅の水平区切り
-  const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
-  const cnt = Math.max(1, lanes.length);
-  const BAND_TOP = 24;
-  const LABEL_W = 96;
+  // swimlanes: 左ラベル列 + 可変高さの水平区切り（並行工程で太く / 手動リサイズを保持）
   parts.push(
-    `<rect x="0" y="${BAND_TOP}" width="${LABEL_W}" height="${cnt * 120}" fill="${FLOW_LIGHT.laneColBg}"/>`,
+    `<rect x="0" y="${BAND_TOP}" width="${LABEL_W}" height="${laneBottom - BAND_TOP}" fill="${FLOW_LIGHT.laneColBg}"/>`,
   );
-  for (let i = 0; i < cnt; i++) {
+  boxes.forEach((box, i) => {
     if (i % 2 === 1)
       parts.push(
-        `<rect x="${LABEL_W}" y="${BAND_TOP + i * 120}" width="${maxX}" height="120" fill="${FLOW_LIGHT.laneStripe}"/>`,
+        `<rect x="${LABEL_W}" y="${box.top}" width="${maxX}" height="${box.height}" fill="${FLOW_LIGHT.laneStripe}"/>`,
       );
-  }
-  for (let i = 0; i <= cnt; i++) {
     parts.push(
-      `<line x1="0" y1="${BAND_TOP + i * 120}" x2="${maxX}" y2="${BAND_TOP + i * 120}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
+      `<line x1="0" y1="${box.top}" x2="${maxX}" y2="${box.top}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
     );
-  }
+  });
   parts.push(
-    `<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${BAND_TOP + cnt * 120}" stroke="${FLOW_LIGHT.laneDivider}" stroke-width="1.4"/>`,
+    `<line x1="0" y1="${laneBottom}" x2="${maxX}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
   );
-  for (const lane of lanes) {
+  parts.push(
+    `<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneDivider}" stroke-width="1.4"/>`,
+  );
+  for (const box of boxes) {
     parts.push(
-      `<text x="${LABEL_W / 2}" y="${BAND_TOP + lane.order * 120 + 64}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(lane.title)}</text>`,
+      `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
     );
   }
 

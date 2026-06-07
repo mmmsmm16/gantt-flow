@@ -3,11 +3,12 @@
 // 担当レーンで縦位置を決める。付随オブジェクト（帳票/情報/課題）は工程ノードへ再吸着する。
 import type { Core, TaskDetail, FlowLevelView, FlowTaskNode, Id } from '../model/types';
 import { SIZE, placeInputDoc, placeOutputDoc, placeClear } from './autoPlace';
+import { laneTaskBaseY, LANE_DEFAULT_H } from './lanes';
 
 const MARGIN_X = 120;
-const MARGIN_Y = 40;
 const COL_W = 220;
-const ROW_H = 120;
+const ROW_SUB = SIZE.task.h + 20; // 並行（同レーン同段）工程を縦に積む間隔
+const LANE_PAD = LANE_DEFAULT_H - ROW_SUB; // 1 段なら既定高さに一致するよう調整
 
 const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
   (a ?? undefined) === (b ?? undefined);
@@ -49,21 +50,38 @@ export function tidyFlowView(
     return a ? laneOrderByAssignee.get(a) ?? 0 : 0;
   };
 
-  // 決定論順に配置。同一（レーン×段）が重なるときは縦に少しずらす。
+  // 決定論順。同一（レーン×段）に同居する工程は「並行」とみなし、サブ行（slot）へ縦積み。
   const sorted = [...taskNodes].sort((a, b) => {
     const ta = core.tasks[a.taskId];
     const tb = core.tasks[b.taskId];
     return (ta?.order ?? 0) - (tb?.order ?? 0) || a.taskId.localeCompare(b.taskId);
   });
+
+  // パス1: 各ノードの 段(col)・レーン(order)・サブ行(slot) を決め、レーンごとの最大サブ行数を集計。
+  const place = new Map<Id, { col: number; lane: number; slot: number }>();
   const slotCount = new Map<string, number>();
+  const laneRows = new Map<number, number>();
   for (const node of sorted) {
     const col = layer.get(node.taskId) ?? 0;
-    const row = laneOrderOf(node.taskId);
-    const key = `${row}:${col}`;
+    const lane = laneOrderOf(node.taskId);
+    const key = `${lane}:${col}`;
     const slot = slotCount.get(key) ?? 0;
     slotCount.set(key, slot + 1);
-    node.x = MARGIN_X + col * COL_W;
-    node.y = MARGIN_Y + row * ROW_H + slot * (SIZE.task.h + 14);
+    place.set(node.id, { col, lane, slot });
+    laneRows.set(lane, Math.max(laneRows.get(lane) ?? 1, slot + 1));
+  }
+
+  // レーン高さ＝並行度に合わせて拡縮（並行があるレーンだけ太く・逐次なら既定のまま）。
+  for (const lane of Object.values(next.lanes)) {
+    const rows = laneRows.get(lane.order) ?? 1;
+    lane.height = Math.max(LANE_DEFAULT_H, LANE_PAD + rows * ROW_SUB);
+  }
+
+  // パス2: 確定したレーン高さ（累積）を使ってノード座標を決める。
+  for (const node of sorted) {
+    const p = place.get(node.id)!;
+    node.x = MARGIN_X + p.col * COL_W;
+    node.y = laneTaskBaseY(next.lanes, p.lane) + p.slot * ROW_SUB;
   }
 
   // 付随オブジェクトを工程ノードへ再吸着（帳票/情報＝角、課題＝空きスペース）。
