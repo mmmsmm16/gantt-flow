@@ -1,6 +1,7 @@
 // キーボードショートカット一覧。? もしくはツールバーのヘルプから開く。発見性とアクセシビリティ向け。
 import { useEffect, useRef } from 'react';
 import { useUI } from './useUI';
+import { useFocusTrap } from './useFocusTrap';
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -54,6 +55,8 @@ export function HelpDialog() {
   const open = useUI((s) => s.overlay === 'help');
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -74,6 +77,7 @@ export function HelpDialog() {
         role="dialog"
         aria-modal="true"
         aria-label="キーボードショートカット"
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="help-head">

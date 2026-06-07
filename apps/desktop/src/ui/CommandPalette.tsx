@@ -5,6 +5,7 @@ import type { ProcessLevel } from '@gantt-flow/core';
 import { computeCodes } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
+import { useFocusTrap } from './useFocusTrap';
 import * as Icons from './icons';
 
 interface FileHandlers {
@@ -57,6 +58,8 @@ export function CommandPalette(handlers: FileHandlers) {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
 
   const close = () => useUI.getState().setOverlay(null);
   const runAndClose = (fn: () => void) => {
@@ -174,6 +177,7 @@ export function CommandPalette(handlers: FileHandlers) {
         role="dialog"
         aria-modal="true"
         aria-label="コマンドパレット"
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="palette-search">

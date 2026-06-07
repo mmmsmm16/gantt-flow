@@ -419,9 +419,20 @@ export function FlowCanvas() {
               <span
                 className="lane-resize"
                 role="separator"
-                aria-label={`${box.lane.title}レーンの高さを変更`}
-                title="ドラッグでレーンの高さを変更"
+                aria-orientation="horizontal"
+                aria-label={`${box.lane.title}レーンの高さ（${Math.round(box.height)}px）。上下キーで変更`}
+                aria-valuenow={Math.round(box.height)}
+                aria-valuemin={LANE_MIN_H}
+                tabIndex={0}
+                title="ドラッグ / 上下キーでレーンの高さを変更"
                 onPointerDown={(e) => onLaneResizeDown(box, e)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    const step = (e.shiftKey ? 24 : 10) * (e.key === 'ArrowDown' ? 1 : -1);
+                    setLaneHeight(box.lane.id, box.height + step);
+                  }
+                }}
               />
             )}
           </div>
@@ -532,6 +543,7 @@ export function FlowCanvas() {
           const draggable = n.kind === 'task' || n.kind === 'control' || n.kind === 'comment';
           const deletable = n.kind === 'control' || n.kind === 'comment';
           const connectable = n.kind === 'task' || n.kind === 'control';
+          const focusable = draggable; // task/control/comment はキーボードで選択可能
           const isSel = sel?.kind === 'node' && sel.id === n.id;
           const selCls = isSel ? ' sel' : '';
           const cls =
@@ -542,11 +554,31 @@ export function FlowCanvas() {
                 : n.kind === 'comment'
                   ? `node comment${selCls}`
                   : `node control control-${n.control}${selCls}`;
+          const activate = () => {
+            if (n.kind === 'task') {
+              select(n.taskId);
+              setSel(null);
+            } else {
+              setSel({ kind: 'node', id: n.id });
+            }
+          };
+          const ariaLabel =
+            n.kind === 'task'
+              ? `工程: ${labelOf(n) || '（無題）'}`
+              : n.kind === 'comment'
+                ? `付箋: ${labelOf(n)}`
+                : n.kind === 'control'
+                  ? `${labelOf(n)}（制御ノード）`
+                  : labelOf(n);
           return (
             <div
               key={n.id}
               className={cls}
               style={{ left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h }}
+              role={focusable ? 'button' : undefined}
+              tabIndex={focusable ? 0 : undefined}
+              aria-label={focusable ? ariaLabel : undefined}
+              aria-pressed={focusable ? isSel : undefined}
               onPointerDown={(e) => {
                 if (!draggable) return;
                 const pt = relPoint(e);
@@ -554,11 +586,12 @@ export function FlowCanvas() {
               }}
               onClick={(e) => {
                 e.stopPropagation();
-                if (n.kind === 'task') {
-                  select(n.taskId);
-                  setSel(null);
-                } else {
-                  setSel({ kind: 'node', id: n.id });
+                activate();
+              }}
+              onKeyDown={(e) => {
+                if (focusable && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  activate();
                 }
               }}
             >

@@ -218,7 +218,10 @@ export function App() {
 
   return (
     <div className="app">
-      <header className="toolbar">
+      <a className="skip-link" href="#main-table">
+        工程表へスキップ
+      </a>
+      <header className="toolbar" role="banner">
         <span className="brand">
           <svg className="brand-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
             <rect className="bg" width="18" height="18" rx="5" />
@@ -310,12 +313,12 @@ export function App() {
         <div
           className={`panes${selectedTaskId ? ' with-inspector' : ''}${tableWide ? ' table-wide' : ''}`}
         >
-          <section className="pane table-pane">
+          <section className="pane table-pane" id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
             <h2>工程表（手順一覧表）</h2>
             <TableView />
           </section>
           {!tableWide && (
-            <section className="pane flow-pane">
+            <section className="pane flow-pane" aria-label="工程フロー図">
               <div className="flow-head">
                 <h2>工程フロー</h2>
                 <span className="seg" role="group" aria-label="粒度">

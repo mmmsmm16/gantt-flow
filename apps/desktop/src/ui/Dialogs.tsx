@@ -2,12 +2,15 @@
 // App 直下に <Modal /> と <Toaster /> を一度だけ置く。状態は useUI が保持。
 import { useEffect, useRef, useState } from 'react';
 import { useUI } from './useUI';
+import { useFocusTrap } from './useFocusTrap';
 
 export function Modal() {
   const dialog = useUI((s) => s.dialog);
   const resolveDialog = useUI((s) => s.resolveDialog);
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, !!dialog);
 
   // prompt を開いたら初期値を流し込み、入力にフォーカス。
   useEffect(() => {
@@ -42,6 +45,7 @@ export function Modal() {
         role="dialog"
         aria-modal="true"
         aria-label={dialog.title ?? '確認'}
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {dialog.title && <h3 className="modal-title">{dialog.title}</h3>}
@@ -62,7 +66,7 @@ export function Modal() {
           {!(dialog.kind === 'confirm' && dialog.hideCancel) && (
             <button onClick={cancel}>{dialog.cancelLabel ?? 'キャンセル'}</button>
           )}
-          <button className={okClass} onClick={ok}>
+          <button className={okClass} onClick={ok} autoFocus={dialog.kind === 'confirm'}>
             {dialog.confirmLabel ?? (dialog.kind === 'confirm' ? 'OK' : '追加')}
           </button>
         </div>

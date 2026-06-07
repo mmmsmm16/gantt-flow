@@ -1922,3 +1922,40 @@ kbd {
   gap: 10px;
   justify-content: flex-end;
 }
+
+/* ---- アクセシビリティ: スキップリンク / フォーカス可視化 ---- */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 200;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--shadow-pop);
+  transition: top 0.16s ease;
+}
+.skip-link:focus {
+  top: 12px;
+  outline: none;
+}
+.node:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  z-index: 5;
+}
+.lane-resize:focus-visible {
+  outline: none;
+}
+.lane-resize:focus-visible::after {
+  opacity: 1;
+  background: var(--accent);
+  height: 4px;
+  width: 40px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
