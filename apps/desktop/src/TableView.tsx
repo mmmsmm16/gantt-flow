@@ -55,6 +55,7 @@ export function TableView() {
   const indentTask = useApp((s) => s.indentTask);
   const outdentTask = useApp((s) => s.outdentTask);
   const dropTask = useApp((s) => s.dropTask);
+  const addDependency = useApp((s) => s.addDependency);
   const tableWide = useUI((s) => s.tableWide);
   const toggleTableWide = useUI((s) => s.toggleTableWide);
 
@@ -64,6 +65,7 @@ export function TableView() {
   const codes = computeCodes(project.core);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
+  const deps = Object.values(project.core.dependencies);
 
   // 新しく追加した行の作業名入力にフォーカスする（連続入力）。
   const [focusId, setFocusId] = useState<Id | null>(null);
@@ -143,6 +145,7 @@ export function TableView() {
                 <th className="c-level">粒度</th>
                 <th>作業名</th>
                 <th className="c-assignee">担当</th>
+                <th className="c-prev">前工程</th>
                 <th className="c-effort">工数</th>
                 <th className="c-detail">内訳</th>
                 <th className="c-act"></th>
@@ -157,6 +160,20 @@ export function TableView() {
                 const ioCount = (detail?.inputs?.length ?? 0) + (detail?.outputs?.length ?? 0);
                 const issueCount = detail?.issues?.length ?? 0;
                 const hasChildren = parentsWithChildren.has(t.id);
+                const siblings = tasks.filter(
+                  (o) =>
+                    o.id !== t.id &&
+                    (o.parentId ?? undefined) === (t.parentId ?? undefined) &&
+                    o.level === t.level,
+                );
+                const preds = deps.filter((dep) => dep.to === t.id);
+                const predIds = new Set(preds.map((dep) => dep.from));
+                const succIds = new Set(
+                  deps.filter((dep) => dep.from === t.id).map((dep) => dep.to),
+                );
+                const prevCandidates = siblings.filter(
+                  (o) => !predIds.has(o.id) && !succIds.has(o.id),
+                );
                 return (
                   <tr
                     key={t.id}
@@ -293,6 +310,33 @@ export function TableView() {
                           if (e.target.value !== assigneeName) setAssigneeByName(t.id, e.target.value);
                         }}
                       />
+                    </td>
+                    <td className="c-prev" onClick={(e) => e.stopPropagation()}>
+                      {preds.length > 0 && (
+                        <span
+                          className="prev-names"
+                          title={preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
+                        >
+                          {preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
+                        </span>
+                      )}
+                      {prevCandidates.length > 0 && (
+                        <select
+                          className="prev-add"
+                          value=""
+                          aria-label="前工程を追加"
+                          onChange={(e) => {
+                            if (e.target.value) addDependency(e.target.value, t.id);
+                          }}
+                        >
+                          <option value="">＋前工程</option>
+                          {prevCandidates.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
                     <td className="c-effort" onClick={(e) => e.stopPropagation()}>
                       {hasChildren ? (
