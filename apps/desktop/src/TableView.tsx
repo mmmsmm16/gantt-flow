@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatMinutes } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 
@@ -341,20 +341,23 @@ export function TableView() {
                     <td className="c-effort" onClick={(e) => e.stopPropagation()}>
                       {hasChildren ? (
                         <span className="effort-roll" title="子の合計（自動）">
-                          {formatMinutes(effortRollupMinutes(project.core, project.details, t.id))}
+                          {formatHours(effortRollupMinutes(project.core, project.details, t.id))}
                         </span>
                       ) : (
                         <input
                           className="effort-input"
                           type="number"
                           min={0}
-                          defaultValue={detail?.effortMinutes ?? ''}
-                          placeholder="分"
-                          aria-label="工数（分）"
+                          step={0.5}
+                          defaultValue={detail?.effortMinutes != null ? detail.effortMinutes / 60 : ''}
+                          placeholder="h"
+                          aria-label="工数（時間）"
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) =>
                             updateDetail(t.id, {
-                              effortMinutes: e.target.value ? Number(e.target.value) : undefined,
+                              effortMinutes: e.target.value
+                                ? Math.round(Number(e.target.value) * 60)
+                                : undefined,
                             })
                           }
                         />

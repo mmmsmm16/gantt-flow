@@ -1,5 +1,5 @@
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatMinutes } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
 
 export function Inspector() {
@@ -69,15 +69,20 @@ export function Inspector() {
           <textarea defaultValue={d?.how ?? ''} onBlur={(e) => updateDetail(taskId, { how: e.target.value })} />
           <label>使用システム</label>
           <textarea defaultValue={d?.system ?? ''} onBlur={(e) => updateDetail(taskId, { system: e.target.value })} />
-          <label>工数（分）</label>
+          <label>工数（時間・0.5刻み）</label>
           {hasChildren ? (
-            <div className="readonly">{formatMinutes(rollup)}（子の合計・自動）</div>
+            <div className="readonly">{formatHours(rollup)}（子の合計・自動）</div>
           ) : (
             <input
               type="number"
-              defaultValue={d?.effortMinutes ?? ''}
+              min={0}
+              step={0.5}
+              placeholder="h"
+              defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
               onBlur={(e) =>
-                updateDetail(taskId, { effortMinutes: e.target.value ? Number(e.target.value) : undefined })
+                updateDetail(taskId, {
+                  effortMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : undefined,
+                })
               }
             />
           )}
