@@ -38,6 +38,12 @@
   --amber-fill: #fef9c3;
   --amber-ink: #854d0e;
 
+  /* 粒度色（トークン化・ダーク追従）。medium/detail はアクセント/ミュートに追従。 */
+  --lvl-large: #b45309;
+  --lvl-medium: var(--accent);
+  --lvl-small: #0e7490;
+  --lvl-detail: var(--muted);
+
   /* フローキャンバス */
   --canvas-bg: #ffffff;
   --canvas-dot: #e2e8f0;
@@ -95,6 +101,9 @@
   --amber: #fcd34d;
   --amber-fill: rgba(202, 138, 4, 0.2);
   --amber-ink: #fcd34d;
+
+  --lvl-large: #e0995a;
+  --lvl-small: #3fb6cf;
 
   --canvas-bg: #0d121c;
   --canvas-dot: rgba(148, 163, 184, 0.16);
@@ -542,16 +551,16 @@ button.danger:hover {
   text-align: center;
 }
 .lvl-large {
-  color: #b45309;
+  color: var(--lvl-large);
 }
 .lvl-medium {
-  color: var(--accent);
+  color: var(--lvl-medium);
 }
 .lvl-small {
-  color: #0e7490;
+  color: var(--lvl-small);
 }
 .lvl-detail {
-  color: var(--muted);
+  color: var(--lvl-detail);
 }
 .c-io button {
   padding: 3px 7px;
@@ -649,13 +658,13 @@ button.danger:hover {
   pointer-events: none;
 }
 .band-large {
-  background: rgba(180, 83, 9, 0.04);
+  background: color-mix(in srgb, var(--lvl-large) 7%, transparent);
 }
 .band-medium {
-  background: rgba(79, 70, 229, 0.04);
+  background: color-mix(in srgb, var(--lvl-medium) 7%, transparent);
 }
 .band-small {
-  background: rgba(14, 116, 144, 0.04);
+  background: color-mix(in srgb, var(--lvl-small) 7%, transparent);
 }
 .band-label {
   position: absolute;
@@ -787,13 +796,13 @@ button.danger:hover {
   border: 1px solid var(--line);
 }
 .lvl-badge.lvl-large {
-  color: #b45309;
+  color: var(--lvl-large);
 }
 .lvl-badge.lvl-medium {
-  color: var(--accent);
+  color: var(--lvl-medium);
 }
 .lvl-badge.lvl-small {
-  color: #0e7490;
+  color: var(--lvl-small);
 }
 .insp-scroll {
   flex: 1;
