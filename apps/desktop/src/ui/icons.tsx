@@ -85,6 +85,12 @@ export const EyeOff = (p: SVGProps<SVGSVGElement>) => (
     <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
   </Svg>
 );
+export const Columns = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16M15 4v16" />
+  </Svg>
+);
 export const Sun = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="4" />

@@ -59,3 +59,26 @@ export function MenuItem({ children, onClick }: { children: ReactNode; onClick: 
     </button>
   );
 }
+
+// チェックボックス項目。クリックでメニューを閉じない（複数列を続けてトグルできる）。
+export function MenuCheckItem({
+  label,
+  checked,
+  onChange,
+}: {
+  label: ReactNode;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label
+      className="menu-item menu-check"
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      <span>{label}</span>
+    </label>
+  );
+}

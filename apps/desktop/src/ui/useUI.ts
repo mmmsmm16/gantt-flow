@@ -4,6 +4,32 @@ import { create } from 'zustand';
 
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
+const COLS_KEY = 'gf-columns';
+
+// 工程表の任意列（前工程 / 工数 / I/O・課題）の表示トグル。既定は全て表示。
+export interface ColumnVisibility {
+  prev: boolean;
+  effort: boolean;
+  io: boolean;
+}
+const DEFAULT_COLUMNS: ColumnVisibility = { prev: true, effort: true, io: true };
+
+function readInitialColumns(): ColumnVisibility {
+  try {
+    const saved = localStorage.getItem(COLS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved) as Partial<ColumnVisibility>;
+      return {
+        prev: parsed.prev ?? DEFAULT_COLUMNS.prev,
+        effort: parsed.effort ?? DEFAULT_COLUMNS.effort,
+        io: parsed.io ?? DEFAULT_COLUMNS.io,
+      };
+    }
+  } catch {
+    /* localStorage 不可/破損: 既定（全表示）にフォールバック */
+  }
+  return DEFAULT_COLUMNS;
+}
 
 function readInitialTheme(): Theme {
   try {
@@ -60,6 +86,10 @@ interface UIState {
   tableWide: boolean;
   toggleTableWide: () => void;
 
+  /** 工程表の任意列（前工程 / 工数 / I/O・課題）の表示トグル。localStorage 永続。 */
+  columnVisibility: ColumnVisibility;
+  toggleColumn: (key: keyof ColumnVisibility) => void;
+
   dialog: Dialog | null;
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
   promptText: (opts: PromptOpts) => Promise<string | null>;
@@ -91,6 +121,17 @@ export const useUI = create<UIState>((set, get) => ({
 
   tableWide: false,
   toggleTableWide: () => set({ tableWide: !get().tableWide }),
+
+  columnVisibility: readInitialColumns(),
+  toggleColumn: (key) => {
+    const next = { ...get().columnVisibility, [key]: !get().columnVisibility[key] };
+    try {
+      localStorage.setItem(COLS_KEY, JSON.stringify(next));
+    } catch {
+      /* 永続化失敗は無視（メモリ上は反映済み） */
+    }
+    set({ columnVisibility: next });
+  },
 
   dialog: null,
   confirm: (opts) =>

@@ -1178,6 +1178,16 @@ button.danger:hover {
   color: var(--accent);
   border-color: transparent;
 }
+.menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.menu-check input {
+  margin: 0;
+  accent-color: var(--accent);
+}
 
 /* フローの空状態 */
 .flow-empty {

@@ -3,6 +3,8 @@ import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
+import { Menu, MenuCheckItem } from './ui/Menu';
+import * as Icons from './ui/icons';
 
 const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -61,6 +63,8 @@ export function TableView() {
   const removeIo = useApp((s) => s.removeIo);
   const tableWide = useUI((s) => s.tableWide);
   const toggleTableWide = useUI((s) => s.toggleTableWide);
+  const columnVisibility = useUI((s) => s.columnVisibility);
+  const toggleColumn = useUI((s) => s.toggleColumn);
 
   const tasks = Object.values(project.core.tasks);
   const [collapsed, setCollapsed] = useState<Set<Id>>(new Set());
@@ -121,6 +125,32 @@ export function TableView() {
             </button>
           </span>
         )}
+        <Menu
+          className="icon-btn menu-trigger col-menu"
+          title="表示する列"
+          label={
+            <>
+              <Icons.Columns />
+              列<Icons.ChevronDown />
+            </>
+          }
+        >
+          <MenuCheckItem
+            label="前工程"
+            checked={columnVisibility.prev}
+            onChange={() => toggleColumn('prev')}
+          />
+          <MenuCheckItem
+            label="工数"
+            checked={columnVisibility.effort}
+            onChange={() => toggleColumn('effort')}
+          />
+          <MenuCheckItem
+            label="I/O・課題"
+            checked={columnVisibility.io}
+            onChange={() => toggleColumn('io')}
+          />
+        </Menu>
         <button
           className="wide-toggle"
           onClick={toggleTableWide}
@@ -148,9 +178,9 @@ export function TableView() {
                 <th className="c-level">粒度</th>
                 <th>作業名</th>
                 <th className="c-assignee">担当</th>
-                <th className="c-prev">前工程</th>
-                <th className="c-effort">工数</th>
-                <th className="c-io">I/O・課題</th>
+                {columnVisibility.prev && <th className="c-prev">前工程</th>}
+                {columnVisibility.effort && <th className="c-effort">工数</th>}
+                {columnVisibility.io && <th className="c-io">I/O・課題</th>}
                 <th className="c-act"></th>
               </tr>
             </thead>
@@ -314,6 +344,7 @@ export function TableView() {
                         }}
                       />
                     </td>
+                    {columnVisibility.prev && (
                     <td className="c-prev" onClick={(e) => e.stopPropagation()}>
                       {preds.length > 0 && (
                         <span
@@ -341,6 +372,8 @@ export function TableView() {
                         </select>
                       )}
                     </td>
+                    )}
+                    {columnVisibility.effort && (
                     <td className="c-effort" onClick={(e) => e.stopPropagation()}>
                       {hasChildren ? (
                         <span className="effort-roll" title="子の合計（自動）">
@@ -366,6 +399,8 @@ export function TableView() {
                         />
                       )}
                     </td>
+                    )}
+                    {columnVisibility.io && (
                     <td className="c-io" onClick={(e) => e.stopPropagation()}>
                       <div className="io-chips">
                         {(detail?.inputs ?? []).map((item) => (
@@ -427,6 +462,7 @@ export function TableView() {
                         )}
                       </div>
                     </td>
+                    )}
                     <td className="c-act" onClick={(e) => e.stopPropagation()}>
                       {t.level !== 'detail' && (
                         <button
