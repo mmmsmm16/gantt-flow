@@ -1,6 +1,14 @@
 // 現在のフロービューを SVG 文字列に書き出す（画像出力。依存ライブラリ不要）。
 // 配色は theme.ts の FLOW_LIGHT を単一の真実とする（出力は共有/印刷前提で常にライト）。
-import { SIZE, deriveBands, type Project, type FlowLevelView, type FlowNode } from '@gantt-flow/core';
+import {
+  SIZE,
+  deriveBands,
+  ioIconRect,
+  IO_ICON,
+  type Project,
+  type FlowLevelView,
+  type FlowNode,
+} from '@gantt-flow/core';
 import { FLOW_LIGHT } from './theme';
 
 // 画面 (--font-ui) と一致させる和文優先スタック。出力＝画面の体験を保つ。styles.css と同期。
@@ -23,10 +31,37 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   let maxX = 600;
   let maxY = 300;
   for (const n of nodes) {
+    if (n.kind === 'doc') continue; // I/O はタスクへ集約表示（下で算入）
     const s = sizeOf(n);
     maxX = Math.max(maxX, n.x + s.w + 60);
     maxY = Math.max(maxY, n.y + s.h + 60);
+    if (n.kind === 'task') {
+      const outs = project.details[n.taskId]?.outputs?.length ?? 0;
+      if (outs) {
+        const r = ioIconRect(n, 'output', outs);
+        maxX = Math.max(maxX, r.x + r.w + 60);
+        maxY = Math.max(maxY, r.y + r.h + 60);
+      }
+    }
   }
+
+  const taskNodeFor = (taskId: string): FlowNode | undefined =>
+    nodes.find((nn) => nn.kind === 'task' && nn.taskId === taskId);
+  // 課題線の終点。対象が I/O(doc) なら集約アイコンの中心へ寄せる（個別ノードは非表示のため）。
+  const targetCenter = (t: FlowNode): { x: number; y: number } => {
+    if (t.kind === 'doc') {
+      const owner = taskNodeFor(t.taskId);
+      if (owner) {
+        const d = project.details[t.taskId];
+        const items = t.io === 'input' ? (d?.inputs ?? []) : (d?.outputs ?? []);
+        const r = ioIconRect(owner, t.io, items.length || 1);
+        return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      }
+    }
+    const ts = sizeOf(t);
+    return { x: t.x + ts.w / 2, y: t.y + ts.h / 2 };
+  };
+
   const parts: string[] = [];
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" viewBox="0 0 ${maxX} ${maxY}" font-family="${FONT_STACK}">`,
@@ -104,9 +139,9 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     if (n.kind !== 'issue') continue;
     const t = view.nodes[n.targetNodeId];
     if (!t) continue;
-    const ts = sizeOf(t);
+    const c = targetCenter(t);
     parts.push(
-      `<line x1="${n.x + SIZE.issue.w / 2}" y1="${n.y + SIZE.issue.h / 2}" x2="${t.x + ts.w / 2}" y2="${t.y + ts.h / 2}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"/>`,
+      `<line x1="${n.x + SIZE.issue.w / 2}" y1="${n.y + SIZE.issue.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"/>`,
     );
   }
 
@@ -121,26 +156,6 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
       );
       parts.push(
         `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${FLOW_LIGHT.task.text}" text-anchor="middle">${esc(name)}</text>`,
-      );
-    } else if (n.kind === 'doc') {
-      const d = project.details[n.taskId];
-      const item = [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((i) => i.id === n.ioId);
-      const isIn = n.io === 'input';
-      const fill = isIn ? FLOW_LIGHT.ioIn.fill : FLOW_LIGHT.ioOut.fill;
-      const stroke = isIn ? FLOW_LIGHT.ioIn.stroke : FLOW_LIGHT.ioOut.stroke;
-      if (item?.kind === 'info') {
-        parts.push(
-          `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/>`,
-        );
-      } else {
-        const w = s.w;
-        const h = s.h;
-        parts.push(
-          `<path d="M${n.x},${n.y} h${w} v${h - 6} q${-w / 4},6 ${-w / 2},0 q${-w / 4},-6 ${-w / 2},0 z" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/>`,
-        );
-      }
-      parts.push(
-        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="11" font-weight="600" fill="${stroke}" text-anchor="middle">${esc(item?.name ?? '帳票')}</text>`,
       );
     } else if (n.kind === 'issue') {
       parts.push(
@@ -173,6 +188,45 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
         `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="11" fill="${FLOW_LIGHT.control.text}" text-anchor="middle">${esc(label)}</text>`,
       );
     }
+  }
+
+  // I/O 集約アイコン（最後に描画＝工程の上に重ねる。入力=左上 / 出力=右下、複数は1枚に列挙）
+  const drawIoIcon = (
+    task: FlowNode,
+    io: 'input' | 'output',
+    items: { name: string; kind: 'doc' | 'info' }[],
+  ): void => {
+    if (!items.length) return;
+    const r = ioIconRect(task, io, items.length);
+    const pal = io === 'input' ? FLOW_LIGHT.ioIn : FLOW_LIGHT.ioOut;
+    if (items.length > 1) {
+      parts.push(
+        `<rect x="${r.x + 4}" y="${r.y + 4}" width="${r.w}" height="${r.h}" rx="6" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.2" opacity="0.55"/>`,
+      );
+    }
+    if (items[0]?.kind === 'info') {
+      parts.push(
+        `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="8" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+      );
+    } else {
+      const w = r.w;
+      const wave = 6;
+      parts.push(
+        `<path d="M${r.x},${r.y} h${w} v${r.h - wave} q${-w / 4},${wave} ${-w / 2},0 q${-w / 4},${-wave} ${-w / 2},0 z" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+      );
+    }
+    items.forEach((it, i) => {
+      const ty = r.y + IO_ICON.padTop + i * IO_ICON.line + IO_ICON.line - 3;
+      parts.push(
+        `<text x="${r.x + r.w / 2}" y="${ty}" font-size="10.5" font-weight="600" fill="${pal.stroke}" text-anchor="middle">${esc(it.name || '帳票')}</text>`,
+      );
+    });
+  };
+  for (const n of nodes) {
+    if (n.kind !== 'task') continue;
+    const d = project.details[n.taskId];
+    drawIoIcon(n, 'input', d?.inputs ?? []);
+    drawIoIcon(n, 'output', d?.outputs ?? []);
   }
 
   parts.push('</svg>');

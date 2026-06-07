@@ -4,9 +4,10 @@ import { useUI } from './ui/useUI';
 import {
   SIZE,
   deriveBands,
+  ioIconRect,
+  IO_ICON,
   type ControlKind,
   type FlowNode,
-  type FlowDocNode,
   type FlowNodeId,
 } from '@gantt-flow/core';
 
@@ -127,7 +128,6 @@ export function FlowCanvas() {
   if (!showIssues) nodes = nodes.filter((n) => n.kind !== 'issue');
   const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
   const bands = deriveBands(project.core, view);
-  const docNodes = nodes.filter((n): n is FlowDocNode => n.kind === 'doc');
   const divNodes = nodes.filter((n) => n.kind !== 'doc');
 
   const posOf = (n: FlowNode) => (drag && drag.id === n.id ? { x: drag.x, y: drag.y } : { x: n.x, y: n.y });
@@ -136,13 +136,52 @@ export function FlowCanvas() {
     const s = sizeOf(n);
     return { cx: p.x + s.w / 2, cy: p.y + s.h / 2 };
   };
-  const ioKindOf = (n: FlowDocNode) => {
-    const d = project.details[n.taskId];
-    return [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((i) => i.id === n.ioId)?.kind ?? 'doc';
+  // 課題線の終点。対象が I/O(doc) なら集約アイコンの中心へ寄せる（個別ノードは非表示のため）。
+  const targetCenter = (t: FlowNode) => {
+    if (t.kind === 'doc') {
+      const owner = nodes.find((nn) => nn.kind === 'task' && nn.taskId === t.taskId);
+      if (owner) {
+        const d = project.details[t.taskId];
+        const items = t.io === 'input' ? (d?.inputs ?? []) : (d?.outputs ?? []);
+        const r = ioIconRect(posOf(owner), t.io, items.length || 1);
+        return { cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
+      }
+    }
+    return center(t);
   };
-  const docLabel = (n: FlowDocNode) => {
-    const d = project.details[n.taskId];
-    return [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((i) => i.id === n.ioId)?.name ?? '帳票';
+  // I/O 集約アイコン（入力=左上 / 出力=右下に重ね、複数は1枚に名前を縦列挙）。
+  const renderIoIcon = (
+    taskPos: { x: number; y: number },
+    io: 'input' | 'output',
+    items: { id: string; name: string; kind: 'doc' | 'info' }[],
+  ) => {
+    if (!items.length) return null;
+    const r = ioIconRect(taskPos, io, items.length);
+    const wave = 6;
+    const path = `M${r.x},${r.y} h${r.w} v${r.h - wave} q${-r.w / 4},${wave} ${-r.w / 2},0 q${-r.w / 4},${-wave} ${-r.w / 2},0 z`;
+    return (
+      <g className={`io-icon io-${io}`}>
+        {items.length > 1 && (
+          <rect className="io-sheet" x={r.x + 4} y={r.y + 4} width={r.w} height={r.h} rx={6} />
+        )}
+        {items[0]?.kind === 'info' ? (
+          <rect className="io-main" x={r.x} y={r.y} width={r.w} height={r.h} rx={8} />
+        ) : (
+          <path className="io-main" d={path} />
+        )}
+        {items.map((it, i) => (
+          <text
+            key={it.id}
+            className="io-name"
+            x={r.x + r.w / 2}
+            y={r.y + IO_ICON.padTop + i * IO_ICON.line + IO_ICON.line - 3}
+            textAnchor="middle"
+          >
+            {it.name || '帳票'}
+          </text>
+        ))}
+      </g>
+    );
   };
   const labelOf = (n: FlowNode): string => {
     if (n.kind === 'task') return project.core.tasks[n.taskId]?.name ?? '';
@@ -302,37 +341,10 @@ export function FlowCanvas() {
               const target = view.nodes[n.targetNodeId];
               if (!target) return null;
               const a = center(n);
-              const b = center(target);
+              const b = targetCenter(target);
               return <line key={`il-${n.id}`} x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} className="issue-line" />;
             })}
 
-          {docNodes.map((n) => {
-            const p = posOf(n);
-            const s = SIZE.doc;
-            const cls = `io-${n.io}`;
-            const tx = p.x + s.w / 2;
-            const ty = p.y + s.h / 2 + 4;
-            if (ioKindOf(n) === 'info') {
-              return (
-                <g key={n.id} className={`doc-shape ${cls}`}>
-                  <rect x={p.x} y={p.y} width={s.w} height={s.h} rx={s.h / 2} />
-                  <text x={tx} y={ty} textAnchor="middle">
-                    {docLabel(n)}
-                  </text>
-                </g>
-              );
-            }
-            const wave = 6;
-            const d = `M${p.x},${p.y} h${s.w} v${s.h - wave} q${-s.w / 4},${wave} ${-s.w / 2},0 q${-s.w / 4},${-wave} ${-s.w / 2},0 z`;
-            return (
-              <g key={n.id} className={`doc-shape ${cls}`}>
-                <path d={d} />
-                <text x={tx} y={ty} textAnchor="middle">
-                  {docLabel(n)}
-                </text>
-              </g>
-            );
-          })}
         </svg>
 
         {divNodes.map((n) => {
@@ -393,6 +405,20 @@ export function FlowCanvas() {
             </div>
           );
         })}
+        <svg className="io-overlay" width={CANVAS_W} height={CANVAS_H}>
+          {nodes.map((n) => {
+            if (n.kind !== 'task') return null;
+            const d = project.details[n.taskId];
+            const p = posOf(n);
+            return (
+              <g key={`io-${n.id}`}>
+                {renderIoIcon(p, 'input', d?.inputs ?? [])}
+                {renderIoIcon(p, 'output', d?.outputs ?? [])}
+              </g>
+            );
+          })}
+        </svg>
+
         {!nodes.some((n) => n.kind === 'task') && (
           <div className="flow-empty">工程を追加すると、ここにフロー図が表示されます。</div>
         )}

@@ -677,28 +677,40 @@ button.danger:hover {
   stroke: var(--issue-line);
   stroke-width: 1;
 }
-.doc-shape path,
-.doc-shape rect {
+/* I/O 集約アイコン（入力=左上 / 出力=右下に重ねる前面オーバーレイ。複数は1枚に名前を列挙） */
+.io-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.io-icon .io-main,
+.io-icon .io-sheet {
   stroke-width: 1.4;
 }
-.doc-shape.io-input path,
-.doc-shape.io-input rect {
+.io-icon .io-sheet {
+  opacity: 0.55;
+}
+.io-icon.io-input .io-main,
+.io-icon.io-input .io-sheet {
   fill: var(--in-fill);
   stroke: var(--in);
 }
-.doc-shape.io-output path,
-.doc-shape.io-output rect {
+.io-icon.io-output .io-main,
+.io-icon.io-output .io-sheet {
   fill: var(--out-fill);
   stroke: var(--out);
 }
-.doc-shape text {
-  font-size: 11px;
+.io-icon .io-name {
+  font-size: 10.5px;
   font-weight: 600;
 }
-.doc-shape.io-input text {
+.io-icon.io-input .io-name {
   fill: var(--in);
 }
-.doc-shape.io-output text {
+.io-icon.io-output .io-name {
   fill: var(--out);
 }
 
