@@ -17,7 +17,7 @@ export const FLOW_LIGHT = {
   laneLine: '#e2e8f0',
   laneDivider: '#cbd5e1',
   laneTitle: '#1e293b',
-  task: { fill: '#ffffff', stroke: '#475569', text: '#1e293b' },
+  task: { fill: '#ffffff', stroke: '#94a3b8', text: '#1e293b' },
   ioIn: { fill: '#dbeafe', stroke: '#2563eb' },
   ioOut: { fill: '#dcfce7', stroke: '#15803d' },
   issue: { fill: '#fee2e2', stroke: '#dc2626' },
