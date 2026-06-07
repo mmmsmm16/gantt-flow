@@ -42,6 +42,7 @@ export function FlowCanvas() {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const moveNode = useApp((s) => s.moveNode);
+  const addTaskAt = useApp((s) => s.addTaskAt);
   const connect = useApp((s) => s.connect);
   const addControlNode = useApp((s) => s.addControlNode);
   const addComment = useApp((s) => s.addComment);
@@ -81,7 +82,7 @@ export function FlowCanvas() {
     window.addEventListener('pointerup', onUp);
   };
 
-  const relPoint = (e: PointerEvent | React.PointerEvent) => {
+  const relPoint = (e: { clientX: number; clientY: number }) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     return rect
       ? { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale }
@@ -228,6 +229,16 @@ export function FlowCanvas() {
     <div className="flow-wrap">
       <div className="flow-palette">
         <span>追加:</span>
+        <button
+          className="add-task"
+          title="工程を追加（ダブルクリックでも作成）"
+          onClick={() => {
+            const k = nodes.filter((n) => n.kind === 'task').length;
+            addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
+          }}
+        >
+          工程＋
+        </button>
         <button onClick={() => addControlNode('start')}>開始</button>
         <button onClick={() => addControlNode('end')}>終了</button>
         <button onClick={() => addControlNode('decision')}>判断◇</button>
@@ -262,6 +273,12 @@ export function FlowCanvas() {
         className={`flow-canvas${panning ? ' panning' : ''}`}
         ref={canvasRef}
         onPointerDown={onCanvasPointerDown}
+        onDoubleClick={(e) => {
+          const el = e.target as HTMLElement;
+          if (el.closest('.node, .handle, .del, button, input, a')) return; // 既存要素上は無視
+          const p = relPoint(e);
+          addTaskAt(p.x, p.y);
+        }}
       >
         <div
           className="flow-scale"

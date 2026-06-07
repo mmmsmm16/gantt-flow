@@ -100,6 +100,8 @@ export interface AppState {
   removeIssue: (taskId: Id, issueId: Id) => void;
   updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
+  /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。 */
+  addTaskAt: (x: number, y: number) => void;
   addControlNode: (control: ControlKind) => void;
   addComment: (text: string) => void;
   connect: (source: FlowNodeId, target: FlowNodeId) => void;
@@ -358,6 +360,37 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       sync();
     },
 
+    // フロー上で工程を新規作成 → ドロップ位置のレーン(担当)へ。1 操作 = 1 undo（作成と配置を 1 スナップショットに集約）。
+    addTaskAt: (x, y) => {
+      const { level, scopeParentId } = get();
+      const view0 = findView(get().project, level, scopeParentId);
+      const laneOrder = Math.max(0, Math.round((y - 40) / 120));
+      const lane = view0
+        ? Object.values(view0.lanes).find((l) => l.order === laneOrder)
+        : undefined;
+      const before = new Set(Object.keys(get().project.core.tasks));
+      let p = cAddTask(
+        get().project,
+        { name: '', level, parentId: scopeParentId, assigneeId: lane?.assigneeId },
+        uuid,
+      );
+      p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
+      const newId = Object.keys(p.core.tasks).find((id) => !before.has(id));
+      if (newId) {
+        const view = findView(p, level, scopeParentId);
+        const node = view
+          ? Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === newId)
+          : undefined;
+        if (node) {
+          node.x = Math.round(x);
+          node.y = Math.round(y);
+        }
+      }
+      history.push(p);
+      sync();
+      if (newId) set({ selectedTaskId: newId });
+    },
+
     // フロー固有要素（制御ノード/コメント/手動エッジ）の編集。view を直接いじって push。
     addControlNode: (control) =>
       editView((view) => {
@@ -371,13 +404,29 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const k = Object.values(view.nodes).filter((n) => n.kind === 'comment').length;
         view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: 420, y: 320 + k * 24 };
       }),
-    connect: (source, target) =>
-      editView((view) => {
-        if (source === target) return;
-        if (Object.values(view.edges).some((e) => e.source === source && e.target === target)) return;
+    // 矢印接続。両端が工程ノードなら「依存（前後関係）」をコアに作る→工程表へ反映。
+    // 制御ノード等を含む接続は従来どおり pinned な図固有エッジ（reconcile で消えない）。
+    connect: (source, target) => {
+      if (source === target) return;
+      const { level, scopeParentId } = get();
+      const view = findView(get().project, level, scopeParentId);
+      const sNode = view?.nodes[source];
+      const tNode = view?.nodes[target];
+      if (sNode?.kind === 'task' && tNode?.kind === 'task') {
+        const from = get().project.core.tasks[sNode.taskId];
+        const to = get().project.core.tasks[tNode.taskId];
+        // 同一スコープ（同じ親）の工程どうしのみ依存化（別スコープ依存は reconcile が描けない）。
+        if (from && to && (from.parentId ?? undefined) === (to.parentId ?? undefined)) {
+          commit(cAddDependency(get().project, sNode.taskId, tNode.taskId, uuid));
+          return;
+        }
+      }
+      editView((v) => {
+        if (Object.values(v.edges).some((e) => e.source === source && e.target === target)) return;
         const id = uuid();
-        view.edges[id] = { id, source, target, pinned: true, role: 'flow' };
-      }),
+        v.edges[id] = { id, source, target, pinned: true, role: 'flow' };
+      });
+    },
     setEdgeLabel: (edgeId, label) =>
       editView((view) => {
         const e = view.edges[edgeId];
