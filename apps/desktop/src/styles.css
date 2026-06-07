@@ -542,7 +542,7 @@ button.danger:hover {
   margin-top: 2px;
 }
 .c-io {
-  width: 210px;
+  width: 224px;
 }
 .c-act {
   width: 78px;
@@ -574,18 +574,57 @@ button.danger:hover {
 .lvl-detail {
   color: var(--lvl-detail);
 }
-.c-io button {
-  padding: 3px 7px;
-  font-size: 12px;
-  margin-right: 3px;
-  border-radius: 6px;
+.io-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
 }
-.c-io .counts {
-  display: block;
-  color: var(--faint);
+.io-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 0 1px 0 4px;
+}
+.io-chip.in {
+  background: var(--in-fill);
+}
+.io-chip.out {
+  background: var(--out-fill);
+}
+.io-chip-name {
   font-size: 11px;
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
+  border: none;
+  background: transparent;
+  width: 62px;
+  padding: 2px 0;
+  color: var(--ink);
+}
+.io-chip.in .io-chip-name {
+  color: var(--in);
+}
+.io-chip.out .io-chip-name {
+  color: var(--out);
+}
+.io-chip-x {
+  border: none;
+  background: transparent;
+  padding: 0 3px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--faint);
+}
+.io-chip-x:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--red);
+}
+.io-add {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+.io-issue {
+  cursor: pointer;
 }
 .c-act button {
   padding: 4px 7px;

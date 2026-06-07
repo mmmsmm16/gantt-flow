@@ -56,6 +56,9 @@ export function TableView() {
   const outdentTask = useApp((s) => s.outdentTask);
   const dropTask = useApp((s) => s.dropTask);
   const addDependency = useApp((s) => s.addDependency);
+  const addIo = useApp((s) => s.addIo);
+  const updateIo = useApp((s) => s.updateIo);
+  const removeIo = useApp((s) => s.removeIo);
   const tableWide = useUI((s) => s.tableWide);
   const toggleTableWide = useUI((s) => s.toggleTableWide);
 
@@ -147,7 +150,7 @@ export function TableView() {
                 <th className="c-assignee">担当</th>
                 <th className="c-prev">前工程</th>
                 <th className="c-effort">工数</th>
-                <th className="c-detail">内訳</th>
+                <th className="c-io">I/O・課題</th>
                 <th className="c-act"></th>
               </tr>
             </thead>
@@ -363,15 +366,66 @@ export function TableView() {
                         />
                       )}
                     </td>
-                    <td className="c-detail">
-                      {ioCount > 0 || issueCount > 0 ? (
-                        <span className="detail-chips">
-                          {ioCount > 0 && <span className="chip chip-io">IO{ioCount}</span>}
-                          {issueCount > 0 && <span className="chip chip-issue">課題{issueCount}</span>}
-                        </span>
-                      ) : (
-                        <span className="detail-empty">—</span>
-                      )}
+                    <td className="c-io" onClick={(e) => e.stopPropagation()}>
+                      <div className="io-chips">
+                        {(detail?.inputs ?? []).map((item) => (
+                          <span className="io-chip in" key={item.id}>
+                            <input
+                              className="io-chip-name"
+                              defaultValue={item.name}
+                              aria-label="入力名"
+                              onBlur={(e) => updateIo(t.id, item.id, { name: e.target.value })}
+                            />
+                            <button
+                              className="io-chip-x"
+                              aria-label="入力を削除"
+                              onClick={() => removeIo(t.id, item.id)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        {(detail?.outputs ?? []).map((item) => (
+                          <span className="io-chip out" key={item.id}>
+                            <input
+                              className="io-chip-name"
+                              defaultValue={item.name}
+                              aria-label="出力名"
+                              onBlur={(e) => updateIo(t.id, item.id, { name: e.target.value })}
+                            />
+                            <button
+                              className="io-chip-x"
+                              aria-label="出力を削除"
+                              onClick={() => removeIo(t.id, item.id)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        <button
+                          className="io-add"
+                          title="入力を追加"
+                          onClick={() => addIo(t.id, 'inputs', '帳票')}
+                        >
+                          ＋入
+                        </button>
+                        <button
+                          className="io-add"
+                          title="出力を追加"
+                          onClick={() => addIo(t.id, 'outputs', '帳票')}
+                        >
+                          ＋出
+                        </button>
+                        {issueCount > 0 && (
+                          <span
+                            className="chip chip-issue io-issue"
+                            title="課題（クリックでインスペクタ）"
+                            onClick={() => select(t.id)}
+                          >
+                            課題{issueCount}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="c-act" onClick={(e) => e.stopPropagation()}>
                       {t.level !== 'detail' && (
