@@ -14,6 +14,7 @@ import {
   type TaskDetailPatch,
   type IoItem,
   type IssueItem,
+  type ImportReport,
   CURRENT_SCHEMA_VERSION,
   uuid,
   createHistory,
@@ -72,6 +73,7 @@ export interface AppState {
   level: ProcessLevel;
   scopeParentId?: Id;
   showIssues: boolean;
+  dirty: boolean;
 
   addTask: (name: string) => void;
   addRootTask: (level: ProcessLevel) => void;
@@ -108,20 +110,24 @@ export interface AppState {
   toggleIssues: () => void;
   undo: () => void;
   redo: () => void;
+  markSaved: () => void;
   loadProject: (project: Project) => void;
-  importCsvText: (text: string) => void;
-  importRows: (rows: string[][]) => void;
+  importCsvText: (text: string) => ImportReport;
+  importRows: (rows: string[][]) => ImportReport;
   newProject: () => void;
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
   const history = createHistory<Project>(initialProject());
+  // 未保存検知: 最後に保存/開いた時点の Project 参照。現在がこれと異なれば dirty。
+  let savedRef: Project | null = history.current();
 
   const sync = (extra: Partial<AppState> = {}) =>
     set({
       project: history.current(),
       canUndo: history.canUndo(),
       canRedo: history.canRedo(),
+      dirty: history.current() !== savedRef,
       ...extra,
     });
 
@@ -146,13 +152,15 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
   };
 
   // ファイルを開く/新規/取り込み: 既定ビューを保証して履歴をリセット（undo 不可の境界）
-  const adopt = (p: Project, level: ProcessLevel, scopeParentId?: Id) => {
+  const adopt = (p: Project, level: ProcessLevel, scopeParentId?: Id, dirtyAfter = false) => {
     const reconciled = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
     history.reset(reconciled);
+    savedRef = dirtyAfter ? null : reconciled; // 開く/新規=保存済みベース、取込=未保存
     set({
       project: reconciled,
       canUndo: false,
       canRedo: false,
+      dirty: dirtyAfter,
       selectedTaskId: undefined,
       level,
       scopeParentId,
@@ -192,6 +200,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     project: history.current(),
     canUndo: false,
     canRedo: false,
+    dirty: false,
     selectedTaskId: undefined,
     level: 'medium',
     scopeParentId: undefined,
@@ -408,20 +417,26 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     redo: () => {
       if (history.redo()) sync();
     },
+    markSaved: () => {
+      savedRef = history.current();
+      set({ dirty: false });
+    },
 
     loadProject: (project) => {
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId);
     },
     importCsvText: (text) => {
-      const { project } = importCsv(text, uuid);
+      const { project, report } = importCsv(text, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
-      adopt(project, hasLarge ? 'large' : 'medium', undefined);
+      adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
+      return report;
     },
     importRows: (rows) => {
-      const { project } = rowsToProject(rows, uuid);
+      const { project, report } = rowsToProject(rows, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
-      adopt(project, hasLarge ? 'large' : 'medium', undefined);
+      adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
+      return report;
     },
     newProject: () => adopt(initialProject(), 'medium', undefined),
   };

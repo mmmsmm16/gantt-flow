@@ -59,7 +59,9 @@ export function Modal() {
           />
         )}
         <div className="modal-actions">
-          <button onClick={cancel}>{dialog.cancelLabel ?? 'キャンセル'}</button>
+          {!(dialog.kind === 'confirm' && dialog.hideCancel) && (
+            <button onClick={cancel}>{dialog.cancelLabel ?? 'キャンセル'}</button>
+          )}
           <button className={okClass} onClick={ok}>
             {dialog.confirmLabel ?? (dialog.kind === 'confirm' ? 'OK' : '追加')}
           </button>

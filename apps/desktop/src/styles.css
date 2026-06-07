@@ -1004,6 +1004,20 @@ button.danger:hover {
 .icon-btn:disabled {
   opacity: 0.4;
 }
+.icon-btn.has-unsaved {
+  position: relative;
+}
+.icon-btn.has-unsaved::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--btn-bg);
+}
 .toggle-btn.on {
   color: var(--accent);
   background: var(--accent-soft);
@@ -1121,6 +1135,7 @@ button.danger:hover {
   font-size: 13px;
   color: var(--muted);
   line-height: 1.55;
+  white-space: pre-line;
 }
 .modal-input {
   font: inherit;

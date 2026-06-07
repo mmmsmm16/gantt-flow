@@ -24,31 +24,39 @@ function download(name: string, data: BlobPart, mime: string): void {
 }
 
 // 保存: JSON をダウンロード（拡張子 .json）。
-export function saveProjectToFile(project: Project): void {
+export function saveProjectToFile(project: Project): string {
+  const name = `${safeName(project.meta.title)}.json`;
   const blob = new Blob([serializeProject(project)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${safeName(project.meta.title)}.json`;
+  a.download = name;
   a.click();
   URL.revokeObjectURL(url);
+  return name;
 }
 
 // ---- 出力（Phase4） ----
-export function exportCsvFile(project: Project): void {
-  download(`${safeName(project.meta.title)}.csv`, '﻿' + projectToCsv(project), 'text/csv;charset=utf-8');
+export function exportCsvFile(project: Project): string {
+  const name = `${safeName(project.meta.title)}.csv`;
+  download(name, '﻿' + projectToCsv(project), 'text/csv;charset=utf-8');
+  return name;
 }
 
-export function exportExcelFile(project: Project): void {
+export function exportExcelFile(project: Project): string {
+  const name = `${safeName(project.meta.title)}.xlsx`;
   const ws = XLSX.utils.aoa_to_sheet(projectToRows(project));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '工程表');
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
-  download(`${safeName(project.meta.title)}.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  return name;
 }
 
-export function exportSvgFile(project: Project, view: FlowLevelView): void {
-  download(`${safeName(project.meta.title)}-flow.svg`, buildFlowSvg(project, view), 'image/svg+xml');
+export function exportSvgFile(project: Project, view: FlowLevelView): string {
+  const name = `${safeName(project.meta.title)}-flow.svg`;
+  download(name, buildFlowSvg(project, view), 'image/svg+xml');
+  return name;
 }
 
 // ---- 取り込み（Excel → 行列） ----

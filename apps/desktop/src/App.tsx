@@ -37,6 +37,7 @@ export function App() {
   const showIssues = useApp((s) => s.showIssues);
   const canUndo = useApp((s) => s.canUndo);
   const canRedo = useApp((s) => s.canRedo);
+  const dirty = useApp((s) => s.dirty);
 
   const setLevel = useApp((s) => s.setLevel);
   const setScope = useApp((s) => s.setScope);
@@ -53,11 +54,18 @@ export function App() {
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
     : [];
 
-  const onSave = () => saveProjectToFile(useApp.getState().project);
+  const onSave = () => {
+    const name = saveProjectToFile(useApp.getState().project);
+    useApp.getState().markSaved();
+    useUI.getState().toast(`保存しました（${name}）`, 'success');
+  };
   const onOpen = async () => {
     try {
       const p = await openProjectFromFile();
-      if (p) useApp.getState().loadProject(p);
+      if (p) {
+        useApp.getState().loadProject(p);
+        useUI.getState().toast('開きました。', 'success');
+      }
     } catch {
       useUI.getState().toast('ファイルを開けませんでした（形式が不正です）。', 'error');
     }
@@ -79,7 +87,21 @@ export function App() {
       const file = input.files?.[0];
       if (!file) return;
       try {
-        useApp.getState().importRows(await readTableFile(file));
+        const report = useApp.getState().importRows(await readTableFile(file));
+        const c = report.created;
+        let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
+        if (report.unresolvedDeps.length)
+          msg += `\n\n未解決の前工程: ${report.unresolvedDeps.length}件（行 ${report.unresolvedDeps
+            .map((u) => u.row)
+            .join(', ')}）`;
+        if (report.hierarchyIssues.length) msg += `\n粒度/親の問題: ${report.hierarchyIssues.length}件`;
+        if (report.warnings.length) msg += `\n警告: ${report.warnings.join(' / ')}`;
+        void useUI.getState().confirm({
+          title: '取り込み結果',
+          message: msg,
+          confirmLabel: '閉じる',
+          hideCancel: true,
+        });
       } catch {
         useUI.getState().toast('取り込みに失敗しました（CSV / Excel を確認してください）。', 'error');
       }
@@ -89,7 +111,10 @@ export function App() {
   const onExportSvg = () => {
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
-    if (view) exportSvgFile(st.project, view);
+    if (view) {
+      const name = exportSvgFile(st.project, view);
+      useUI.getState().toast(`出力しました（${name}）`, 'success');
+    }
   };
 
   // グローバルショートカット: Ctrl/⌘+Z=戻す, Ctrl+Y / Ctrl+Shift+Z=やり直し, Ctrl/⌘+S=保存。
@@ -206,7 +231,12 @@ export function App() {
           <button className="icon-btn" onClick={onOpen} aria-label="開く" title="開く">
             <Icons.FolderOpen />
           </button>
-          <button className="icon-btn" onClick={onSave} aria-label="保存" title="保存 (Ctrl+S)">
+          <button
+            className={`icon-btn${dirty ? ' has-unsaved' : ''}`}
+            onClick={onSave}
+            aria-label={dirty ? '保存（未保存の変更あり）' : '保存'}
+            title="保存 (Ctrl+S)"
+          >
             <Icons.Save />
           </button>
         </span>
@@ -221,8 +251,22 @@ export function App() {
             </>
           }
         >
-          <MenuItem onClick={() => exportExcelFile(useApp.getState().project)}>Excel (.xlsx)</MenuItem>
-          <MenuItem onClick={() => exportCsvFile(useApp.getState().project)}>CSV (.csv)</MenuItem>
+          <MenuItem
+            onClick={() => {
+              const n = exportExcelFile(useApp.getState().project);
+              useUI.getState().toast(`出力しました（${n}）`, 'success');
+            }}
+          >
+            Excel (.xlsx)
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              const n = exportCsvFile(useApp.getState().project);
+              useUI.getState().toast(`出力しました（${n}）`, 'success');
+            }}
+          >
+            CSV (.csv)
+          </MenuItem>
           <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
         </Menu>
 

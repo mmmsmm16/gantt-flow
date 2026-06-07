@@ -35,6 +35,8 @@ export interface ConfirmOpts {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** 情報表示モーダルとして使うとき、キャンセルボタンを隠す。 */
+  hideCancel?: boolean;
 }
 export interface PromptOpts {
   title?: string;
