@@ -43,7 +43,7 @@ import {
   removeIssueItem as cRemoveIssueItem,
   updateIssueItem as cUpdateIssueItem,
   updateTaskDetail as cUpdateTaskDetail,
-  deleteTask as cDeleteTask,
+  deleteTaskKeepChildren as cDeleteTaskKeepChildren,
   reorderTask as cReorderTask,
   reparentTask as cReparentTask,
 } from '@gantt-flow/core';
@@ -244,7 +244,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId }, uuid));
     },
 
-    removeTask: (taskId) => commit(cDeleteTask(get().project, taskId)),
+    // 削除は配下を残す（子は祖父へ昇格し、依存は維持）。
+    removeTask: (taskId) => commit(cDeleteTaskKeepChildren(get().project, taskId)),
 
     setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level)),
     setTaskCode: (taskId, code) => commit(cSetTaskCode(get().project, taskId, code)),
@@ -276,13 +277,23 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
     removeDependency: (depId) => commit(cRemoveDependency(get().project, depId)),
 
-    // 「次行を追加」: 同じ親・同じ粒度の兄弟を末尾に足し、新タスクの id を返す（フォーカス用）。
+    // 「次行を追加」: 同じ親・同じ粒度の兄弟を「クリック行の直下」に挿入し、新タスクの id を返す（フォーカス用）。
     addSiblingOf: (taskId) => {
-      const t = get().project.core.tasks[taskId];
+      const cur = get().project;
+      const t = cur.core.tasks[taskId];
       if (!t) return undefined;
-      const before = new Set(Object.keys(get().project.core.tasks));
-      commit(cAddTask(get().project, { name: '', level: t.level, parentId: t.parentId }, uuid));
-      return Object.keys(get().project.core.tasks).find((id) => !before.has(id));
+      const before = new Set(Object.keys(cur.core.tasks));
+      let p = cAddTask(cur, { name: '', level: t.level, parentId: t.parentId }, uuid);
+      const newId = Object.keys(p.core.tasks).find((id) => !before.has(id));
+      if (newId) {
+        const sibs = Object.values(p.core.tasks)
+          .filter((o) => (o.parentId ?? undefined) === (t.parentId ?? undefined))
+          .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+        const idx = sibs.findIndex((o) => o.id === taskId);
+        if (idx >= 0) p = cReorderTask(p, newId, idx + 1); // クリック行の直下へ
+      }
+      commit(p);
+      return newId;
     },
 
     moveTaskUp: (taskId) => {

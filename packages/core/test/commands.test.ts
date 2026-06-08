@@ -7,6 +7,7 @@ import {
   addDependency,
   removeDependency,
   deleteTask,
+  deleteTaskKeepChildren,
 } from '../src/commands';
 import { validate } from '../src/validate';
 import { counter, emptyProject, taskIdByName, assigneeIdByName } from './helpers';
@@ -71,6 +72,47 @@ describe('commands', () => {
     p = deleteTask(p, parentId);
     expect(Object.keys(p.core.tasks)).toHaveLength(0);
     expect(Object.keys(p.details)).toHaveLength(0);
+  });
+
+  it('deleteTaskKeepChildren は配下を残し、1段繰り上げて依存を維持する', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: '大', level: 'large' }, g);
+    const L = taskIdByName(p, '大');
+    p = addTask(p, { name: '中', level: 'medium', parentId: L }, g);
+    const M = taskIdByName(p, '中');
+    p = addTask(p, { name: '小', level: 'small', parentId: M }, g);
+    const S = taskIdByName(p, '小');
+    p = addTask(p, { name: '詳', level: 'detail', parentId: S }, g);
+    const D = taskIdByName(p, '詳');
+    // 中を削除 → 小・詳は残り、1段ずつ繰り上げ。小は大の子（中レベル）に。
+    p = deleteTaskKeepChildren(p, M);
+    expect(p.core.tasks[M]).toBeUndefined();
+    expect(p.details[M]).toBeUndefined();
+    expect(p.core.tasks[S]).toBeDefined();
+    expect(p.core.tasks[S]!.parentId).toBe(L); // 祖父へ昇格
+    expect(p.core.tasks[S]!.level).toBe('medium'); // 小→中
+    expect(p.core.tasks[D]!.level).toBe('small'); // 詳→小（サブツリーごと繰り上げ）
+    expect(p.core.tasks[D]!.parentId).toBe(S); // 親子関係は維持
+    expect(validate(p)).toHaveLength(0);
+  });
+
+  it('deleteTaskKeepChildren は前後をブリッジする（A→[X]→B ⇒ A→B）', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'X', level: 'medium' }, g);
+    p = addTask(p, { name: 'B', level: 'medium' }, g);
+    const a = taskIdByName(p, 'A');
+    const x = taskIdByName(p, 'X');
+    const b = taskIdByName(p, 'B');
+    p = addDependency(p, a, x, g);
+    p = addDependency(p, x, b, g);
+    p = deleteTaskKeepChildren(p, x);
+    expect(p.core.tasks[x]).toBeUndefined();
+    const deps = Object.values(p.core.dependencies);
+    expect(deps.some((d) => d.from === a && d.to === b)).toBe(true);
+    expect(deps.some((d) => d.from === x || d.to === x)).toBe(false);
   });
 
   it('setAssignee で担当を付け外しできる', () => {

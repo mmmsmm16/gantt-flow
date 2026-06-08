@@ -68,6 +68,10 @@ export function FlowCanvas() {
   };
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const laneRailRef = useRef<HTMLDivElement>(null); // 担当ラベルの固定レール（横スクロールで左端に貼り付く）
+  // ノードを掴んだ画面座標と「実際に動かしたか」。ドラッグ移動後の click では選択（詳細パネル）を出さない。
+  const downPosRef = useRef<{ x: number; y: number } | null>(null);
+  const movedRef = useRef(false);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
@@ -127,14 +131,18 @@ export function FlowCanvas() {
   useEffect(() => {
     if (!drag) return;
     const onMove = (e: PointerEvent) => {
+      const s = downPosRef.current;
+      if (s && (Math.abs(e.clientX - s.x) > 4 || Math.abs(e.clientY - s.y) > 4)) movedRef.current = true;
       const p = relPoint(e);
       setDrag((d) => (d ? { ...d, x: p.x - d.offX, y: p.y - d.offY } : d));
     };
-    const onUp = () =>
+    const onUp = () => {
+      downPosRef.current = null;
       setDrag((d) => {
         if (d) moveNode(d.id, Math.round(d.x), Math.round(d.y));
         return null;
       });
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
@@ -142,6 +150,19 @@ export function FlowCanvas() {
       window.removeEventListener('pointerup', onUp);
     };
   }, [drag, moveNode]);
+
+  // 担当ラベルのレール: 横スクロール量だけ右へずらして常に左端へ貼り付ける（縦は内容と一緒に動く）。
+  useEffect(() => {
+    const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
+    if (!scroller) return;
+    const pin = () => {
+      const rail = laneRailRef.current;
+      if (rail) rail.style.transform = `translateX(${scroller.scrollLeft}px)`;
+    };
+    pin();
+    scroller.addEventListener('scroll', pin, { passive: true });
+    return () => scroller.removeEventListener('scroll', pin);
+  });
 
   const view = findView(project, level, scopeParentId);
 
@@ -215,7 +236,7 @@ export function FlowCanvas() {
           .getState()
           .confirm({
             title: '工程を削除',
-            message: `「${t.name || '（無題）'}」を削除します（配下の工程も削除されます）。`,
+            message: `「${t.name || '（無題）'}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
             confirmLabel: '削除',
             danger: true,
           })
@@ -468,7 +489,7 @@ export function FlowCanvas() {
           <div
             key={b.taskId}
             className={`band band-${b.level}`}
-            style={{ left: b.x - 12, top: 8 + (b.depth - 1) * 8, width: b.width + 24, bottom: 8 + (b.depth - 1) * 8 }}
+            style={{ left: b.x, top: b.top, width: b.width, height: b.height }}
           >
             <span className="band-label">
               {b.level === 'large' ? '大' : b.level === 'medium' ? '中' : '小'}: {b.label}
@@ -476,35 +497,7 @@ export function FlowCanvas() {
           </div>
         ))}
 
-        {boxes.map((box) => (
-          <div
-            key={`ll-${box.lane.id}`}
-            className="lane-label"
-            style={{ top: box.top, height: box.height }}
-          >
-            {box.lane.title}
-            {box.lane.id !== '_' && (
-              <span
-                className="lane-resize"
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label={`${box.lane.title}レーンの高さ（${Math.round(box.height)}px）。上下キーで変更`}
-                aria-valuenow={Math.round(box.height)}
-                aria-valuemin={LANE_MIN_H}
-                tabIndex={0}
-                title="ドラッグ / 上下キーでレーンの高さを変更"
-                onPointerDown={(e) => onLaneResizeDown(box, e)}
-                onKeyDown={(e) => {
-                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    const step = (e.shiftKey ? 24 : 10) * (e.key === 'ArrowDown' ? 1 : -1);
-                    setLaneHeight(box.lane.id, box.height + step);
-                  }
-                }}
-              />
-            )}
-          </div>
-        ))}
+        {/* 担当ラベルは .flow-scale の外（lane-rail）に置き、横スクロールでも左端に固定する。 */}
 
         <svg className="edges">
           <defs>
@@ -672,11 +665,17 @@ export function FlowCanvas() {
               aria-pressed={focusable ? isSel : undefined}
               onPointerDown={(e) => {
                 if (!draggable) return;
+                downPosRef.current = { x: e.clientX, y: e.clientY };
+                movedRef.current = false;
                 const pt = relPoint(e);
                 setDrag({ id: n.id, x: n.x, y: n.y, offX: pt.x - n.x, offY: pt.y - n.y });
               }}
               onClick={(e) => {
                 e.stopPropagation();
+                if (movedRef.current) {
+                  movedRef.current = false; // ドラッグで動かした直後の click は選択しない
+                  return;
+                }
                 activate();
               }}
               onKeyDown={(e) => {
@@ -782,6 +781,44 @@ export function FlowCanvas() {
           <div className="flow-empty">工程を追加すると、ここにフロー図が表示されます。</div>
         )}
         </div>
+
+        {hasLanes && (
+          <div
+            className="lane-rail"
+            ref={laneRailRef}
+            style={{ width: LABEL_W * scale, height: lanesBottomY * scale }}
+          >
+            {boxes.map((box) => (
+              <div
+                key={`ll-${box.lane.id}`}
+                className="lane-label"
+                style={{ top: box.top * scale, height: box.height * scale }}
+              >
+                {box.lane.title}
+                {box.lane.id !== '_' && (
+                  <span
+                    className="lane-resize"
+                    role="separator"
+                    aria-orientation="horizontal"
+                    aria-label={`${box.lane.title}レーンの高さ（${Math.round(box.height)}px）。上下キーで変更`}
+                    aria-valuenow={Math.round(box.height)}
+                    aria-valuemin={LANE_MIN_H}
+                    tabIndex={0}
+                    title="ドラッグ / 上下キーでレーンの高さを変更"
+                    onPointerDown={(e) => onLaneResizeDown(box, e)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        const step = (e.shiftKey ? 24 : 10) * (e.key === 'ArrowDown' ? 1 : -1);
+                        setLaneHeight(box.lane.id, box.height + step);
+                      }
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

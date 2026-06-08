@@ -517,7 +517,7 @@ export function TableView() {
                         onClick={async () => {
                           const ok = await useUI.getState().confirm({
                             title: '工程を削除',
-                            message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
+                            message: `「${t.name}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
                             confirmLabel: '削除',
                             danger: true,
                           });

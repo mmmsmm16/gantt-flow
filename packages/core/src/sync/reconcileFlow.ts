@@ -29,17 +29,18 @@ const COL_W = 220;
 const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
   (a ?? undefined) === (b ?? undefined);
 
-// flow エッジ（ioLink を除く）をたどって from から to に到達できるか。
-// ユーザーが A→判断→B のように経路を作っていれば、直接 A→B を張らないための判定。
+// ユーザーが手で作った経路（pinned 直結、または A→判断→B のような制御ノード経由＝端点が pinned）
+// だけをたどって to に到達できるか。導出エッジ（依存から自動生成。非 pinned）はたどらない。
+// → 依存を明示的に増やせば直接の矢印が必ず描かれる（線形チェーンの推移的な省略をしない）。
 function reachableFlow(
-  edges: Record<Id, { source: FlowNodeId; target: FlowNodeId; role?: 'flow' | 'ioLink' }>,
+  edges: Record<Id, { source: FlowNodeId; target: FlowNodeId; role?: 'flow' | 'ioLink'; pinned?: boolean }>,
   from: FlowNodeId,
   to: FlowNodeId,
 ): boolean {
   if (from === to) return true;
   const adj = new Map<FlowNodeId, FlowNodeId[]>();
   for (const e of Object.values(edges)) {
-    if (e.role === 'ioLink') continue;
+    if (e.role === 'ioLink' || !e.pinned) continue; // pinned（ユーザー経路）のみ
     const list = adj.get(e.source);
     if (list) list.push(e.target);
     else adj.set(e.source, [e.target]);

@@ -63,4 +63,26 @@ describe('ユーザー経路の尊重（A→判断→B なら直接 A→B を張
     expect(r2.view.edges['e1']).toBeDefined();
     expect(r2.view.edges['e2']).toBeDefined();
   });
+
+  it('線形 A→B→C に A→C を明示追加すると直接エッジを描く（推移的でも省略しない）', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'B', level: 'medium' }, g);
+    p = addTask(p, { name: 'C', level: 'medium' }, g);
+    const a = taskIdByName(p, 'A');
+    const b = taskIdByName(p, 'B');
+    const c = taskIdByName(p, 'C');
+    p = addDependency(p, a, b, g);
+    p = addDependency(p, b, c, g);
+    p = addDependency(p, a, c, g); // 推移的だが明示的な前後関係
+    const r = reconcileFlow(p.core, p.details, emptyView(), n);
+    const idOf = (taskId: string) => taskNodes(r.view).find((t) => t.taskId === taskId)!.id;
+    const hasEdge = (s: string, t: string) =>
+      Object.values(r.view.edges).some((e) => e.source === idOf(s) && e.target === idOf(t));
+    expect(hasEdge(a, b)).toBe(true);
+    expect(hasEdge(b, c)).toBe(true);
+    expect(hasEdge(a, c)).toBe(true); // ← pinned 経路でない限り省略しない
+  });
 });

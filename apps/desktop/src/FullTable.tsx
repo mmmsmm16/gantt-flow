@@ -215,7 +215,7 @@ export function FullTable() {
           .getState()
           .confirm({
             title: '工程を削除',
-            message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
+            message: `「${t.name}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
             confirmLabel: '削除',
             danger: true,
           })
@@ -475,8 +475,8 @@ export function FullTable() {
                 )}
                 {vis('how') && <WrapCell value={d?.how} onCommit={(v) => updateDetail(t.id, { how: v })} k={t.id} />}
                 {vis('system') && <WrapCell value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} />}
-                {vis('inputs') && <IoCell items={d?.inputs ?? []} onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
-                {vis('outputs') && <IoCell items={d?.outputs ?? []} onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
+                {vis('inputs') && <IoCell items={d?.inputs ?? []} direction="in" onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
+                {vis('outputs') && <IoCell items={d?.outputs ?? []} direction="out" onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
                 {vis('issue') && (
                   <td className="ft-c-issue" onClick={(e) => e.stopPropagation()}>
                     <div className="ft-issues">
@@ -556,7 +556,7 @@ export function FullTable() {
                       onClick={async () => {
                         const ok = await useUI.getState().confirm({
                           title: '工程を削除',
-                          message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
+                          message: `「${t.name}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
                           confirmLabel: '削除',
                           danger: true,
                         });
@@ -616,12 +616,14 @@ function WrapCell({ value, onCommit }: { value: string | undefined; onCommit: (v
 
 function IoCell({
   items,
+  direction,
   onAdd,
   onRename,
   onKind,
   onRemove,
 }: {
   items: { id: Id; name: string; kind: IoKind }[];
+  direction: 'in' | 'out';
   onAdd: () => void;
   onRename: (id: Id, name: string) => void;
   onKind: (id: Id, kind: IoKind) => void;
@@ -631,7 +633,8 @@ function IoCell({
     <td className="ft-c-io" onClick={(e) => e.stopPropagation()}>
       <div className="ft-io">
         {items.map((it) => (
-          <span className={`ft-iochip ${it.kind}`} key={it.id}>
+          // 色は入出力の向き（フローと統一）。種別(帳票/情報)はセレクトの値で区別。
+          <span className={`ft-iochip ${direction}`} key={it.id}>
             <input className="ft-io-name" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => onRename(it.id, e.target.value)} />
             <select className="ft-io-kind" value={it.kind} aria-label="種別" onChange={(e) => onKind(it.id, e.target.value as IoKind)}>
               <option value="doc">帳票</option>

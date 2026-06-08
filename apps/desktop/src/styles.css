@@ -760,14 +760,20 @@ button.danger:hover {
   border-radius: 12px;
   pointer-events: none;
 }
+/* 入れ子（大⊃中⊃小）を見分けやすく: 外側=大ほど太く粗い破線・濃いふち。 */
 .band-large {
-  background: color-mix(in srgb, var(--lvl-large) 7%, transparent);
+  background: color-mix(in srgb, var(--lvl-large) 6%, transparent);
+  border-width: 2px;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--lvl-large) 50%, var(--band-stroke));
 }
 .band-medium {
-  background: color-mix(in srgb, var(--lvl-medium) 7%, transparent);
+  background: color-mix(in srgb, var(--lvl-medium) 8%, transparent);
+  border-color: color-mix(in srgb, var(--lvl-medium) 45%, var(--band-stroke));
 }
 .band-small {
-  background: color-mix(in srgb, var(--lvl-small) 7%, transparent);
+  background: color-mix(in srgb, var(--lvl-small) 9%, transparent);
+  border-color: color-mix(in srgb, var(--lvl-small) 40%, var(--band-stroke));
 }
 .band-label {
   position: absolute;
@@ -777,10 +783,21 @@ button.danger:hover {
   font-weight: 600;
   color: var(--muted);
 }
+/* 担当ラベルの固定レール: .flow-scale の外。横スクロールでも左端に貼り付く（JSで translateX）。 */
+.lane-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  background: var(--lane-col);
+  border-right: 1px solid var(--lane-divider);
+  pointer-events: none; /* ラベル/グリップだけ操作可 */
+  will-change: transform;
+}
 .lane-label {
   position: absolute;
   left: 0;
-  width: 96px;
+  width: 100%;
   display: flex;
   align-items: center; /* レーンの帯の中央に担当名を置く */
   justify-content: center;
@@ -790,6 +807,7 @@ button.danger:hover {
   font-weight: 700;
   color: var(--ink);
   padding: 0 6px;
+  pointer-events: auto;
 }
 
 .node {
@@ -2270,7 +2288,9 @@ kbd {
   background: var(--in-fill);
   max-width: 100%;
 }
-.ft-iochip.info { border-color: var(--out); background: var(--out-fill); }
+/* 入出力の向きで色分け（フローの I/O タグと統一）。種別(帳票/情報)では色を変えない。 */
+.ft-iochip.in { border-color: var(--in); background: var(--in-fill); }
+.ft-iochip.out { border-color: var(--out); background: var(--out-fill); }
 .ft-io-name { font: inherit; font-size: 11px; width: 64px; border: none; background: transparent; color: var(--ink); padding: 2px; }
 .ft-io-name:focus { outline: none; }
 .ft-io-kind { font-size: 10px; border: none; background: transparent; color: var(--muted); }

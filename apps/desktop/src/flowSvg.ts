@@ -80,15 +80,16 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     `<defs><marker id="a" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="${FLOW_LIGHT.arrow}"/></marker></defs>`,
   );
 
-  // bands
+  // bands（メンバー工程の範囲に収め、深いほど太線で外側を包む）
   for (const b of deriveBands(project.core, view)) {
-    const top = 8 + (b.depth - 1) * 8;
+    const sw = b.level === 'large' ? 1.6 : 1;
+    const dash = b.level === 'large' ? '10 5' : '6 4';
     parts.push(
-      `<rect x="${b.x - 12}" y="${top}" width="${b.width + 24}" height="${maxY - top * 2}" rx="12" fill="none" stroke="${FLOW_LIGHT.band}" stroke-dasharray="6 4"/>`,
+      `<rect x="${b.x}" y="${b.top}" width="${b.width}" height="${b.height}" rx="12" fill="none" stroke="${FLOW_LIGHT.band}" stroke-width="${sw}" stroke-dasharray="${dash}"/>`,
     );
     const label = (b.level === 'large' ? '大' : b.level === 'medium' ? '中' : '小') + ': ' + b.label;
     parts.push(
-      `<text x="${b.x}" y="${top + 16}" font-size="11" fill="${FLOW_LIGHT.bandLabel}">${esc(label)}</text>`,
+      `<text x="${b.x + 6}" y="${b.top + 14}" font-size="11" fill="${FLOW_LIGHT.bandLabel}">${esc(label)}</text>`,
     );
   }
 
