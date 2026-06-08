@@ -6,61 +6,61 @@
 :root {
   color-scheme: light;
 
-  /* 中立色 */
-  --bg: #f4f6fb;
-  --panel: #ffffff;
-  --panel-2: #f8fafc;
-  --ink: #1e293b;
-  --muted: #64748b;
-  --faint: #94a3b8;
-  --line: #e2e8f0;
-  --line-faint: #f1f5f9;
-  --line-strong: #cbd5e1;
-  --hdr: #f8fafc;
-  --toolbar-bg: rgba(255, 255, 255, 0.82);
-  --btn-bg: #ffffff;
-  --row-hover: #f7f8fd;
-  --input-bg: #ffffff;
+  /* 中立色（クリーム系をメインに） */
+  --bg: #f3eedf;
+  --panel: #fffdf6;
+  --panel-2: #f4efe1;
+  --ink: #36332a;
+  --muted: #726c5c;
+  --faint: #a59e8b;
+  --line: #e7dfca;
+  --line-faint: #efe9d9;
+  --line-strong: #d8cdb2;
+  --hdr: #f4efe1;
+  --toolbar-bg: rgba(255, 253, 246, 0.82);
+  --btn-bg: #fffdf6;
+  --row-hover: #f4efe0;
+  --input-bg: #fffefb;
 
-  /* アクセント（iris 系・既定インディゴから微調整） */
-  --accent: #5b5bd6;
-  --accent-strong: #4b47cc;
-  --accent-soft: #ecedfb;
+  /* アクセント（緑系の差し色） */
+  --accent: #2f9e6b;
+  --accent-strong: #257e55;
+  --accent-soft: #def0e4;
 
-  /* 意味色（入=青・出=緑・課題=赤・付箋=黄） */
+  /* 意味色（入=青・出=緑・課題=赤・付箋=黄）。出はアクセント緑と区別して濃い森緑に。 */
   --in: #2563eb;
-  --in-fill: #dbeafe;
-  --out: #15803d;
-  --out-fill: #dcfce7;
-  --red: #dc2626;
-  --red-fill: #fee2e2;
-  --amber: #ca8a04;
-  --amber-fill: #fef9c3;
-  --amber-ink: #854d0e;
+  --in-fill: #dde9fb;
+  --out: #0f7a44;
+  --out-fill: #d8eede;
+  --red: #d6452f;
+  --red-fill: #fbe4de;
+  --amber: #b9820a;
+  --amber-fill: #f6ecc6;
+  --amber-ink: #7a5407;
 
   /* 粒度色（トークン化・ダーク追従）。medium/detail はアクセント/ミュートに追従。 */
-  --lvl-large: #b45309;
+  --lvl-large: #b06a1e;
   --lvl-medium: var(--accent);
-  --lvl-small: #0e7490;
+  --lvl-small: #0e7e7a;
   --lvl-detail: var(--muted);
 
-  /* フローキャンバス */
-  --canvas-bg: #ffffff;
-  --canvas-dot: #e2e8f0;
-  --lane-col: #f8fafc;
-  --lane-stripe: rgba(2, 6, 23, 0.04);
-  --lane-line: #e2e8f0;
-  --lane-divider: #cbd5e1;
-  --band-stroke: #cbd5e1;
-  --node-task-bg: #ffffff;
-  --node-task-border: #94a3b8;
-  --edge: #94a3b8;
-  --arrow: #64748b;
-  --issue-line: #cbd5e1;
+  /* フローキャンバス（暖色のクリーム白） */
+  --canvas-bg: #fffdf6;
+  --canvas-dot: #e7dfca;
+  --lane-col: #f4efe1;
+  --lane-stripe: rgba(80, 66, 24, 0.04);
+  --lane-line: #e7dfca;
+  --lane-divider: #d8cdb2;
+  --band-stroke: #d8cdb2;
+  --node-task-bg: #fffdf6;
+  --node-task-border: #bbb097;
+  --edge: #a59e8b;
+  --arrow: #726c5c;
+  --issue-line: #d8cdb2;
 
   /* 立体・形・字 */
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.05);
-  --shadow-pop: 0 10px 30px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.1);
+  --shadow: 0 1px 2px rgba(60, 48, 20, 0.06), 0 4px 12px rgba(60, 48, 20, 0.05);
+  --shadow-pop: 0 10px 30px rgba(50, 40, 16, 0.16), 0 2px 8px rgba(50, 40, 16, 0.1);
   --ring: 0 0 0 3px var(--accent-soft);
   --radius: 10px;
   --radius-sm: 7px;
@@ -73,50 +73,51 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #0b0f17;
-  --panel: #131a26;
-  --panel-2: #0f1521;
-  --ink: #e6eaf2;
-  --muted: #9aa6b8;
-  --faint: #6b7689;
-  --line: #222c3b;
-  --line-faint: #1a2230;
-  --line-strong: #33415a;
-  --hdr: #0f1521;
-  --toolbar-bg: rgba(15, 21, 33, 0.78);
-  --btn-bg: #1a2230;
-  --row-hover: #172033;
-  --input-bg: #0f1521;
+  /* 紫をやめ、緑系の差し色＋ニュートラルな緑寄りチャコール */
+  --bg: #0d1210;
+  --panel: #151b17;
+  --panel-2: #111612;
+  --ink: #e7eae2;
+  --muted: #9ba497;
+  --faint: #6c756a;
+  --line: #232c25;
+  --line-faint: #19201b;
+  --line-strong: #35413a;
+  --hdr: #111612;
+  --toolbar-bg: rgba(17, 22, 18, 0.78);
+  --btn-bg: #1a211c;
+  --row-hover: #182019;
+  --input-bg: #111612;
 
-  --accent: #8b8cf6;
-  --accent-strong: #a3a4f8;
-  --accent-soft: rgba(139, 140, 246, 0.18);
+  --accent: #34d18d;
+  --accent-strong: #5cdda6;
+  --accent-soft: rgba(52, 209, 141, 0.18);
 
   --in: #60a5fa;
   --in-fill: rgba(37, 99, 235, 0.2);
-  --out: #4ade80;
-  --out-fill: rgba(22, 163, 74, 0.2);
-  --red: #f87171;
-  --red-fill: rgba(220, 38, 38, 0.2);
-  --amber: #fcd34d;
+  --out: #46d98a;
+  --out-fill: rgba(22, 163, 74, 0.22);
+  --red: #f4796a;
+  --red-fill: rgba(220, 60, 38, 0.2);
+  --amber: #f0c453;
   --amber-fill: rgba(202, 138, 4, 0.2);
-  --amber-ink: #fcd34d;
+  --amber-ink: #f0c453;
 
   --lvl-large: #e0995a;
-  --lvl-small: #3fb6cf;
+  --lvl-small: #46c2b0;
 
-  --canvas-bg: #0d121c;
-  --canvas-dot: rgba(148, 163, 184, 0.16);
-  --lane-col: #0f1521;
-  --lane-stripe: rgba(255, 255, 255, 0.04);
-  --lane-line: #222c3b;
-  --lane-divider: #33415a;
-  --band-stroke: #33415a;
-  --node-task-bg: #172033;
-  --node-task-border: #33415a;
-  --edge: #64748b;
-  --arrow: #94a3b8;
-  --issue-line: #33415a;
+  --canvas-bg: #0c110e;
+  --canvas-dot: rgba(170, 200, 178, 0.14);
+  --lane-col: #111612;
+  --lane-stripe: rgba(255, 255, 255, 0.035);
+  --lane-line: #232c25;
+  --lane-divider: #35413a;
+  --band-stroke: #35413a;
+  --node-task-bg: #181f1a;
+  --node-task-border: #35413a;
+  --edge: #69756a;
+  --arrow: #98a596;
+  --issue-line: #35413a;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.45);
