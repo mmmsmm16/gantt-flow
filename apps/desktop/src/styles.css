@@ -776,16 +776,14 @@ button.danger:hover {
   left: 0;
   width: 96px;
   display: flex;
-  /* 上寄せ: レーンが太い（並行工程）ときも名前がレーンの先頭に出て、どの帯が
-     どの担当かを取り違えにくい。 */
-  align-items: flex-start;
+  align-items: center; /* レーンの帯の中央に担当名を置く */
   justify-content: center;
   text-align: center;
   z-index: 1;
   font-size: 12px;
   font-weight: 700;
   color: var(--ink);
-  padding: 10px 6px 0;
+  padding: 0 6px;
 }
 
 .node {
