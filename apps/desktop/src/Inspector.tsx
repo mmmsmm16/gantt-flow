@@ -27,6 +27,7 @@ export function Inspector() {
     ...(d?.inputs ?? []).map((item) => ({ item, io: 'inputs' as const })),
     ...(d?.outputs ?? []).map((item) => ({ item, io: 'outputs' as const })),
   ];
+  const deptNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
 
   const deps = Object.values(project.core.dependencies);
   const preds = deps.filter((dep) => dep.to === taskId);
@@ -158,6 +159,11 @@ export function Inspector() {
             </span>
           </h3>
           {ios.length === 0 && <p className="hint">入力/出力を追加できます。</p>}
+          <datalist id="insp-depts">
+            {deptNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
           {ios.map(({ item, io }) => (
             <div className={`io-row ${io === 'inputs' ? 'in' : 'out'}`} key={item.id}>
               <span className="io-tag">{io === 'inputs' ? '入' : '出'}</span>
@@ -179,6 +185,17 @@ export function Inspector() {
                 defaultValue={item.formInfo ?? ''}
                 onBlur={(e) => updateIo(taskId, item.id, { formInfo: e.target.value || undefined })}
               />
+              {io === 'inputs' && (
+                <input
+                  className="io-form io-source-in"
+                  placeholder="出所(他部署)"
+                  list="insp-depts"
+                  defaultValue={item.source ?? ''}
+                  key={`src-${item.source ?? ''}`}
+                  title="この帳票がどの部署から来るか（工程が無くてもフローに出所を描きます）"
+                  onBlur={(e) => updateIo(taskId, item.id, { source: e.target.value || undefined })}
+                />
+              )}
               <button
                 className="x"
                 aria-label={`${item.name || '項目'}を削除`}

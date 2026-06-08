@@ -260,8 +260,33 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   for (const n of nodes) {
     if (n.kind !== 'task') continue;
     const d = project.details[n.taskId];
-    drawIoIcon(n, 'input', d?.inputs ?? []);
+    const inputs = d?.inputs ?? [];
+    const plain = inputs.filter((it) => !it.source?.trim());
+    const sourced = inputs.filter((it) => it.source?.trim());
+    drawIoIcon(n, 'input', plain);
     drawIoIcon(n, 'output', d?.outputs ?? []);
+    // 出所付き入力帳票: 出所部署のレーンに帳票を置き、工程へ点線で結ぶ（画面と統一）。
+    const pal = FLOW_LIGHT.ioIn;
+    const mw = 88;
+    const mh = 30;
+    sourced.forEach((it, i) => {
+      const box = boxes.find((b) => b.lane.title === it.source);
+      const mx = n.x + i * (mw + 8);
+      const my = box ? box.base : n.y - mh - 30;
+      const cx = mx + mw / 2;
+      parts.push(
+        `<line x1="${cx}" y1="${my + mh / 2}" x2="${n.x}" y2="${n.y + SIZE.task.h / 2}" stroke="${pal.stroke}" stroke-width="1.4" stroke-dasharray="4 3"/>`,
+      );
+      parts.push(
+        `<rect x="${mx}" y="${my}" width="${mw}" height="${mh}" rx="6" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.2"/>`,
+      );
+      parts.push(
+        `<text x="${cx}" y="${my + 13}" font-size="11" font-weight="600" fill="${pal.stroke}" text-anchor="middle">${esc(it.name || '帳票')}</text>`,
+      );
+      parts.push(
+        `<text x="${cx}" y="${my + 24}" font-size="8.5" fill="${FLOW_LIGHT.bandLabel}" text-anchor="middle">${esc(box ? it.source ?? '' : `外部: ${it.source ?? ''}`)}</text>`,
+      );
+    });
   }
 
   parts.push('</svg>');

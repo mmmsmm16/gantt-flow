@@ -100,7 +100,7 @@ export interface AppState {
   outdentTask: (taskId: Id) => void;
   dropTask: (dragId: Id, targetId: Id, mode: 'before' | 'after' | 'child') => void;
   addIo: (taskId: Id, io: 'inputs' | 'outputs', name: string) => void;
-  updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>) => void;
+  updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo' | 'source'>>) => void;
   removeIo: (taskId: Id, ioId: Id) => void;
   addIssue: (taskId: Id, text: string) => void;
   /** 方策だけ先に入力されたとき、課題文は空のまま方策付きで起票する。 */

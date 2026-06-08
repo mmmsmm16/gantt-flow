@@ -381,7 +381,7 @@ export function updateIoItem(
   p: Project,
   taskId: Id,
   ioId: Id,
-  patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>,
+  patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo' | 'source'>>,
 ): Project {
   const next = clone(p);
   const d = next.details[taskId];

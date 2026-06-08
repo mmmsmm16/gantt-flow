@@ -48,6 +48,7 @@ export interface IoItem {
   name: string;
   kind: IoKind;
   formInfo?: string; // 様式番号・保管（主に帳票）
+  source?: string; // 出所（他部署など）。入力で「どこから来る帳票か」を示す
 }
 
 export type IssueTarget = { kind: 'task' } | { kind: 'io'; ioId: Id };

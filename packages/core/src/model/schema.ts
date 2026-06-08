@@ -38,6 +38,7 @@ const IoItem = z.object({
   name: z.string(),
   kind: z.enum(['doc', 'info']),
   formInfo: z.string().optional(),
+  source: z.string().optional(),
 });
 
 const IssueTarget = z.discriminatedUnion('kind', [

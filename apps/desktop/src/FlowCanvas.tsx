@@ -765,14 +765,50 @@ export function FlowCanvas() {
           );
         })}
         <svg className="io-overlay" width={CANVAS_W} height={CANVAS_H}>
+          <defs>
+            <marker id="io-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 z" className="io-source-head" />
+            </marker>
+          </defs>
           {nodes.map((n) => {
             if (n.kind !== 'task') return null;
             const d = project.details[n.taskId];
             const p = posOf(n);
+            const inputs = d?.inputs ?? [];
+            const plain = inputs.filter((it) => !it.source?.trim());
+            const sourced = inputs.filter((it) => it.source?.trim());
+            const mw = 88;
+            const mh = 30;
             return (
               <g key={`io-${n.id}`}>
-                {renderIoIcon(p, 'input', d?.inputs ?? [])}
+                {renderIoIcon(p, 'input', plain)}
                 {renderIoIcon(p, 'output', d?.outputs ?? [])}
+                {/* 出所付きの入力帳票: 出所部署のレーンに置き、工程へ矢印を引く */}
+                {sourced.map((it, i) => {
+                  const box = boxes.find((b) => b.lane.title === it.source);
+                  const mx = p.x + i * (mw + 8);
+                  const my = box ? box.base : p.y - mh - 30; // 出所レーンの工程行 / 無ければ工程の真上
+                  const cx = mx + mw / 2;
+                  return (
+                    <g key={`src-${it.id}`} className="io-source">
+                      <line
+                        className="io-source-line"
+                        x1={cx}
+                        y1={my + mh / 2}
+                        x2={p.x}
+                        y2={p.y + SIZE.task.h / 2}
+                        markerEnd="url(#io-arrow)"
+                      />
+                      <rect className="io-source-chip" x={mx} y={my} width={mw} height={mh} rx={6} />
+                      <text className="io-source-name" x={cx} y={my + 13} textAnchor="middle">
+                        {it.name || '帳票'}
+                      </text>
+                      <text className="io-source-from" x={cx} y={my + 24} textAnchor="middle">
+                        {box ? it.source : `外部: ${it.source}`}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
