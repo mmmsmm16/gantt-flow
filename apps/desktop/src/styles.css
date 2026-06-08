@@ -2449,6 +2449,7 @@ kbd {
   cursor: pointer;
 }
 .node:hover .io-add,
+.node.selected .io-add,
 .io-add:focus-visible {
   opacity: 1;
 }
