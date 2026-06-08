@@ -240,22 +240,22 @@ describe('app store（command → reconcile → history）', () => {
     const s = createAppStore();
     s.getState().addTask('A');
     const a = taskNodes(s)[0]!.taskId;
-    s.getState().setAssigneeByName(a, '営業'); // lane 0, y=40
+    s.getState().setAssigneeByName(a, '営業'); // lane 0, y=62（帯の中央）
     s.getState().addTask('B');
     const b = Object.values(s.getState().project.core.tasks).find((t) => t.name === 'B')!.id;
-    s.getState().setAssigneeByName(b, '倉庫'); // lane 1, y=160
+    s.getState().setAssigneeByName(b, '倉庫'); // lane 1, y=62+120=182
     const bNode = () => taskNodes(s).find((n) => n.taskId === b)!;
-    expect(bNode().y).toBe(160);
+    expect(bNode().y).toBe(182);
 
     const lane0 = Object.values(view0(s).lanes).find((l) => l.order === 0)!;
     s.getState().setLaneHeight(lane0.id, 220); // +100 → 下のレーンのノードが +100
     expect(view0(s).lanes[lane0.id]!.height).toBe(220);
-    expect(bNode().y).toBe(260);
+    expect(bNode().y).toBe(282);
     // A（同レーン）は動かない
-    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(40);
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(62);
     // 1 undo で戻る
     s.getState().undo();
-    expect(bNode().y).toBe(160);
+    expect(bNode().y).toBe(182);
     expect(view0(s).lanes[lane0.id]!.height).toBeUndefined();
   });
 
@@ -278,12 +278,12 @@ describe('app store（command → reconcile → history）', () => {
     const s = createAppStore();
     s.getState().addTask('A');
     const a = taskNodes(s)[0]!.taskId;
-    s.getState().setAssigneeByName(a, '営業'); // lane order 0 → y=40
-    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(40);
+    s.getState().setAssigneeByName(a, '営業'); // lane order 0 → y=62（帯の中央）
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(62);
     s.getState().addTask('B');
     const b = Object.values(s.getState().project.core.tasks).find((t) => t.name === 'B')!.id;
     s.getState().setAssigneeByName(b, '倉庫'); // 2 本目のレーン order 1
-    s.getState().setAssigneeByName(a, '倉庫'); // A を倉庫レーンへ → y=40+120
-    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(160);
+    s.getState().setAssigneeByName(a, '倉庫'); // A を倉庫レーンへ → y=62+120
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(182);
   });
 });

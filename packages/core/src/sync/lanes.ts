@@ -1,11 +1,14 @@
 // スイムレーンの幾何（可変高さ）を一元化する。reconcile・tidy・両レンダラ（画面/SVG出力）が共有し、
 // レーン高さの扱いを 1 箇所に集約する。Swimlane.height は任意（未指定＝既定）で後方互換。
 import type { Swimlane, Id } from '../model/types';
+import { SIZE } from './autoPlace';
 
 export const LANE_DEFAULT_H = 120; // 既定のレーン高さ
 export const LANE_MIN_H = 72; // 手動リサイズの下限
-export const LANE_BASE_Y = 40; // 先頭レーンの工程ノード基準 y（= reconcile の MARGIN_Y）
 export const LANE_TOP_Y = 24; // 視覚上のレーン上端（= 画面/SVG の BAND_TOP）
+// 先頭レーンの工程ノード基準 y。工程ノードが帯の「中央」に来るように、
+// 帯上端 + (帯高さ - 工程ノード高さ)/2 とする（既定 120 のとき 62）。
+export const LANE_BASE_Y = LANE_TOP_Y + (LANE_DEFAULT_H - SIZE.task.h) / 2;
 
 export const laneHeight = (lane: { height?: number }): number =>
   Math.max(LANE_MIN_H, lane.height ?? LANE_DEFAULT_H);
