@@ -69,9 +69,13 @@ export function reconcileFlow(
   const next: FlowLevelView = structuredClone(view);
   const report: SyncReport = { added: [], removed: [] };
 
+  // 全体スコープ: 大より下の粒度で scope 未指定なら「すべての親を横断」＝この粒度の全タスク。
+  // （大は最上位なので未指定＝親なし全件で従来どおり。中/小/詳細の未指定だけ全体扱い）
+  const allScope = view.scopeParentId === undefined && view.level !== 'large';
+
   // 1. 対象タスク（この粒度・このスコープの兄弟）を決定論順で
   const targets = Object.values(core.tasks)
-    .filter((t) => t.level === view.level && sameScope(t.parentId, view.scopeParentId))
+    .filter((t) => t.level === view.level && (allScope || sameScope(t.parentId, view.scopeParentId)))
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   const targetIds = new Set(targets.map((t) => t.id));
 
@@ -148,11 +152,38 @@ export function reconcileFlow(
   }
   const depsInScope = Object.values(core.dependencies).filter(
     (d) =>
-      sameScope(d.scopeParentId, view.scopeParentId) &&
+      (allScope || sameScope(d.scopeParentId, view.scopeParentId)) &&
       targetIds.has(d.from) &&
       targetIds.has(d.to),
   );
-  const depIds = new Set(depsInScope.map((d) => d.id));
+
+  // 全体スコープ: 親(大)レベルの依存を、子(中)の「末端→先頭」に 1 本ブリッジして
+  // 大をまたぐ流れを見せる（親が繋がっていれば子も繋ぐ）。
+  const bridges: { from: FlowNodeId; to: FlowNodeId; depId: Id }[] = [];
+  if (allScope) {
+    const byParent = new Map<Id, typeof targets>();
+    for (const t of targets) {
+      if (t.parentId) {
+        const arr = byParent.get(t.parentId) ?? byParent.set(t.parentId, []).get(t.parentId)!;
+        arr.push(t);
+      }
+    }
+    const hasSucc = (taskId: Id) => depsInScope.some((d) => d.from === taskId);
+    const hasPred = (taskId: Id) => depsInScope.some((d) => d.to === taskId);
+    for (const pd of Object.values(core.dependencies)) {
+      const fromKids = byParent.get(pd.from);
+      const toKids = byParent.get(pd.to);
+      if (!fromKids?.length || !toKids?.length) continue; // 両端の大に子がいる依存のみ
+      const terminals = fromKids.filter((t) => !hasSucc(t.id));
+      const initials = toKids.filter((t) => !hasPred(t.id));
+      const a = (terminals.length ? terminals : fromKids)[terminals.length ? terminals.length - 1 : fromKids.length - 1]!;
+      const b = (initials.length ? initials : toKids)[0]!;
+      const s = nodeIdByTask.get(a.id);
+      const t2 = nodeIdByTask.get(b.id);
+      if (s && t2) bridges.push({ from: s, to: t2, depId: pd.id });
+    }
+  }
+  const depIds = new Set([...depsInScope.map((d) => d.id), ...bridges.map((b) => b.depId)]);
 
   // 5a. 不要な導出エッジを撤去（pinned は残す / 端点消失も撤去）
   for (const e of Object.values(next.edges)) {
@@ -181,6 +212,19 @@ export function reconcileFlow(
     if (reachableFlow(next.edges, s, t)) continue; // 既存経路を尊重
     const id = idGen();
     next.edges[id] = { id, source: s, target: t, derivedFromDependencyId: d.id, role: 'flow' };
+  }
+
+  // 5c. 全体スコープの大またぎブリッジ（親の依存 1 本 ⇄ 子の末端→先頭エッジ 1 本）。
+  for (const br of bridges) {
+    const existing = derivedByDep.get(br.depId);
+    if (existing) {
+      existing.source = br.from;
+      existing.target = br.to;
+      continue;
+    }
+    if (reachableFlow(next.edges, br.from, br.to)) continue;
+    const id = idGen();
+    next.edges[id] = { id, source: br.from, target: br.to, derivedFromDependencyId: br.depId, role: 'flow' };
   }
 
   // 6. I/O・課題オブジェクト: 表(TaskDetail)を源泉に存在を導出。配置/表示は安定IDで保持。

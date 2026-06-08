@@ -475,8 +475,9 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (sNode?.kind === 'task' && tNode?.kind === 'task') {
         const from = get().project.core.tasks[sNode.taskId];
         const to = get().project.core.tasks[tNode.taskId];
-        // 同一スコープ（同じ親）の工程どうしのみ依存化（別スコープ依存は reconcile が描けない）。
-        if (from && to && (from.parentId ?? undefined) === (to.parentId ?? undefined)) {
+        // 同じ粒度の工程どうしは依存化（前後関係）。別の大工程を跨ぐ中工程の接続も可
+        // （全体スコープのビューで描画される）。粒度が違う接続は従来どおり pinned エッジ。
+        if (from && to && from.level === to.level) {
           commit(cAddDependency(get().project, sNode.taskId, tNode.taskId, uuid));
           return;
         }

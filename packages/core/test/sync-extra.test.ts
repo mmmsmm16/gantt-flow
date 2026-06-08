@@ -86,3 +86,32 @@ describe('ユーザー経路の尊重（A→判断→B なら直接 A→B を張
     expect(hasEdge(a, c)).toBe(true); // ← pinned 経路でない限り省略しない
   });
 });
+
+describe('全体スコープ（中・scope未指定）= 全ての大を横断', () => {
+  it('全大の中工程を表示し、大跨ぎの中依存も描く（冪等）', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: '大A', level: 'large' }, g);
+    p = addTask(p, { name: '大B', level: 'large' }, g);
+    const A = taskIdByName(p, '大A');
+    const B = taskIdByName(p, '大B');
+    p = addTask(p, { name: '中a', level: 'medium', parentId: A }, g);
+    p = addTask(p, { name: '中b', level: 'medium', parentId: B }, g);
+    const a = taskIdByName(p, '中a');
+    const b = taskIdByName(p, '中b');
+    p = addDependency(p, a, b, g); // 大をまたぐ中→中 依存
+
+    const r = reconcileFlow(p.core, p.details, emptyView('medium', undefined), n);
+    const tnodes = taskNodes(r.view);
+    expect(tnodes.map((t) => t.taskId).sort()).toEqual([a, b].sort()); // 両大の中が出る
+    const idOf = (taskId: string) => tnodes.find((t) => t.taskId === taskId)!.id;
+    expect(
+      Object.values(r.view.edges).some((e) => e.source === idOf(a) && e.target === idOf(b)),
+    ).toBe(true);
+
+    const r2 = reconcileFlow(p.core, p.details, r.view, n);
+    expect(r2.report.added).toHaveLength(0);
+    expect(r2.report.removed).toHaveLength(0);
+  });
+});
