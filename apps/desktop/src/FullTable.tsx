@@ -99,6 +99,7 @@ export function FullTable() {
   const updateIo = useApp((s) => s.updateIo);
   const removeIo = useApp((s) => s.removeIo);
   const addIssue = useApp((s) => s.addIssue);
+  const addIssueWithMeasure = useApp((s) => s.addIssueWithMeasure);
   const updateIssue = useApp((s) => s.updateIssue);
   const removeIssue = useApp((s) => s.removeIssue);
   const addDependency = useApp((s) => s.addDependency);
@@ -294,6 +295,7 @@ export function FullTable() {
           <option key={n} value={n} />
         ))}
       </datalist>
+      <div className="ft-scroll">
       <table className="ft" ref={tableRef} onKeyDown={onGridKeyDown}>
         <colgroup>
           {visibleCols.map((k) => (
@@ -500,6 +502,10 @@ export function FullTable() {
                           <AutoTextarea value={iss.measure ?? ''} placeholder="方策" onCommit={(v) => updateIssue(t.id, iss.id, { measure: v || undefined })} />
                         </div>
                       ))}
+                      {issues.length === 0 && (
+                        // 課題が無くても方策を直接入力できる（入力時に課題を起票）。
+                        <AutoTextarea value="" placeholder="方策" onCommit={(v) => v.trim() && addIssueWithMeasure(t.id, v)} />
+                      )}
                     </div>
                   </td>
                 )}
@@ -566,6 +572,7 @@ export function FullTable() {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

@@ -322,7 +322,7 @@ export function App() {
           }${flowWide ? ' flow-wide' : ''}`}
         >
           {!flowWide && (
-          <section className="pane table-pane" id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
+          <section className={`pane table-pane${fullMode ? ' full' : ''}`} id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
             <div className="table-head">
               <h2>工程表（手順一覧表）</h2>
               <span className="seg table-mode-seg" role="group" aria-label="表示モード">

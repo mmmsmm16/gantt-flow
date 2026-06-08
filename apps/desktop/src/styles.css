@@ -824,9 +824,31 @@ button.danger:hover {
   background: var(--red-fill);
   border: 1.5px solid var(--red);
   color: var(--red);
-  border-radius: 0;
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  /* 記載された課題文を表示するため内容に応じて自動サイズ（左寄せ・折り返し）。 */
+  width: 174px;
+  height: auto;
+  min-height: 28px;
+  padding: 5px 8px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.35;
+}
+.node.issue .node-label.issue-text {
+  white-space: normal;
+  font-weight: 600;
+}
+.node.issue .issue-list {
+  margin: 0;
+  padding-left: 14px;
+  text-align: left;
+}
+.node.issue .issue-list li {
+  margin: 1px 0;
 }
 .node.comment {
   background: var(--amber-fill);
@@ -2065,10 +2087,30 @@ kbd {
   font-size: 12px;
 }
 
+/* 全項目表のとき: ヘッダ(タブ)と操作バーは固定、横スクロールは表本体だけに閉じ込める。 */
+.table-pane.full {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.table-pane.full > .table-head {
+  flex: none;
+}
 .ft-wrap {
   width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ft-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto; /* 横スクロールはここだけ。操作バー/タブは動かない。 */
 }
 .ft-actions {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;

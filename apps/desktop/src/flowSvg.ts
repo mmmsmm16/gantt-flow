@@ -144,9 +144,29 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
-  // issue lines
+  // 課題は工程ごとに1枚へ集約（代表ノードのみ描画。画面 FlowCanvas と一致）。
+  const issuePrimaryId = new Map<string, string>();
+  {
+    const groups = new Map<string, FlowNode[]>();
+    for (const n of nodes) {
+      if (n.kind === 'issue') (groups.get(n.taskId) ?? groups.set(n.taskId, []).get(n.taskId)!).push(n);
+    }
+    for (const [taskId, arr] of groups) {
+      const order = project.details[taskId]?.issues ?? [];
+      const rank = (n: FlowNode) =>
+        n.kind === 'issue' ? order.findIndex((i) => i.id === n.issueId) + 1 || 1e9 : 1e9;
+      arr.sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
+      issuePrimaryId.set(taskId, arr[0]!.id);
+    }
+  }
+  const isPrimaryIssue = (n: FlowNode) => n.kind === 'issue' && issuePrimaryId.get(n.taskId) === n.id;
+  const issueTextsOf = (taskId: string): string[] =>
+    (project.details[taskId]?.issues ?? []).map((i) => i.issue).filter((t) => t.trim().length > 0);
+  const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+
+  // issue lines（代表のみ）
   for (const n of nodes) {
-    if (n.kind !== 'issue') continue;
+    if (n.kind !== 'issue' || !isPrimaryIssue(n)) continue;
     const t = view.nodes[n.targetNodeId];
     if (!t) continue;
     const c = targetCenter(t);
@@ -168,12 +188,21 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
         `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${FLOW_LIGHT.task.text}" text-anchor="middle">${esc(name)}</text>`,
       );
     } else if (n.kind === 'issue') {
+      if (!isPrimaryIssue(n)) continue; // 集約: 代表のみ描画
+      const texts = issueTextsOf(n.taskId);
+      const lines = texts.length ? texts : ['課題'];
+      const lineH = 15;
+      const padY = 7;
+      const boxH = Math.max(s.h, padY * 2 + lines.length * lineH);
       parts.push(
-        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" fill="${FLOW_LIGHT.issue.fill}" stroke="${FLOW_LIGHT.issue.stroke}" stroke-width="1.5"/>`,
+        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${boxH}" rx="6" fill="${FLOW_LIGHT.issue.fill}" stroke="${FLOW_LIGHT.issue.stroke}" stroke-width="1.5"/>`,
       );
-      parts.push(
-        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.issue.stroke}" text-anchor="middle">課題</text>`,
-      );
+      lines.forEach((tx, i) => {
+        const label = texts.length > 1 ? `・${tx}` : tx;
+        parts.push(
+          `<text x="${n.x + 8}" y="${n.y + padY + i * lineH + 11}" font-size="11" font-weight="600" fill="${FLOW_LIGHT.issue.stroke}">${esc(truncate(label, 16))}</text>`,
+        );
+      });
     } else if (n.kind === 'comment') {
       parts.push(
         `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="4" fill="${FLOW_LIGHT.comment.fill}" stroke="${FLOW_LIGHT.comment.stroke}" stroke-width="1.4"/>`,

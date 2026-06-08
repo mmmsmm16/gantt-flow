@@ -172,8 +172,8 @@ export function FlowCanvas() {
     };
   }, [conn, view, connect]);
 
-  // Delete=選択中のフロー要素を削除（制御ノード/付箋/矢印のみ）・Esc=選択解除。
-  // テキスト編集中やオーバーレイ表示中は無視。
+  // Delete=選択中の要素を削除（矢印/制御ノード/付箋＝図から、工程ノード＝確認のうえ工程ごと）。
+  // Esc=選択解除。テキスト編集中やオーバーレイ表示中は無視。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || useUI.getState().overlay) return;
@@ -189,19 +189,42 @@ export function FlowCanvas() {
         setSel(null);
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
-        if (sel.kind === 'edge') {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (sel?.kind === 'edge') {
+        e.preventDefault();
+        deleteEdge(sel.id);
+        setSel(null);
+        return;
+      }
+      if (sel && view) {
+        const n = view.nodes[sel.id];
+        if (n && (n.kind === 'control' || n.kind === 'comment')) {
           e.preventDefault();
-          deleteEdge(sel.id);
+          deleteFlowNode(sel.id);
           setSel(null);
-        } else if (view) {
-          const n = view.nodes[sel.id];
-          if (n && (n.kind === 'control' || n.kind === 'comment')) {
-            e.preventDefault();
-            deleteFlowNode(sel.id);
-            setSel(null);
-          }
         }
+        return;
+      }
+      // フロー固有要素を選択していない場合は、選択中の工程ノードを工程ごと削除（確認あり）。
+      const a = useApp.getState();
+      const tid = a.selectedTaskId;
+      const t = tid ? a.project.core.tasks[tid] : undefined;
+      if (tid && t) {
+        e.preventDefault();
+        void useUI
+          .getState()
+          .confirm({
+            title: '工程を削除',
+            message: `「${t.name || '（無題）'}」を削除します（配下の工程も削除されます）。`,
+            confirmLabel: '削除',
+            danger: true,
+          })
+          .then((ok) => {
+            if (ok) {
+              a.removeTask(tid);
+              a.select(undefined);
+            }
+          });
       }
     };
     window.addEventListener('keydown', onKey);
@@ -355,13 +378,37 @@ export function FlowCanvas() {
       : { cx: conn.x, cy: conn.y }
     : null;
 
+  // 課題ノードは工程ごとに1枚へ集約表示（モデルは1課題=1ノードのまま、描画だけ束ねる）。
+  // details の課題順で先頭に対応するノードを代表(primary)とし、それ以外は描画しない。
+  const issuePrimary = new Map<string, string>(); // taskId -> 代表ノードid
+  {
+    const groups = new Map<string, FlowNode[]>();
+    for (const n of divNodes) {
+      if (n.kind === 'issue') (groups.get(n.taskId) ?? groups.set(n.taskId, []).get(n.taskId)!).push(n);
+    }
+    for (const [taskId, arr] of groups) {
+      const order = project.details[taskId]?.issues ?? [];
+      const rank = (n: FlowNode) => {
+        if (n.kind !== 'issue') return 1e9;
+        const k = order.findIndex((i) => i.id === n.issueId);
+        return k < 0 ? 1e9 : k;
+      };
+      arr.sort((x, y) => rank(x) - rank(y) || x.id.localeCompare(y.id));
+      issuePrimary.set(taskId, arr[0]!.id);
+    }
+  }
+  const isPrimaryIssue = (n: FlowNode) => n.kind === 'issue' && issuePrimary.get(n.taskId) === n.id;
+  // 工程に記載された課題文（空欄は除外）。複数なら箇条書きで表示する。
+  const issueTexts = (taskId: string): string[] =>
+    (project.details[taskId]?.issues ?? []).map((i) => i.issue).filter((t) => t.trim().length > 0);
+
   return (
     <div className="flow-wrap">
       <div className="flow-palette">
         <span>追加:</span>
         <button
           className="add-task"
-          title="工程を追加（ダブルクリックでも作成）"
+          title="工程を追加"
           onClick={() => {
             const k = nodes.filter((n) => n.kind === 'task').length;
             addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
@@ -412,12 +459,6 @@ export function FlowCanvas() {
         className={`flow-canvas${panning ? ' panning' : ''}${conn ? ' connecting' : ''}`}
         ref={canvasRef}
         onPointerDown={onCanvasPointerDown}
-        onDoubleClick={(e) => {
-          const el = e.target as HTMLElement;
-          if (el.closest('.node, .handle, .del, button, input, a')) return; // 既存要素上は無視
-          const p = relPoint(e);
-          addTaskAt(p.x, p.y);
-        }}
       >
         <div
           className="flow-scale"
@@ -563,7 +604,7 @@ export function FlowCanvas() {
 
           {showIssues &&
             nodes.map((n) => {
-              if (n.kind !== 'issue') return null;
+              if (n.kind !== 'issue' || !isPrimaryIssue(n)) return null; // 集約: 代表のみ線を引く
               const target = view.nodes[n.targetNodeId];
               if (!target) return null;
               const a = center(n);
@@ -574,6 +615,7 @@ export function FlowCanvas() {
         </svg>
 
         {divNodes.map((n) => {
+          if (n.kind === 'issue' && !isPrimaryIssue(n)) return null; // 集約: 代表ノードのみ描画
           const p = posOf(n);
           const draggable = n.kind === 'task' || n.kind === 'control' || n.kind === 'comment';
           const deletable = n.kind === 'control' || n.kind === 'comment';
@@ -619,7 +661,11 @@ export function FlowCanvas() {
             <div
               key={n.id}
               className={cls + connCls}
-              style={{ left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h }}
+              style={
+                n.kind === 'issue'
+                  ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
+                  : { left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h }
+              }
               role={focusable ? 'button' : undefined}
               tabIndex={focusable ? 0 : undefined}
               aria-label={focusable ? ariaLabel : undefined}
@@ -650,7 +696,22 @@ export function FlowCanvas() {
                   <polygon points="50,1 99,50 50,99 1,50" />
                 </svg>
               )}
-              <span className="node-label">{labelOf(n)}</span>
+              {n.kind === 'issue' ? (
+                (() => {
+                  const texts = issueTexts(n.taskId);
+                  if (texts.length === 0) return <span className="node-label">課題</span>;
+                  if (texts.length === 1) return <span className="node-label issue-text">{texts[0]}</span>;
+                  return (
+                    <ul className="issue-list">
+                      {texts.map((tx, i) => (
+                        <li key={i}>{tx}</li>
+                      ))}
+                    </ul>
+                  );
+                })()
+              ) : (
+                <span className="node-label">{labelOf(n)}</span>
+              )}
               {n.kind === 'task' && (
                 <>
                   <button

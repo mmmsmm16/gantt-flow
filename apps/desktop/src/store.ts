@@ -102,6 +102,8 @@ export interface AppState {
   updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>) => void;
   removeIo: (taskId: Id, ioId: Id) => void;
   addIssue: (taskId: Id, text: string) => void;
+  /** 方策だけ先に入力されたとき、課題文は空のまま方策付きで起票する。 */
+  addIssueWithMeasure: (taskId: Id, measure: string) => void;
   updateIssue: (taskId: Id, issueId: Id, patch: Partial<Pick<IssueItem, 'issue' | 'measure' | 'target'>>) => void;
   removeIssue: (taskId: Id, issueId: Id) => void;
   updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
@@ -341,6 +343,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     removeIo: (taskId, ioId) => commit(cRemoveIoItem(get().project, taskId, ioId)),
 
     addIssue: (taskId, text) => commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid)),
+    addIssueWithMeasure: (taskId, measure) =>
+      commit(cAddIssueItem(get().project, taskId, { issue: '', measure }, uuid)),
     updateIssue: (taskId, issueId, patch) => commit(cUpdateIssueItem(get().project, taskId, issueId, patch)),
     removeIssue: (taskId, issueId) => commit(cRemoveIssueItem(get().project, taskId, issueId)),
     updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
