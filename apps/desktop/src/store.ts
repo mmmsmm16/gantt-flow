@@ -382,9 +382,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         ? Object.values(view0.lanes).find((l) => l.order === laneOrder)
         : undefined;
       const before = new Set(Object.keys(get().project.core.tasks));
+      // フロー上で作る工程は既定名を与える（空の白箱にしない。リネームは表/インスペクタで）。
       let p = cAddTask(
         get().project,
-        { name: '', level, parentId: scopeParentId, assigneeId: lane?.assigneeId },
+        { name: '新規工程', level, parentId: scopeParentId, assigneeId: lane?.assigneeId },
         uuid,
       );
       p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);

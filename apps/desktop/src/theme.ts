@@ -13,7 +13,7 @@ export const FLOW_LIGHT = {
   band: '#cbd5e1',
   bandLabel: '#64748b',
   laneColBg: '#f8fafc',
-  laneStripe: 'rgba(2,6,23,0.015)',
+  laneStripe: 'rgba(2,6,23,0.04)',
   laneLine: '#e2e8f0',
   laneDivider: '#cbd5e1',
   laneTitle: '#1e293b',

@@ -48,7 +48,7 @@
   --canvas-bg: #ffffff;
   --canvas-dot: #e2e8f0;
   --lane-col: #f8fafc;
-  --lane-stripe: rgba(2, 6, 23, 0.015);
+  --lane-stripe: rgba(2, 6, 23, 0.04);
   --lane-line: #e2e8f0;
   --lane-divider: #cbd5e1;
   --band-stroke: #cbd5e1;
@@ -108,7 +108,7 @@
   --canvas-bg: #0d121c;
   --canvas-dot: rgba(148, 163, 184, 0.16);
   --lane-col: #0f1521;
-  --lane-stripe: rgba(255, 255, 255, 0.02);
+  --lane-stripe: rgba(255, 255, 255, 0.04);
   --lane-line: #222c3b;
   --lane-divider: #33415a;
   --band-stroke: #33415a;
@@ -776,14 +776,16 @@ button.danger:hover {
   left: 0;
   width: 96px;
   display: flex;
-  align-items: center;
+  /* 上寄せ: レーンが太い（並行工程）ときも名前がレーンの先頭に出て、どの帯が
+     どの担当かを取り違えにくい。 */
+  align-items: flex-start;
   justify-content: center;
   text-align: center;
   z-index: 1;
   font-size: 12px;
   font-weight: 700;
   color: var(--ink);
-  padding: 0 6px;
+  padding: 10px 6px 0;
 }
 
 .node {

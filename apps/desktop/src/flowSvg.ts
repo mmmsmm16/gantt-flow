@@ -114,8 +114,9 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
       `<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneDivider}" stroke-width="1.4"/>`,
     );
     for (const box of boxes) {
+      // 上寄せ（画面と揃える）: 太いレーンでも名前が帯の先頭に出る。
       parts.push(
-        `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
+        `<text x="${LABEL_W / 2}" y="${box.top + 20}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
       );
     }
   }
