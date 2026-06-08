@@ -73,11 +73,31 @@ export function reconcileFlow(
   // （大は最上位なので未指定＝親なし全件で従来どおり。中/小/詳細の未指定だけ全体扱い）
   const allScope = view.scopeParentId === undefined && view.level !== 'large';
 
-  // 1. 対象タスク（この粒度・このスコープの兄弟）を決定論順で
+  // 1. 対象タスク（この粒度・このスコープの兄弟）を決定論順で。
+  //    全体スコープでは親(大)ごとに固めて並べ、大の囲いが重ならないようにする。
+  const parentOrder = (t: { parentId?: Id }): number =>
+    t.parentId ? core.tasks[t.parentId]?.order ?? 0 : 0;
   const targets = Object.values(core.tasks)
     .filter((t) => t.level === view.level && (allScope || sameScope(t.parentId, view.scopeParentId)))
-    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    .sort((a, b) => parentOrder(a) - parentOrder(b) || a.order - b.order || a.id.localeCompare(b.id));
   const targetIds = new Set(targets.map((t) => t.id));
+
+  // 新規ノードの横位置。親(大)が変わるところで 1 列空けて、大グループ同士を離す
+  // （全体スコープ用。単一スコープでは親が変わらないので従来どおり連番）。
+  const initialX = new Map<Id, number>();
+  {
+    let col = 0;
+    let prevParent: Id | undefined;
+    let first = true;
+    for (const t of targets) {
+      const pp = t.parentId ?? undefined;
+      if (!first && pp !== prevParent) col += 1; // 大グループ境界で 1 列空ける
+      initialX.set(t.id, MARGIN_X + col * COL_W);
+      col += 1;
+      prevParent = pp;
+      first = false;
+    }
+  }
 
   // 2. レーン: 参照される担当ごとに 1 本（既存は再利用、無ければ作成）
   const laneByAssignee = new Map<Id, Id>();
@@ -136,7 +156,7 @@ export function reconcileFlow(
       id,
       kind: 'task',
       taskId: t.id,
-      x: MARGIN_X + i * COL_W,
+      x: initialX.get(t.id) ?? MARGIN_X + i * COL_W,
       y: laneTaskBaseY(next.lanes, laneOrderOf(t.assigneeId)),
       laneId,
     };
