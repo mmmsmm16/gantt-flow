@@ -206,15 +206,11 @@ export function FlowCanvas() {
 
   // レーン幾何（可変高さ）。確定済みの高さで描画し、リサイズ中は破線ガイドだけ動かす
   // （ドラッグ中にレーンとノードがズレて見えるのを避け、確定時にまとめて反映）。
-  const laneBoxes: LaneBox[] = laneLayout(lanes);
-  const fallbackBox: LaneBox = {
-    lane: { id: '_', title: '（未割当）', order: 0 },
-    top: BAND_TOP,
-    height: ROW_H,
-    base: MARGIN,
-  };
-  const boxes = laneBoxes.length ? laneBoxes : [fallbackBox];
-  const lanesBottomY = boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height;
+  // 担当（assignee）由来のレーンが無いビュー（例: 大/全体は工程に担当が無い）では
+  // スイムレーンを一切描かない＝「担当者名の無いレーン」を出さない。
+  const boxes: LaneBox[] = laneLayout(lanes);
+  const hasLanes = boxes.length > 0;
+  const lanesBottomY = hasLanes ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP;
 
   // レーン下端の手動リサイズ（ラベル列のグリップをドラッグ）。確定時に setLaneHeight（下のレーンも連動）。
   const onLaneResizeDown = (box: LaneBox, e: React.PointerEvent) => {
@@ -445,8 +441,9 @@ export function FlowCanvas() {
             </marker>
           </defs>
 
-          {/* スイムレーン: 左にラベル列・可変高さの帯で区切る（並行工程で太く / 手動リサイズ） */}
-          {(() => {
+          {/* スイムレーン: 左にラベル列・可変高さの帯で区切る（並行工程で太く / 手動リサイズ）。
+              担当レーンが無いビューでは描かない。 */}
+          {hasLanes && (() => {
             const els: JSX.Element[] = [
               <rect key="labelcol" className="lane-col-bg" x={0} y={BAND_TOP} width={LABEL_W} height={lanesBottomY - BAND_TOP} />,
             ];

@@ -46,12 +46,13 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
-  // レーン幾何（可変高さ）。総高がノードより大きいときはキャンバスを広げる。
+  // レーン幾何（可変高さ）。担当レーンが無いビューはスイムレーンを描かない。
   const BAND_TOP = 24;
   const LABEL_W = 96;
   const boxes = laneLayout(view.lanes);
-  const laneBottom = boxes.length ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP + 120;
-  maxY = Math.max(maxY, laneBottom + 40);
+  const hasLanes = boxes.length > 0;
+  const laneBottom = hasLanes ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP;
+  if (hasLanes) maxY = Math.max(maxY, laneBottom + 40);
 
   const taskNodeFor = (taskId: string): FlowNode | undefined =>
     nodes.find((nn) => nn.kind === 'task' && nn.taskId === taskId);
@@ -91,29 +92,32 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     );
   }
 
-  // swimlanes: 左ラベル列 + 可変高さの水平区切り（並行工程で太く / 手動リサイズを保持）
-  parts.push(
-    `<rect x="0" y="${BAND_TOP}" width="${LABEL_W}" height="${laneBottom - BAND_TOP}" fill="${FLOW_LIGHT.laneColBg}"/>`,
-  );
-  boxes.forEach((box, i) => {
-    if (i % 2 === 1)
+  // swimlanes: 左ラベル列 + 可変高さの水平区切り（並行工程で太く / 手動リサイズを保持）。
+  // 担当レーンが無いビューでは描かない（「担当者名の無いレーン」を出さない）。
+  if (hasLanes) {
+    parts.push(
+      `<rect x="0" y="${BAND_TOP}" width="${LABEL_W}" height="${laneBottom - BAND_TOP}" fill="${FLOW_LIGHT.laneColBg}"/>`,
+    );
+    boxes.forEach((box, i) => {
+      if (i % 2 === 1)
+        parts.push(
+          `<rect x="${LABEL_W}" y="${box.top}" width="${maxX}" height="${box.height}" fill="${FLOW_LIGHT.laneStripe}"/>`,
+        );
       parts.push(
-        `<rect x="${LABEL_W}" y="${box.top}" width="${maxX}" height="${box.height}" fill="${FLOW_LIGHT.laneStripe}"/>`,
+        `<line x1="0" y1="${box.top}" x2="${maxX}" y2="${box.top}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
       );
+    });
     parts.push(
-      `<line x1="0" y1="${box.top}" x2="${maxX}" y2="${box.top}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
+      `<line x1="0" y1="${laneBottom}" x2="${maxX}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
     );
-  });
-  parts.push(
-    `<line x1="0" y1="${laneBottom}" x2="${maxX}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
-  );
-  parts.push(
-    `<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneDivider}" stroke-width="1.4"/>`,
-  );
-  for (const box of boxes) {
     parts.push(
-      `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
+      `<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneDivider}" stroke-width="1.4"/>`,
     );
+    for (const box of boxes) {
+      parts.push(
+        `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
+      );
+    }
   }
 
   // edges
