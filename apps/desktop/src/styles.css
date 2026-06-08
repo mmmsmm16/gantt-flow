@@ -2126,20 +2126,14 @@ kbd {
   white-space: nowrap;
 }
 
-/* 列幅 */
-.ft-c-no { width: 48px; }
-.ft-c-level { width: 104px; }
-.ft-c-assignee { width: 108px; }
-.ft-c-prev { width: 150px; }
-.ft-c-effort { width: 62px; }
-.ft-c-text { width: 180px; }
-.ft-c-io { width: 168px; }
-.ft-c-issue { width: 190px; }
-.ft-c-sm { width: 130px; }
-.ft-c-auto { width: 104px; }
-.ft-c-diff { width: 58px; }
-.ft-c-act { width: 36px; }
-.ft td.ft-c-no { text-align: left; color: var(--muted); font-family: var(--font-mono); padding: 7px 6px; white-space: nowrap; }
+/* 列幅は colgroup（ドラッグ調整）で制御。ここは内容寄せ等のみ。 */
+.ft td.ft-c-no {
+  text-align: left;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  padding: 7px 6px;
+  white-space: nowrap;
+}
 
 /* セル内の入力 */
 .ft-in {
@@ -2272,4 +2266,117 @@ kbd {
 }
 .col-menu {
   margin-left: 2px;
+}
+
+/* 全項目表: 列幅ドラッグ・折り返しセル・行操作・固定アクション列 */
+.ft th {
+  position: sticky; /* 既存: top:0。列リサイズハンドルの配置基準も兼ねる */
+}
+.ft-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 4;
+}
+.ft-resize:hover,
+.ft-wrap.resizing .ft-resize {
+  background: linear-gradient(90deg, transparent, var(--accent-soft));
+}
+.ft-wrap.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* 折り返し対応の自動伸縮テキスト（全文表示・Enterで改行） */
+.ft-area {
+  display: block;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  min-height: 30px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+/* 前工程の「＋」をインプット列の＋と同サイズに（行を太らせない） */
+.ft-add-sel {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  text-align: center;
+  text-align-last: center;
+  cursor: pointer;
+  flex: none;
+}
+.ft-prev {
+  align-items: flex-start;
+}
+
+/* アクション列を右端に固定（行追加/削除を常に手前に） */
+.ft .ft-sticky-r {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: -1px 0 0 var(--line-strong);
+}
+.ft thead th.ft-sticky-r {
+  z-index: 3;
+  background: var(--hdr);
+}
+.ft tbody tr:hover td.ft-sticky-r {
+  background: var(--row-hover);
+}
+.ft tbody tr.sel td.ft-sticky-r {
+  background: var(--accent-soft);
+}
+.ft tbody tr.parent td.ft-sticky-r {
+  background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft-rowact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 3px;
+}
+.ft-rowbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+}
+.ft-rowbtn:hover {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.ft-rowbtn.danger:hover {
+  background: var(--red-fill);
+  color: var(--red);
+  border-color: transparent;
+}
+.ft-rowbtn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 選択行を分かりやすく（先頭セルにアクセントバー） */
+.ft tbody tr.sel td.ft-c-no {
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--accent);
+  font-weight: 700;
 }

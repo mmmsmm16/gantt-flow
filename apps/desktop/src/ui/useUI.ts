@@ -6,6 +6,7 @@ export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
+const FT_W_KEY = 'gf-ft-widths';
 
 // 全項目表の列表示（true=表示。キーが無ければ表示扱い）。localStorage 永続。
 function readFtColumns(): Record<string, boolean> {
@@ -14,6 +15,17 @@ function readFtColumns(): Record<string, boolean> {
     if (saved) return JSON.parse(saved) as Record<string, boolean>;
   } catch {
     /* localStorage 不可/破損: 既定（全表示） */
+  }
+  return {};
+}
+
+// 全項目表の列幅の手動上書き（px）。未指定キーは既定幅。localStorage 永続。
+function readFtWidths(): Record<string, number> {
+  try {
+    const saved = localStorage.getItem(FT_W_KEY);
+    if (saved) return JSON.parse(saved) as Record<string, number>;
+  } catch {
+    /* 既定幅 */
   }
   return {};
 }
@@ -106,6 +118,10 @@ interface UIState {
   ftColumns: Record<string, boolean>;
   toggleFtColumn: (key: string) => void;
 
+  /** 全項目表の列幅の手動上書き（px）。未指定キーは既定幅。localStorage 永続。 */
+  ftColWidths: Record<string, number>;
+  setFtColWidth: (key: string, width: number) => void;
+
   /** 工程表の任意列（前工程 / 工数 / I/O・課題）の表示トグル。localStorage 永続。 */
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
@@ -159,6 +175,17 @@ export const useUI = create<UIState>((set, get) => ({
       /* 永続化失敗は無視 */
     }
     set({ ftColumns: next });
+  },
+
+  ftColWidths: readFtWidths(),
+  setFtColWidth: (key, width) => {
+    const next = { ...get().ftColWidths, [key]: Math.max(40, Math.round(width)) };
+    try {
+      localStorage.setItem(FT_W_KEY, JSON.stringify(next));
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ ftColWidths: next });
   },
 
   overlay: null,

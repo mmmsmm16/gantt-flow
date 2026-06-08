@@ -1,7 +1,8 @@
 // 全項目フル表（完全な工程表ビュー）。全工程を行・全フィールドを列にした 1 枚の編集グリッド。
-// 粒度は 大/中/小/詳細工程の 4 列で表現（各行は自分の粒度の列に作業名、上位列には親の工程名を再掲）。
-// 課題と方策は独立列。列は表示/非表示を切替（列メニュー）、ヘッダクリックで並べ替え（工数・担当ほか）。
-import { useMemo, useState } from 'react';
+// 粒度は 大/中/小/詳細工程の 4 列（各行は自分の粒度の列に作業名、上位列に親の工程名を再掲）。
+// 課題/方策は独立列。列の表示切替・並べ替え・幅のドラッグ調整、テキスト列は折り返して全文表示。
+// 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
+import { useEffect, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
@@ -24,7 +25,18 @@ const AUTOMATION: { key: Automation | ''; label: string }[] = [
 const DIFFICULTY: (Difficulty | '')[] = ['', 'H', 'M', 'L'];
 const DIFF_RANK: Record<string, number> = { H: 3, M: 2, L: 1, '': 0 };
 
-// 列メニューに出す（＝表示/非表示できる）列。No. は常時表示。
+// 列の定義順（No. と act は常時表示）。
+const COL_ORDER = [
+  'no', 'large', 'medium', 'small', 'detail', 'assignee', 'prev', 'effort',
+  'how', 'system', 'inputs', 'outputs', 'issue', 'measure', 'note', 'volume',
+  'exception', 'automation', 'dataLink', 'regulation', 'difficulty', 'act',
+] as const;
+const DEFAULT_W: Record<string, number> = {
+  no: 48, large: 110, medium: 110, small: 110, detail: 110, assignee: 110, prev: 150,
+  effort: 64, how: 200, system: 170, inputs: 168, outputs: 168, issue: 200, measure: 200,
+  note: 200, volume: 130, exception: 180, automation: 108, dataLink: 140, regulation: 140,
+  difficulty: 62, act: 64,
+};
 const TOGGLE_COLS: { key: string; label: string }[] = [
   ...LEVELS,
   { key: 'assignee', label: '担当' },
@@ -45,9 +57,6 @@ const TOGGLE_COLS: { key: string; label: string }[] = [
   { key: 'difficulty', label: '難易度' },
 ];
 const SORTABLE = new Set(['large', 'medium', 'small', 'detail', 'assignee', 'effort', 'difficulty', 'automation']);
-
-const NO_W = 48;
-const LEVEL_W = 104;
 
 function flatten(tasks: ProcessTask[]): ProcessTask[] {
   const byParent = new Map<Id | undefined, ProcessTask[]>();
@@ -95,11 +104,17 @@ export function FullTable() {
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
   const addRootTask = useApp((s) => s.addRootTask);
+  const addSiblingOf = useApp((s) => s.addSiblingOf);
   const removeTask = useApp((s) => s.removeTask);
   const ftColumns = useUI((s) => s.ftColumns);
   const toggleFtColumn = useUI((s) => s.toggleFtColumn);
+  const ftColWidths = useUI((s) => s.ftColWidths);
+  const setFtColWidth = useUI((s) => s.setFtColWidth);
 
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
+  const [resizing, setResizing] = useState<{ key: string; w: number } | null>(null);
+  const [focusTask, setFocusTask] = useState<Id | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const byId = project.core.tasks;
   const tasks = Object.values(byId);
@@ -109,9 +124,26 @@ export function FullTable() {
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
 
   const vis = (k: string) => ftColumns[k] !== false;
+  const width = (k: string) => (resizing?.key === k ? resizing.w : ftColWidths[k] ?? DEFAULT_W[k]!);
+  const visibleCols = COL_ORDER.filter((k) => k === 'no' || k === 'act' || vis(k));
   const visLevels = LEVELS.filter((l) => vis(l.key));
-  const levelLeft = (key: ProcessLevel) => NO_W + visLevels.findIndex((l) => l.key === key) * LEVEL_W;
+  const levelLeft = (key: ProcessLevel) => {
+    let x = width('no');
+    for (const l of visLevels) {
+      if (l.key === key) return x;
+      x += width(l.key);
+    }
+    return x;
+  };
   const lastStickyKey = visLevels.length ? visLevels[visLevels.length - 1]!.key : null;
+
+  // 新規追加した工程の作業名にフォーカス（連続入力）。
+  useEffect(() => {
+    if (!focusTask) return;
+    const el = tableRef.current?.querySelector<HTMLInputElement>(`input[data-task="${focusTask}"]`);
+    el?.focus();
+    setFocusTask(null);
+  }, [focusTask, tasks.length]);
 
   const sortValue = (key: string, t: ProcessTask): number | string => {
     if (key === 'effort') return effortRollupMinutes(project.core, project.details, t.id);
@@ -123,26 +155,52 @@ export function FullTable() {
     return 0;
   };
 
-  const rows = useMemo(() => {
-    const flat = flatten(tasks);
-    if (!sort) return flat;
-    const arr = [...flat];
-    arr.sort((x, y) => {
+  const flat = flatten(tasks);
+  let rows = flat;
+  if (sort) {
+    rows = [...flat].sort((x, y) => {
       const a = sortValue(sort.key, x);
       const b = sortValue(sort.key, y);
       const c = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'ja');
       return c * (sort.dir === 'asc' ? 1 : -1);
     });
-    return arr;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, sort, project.details, project.core.assignees]);
+  }
 
   const clickSort = (key: string) =>
-    setSort((cur) =>
-      cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null,
-    );
+    setSort((cur) => (cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
 
-  if (flatten(tasks).length === 0) {
+  // 列幅のドラッグ調整。
+  const startResize = (key: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = width(key);
+    setResizing({ key, w: startW });
+    const onMove = (ev: PointerEvent) => setResizing({ key, w: Math.max(40, startW + (ev.clientX - startX)) });
+    const onUp = (ev: PointerEvent) => {
+      setFtColWidth(key, Math.max(40, startW + (ev.clientX - startX)));
+      setResizing(null);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  // Enter で同じ列の次の行へ（単一行の入力のみ。textarea は改行優先）。
+  const onGridKeyDown = (e: React.KeyboardEvent) => {
+    const el = e.target as HTMLElement;
+    if (e.key !== 'Enter' || el.tagName !== 'INPUT') return;
+    const r = el.dataset.r;
+    const c = el.dataset.c;
+    if (r == null || !c) return;
+    e.preventDefault();
+    const next = tableRef.current?.querySelector<HTMLInputElement>(`input[data-r="${Number(r) + 1}"][data-c="${c}"]`);
+    next?.focus();
+    next?.select?.();
+  };
+
+  if (flat.length === 0) {
     return (
       <div className="ft-empty">
         <p>工程がありません。</p>
@@ -153,13 +211,11 @@ export function FullTable() {
     );
   }
 
-  // ソート可能なヘッダ（ラベル＋▲▼）。
   const Th = ({ k, label, cls, style }: { k: string; label: string; cls?: string; style?: React.CSSProperties }) => {
     const active = sort?.key === k;
-    const sortable = SORTABLE.has(k);
     return (
       <th className={`${cls ?? ''}${active ? ' sorted' : ''}`} style={style}>
-        {sortable ? (
+        {SORTABLE.has(k) ? (
           <button className="ft-sort" onClick={() => clickSort(k)} title={`${label}で並べ替え`}>
             {label}
             <span className="ft-sortmark">{active ? (sort!.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>
@@ -167,12 +223,13 @@ export function FullTable() {
         ) : (
           label
         )}
+        <span className="ft-resize" onPointerDown={(e) => startResize(k, e)} title="ドラッグで列幅を調整" />
       </th>
     );
   };
 
   return (
-    <div className="ft-wrap">
+    <div className={`ft-wrap${resizing ? ' resizing' : ''}`}>
       <div className="ft-actions">
         <button className="primary" onClick={() => addRootTask('large')}>
           ＋ 大工程
@@ -192,18 +249,23 @@ export function FullTable() {
           ))}
         </Menu>
         {sort && (
-          <button className="ft-clear-sort" onClick={() => setSort(null)} title="並べ替えを解除（工程順に戻す）">
+          <button className="ft-clear-sort" onClick={() => setSort(null)} title="工程順に戻す">
             並べ替え解除
           </button>
         )}
-        <span className="ft-hint">列の表示/非表示・ヘッダクリックで並べ替え。横スクロールで全列。</span>
+        <span className="ft-hint">行クリックで選択・末尾の＋で次の行・Enterで下のセルへ。列はドラッグで幅調整。</span>
       </div>
       <datalist id="ft-assignees">
         {assigneeNames.map((n) => (
           <option key={n} value={n} />
         ))}
       </datalist>
-      <table className="ft">
+      <table className="ft" ref={tableRef} onKeyDown={onGridKeyDown}>
+        <colgroup>
+          {visibleCols.map((k) => (
+            <col key={k} style={{ width: width(k) }} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
             <th className="ft-c-no ft-sticky" style={{ left: 0 }} title="工程順に戻す">
@@ -224,26 +286,26 @@ export function FullTable() {
                 ),
             )}
             {vis('assignee') && <Th k="assignee" label="担当" cls="ft-c-assignee" />}
-            {vis('prev') && <th className="ft-c-prev">前工程</th>}
+            {vis('prev') && <Th k="prev" label="前工程" cls="ft-c-prev" />}
             {vis('effort') && <Th k="effort" label="工数" cls="ft-c-effort" />}
-            {vis('how') && <th className="ft-c-text">業務内容</th>}
-            {vis('system') && <th className="ft-c-text">使用システム</th>}
-            {vis('inputs') && <th className="ft-c-io">インプット</th>}
-            {vis('outputs') && <th className="ft-c-io">アウトプット</th>}
-            {vis('issue') && <th className="ft-c-issue">課題</th>}
-            {vis('measure') && <th className="ft-c-issue">方策</th>}
-            {vis('note') && <th className="ft-c-text">備考</th>}
-            {vis('volume') && <th className="ft-c-sm">ボリューム</th>}
-            {vis('exception') && <th className="ft-c-text">例外対応</th>}
+            {vis('how') && <Th k="how" label="業務内容" cls="ft-c-text" />}
+            {vis('system') && <Th k="system" label="使用システム" cls="ft-c-text" />}
+            {vis('inputs') && <Th k="inputs" label="インプット" cls="ft-c-io" />}
+            {vis('outputs') && <Th k="outputs" label="アウトプット" cls="ft-c-io" />}
+            {vis('issue') && <Th k="issue" label="課題" cls="ft-c-issue" />}
+            {vis('measure') && <Th k="measure" label="方策" cls="ft-c-issue" />}
+            {vis('note') && <Th k="note" label="備考" cls="ft-c-text" />}
+            {vis('volume') && <Th k="volume" label="ボリューム" cls="ft-c-sm" />}
+            {vis('exception') && <Th k="exception" label="例外対応" cls="ft-c-text" />}
             {vis('automation') && <Th k="automation" label="自動化" cls="ft-c-auto" />}
-            {vis('dataLink') && <th className="ft-c-sm">データ連携先</th>}
-            {vis('regulation') && <th className="ft-c-sm">関連規程</th>}
+            {vis('dataLink') && <Th k="dataLink" label="データ連携先" cls="ft-c-sm" />}
+            {vis('regulation') && <Th k="regulation" label="関連規程" cls="ft-c-sm" />}
             {vis('difficulty') && <Th k="difficulty" label="難易度" cls="ft-c-diff" />}
-            <th className="ft-c-act"></th>
+            <th className="ft-c-act ft-sticky-r"></th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((t) => {
+          {rows.map((t, ri) => {
             const d = project.details[t.id];
             const hasChildren = parentsWithChildren.has(t.id);
             const assigneeName = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
@@ -253,10 +315,7 @@ export function FullTable() {
             const predIds = new Set(preds.map((dep) => dep.from));
             const succIds = new Set(deps.filter((dep) => dep.from === t.id).map((dep) => dep.to));
             const siblings = tasks.filter(
-              (o) =>
-                o.id !== t.id &&
-                (o.parentId ?? undefined) === (t.parentId ?? undefined) &&
-                o.level === t.level,
+              (o) => o.id !== t.id && (o.parentId ?? undefined) === (t.parentId ?? undefined) && o.level === t.level,
             );
             const prevCandidates = siblings.filter((o) => !predIds.has(o.id) && !succIds.has(o.id));
             return (
@@ -285,8 +344,17 @@ export function FullTable() {
                           defaultValue={t.name}
                           placeholder={l.label}
                           aria-label={l.label}
+                          data-task={t.id}
                           key={`name-${t.name}`}
                           onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (e.currentTarget.value !== t.name) renameTask(t.id, e.currentTarget.value);
+                              const id = addSiblingOf(t.id);
+                              if (id) setFocusTask(id);
+                            }
+                          }}
                         />
                       ) : name !== undefined ? (
                         <span className="ft-anc" title={name}>
@@ -304,6 +372,8 @@ export function FullTable() {
                       defaultValue={assigneeName}
                       placeholder="（未割当）"
                       aria-label="担当"
+                      data-r={ri}
+                      data-c="assignee"
                       key={`asg-${assigneeName}`}
                       onBlur={(e) => e.target.value !== assigneeName && setAssigneeByName(t.id, e.target.value)}
                     />
@@ -322,9 +392,10 @@ export function FullTable() {
                       ))}
                       {prevCandidates.length > 0 && (
                         <select
-                          className="ft-add-sel"
+                          className="ft-add ft-add-sel"
                           value=""
                           aria-label="前工程を追加"
+                          title="前工程を追加"
                           onChange={(e) => e.target.value && addDependency(e.target.value, t.id)}
                         >
                           <option value="">＋</option>
@@ -353,6 +424,8 @@ export function FullTable() {
                         defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
                         placeholder="h"
                         aria-label="工数（時間）"
+                        data-r={ri}
+                        data-c="effort"
                         key={`eff-${d?.effortMinutes ?? ''}`}
                         onBlur={(e) =>
                           updateDetail(t.id, {
@@ -363,8 +436,8 @@ export function FullTable() {
                     )}
                   </td>
                 )}
-                {vis('how') && <TextCell value={d?.how} onCommit={(v) => updateDetail(t.id, { how: v })} taskKey={t.id} />}
-                {vis('system') && <TextCell value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} taskKey={t.id} />}
+                {vis('how') && <WrapCell value={d?.how} onCommit={(v) => updateDetail(t.id, { how: v })} k={t.id} />}
+                {vis('system') && <WrapCell value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} />}
                 {vis('inputs') && <IoCell items={d?.inputs ?? []} onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
                 {vis('outputs') && <IoCell items={d?.outputs ?? []} onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
                 {vis('issue') && (
@@ -372,7 +445,7 @@ export function FullTable() {
                     <div className="ft-issues">
                       {issues.map((iss) => (
                         <div className="ft-issue-row" key={iss.id}>
-                          <input className="ft-in" defaultValue={iss.issue} placeholder="課題" key={`iss-${iss.issue}`} onBlur={(e) => updateIssue(t.id, iss.id, { issue: e.target.value })} />
+                          <AutoTextarea value={iss.issue} placeholder="課題" onCommit={(v) => updateIssue(t.id, iss.id, { issue: v })} />
                           <button className="ft-x" aria-label="課題を削除" onClick={() => removeIssue(t.id, iss.id)}>
                             ×
                           </button>
@@ -389,15 +462,15 @@ export function FullTable() {
                     <div className="ft-issues">
                       {issues.map((iss) => (
                         <div className="ft-issue-row" key={iss.id}>
-                          <input className="ft-in" defaultValue={iss.measure ?? ''} placeholder="方策" key={`msr-${iss.measure ?? ''}`} onBlur={(e) => updateIssue(t.id, iss.id, { measure: e.target.value || undefined })} />
+                          <AutoTextarea value={iss.measure ?? ''} placeholder="方策" onCommit={(v) => updateIssue(t.id, iss.id, { measure: v || undefined })} />
                         </div>
                       ))}
                     </div>
                   </td>
                 )}
-                {vis('note') && <TextCell value={d?.note} onCommit={(v) => updateDetail(t.id, { note: v || undefined })} taskKey={t.id} />}
-                {vis('volume') && <TextCell value={d?.volume} onCommit={(v) => updateDetail(t.id, { volume: v || undefined })} taskKey={t.id} small />}
-                {vis('exception') && <TextCell value={d?.exception} onCommit={(v) => updateDetail(t.id, { exception: v || undefined })} taskKey={t.id} />}
+                {vis('note') && <WrapCell value={d?.note} onCommit={(v) => updateDetail(t.id, { note: v || undefined })} k={t.id} />}
+                {vis('volume') && <WrapCell value={d?.volume} onCommit={(v) => updateDetail(t.id, { volume: v || undefined })} k={t.id} />}
+                {vis('exception') && <WrapCell value={d?.exception} onCommit={(v) => updateDetail(t.id, { exception: v || undefined })} k={t.id} />}
                 {vis('automation') && (
                   <td className="ft-c-auto" onClick={(e) => e.stopPropagation()}>
                     <select className="ft-in" value={d?.automation ?? ''} aria-label="自動化区分" onChange={(e) => updateDetail(t.id, { automation: (e.target.value || undefined) as Automation | undefined })}>
@@ -409,8 +482,8 @@ export function FullTable() {
                     </select>
                   </td>
                 )}
-                {vis('dataLink') && <TextCell value={d?.dataLink} onCommit={(v) => updateDetail(t.id, { dataLink: v || undefined })} taskKey={t.id} small />}
-                {vis('regulation') && <TextCell value={d?.regulation} onCommit={(v) => updateDetail(t.id, { regulation: v || undefined })} taskKey={t.id} small />}
+                {vis('dataLink') && <WrapCell value={d?.dataLink} onCommit={(v) => updateDetail(t.id, { dataLink: v || undefined })} k={t.id} />}
+                {vis('regulation') && <WrapCell value={d?.regulation} onCommit={(v) => updateDetail(t.id, { regulation: v || undefined })} k={t.id} />}
                 {vis('difficulty') && (
                   <td className="ft-c-diff" onClick={(e) => e.stopPropagation()}>
                     <select className="ft-in" value={d?.difficulty ?? ''} aria-label="難易度" onChange={(e) => updateDetail(t.id, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}>
@@ -422,23 +495,36 @@ export function FullTable() {
                     </select>
                   </td>
                 )}
-                <td className="ft-c-act" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className="ft-del"
-                    aria-label={`「${t.name}」を削除`}
-                    title="削除"
-                    onClick={async () => {
-                      const ok = await useUI.getState().confirm({
-                        title: '工程を削除',
-                        message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
-                        confirmLabel: '削除',
-                        danger: true,
-                      });
-                      if (ok) removeTask(t.id);
-                    }}
-                  >
-                    ×
-                  </button>
+                <td className="ft-c-act ft-sticky-r" onClick={(e) => e.stopPropagation()}>
+                  <div className="ft-rowact">
+                    <button
+                      className="ft-rowbtn"
+                      aria-label="次の行を追加"
+                      title="次の行を追加（同じ粒度）"
+                      onClick={() => {
+                        const id = addSiblingOf(t.id);
+                        if (id) setFocusTask(id);
+                      }}
+                    >
+                      ＋
+                    </button>
+                    <button
+                      className="ft-rowbtn danger"
+                      aria-label={`「${t.name}」を削除`}
+                      title="この行を削除"
+                      onClick={async () => {
+                        const ok = await useUI.getState().confirm({
+                          title: '工程を削除',
+                          message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
+                          confirmLabel: '削除',
+                          danger: true,
+                        });
+                        if (ok) removeTask(t.id);
+                      }}
+                    >
+                      <Icons.Trash />
+                    </button>
+                  </div>
                 </td>
               </tr>
             );
@@ -449,20 +535,39 @@ export function FullTable() {
   );
 }
 
-function TextCell({
+// 折り返し対応の自動伸縮テキストエリア（全文表示。Enter は改行）。
+function AutoTextarea({
   value,
   onCommit,
-  taskKey,
-  small,
+  placeholder,
 }: {
   value: string | undefined;
   onCommit: (v: string) => void;
-  taskKey: Id;
-  small?: boolean;
+  placeholder?: string;
 }) {
+  const grow = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  };
   return (
-    <td className={small ? 'ft-c-sm' : 'ft-c-text'} onClick={(e) => e.stopPropagation()}>
-      <input className="ft-in" defaultValue={value ?? ''} key={`${taskKey}-${value ?? ''}`} onBlur={(e) => e.target.value !== (value ?? '') && onCommit(e.target.value)} />
+    <textarea
+      className="ft-in ft-area"
+      rows={1}
+      placeholder={placeholder}
+      defaultValue={value ?? ''}
+      key={`v-${value ?? ''}`}
+      ref={grow}
+      onInput={(e) => grow(e.currentTarget)}
+      onBlur={(e) => e.target.value !== (value ?? '') && onCommit(e.target.value)}
+    />
+  );
+}
+
+function WrapCell({ value, onCommit }: { value: string | undefined; onCommit: (v: string) => void; k: Id }) {
+  return (
+    <td className="ft-c-text" onClick={(e) => e.stopPropagation()}>
+      <AutoTextarea value={value} onCommit={onCommit} />
     </td>
   );
 }
