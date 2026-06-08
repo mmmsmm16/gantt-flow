@@ -1839,9 +1839,9 @@ kbd {
 }
 
 /* ---- フロー: レーン高さの手動リサイズ ---- */
-.lane-label {
-  position: relative;
-}
+/* .lane-label は上の定義で position:absolute（＝リサイズハンドルの配置基準）。
+   ここで position:relative に上書きすると絶対配置が壊れてラベルが流し込みで
+   下方向に累積ずれするため、上書きしない（太いレーンで担当名が帯からずれる不具合）。 */
 .lane-resize {
   position: absolute;
   left: 0;
