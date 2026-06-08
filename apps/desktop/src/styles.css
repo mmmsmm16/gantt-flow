@@ -2096,12 +2096,8 @@ kbd {
   position: sticky;
   z-index: 1;
 }
-.ft .ft-st-no { left: 0; }
-.ft .ft-st-l0 { left: 48px; }
-.ft .ft-st-l1 { left: 152px; }
-.ft .ft-st-l2 { left: 256px; }
-.ft .ft-st-l3 {
-  left: 360px;
+/* 先頭固定列（No.＋表示中の粒度列）。left は表示列に応じて JS でインラインに与える。 */
+.ft .ft-sticky-last {
   box-shadow: 1px 0 0 var(--line-strong);
 }
 .ft td.ft-sticky {
@@ -2239,3 +2235,41 @@ kbd {
 .ft-del:hover { color: var(--red); background: var(--red-fill); }
 .ft .lvl { width: 100%; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 6px 2px; font-size: 12px; }
 .ft .lvl:hover { border-color: var(--line); }
+
+/* 全項目表: 並べ替えヘッダ */
+.ft-sort {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+}
+.ft-sort:hover {
+  background: transparent;
+  color: var(--ink);
+}
+.ft-sortmark {
+  color: var(--faint);
+  font-size: 9px;
+  flex: none;
+}
+.ft th.sorted,
+.ft th.sorted .ft-sort,
+.ft th.sorted .ft-sortmark {
+  color: var(--accent);
+}
+.ft-clear-sort {
+  font-size: 12px;
+  padding: 5px 9px;
+}
+.col-menu {
+  margin-left: 2px;
+}
