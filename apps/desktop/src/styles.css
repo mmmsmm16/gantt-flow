@@ -1124,6 +1124,40 @@ button.danger:hover {
   stroke-width: 2;
   stroke-dasharray: 5 4;
 }
+/* 落下先の工程に重なったら実線＋太めにして「ここに繋がる」を明示。 */
+.edge.connecting.on-target {
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+
+/* === 接続ドラッグ中の落下先ガイド ===
+   ドラッグを始めると、繋げられる相手（工程/制御ノード）を緑のリングで示し、
+   それ以外（付箋・課題・I/O）は控えめにする。カーソル直下は強調。 */
+.flow-canvas.connecting .node.droppable {
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+.flow-canvas.connecting .node.drop-active {
+  outline-style: solid;
+  outline-width: 3px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.flow-canvas.connecting .node.conn-source {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+/* 繋げられない要素はドラッグ中だけ控えめに（落下先を目立たせる）。 */
+.flow-canvas.connecting .node:not(.droppable):not(.conn-source) {
+  opacity: 0.45;
+}
+/* ドラッグ中は他ノードの I/O＋・接続ハンドルを出さない（誤操作と視覚ノイズを防ぐ）。 */
+.flow-canvas.connecting .io-add,
+.flow-canvas.connecting .handle {
+  opacity: 0 !important;
+  pointer-events: none;
+}
 .edge-label {
   font-size: 11px;
   font-weight: 600;

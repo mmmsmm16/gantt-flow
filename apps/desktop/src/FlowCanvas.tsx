@@ -154,7 +154,8 @@ export function FlowCanvas() {
     const onUp = (e: PointerEvent) => {
       const p = relPoint(e);
       const target = Object.values(view.nodes).find((n) => {
-        if (n.kind === 'doc' || n.kind === 'issue') return false;
+        // 落下先は工程/制御ノードのみ（付箋・I/O・課題には矢印を引けない＝ハイライトと一致）。
+        if (n.kind !== 'task' && n.kind !== 'control') return false;
         const s = sizeOf(n);
         return p.x >= n.x && p.x <= n.x + s.w && p.y >= n.y && p.y <= n.y + s.h;
       });
@@ -335,6 +336,25 @@ export function FlowCanvas() {
     setConn({ from: n.id, fx: p.x + s.w, fy: p.y + s.h / 2, x: p.x + s.w, y: p.y + s.h / 2 });
   };
 
+  // 接続ドラッグ中の「落とせる相手」＝工程/制御ノード（自分以外）。落下受付(onUp)と同じ条件。
+  const isConnTarget = (n: FlowNode) =>
+    (n.kind === 'task' || n.kind === 'control') && (!conn || n.id !== conn.from);
+  // カーソル直下の落下先（プレビュー矢印を吸着させ、強調表示する対象）。
+  const dropTargetId = conn
+    ? (divNodes.find((n) => {
+        if (!isConnTarget(n)) return false;
+        const p = posOf(n);
+        const s = sizeOf(n);
+        return conn.x >= p.x && conn.x <= p.x + s.w && conn.y >= p.y && conn.y <= p.y + s.h;
+      })?.id ?? null)
+    : null;
+  // プレビュー矢印の終点: 落下先があればその中心へ吸着、無ければカーソル位置。
+  const connEnd = conn
+    ? dropTargetId
+      ? center(view.nodes[dropTargetId]!)
+      : { cx: conn.x, cy: conn.y }
+    : null;
+
   return (
     <div className="flow-wrap">
       <div className="flow-palette">
@@ -389,7 +409,7 @@ export function FlowCanvas() {
       </div>
 
       <div
-        className={`flow-canvas${panning ? ' panning' : ''}`}
+        className={`flow-canvas${panning ? ' panning' : ''}${conn ? ' connecting' : ''}`}
         ref={canvasRef}
         onPointerDown={onCanvasPointerDown}
         onDoubleClick={(e) => {
@@ -530,8 +550,15 @@ export function FlowCanvas() {
             );
           })}
 
-          {conn && (
-            <line x1={conn.fx} y1={conn.fy} x2={conn.x} y2={conn.y} className="edge connecting" markerEnd="url(#arrow)" />
+          {conn && connEnd && (
+            <line
+              x1={conn.fx}
+              y1={conn.fy}
+              x2={connEnd.cx}
+              y2={connEnd.cy}
+              className={`edge connecting${dropTargetId ? ' on-target' : ''}`}
+              markerEnd="url(#arrow)"
+            />
           )}
 
           {showIssues &&
@@ -562,6 +589,16 @@ export function FlowCanvas() {
                 : n.kind === 'comment'
                   ? `node comment${selCls}`
                   : `node control control-${n.control}${selCls}`;
+          // 接続ドラッグ中: 起点=conn-source / 落下先候補=droppable / カーソル直下=drop-active。
+          const connCls = !conn
+            ? ''
+            : n.id === conn.from
+              ? ' conn-source'
+              : n.id === dropTargetId
+                ? ' droppable drop-active'
+                : isConnTarget(n)
+                  ? ' droppable'
+                  : '';
           const activate = () => {
             if (n.kind === 'task') {
               select(n.taskId);
@@ -581,7 +618,7 @@ export function FlowCanvas() {
           return (
             <div
               key={n.id}
-              className={cls}
+              className={cls + connCls}
               style={{ left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h }}
               role={focusable ? 'button' : undefined}
               tabIndex={focusable ? 0 : undefined}
