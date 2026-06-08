@@ -248,7 +248,10 @@ export function reconcileFlow(
         continue;
       }
       const id = idGen();
-      const pos = placeClear(taskNode, obstaclesFor(Object.values(next.nodes)));
+      const pos = placeClear(
+        taskNode,
+        obstaclesFor(Object.values(next.nodes), Object.values(next.edges)),
+      );
       const node: FlowIssueNote = {
         id,
         kind: 'issue',

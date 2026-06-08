@@ -5,9 +5,10 @@ import {
   removeIoItem,
   addIssueItem,
   removeIssueItem,
+  addDependency,
 } from '../src/commands';
 import { reconcileFlow } from '../src/sync/reconcileFlow';
-import { nodeRect, ioIconRect, SIZE } from '../src/sync/autoPlace';
+import { nodeRect, ioIconRect, edgeRects, SIZE } from '../src/sync/autoPlace';
 import type {
   FlowDocNode,
   FlowIssueNote,
@@ -169,6 +170,25 @@ describe('reconcileFlow: I/O・課題オブジェクト', () => {
     expect(note.x).toBeLessThanOrEqual(t.x + SIZE.task.w + pad);
     expect(note.y).toBeGreaterThanOrEqual(t.y - SIZE.issue.h - pad);
     expect(note.y).toBeLessThanOrEqual(t.y + SIZE.task.h + pad);
+  });
+
+  it('課題は矢印（エッジ）とも重ならない', () => {
+    const n = counter('n');
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'B', level: 'medium' }, g);
+    const a = taskIdByName(p, 'A');
+    const b = taskIdByName(p, 'B');
+    p = addDependency(p, a, b, g); // A→B の依存 → 導出エッジ（矢印）が1本できる
+    p = addIssueItem(p, a, { issue: '確認漏れ' }, g);
+    const r = reconcileFlow(p.core, p.details, emptyView(), n);
+    const note = notes(r.view)[0]!;
+    const obstacles = edgeRects(Object.values(r.view.nodes), Object.values(r.view.edges));
+    expect(obstacles.length).toBeGreaterThan(0); // エッジが実在する前提
+    for (const er of obstacles) {
+      expect(overlaps(nodeRect(note), er)).toBe(false);
+    }
   });
 
   it('課題の対象に特定 I/O を指定 → その doc ノードへ。消失時はタスクへ寄る', () => {

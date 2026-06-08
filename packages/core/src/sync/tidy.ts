@@ -112,7 +112,13 @@ export function tidyFlowView(
     if (n.kind === 'issue') {
       const owner = taskNodeByTask.get(n.taskId);
       if (!owner) continue;
-      const pos = placeClear(owner, obstaclesFor(Object.values(next.nodes).filter((m) => m.id !== n.id)));
+      const pos = placeClear(
+        owner,
+        obstaclesFor(
+          Object.values(next.nodes).filter((m) => m.id !== n.id),
+          Object.values(next.edges),
+        ),
+      );
       n.x = pos.x;
       n.y = pos.y;
     }
