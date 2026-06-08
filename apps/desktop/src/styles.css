@@ -27,11 +27,13 @@
   --accent-strong: #257e55;
   --accent-soft: #def0e4;
 
-  /* 意味色（入=青・出=緑・課題=赤・付箋=黄）。出はアクセント緑と区別して濃い森緑に。 */
+  /* 意味色（入=青・出=橙・課題=赤・付箋=黄）。出力はアクセント緑との被りを避けて橙系に。 */
   --in: #2563eb;
   --in-fill: #dde9fb;
-  --out: #0f7a44;
-  --out-fill: #d8eede;
+  --out: #c2540b;
+  --out-fill: #fbe3ca;
+  /* 成功/保存済みの緑（旧・出力色）。I/O の橙と用途を分離するための別トークン。 */
+  --ok: #0f7a44;
   --red: #d6452f;
   --red-fill: #fbe4de;
   --amber: #b9820a;
@@ -95,8 +97,9 @@
 
   --in: #60a5fa;
   --in-fill: rgba(37, 99, 235, 0.2);
-  --out: #46d98a;
-  --out-fill: rgba(22, 163, 74, 0.22);
+  --out: #f0a15c;
+  --out-fill: rgba(216, 110, 20, 0.22);
+  --ok: #46d98a;
   --red: #f4796a;
   --red-fill: rgba(220, 60, 38, 0.2);
   --amber: #f0c453;
@@ -1388,7 +1391,7 @@ button.danger:hover {
   border-left-color: var(--red);
 }
 .toast-success {
-  border-left-color: var(--out);
+  border-left-color: var(--ok);
 }
 .toast-info {
   border-left-color: var(--accent);
@@ -1661,7 +1664,7 @@ kbd {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--out);
+  background: var(--ok);
 }
 .st-save.is-dirty .st-dot {
   background: var(--amber);
