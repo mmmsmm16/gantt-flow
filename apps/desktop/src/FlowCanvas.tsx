@@ -87,7 +87,7 @@ export function FlowCanvas() {
     if (e.button !== 0) return;
     const el = e.target as HTMLElement;
     if (el.closest('.node, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
-    const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
+    const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller) return;
     setSel(null); // 空白クリックで選択解除
     const startX = e.clientX;
@@ -153,7 +153,7 @@ export function FlowCanvas() {
 
   // 担当ラベルのレール: 横スクロール量だけ右へずらして常に左端へ貼り付ける（縦は内容と一緒に動く）。
   useEffect(() => {
-    const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
+    const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller) return;
     const pin = () => {
       const rail = laneRailRef.current;
@@ -291,7 +291,7 @@ export function FlowCanvas() {
 
   // 全体表示: 全ノードの外接矩形を計算し、画面に収まる倍率と位置へスクロール（拡大は100%まで）。
   const fitView = () => {
-    const scroller = canvasRef.current?.closest('.flow-pane') as HTMLElement | null;
+    const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller || !nodes.length) return;
     let minX = 0;
     let minY = BAND_TOP;

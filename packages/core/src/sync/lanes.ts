@@ -3,7 +3,7 @@
 import type { Swimlane, Id } from '../model/types';
 import { SIZE } from './autoPlace';
 
-export const LANE_DEFAULT_H = 120; // 既定のレーン高さ
+export const LANE_DEFAULT_H = 156; // 既定のレーン高さ（大/中の囲いラベルが工程名と重ならない余白を確保）
 export const LANE_MIN_H = 72; // 手動リサイズの下限
 export const LANE_TOP_Y = 24; // 視覚上のレーン上端（= 画面/SVG の BAND_TOP）
 // 先頭レーンの工程ノード基準 y。工程ノードが帯の「中央」に来るように、

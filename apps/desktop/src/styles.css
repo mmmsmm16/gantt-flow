@@ -331,6 +331,18 @@ button.danger:hover {
   margin: 2px 0 12px;
 }
 /* 工程フローのヘッダ: タイトル＋粒度タブ＋スコープ＋課題トグルを横並びに */
+/* フロー: ヘッダ(粒度タブ)・パレットは固定、横スクロールは .flow-canvas だけに閉じ込める。
+   さらに左右パディングをやめてキャンバスを端まで広げ、担当ラベルのレールが左端で隙間なく貼り付くようにする。 */
+.flow-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 14px 0;
+}
+.flow-pane > .flow-head {
+  flex: none;
+  padding: 0 16px;
+}
 .flow-head {
   display: flex;
   align-items: center;
@@ -666,7 +678,10 @@ button.danger:hover {
 /* ---- Flow canvas ---- */
 .flow-canvas {
   position: relative;
+  flex: 1;
+  min-height: 0;
   min-width: 100%;
+  overflow: auto; /* 横スクロールはここだけ。ヘッダ/パレットは固定。 */
   background: var(--canvas-bg);
   cursor: grab;
 }
@@ -1080,15 +1095,16 @@ button.danger:hover {
 .flow-wrap {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 .flow-palette {
-  position: sticky;
-  top: 0;
+  flex: none;
   z-index: 6;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 2px 10px;
+  padding: 4px 16px 10px;
   background: var(--panel);
   font-size: 12px;
   color: var(--muted);
