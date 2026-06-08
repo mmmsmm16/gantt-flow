@@ -81,23 +81,8 @@ export function reconcileFlow(
     .filter((t) => t.level === view.level && (allScope || sameScope(t.parentId, view.scopeParentId)))
     .sort((a, b) => parentOrder(a) - parentOrder(b) || a.order - b.order || a.id.localeCompare(b.id));
   const targetIds = new Set(targets.map((t) => t.id));
-
-  // 新規ノードの横位置。親(大)が変わるところで 1 列空けて、大グループ同士を離す
-  // （全体スコープ用。単一スコープでは親が変わらないので従来どおり連番）。
-  const initialX = new Map<Id, number>();
-  {
-    let col = 0;
-    let prevParent: Id | undefined;
-    let first = true;
-    for (const t of targets) {
-      const pp = t.parentId ?? undefined;
-      if (!first && pp !== prevParent) col += 1; // 大グループ境界で 1 列空ける
-      initialX.set(t.id, MARGIN_X + col * COL_W);
-      col += 1;
-      prevParent = pp;
-      first = false;
-    }
-  }
+  // 横位置は targets の並び順（親=大ごとに固めた連番）で詰めて配置する。
+  // グループごとに固まるので大の囲いは重ならない（間隔は空けない）。
 
   // 2. レーン: 参照される担当ごとに 1 本（既存は再利用、無ければ作成）
   const laneByAssignee = new Map<Id, Id>();
@@ -156,7 +141,7 @@ export function reconcileFlow(
       id,
       kind: 'task',
       taskId: t.id,
-      x: initialX.get(t.id) ?? MARGIN_X + i * COL_W,
+      x: MARGIN_X + i * COL_W,
       y: laneTaskBaseY(next.lanes, laneOrderOf(t.assigneeId)),
       laneId,
     };
