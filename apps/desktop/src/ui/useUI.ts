@@ -86,6 +86,10 @@ interface UIState {
   tableWide: boolean;
   toggleTableWide: () => void;
 
+  /** 工程表の表示モード: アウトライン（階層＋インスペクタ） / 全項目フル表（全列1グリッド）。 */
+  tableMode: 'outline' | 'full';
+  setTableMode: (mode: 'outline' | 'full') => void;
+
   /** 工程表の任意列（前工程 / 工数 / I/O・課題）の表示トグル。localStorage 永続。 */
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
@@ -125,6 +129,9 @@ export const useUI = create<UIState>((set, get) => ({
 
   tableWide: false,
   toggleTableWide: () => set({ tableWide: !get().tableWide }),
+
+  tableMode: 'outline',
+  setTableMode: (mode) => set({ tableMode: mode }),
 
   overlay: null,
   setOverlay: (overlay) => set({ overlay }),

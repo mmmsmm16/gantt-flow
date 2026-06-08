@@ -2007,3 +2007,235 @@ kbd {
 .grid tr.is-parent.selected > td {
   background: var(--accent-soft);
 }
+
+/* =========================================================================
+   工程表: 表示モード切替（アウトライン / 全項目表）＋ 全項目フル表
+   ========================================================================= */
+.table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 10px;
+}
+.table-head h2 {
+  margin: 0;
+}
+.table-mode-seg button {
+  font-size: 12px;
+}
+
+.ft-wrap {
+  width: 100%;
+}
+.ft-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ft-hint {
+  color: var(--faint);
+  font-size: 12px;
+  margin-left: 4px;
+}
+.ft-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--muted);
+  padding: 12px 4px;
+}
+
+.ft {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: max-content; /* 列幅の合計まで広がる＝潰さずに横スクロール */
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ft th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--hdr);
+  text-align: left;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line-faint);
+  white-space: nowrap;
+}
+.ft td {
+  padding: 0;
+  border-bottom: 1px solid var(--line-faint);
+  border-right: 1px solid var(--line-faint);
+  vertical-align: top;
+  background: var(--panel);
+}
+.ft tbody tr:hover td {
+  background: var(--row-hover);
+}
+.ft tbody tr.sel td {
+  background: var(--accent-soft);
+}
+.ft tbody tr.parent td {
+  background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+  font-weight: 600;
+}
+.ft tbody tr.parent:hover td {
+  background: var(--row-hover);
+}
+
+/* 先頭列固定（No. と 作業名）＋ヘッダ固定の交差はさらに前面に */
+.ft .ft-sticky {
+  position: sticky;
+  z-index: 1;
+}
+.ft .ft-st-no { left: 0; }
+.ft .ft-st-l0 { left: 48px; }
+.ft .ft-st-l1 { left: 152px; }
+.ft .ft-st-l2 { left: 256px; }
+.ft .ft-st-l3 {
+  left: 360px;
+  box-shadow: 1px 0 0 var(--line-strong);
+}
+.ft td.ft-sticky {
+  background: var(--panel);
+}
+.ft tbody tr.parent td.ft-sticky {
+  background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft tbody tr:hover td.ft-sticky {
+  background: var(--row-hover);
+}
+.ft tbody tr.sel td.ft-sticky {
+  background: var(--accent-soft);
+}
+.ft thead th.ft-sticky {
+  z-index: 3;
+}
+/* 上位粒度の列に表示する親の工程名（読み取り） */
+.ft-anc {
+  display: block;
+  padding: 6px 7px;
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 列幅 */
+.ft-c-no { width: 48px; }
+.ft-c-level { width: 104px; }
+.ft-c-assignee { width: 108px; }
+.ft-c-prev { width: 150px; }
+.ft-c-effort { width: 62px; }
+.ft-c-text { width: 180px; }
+.ft-c-io { width: 168px; }
+.ft-c-issue { width: 190px; }
+.ft-c-sm { width: 130px; }
+.ft-c-auto { width: 104px; }
+.ft-c-diff { width: 58px; }
+.ft-c-act { width: 36px; }
+.ft td.ft-c-no { text-align: left; color: var(--muted); font-family: var(--font-mono); padding: 7px 6px; white-space: nowrap; }
+
+/* セル内の入力 */
+.ft-in {
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 6px 7px;
+  background: transparent;
+  color: var(--ink);
+}
+.ft-in:hover {
+  border-color: var(--line);
+  background: var(--input-bg);
+}
+.ft-in:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-bg);
+  box-shadow: var(--ring);
+}
+.ft-name { font-weight: 600; }
+.ft-num { text-align: right; }
+.ft-roll { display: block; padding: 6px 7px; text-align: right; color: var(--muted); }
+
+/* 前工程セル */
+.ft-prev { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; align-items: center; }
+.ft-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 4px 1px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.ft-add-sel { font-size: 11px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); padding: 2px 4px; }
+
+/* I/O セル */
+.ft-io { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; }
+.ft-iochip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border-radius: 6px;
+  padding: 1px 2px 1px 4px;
+  font-size: 11px;
+  border: 1px solid var(--in);
+  background: var(--in-fill);
+  max-width: 100%;
+}
+.ft-iochip.info { border-color: var(--out); background: var(--out-fill); }
+.ft-io-name { font: inherit; font-size: 11px; width: 64px; border: none; background: transparent; color: var(--ink); padding: 2px; }
+.ft-io-name:focus { outline: none; }
+.ft-io-kind { font-size: 10px; border: none; background: transparent; color: var(--muted); }
+
+/* 課題 / 方策セル（独立列。行ごとに 1 課題・1 方策が並ぶ） */
+.ft-issues { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
+.ft-issue-row { display: flex; align-items: center; gap: 2px; min-height: 28px; }
+.ft-issue-row .ft-in { flex: 1; }
+
+/* 追加/削除ボタン */
+.ft-add {
+  font-size: 11px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 2px 6px;
+  align-self: flex-start;
+}
+.ft-x {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.ft-x:hover { color: var(--red); background: transparent; }
+.ft-del {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  padding: 6px;
+  width: 100%;
+}
+.ft-del:hover { color: var(--red); background: var(--red-fill); }
+.ft .lvl { width: 100%; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 6px 2px; font-size: 12px; }
+.ft .lvl:hover { border-color: var(--line); }

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { findView, useApp } from './store';
 import { type ProcessLevel } from '@gantt-flow/core';
 import { TableView } from './TableView';
+import { FullTable } from './FullTable';
 import { FlowCanvas } from './FlowCanvas';
 import { Inspector } from './Inspector';
 import {
@@ -55,6 +56,9 @@ export function App() {
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
   const tableWide = useUI((s) => s.tableWide);
+  const tableMode = useUI((s) => s.tableMode);
+  const setTableMode = useUI((s) => s.setTableMode);
+  const fullMode = tableMode === 'full';
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
@@ -311,13 +315,25 @@ export function App() {
         <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} />
       ) : (
         <div
-          className={`panes${selectedTaskId ? ' with-inspector' : ''}${tableWide ? ' table-wide' : ''}`}
+          className={`panes${!fullMode && selectedTaskId ? ' with-inspector' : ''}${
+            tableWide || fullMode ? ' table-wide' : ''
+          }`}
         >
           <section className="pane table-pane" id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
-            <h2>工程表（手順一覧表）</h2>
-            <TableView />
+            <div className="table-head">
+              <h2>工程表（手順一覧表）</h2>
+              <span className="seg table-mode-seg" role="group" aria-label="表示モード">
+                <button className={!fullMode ? 'on' : ''} onClick={() => setTableMode('outline')}>
+                  アウトライン
+                </button>
+                <button className={fullMode ? 'on' : ''} onClick={() => setTableMode('full')}>
+                  全項目表
+                </button>
+              </span>
+            </div>
+            {fullMode ? <FullTable /> : <TableView />}
           </section>
-          {!tableWide && (
+          {!tableWide && !fullMode && (
             <section className="pane flow-pane" aria-label="工程フロー図">
               <div className="flow-head">
                 <h2>工程フロー</h2>
@@ -361,7 +377,7 @@ export function App() {
               <FlowCanvas />
             </section>
           )}
-          {selectedTaskId && (
+          {!fullMode && selectedTaskId && (
             <section className="pane inspector-pane">
               <Inspector />
             </section>
