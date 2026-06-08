@@ -2380,3 +2380,39 @@ kbd {
   color: var(--accent);
   font-weight: 700;
 }
+
+/* 全項目表: 今いるセル/行を分かりやすく（フォーカス中の強調） */
+/* 入力単体のリングは抑え、セル枠で「アクティブセル」を示す（Excel 風） */
+.ft .ft-in:focus,
+.ft .ft-area:focus {
+  outline: none;
+  box-shadow: none;
+  border-color: transparent;
+  background: var(--input-bg);
+}
+/* アクティブ行（フォーカスのある行）＝ クリック選択行 を同じ強調に */
+.ft tbody tr:focus-within > td,
+.ft tbody tr.sel > td {
+  background: var(--accent-soft);
+}
+.ft tbody tr:focus-within > td.ft-sticky,
+.ft tbody tr:focus-within > td.ft-sticky-r,
+.ft tbody tr.sel > td.ft-sticky,
+.ft tbody tr.sel > td.ft-sticky-r {
+  background: var(--accent-soft);
+}
+.ft tbody tr:focus-within > td.ft-c-no,
+.ft tbody tr.sel > td.ft-c-no {
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+/* アクティブセル（フォーカスのあるセル）を太枠で明示 */
+.ft td:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.ft td.ft-sticky:focus-within,
+.ft td.ft-sticky-r:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 2;
+}

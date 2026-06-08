@@ -38,6 +38,16 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: '全項目表（フル表）',
+    items: [
+      { keys: ['Enter'], label: '作業名で次の行を追加 / セルで下へ移動' },
+      { keys: [MOD, 'Enter'], label: '現在の行の次に工程を追加' },
+      { keys: [MOD, 'Delete'], label: '現在の行（工程）を削除' },
+      { keys: ['ヘッダをドラッグ'], label: '列幅を調整' },
+      { keys: ['ヘッダをクリック'], label: '並べ替え（工数・担当ほか）' },
+    ],
+  },
+  {
     title: '工程フロー',
     items: [
       { keys: ['ダブルクリック'], label: '工程を作成' },

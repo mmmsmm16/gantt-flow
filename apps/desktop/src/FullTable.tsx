@@ -187,9 +187,41 @@ export function FullTable() {
     window.addEventListener('pointerup', onUp);
   };
 
-  // Enter で同じ列の次の行へ（単一行の入力のみ。textarea は改行優先）。
+  const taskOfEvent = (e: React.KeyboardEvent): Id | null =>
+    (e.target as HTMLElement).closest('tr')?.getAttribute('data-taskid') ?? null;
+
+  // キーボード操作:
+  //  Ctrl/⌘+Enter … 現在行の次に行を追加（連続入力）
+  //  Ctrl/⌘+Delete … 現在行を削除（確認あり）
+  //  Enter（単一行の入力）… 同じ列の下のセルへ移動（textarea は改行優先）
   const onGridKeyDown = (e: React.KeyboardEvent) => {
     const el = e.target as HTMLElement;
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      const id = taskOfEvent(e);
+      if (id) {
+        const nid = addSiblingOf(id);
+        if (nid) setFocusTask(nid);
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') {
+      e.preventDefault();
+      const id = taskOfEvent(e);
+      const t = id ? byId[id] : undefined;
+      if (t) {
+        void useUI
+          .getState()
+          .confirm({
+            title: '工程を削除',
+            message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
+            confirmLabel: '削除',
+            danger: true,
+          })
+          .then((ok) => ok && removeTask(t.id));
+      }
+      return;
+    }
     if (e.key !== 'Enter' || el.tagName !== 'INPUT') return;
     const r = el.dataset.r;
     const c = el.dataset.c;
@@ -253,7 +285,9 @@ export function FullTable() {
             並べ替え解除
           </button>
         )}
-        <span className="ft-hint">行クリックで選択・末尾の＋で次の行・Enterで下のセルへ。列はドラッグで幅調整。</span>
+        <span className="ft-hint">
+          行クリックで選択 / Ctrl+Enter＝行追加・Ctrl+Delete＝削除 / Enter＝下のセルへ / 列はドラッグで幅調整。
+        </span>
       </div>
       <datalist id="ft-assignees">
         {assigneeNames.map((n) => (
@@ -321,6 +355,7 @@ export function FullTable() {
             return (
               <tr
                 key={t.id}
+                data-taskid={t.id}
                 className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}`}
                 onClick={() => select(t.id)}
               >

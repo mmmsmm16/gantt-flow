@@ -54,6 +54,7 @@ export function CommandPalette(handlers: FileHandlers) {
   const project = useApp((s) => s.project);
   const canUndo = useApp((s) => s.canUndo);
   const canRedo = useApp((s) => s.canRedo);
+  const selectedTaskId = useApp((s) => s.selectedTaskId);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,6 +82,42 @@ export function CommandPalette(handlers: FileHandlers) {
     const ui = useUI.getState();
     const app = useApp.getState();
     return [
+      {
+        id: 'add-task',
+        label: selectedTaskId ? '工程を追加（選択の次に）' : '工程を追加',
+        keywords: 'add task koutei tsuika 追加 行 ぎょう',
+        run: () => {
+          const a = useApp.getState();
+          const sel = a.selectedTaskId;
+          if (sel) {
+            const nid = a.addSiblingOf(sel);
+            if (nid) a.select(nid);
+          } else {
+            a.addRootTask('medium');
+          }
+        },
+      },
+      {
+        id: 'delete-task',
+        label: '選択中の工程を削除',
+        keywords: 'delete remove sakujo 削除 行 ぎょう',
+        available: !!selectedTaskId,
+        run: () => {
+          const a = useApp.getState();
+          const id = a.selectedTaskId;
+          const t = id ? a.project.core.tasks[id] : undefined;
+          if (!t) return;
+          void useUI
+            .getState()
+            .confirm({
+              title: '工程を削除',
+              message: `「${t.name}」を削除します（配下の工程も削除されます）。`,
+              confirmLabel: '削除',
+              danger: true,
+            })
+            .then((ok) => ok && a.removeTask(t.id));
+        },
+      },
       { id: 'save', label: '保存', keywords: 'save hozon ほぞん', hint: '⌘S', run: handlers.onSave },
       { id: 'sample', label: 'サンプルを開く', keywords: 'sample デモ demo れい', run: handlers.onSample },
       { id: 'new', label: '新規プロジェクト', keywords: 'new shinki あたらしい', run: handlers.onNew },
@@ -97,7 +134,7 @@ export function CommandPalette(handlers: FileHandlers) {
       { id: 'wide', label: '表を広く / 分割に戻す', keywords: 'wide hyou table 表', run: ui.toggleTableWide },
       { id: 'help', label: 'ショートカット一覧', keywords: 'help shortcut ヘルプ', hint: '?', run: () => ui.setOverlay('help') },
     ];
-  }, [handlers, canUndo, canRedo]);
+  }, [handlers, canUndo, canRedo, selectedTaskId]);
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 
