@@ -2,7 +2,7 @@
 // ユーザーが「整列」を押したときだけ呼ぶ純粋関数。依存の前後関係で左→右に段（layer）を作り、
 // 担当レーンで縦位置を決める。付随オブジェクト（帳票/情報/課題）は工程ノードへ再吸着する。
 import type { Core, TaskDetail, FlowLevelView, FlowTaskNode, Id } from '../model/types';
-import { SIZE, placeInputDoc, placeOutputDoc, placeClear } from './autoPlace';
+import { SIZE, placeInputDoc, placeOutputDoc, placeClear, obstaclesFor } from './autoPlace';
 import { laneTaskBaseY, LANE_DEFAULT_H } from './lanes';
 
 const MARGIN_X = 120;
@@ -112,7 +112,7 @@ export function tidyFlowView(
     if (n.kind === 'issue') {
       const owner = taskNodeByTask.get(n.taskId);
       if (!owner) continue;
-      const pos = placeClear(owner, Object.values(next.nodes).filter((m) => m.id !== n.id));
+      const pos = placeClear(owner, obstaclesFor(Object.values(next.nodes).filter((m) => m.id !== n.id)));
       n.x = pos.x;
       n.y = pos.y;
     }

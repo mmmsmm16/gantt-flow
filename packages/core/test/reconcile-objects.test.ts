@@ -7,7 +7,7 @@ import {
   removeIssueItem,
 } from '../src/commands';
 import { reconcileFlow } from '../src/sync/reconcileFlow';
-import { nodeRect } from '../src/sync/autoPlace';
+import { nodeRect, ioIconRect, SIZE } from '../src/sync/autoPlace';
 import type {
   FlowDocNode,
   FlowIssueNote,
@@ -119,6 +119,56 @@ describe('reconcileFlow: I/O・課題オブジェクト', () => {
     // 出力帳票とも重ならない
     const out = docs(r.view)[0]!;
     expect(overlaps(nodeRect(note), nodeRect(out))).toBe(false);
+  });
+
+  it('課題は I/O 集約アイコン（画面の実寸）とも重ならない', () => {
+    const n = counter('n');
+    let { p, g, id } = withTask();
+    // 入力・出力を複数 → 集約アイコンが縦に伸び、個別 doc 矩形より大きくなる。
+    p = addIoItem(p, id, 'inputs', { name: '注文書', kind: 'doc' }, g);
+    p = addIoItem(p, id, 'inputs', { name: '与信票', kind: 'doc' }, g);
+    p = addIoItem(p, id, 'outputs', { name: '受付票', kind: 'doc' }, g);
+    p = addIoItem(p, id, 'outputs', { name: '完了通知', kind: 'doc' }, g);
+    p = addIssueItem(p, id, { issue: '確認漏れ' }, g);
+    const r = reconcileFlow(p.core, p.details, emptyView(), n);
+    const note = notes(r.view)[0]!;
+    const t = taskNode(r.view);
+    // 個別 doc ではなく、集約アイコンの実寸（入力=2件分 / 出力=2件分）と重ならないこと。
+    expect(overlaps(nodeRect(note), ioIconRect({ x: t.x, y: t.y }, 'input', 2))).toBe(false);
+    expect(overlaps(nodeRect(note), ioIconRect({ x: t.x, y: t.y }, 'output', 2))).toBe(false);
+    expect(overlaps(nodeRect(note), nodeRect(t))).toBe(false);
+  });
+
+  it('同じ工程の複数課題どうしは重ならない', () => {
+    const n = counter('n');
+    let { p, g, id } = withTask();
+    p = addIssueItem(p, id, { issue: 'A' }, g);
+    p = addIssueItem(p, id, { issue: 'B' }, g);
+    p = addIssueItem(p, id, { issue: 'C' }, g);
+    const r = reconcileFlow(p.core, p.details, emptyView(), n);
+    const ns = notes(r.view);
+    expect(ns).toHaveLength(3);
+    for (let i = 0; i < ns.length; i++) {
+      for (let j = i + 1; j < ns.length; j++) {
+        expect(overlaps(nodeRect(ns[i]!), nodeRect(ns[j]!))).toBe(false);
+      }
+    }
+  });
+
+  it('課題は工程の近傍（バウンディングボックス周辺）に置かれる', () => {
+    const n = counter('n');
+    let { p, g, id } = withTask();
+    p = addIoItem(p, id, 'outputs', { name: '受付票', kind: 'doc' }, g);
+    p = addIssueItem(p, id, { issue: '確認漏れ' }, g);
+    const r = reconcileFlow(p.core, p.details, emptyView(), n);
+    const note = notes(r.view)[0]!;
+    const t = taskNode(r.view);
+    // 工程幅ぶんの余白内＝隣接の空きに収まる（右方向へ遠く流れない）。
+    const pad = SIZE.task.w;
+    expect(note.x).toBeGreaterThanOrEqual(t.x - SIZE.issue.w - pad);
+    expect(note.x).toBeLessThanOrEqual(t.x + SIZE.task.w + pad);
+    expect(note.y).toBeGreaterThanOrEqual(t.y - SIZE.issue.h - pad);
+    expect(note.y).toBeLessThanOrEqual(t.y + SIZE.task.h + pad);
   });
 
   it('課題の対象に特定 I/O を指定 → その doc ノードへ。消失時はタスクへ寄る', () => {

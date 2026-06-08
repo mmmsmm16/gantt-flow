@@ -14,7 +14,7 @@ import type {
   FlowNodeId,
 } from '../model/types';
 import type { IdGen } from '../ids';
-import { placeInputDoc, placeOutputDoc, placeClear } from './autoPlace';
+import { placeInputDoc, placeOutputDoc, placeClear, obstaclesFor } from './autoPlace';
 import { laneTaskBaseY } from './lanes';
 
 export interface SyncReport {
@@ -248,7 +248,7 @@ export function reconcileFlow(
         continue;
       }
       const id = idGen();
-      const pos = placeClear(taskNode, Object.values(next.nodes));
+      const pos = placeClear(taskNode, obstaclesFor(Object.values(next.nodes)));
       const node: FlowIssueNote = {
         id,
         kind: 'issue',
