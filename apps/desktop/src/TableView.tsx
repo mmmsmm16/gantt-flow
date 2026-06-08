@@ -16,6 +16,9 @@ const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
 interface Row {
   task: ProcessTask;
   depth: number;
+  // 各祖先（深さ 0..depth-1）が「下に兄弟を持つか」。ツリーガイド線の有無に使う。
+  ancestorLines: boolean[];
+  isLast: boolean; // 同じ親グループ内で最後の子か（エルボー └ / ├ の出し分け）
 }
 
 function buildOutline(tasks: ProcessTask[], collapsed: Set<Id>): Row[] {
@@ -28,14 +31,36 @@ function buildOutline(tasks: ProcessTask[], collapsed: Set<Id>): Row[] {
   }
   for (const arr of byParent.values()) arr.sort((a, b) => a.order - b.order);
   const rows: Row[] = [];
-  const walk = (parentId: Id | undefined, depth: number) => {
-    for (const t of byParent.get(parentId) ?? []) {
-      rows.push({ task: t, depth });
-      if (!collapsed.has(t.id)) walk(t.id, depth + 1); // 折りたたみ配下はスキップ
-    }
+  const walk = (parentId: Id | undefined, depth: number, ancestorLines: boolean[]) => {
+    const arr = byParent.get(parentId) ?? [];
+    arr.forEach((t, i) => {
+      const isLast = i === arr.length - 1;
+      rows.push({ task: t, depth, ancestorLines, isLast });
+      // 折りたたみ配下はスキップ。子には「自分が末子でない＝下に線を続ける」を渡す。
+      if (!collapsed.has(t.id)) walk(t.id, depth + 1, [...ancestorLines, !isLast]);
+    });
   };
-  walk(undefined, 0);
+  walk(undefined, 0, []);
   return rows;
+}
+
+// ツリーガイド（VS Code 風）の縦線・エルボーを名前セルに重ねる。
+const INDENT = 22;
+const GUTTER = 10; // 列の中心 x
+function TreeGuides({ depth, ancestorLines, isLast }: Omit<Row, 'task'>) {
+  if (depth === 0) return null;
+  const segs: JSX.Element[] = [];
+  for (let j = 0; j < depth; j++) {
+    const x = j * INDENT + GUTTER;
+    if (j < depth - 1) {
+      if (ancestorLines[j]) segs.push(<span key={`v${j}`} className="tg-v" style={{ left: x }} />);
+    } else {
+      segs.push(<span key="eu" className="tg-seg tg-eu" style={{ left: x }} />);
+      if (!isLast) segs.push(<span key="ed" className="tg-seg tg-ed" style={{ left: x }} />);
+      segs.push(<span key="eh" className="tg-seg tg-eh" style={{ left: x, width: INDENT - GUTTER }} />);
+    }
+  }
+  return <span className="tree-guides" aria-hidden="true">{segs}</span>;
 }
 
 export function TableView() {
@@ -187,7 +212,7 @@ export function TableView() {
                 <th className="c-grip" aria-hidden="true"></th>
                 <th className="c-code">No.</th>
                 <th className="c-level">粒度</th>
-                <th>作業名</th>
+                <th className="c-name">作業名</th>
                 <th className="c-assignee">担当</th>
                 {columnVisibility.prev && <th className="c-prev">前工程</th>}
                 {columnVisibility.effort && <th className="c-effort">工数</th>}
@@ -196,7 +221,7 @@ export function TableView() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ task: t, depth }) => {
+              {rows.map(({ task: t, depth, ancestorLines, isLast }) => {
                 const detail = project.details[t.id];
                 const assigneeName = t.assigneeId
                   ? project.core.assignees[t.assigneeId]?.name ?? ''
@@ -225,6 +250,8 @@ export function TableView() {
                       t.id === selectedTaskId ? 'selected' : '',
                       dragId === t.id ? 'dragging' : '',
                       dropInfo?.id === t.id ? `drop-${dropInfo.mode}` : '',
+                      hasChildren ? 'is-parent' : '',
+                      depth > 0 ? 'is-child' : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
@@ -288,9 +315,10 @@ export function TableView() {
                         ))}
                       </select>
                     </td>
-                    <td>
-                      <div className="name-cell" style={{ paddingLeft: depth * 18 }}>
-                        {hasChildren ? (
+                    <td className="c-name">
+                      <TreeGuides depth={depth} ancestorLines={ancestorLines} isLast={isLast} />
+                      <div className="name-cell" style={{ paddingLeft: depth * INDENT }}>
+                        {hasChildren && (
                           <button
                             className="caret"
                             aria-label={collapsed.has(t.id) ? '展開' : '折りたたみ'}
@@ -302,8 +330,6 @@ export function TableView() {
                           >
                             {collapsed.has(t.id) ? '▶' : '▼'}
                           </button>
-                        ) : (
-                          depth > 0 && <span className="tree-twig">└</span>
                         )}
                         <input
                           className="name-input"

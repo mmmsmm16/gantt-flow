@@ -1959,3 +1959,51 @@ kbd {
   width: 40px;
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
+/* ---- 工程表: 親子のツリーガイド（VS Code 風の縦線＋エルボー） ---- */
+.grid td.c-name {
+  position: relative;
+}
+.tg-v,
+.tg-seg {
+  position: absolute;
+  background: var(--line-strong);
+  pointer-events: none;
+}
+.tg-v {
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+}
+.tg-eu {
+  top: 0;
+  height: 50%;
+  width: 1.5px;
+}
+.tg-ed {
+  top: 50%;
+  bottom: 0;
+  width: 1.5px;
+}
+.tg-eh {
+  top: 50%;
+  height: 1.5px;
+}
+/* 選択行ではガイドをアクセント色で強調（親子の流れを追いやすく） */
+.grid tr.selected .tg-v,
+.grid tr.selected .tg-seg {
+  background: var(--accent);
+}
+/* 親行は太字＋わずかな地色で「まとまりの先頭」を示す */
+.grid tr.is-parent .name-input {
+  font-weight: 700;
+}
+.grid tr.is-parent > td {
+  background: color-mix(in srgb, var(--accent-soft) 35%, transparent);
+}
+.grid tr.is-parent:hover > td {
+  background: var(--row-hover);
+}
+.grid tr.is-parent.selected > td {
+  background: var(--accent-soft);
+}
