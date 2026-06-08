@@ -110,6 +110,10 @@ interface UIState {
   tableWide: boolean;
   toggleTableWide: () => void;
 
+  /** フローに集中するため、表を畳んでフローを全幅にする（tableWide と排他）。 */
+  flowWide: boolean;
+  toggleFlowWide: () => void;
+
   /** 工程表の表示モード: アウトライン（階層＋インスペクタ） / 全項目フル表（全列1グリッド）。 */
   tableMode: 'outline' | 'full';
   setTableMode: (mode: 'outline' | 'full') => void;
@@ -160,7 +164,10 @@ export const useUI = create<UIState>((set, get) => ({
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
 
   tableWide: false,
-  toggleTableWide: () => set({ tableWide: !get().tableWide }),
+  toggleTableWide: () => set({ tableWide: !get().tableWide, flowWide: false }),
+
+  flowWide: false,
+  toggleFlowWide: () => set({ flowWide: !get().flowWide, tableWide: false }),
 
   tableMode: 'outline',
   setTableMode: (mode) => set({ tableMode: mode }),

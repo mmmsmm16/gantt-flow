@@ -56,6 +56,8 @@ export function App() {
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
   const tableWide = useUI((s) => s.tableWide);
+  const flowWide = useUI((s) => s.flowWide);
+  const toggleFlowWide = useUI((s) => s.toggleFlowWide);
   const tableMode = useUI((s) => s.tableMode);
   const setTableMode = useUI((s) => s.setTableMode);
   const fullMode = tableMode === 'full';
@@ -317,8 +319,9 @@ export function App() {
         <div
           className={`panes${!fullMode && selectedTaskId ? ' with-inspector' : ''}${
             tableWide || fullMode ? ' table-wide' : ''
-          }`}
+          }${flowWide ? ' flow-wide' : ''}`}
         >
+          {!flowWide && (
           <section className="pane table-pane" id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
             <div className="table-head">
               <h2>工程表（手順一覧表）</h2>
@@ -333,6 +336,7 @@ export function App() {
             </div>
             {fullMode ? <FullTable /> : <TableView />}
           </section>
+          )}
           {!tableWide && !fullMode && (
             <section className="pane flow-pane" aria-label="工程フロー図">
               <div className="flow-head">
@@ -372,6 +376,14 @@ export function App() {
                   title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
                 >
                   {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
+                </button>
+                <button
+                  className="wide-toggle flow-wide-toggle"
+                  onClick={toggleFlowWide}
+                  aria-pressed={flowWide}
+                  title={flowWide ? '表を表示して分割に戻す' : '表を畳んでフローを全幅にする'}
+                >
+                  {flowWide ? '↔ 分割に戻す' : '⤢ フローを広く'}
                 </button>
               </div>
               <FlowCanvas />

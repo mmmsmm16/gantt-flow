@@ -55,6 +55,17 @@ export function FlowCanvas() {
   const deleteFlowNode = useApp((s) => s.deleteFlowNode);
   const tidyFlow = useApp((s) => s.tidyFlow);
   const setLaneHeight = useApp((s) => s.setLaneHeight);
+  const addIo = useApp((s) => s.addIo);
+
+  // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
+  const addIoPrompt = async (taskId: string, io: 'inputs' | 'outputs') => {
+    const name = await useUI.getState().promptText({
+      title: io === 'inputs' ? 'インプットを追加' : 'アウトプットを追加',
+      placeholder: '帳票 / 情報の名称',
+      confirmLabel: '追加',
+    });
+    if (name !== null) addIo(taskId, io, name);
+  };
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
@@ -603,8 +614,40 @@ export function FlowCanvas() {
                 </svg>
               )}
               <span className="node-label">{labelOf(n)}</span>
+              {n.kind === 'task' && (
+                <>
+                  <button
+                    className="io-add io-add-in"
+                    title="インプットを追加（左上）"
+                    aria-label="インプットを追加"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void addIoPrompt(n.taskId, 'inputs');
+                    }}
+                  >
+                    ＋
+                  </button>
+                  <button
+                    className="io-add io-add-out"
+                    title="アウトプットを追加（右下）"
+                    aria-label="アウトプットを追加"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void addIoPrompt(n.taskId, 'outputs');
+                    }}
+                  >
+                    ＋
+                  </button>
+                </>
+              )}
               {connectable && (
-                <span className="handle" title="ドラッグして矢印を引く" onPointerDown={(e) => startConnect(n, e)} />
+                <span
+                  className="handle"
+                  title="ドラッグして他の工程へ矢印を引く（前後関係を登録）"
+                  onPointerDown={(e) => startConnect(n, e)}
+                />
               )}
               {deletable && (
                 <button

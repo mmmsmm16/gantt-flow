@@ -2417,3 +2417,71 @@ kbd {
   box-shadow: inset 0 0 0 2px var(--accent);
   z-index: 2;
 }
+
+/* フローを全幅にする（表を畳む） */
+.panes.flow-wide {
+  grid-template-columns: 1fr;
+}
+.panes.flow-wide.with-inspector {
+  grid-template-columns: 1fr 360px;
+}
+.flow-head .flow-wide-toggle {
+  margin-left: auto;
+}
+
+/* 工程ノード: 角の I/O 追加ボタン（ホバーで表示。左上=入力 / 右下=出力） */
+.io-add {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid;
+  background: var(--panel);
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.08s;
+  z-index: 3;
+  cursor: pointer;
+}
+.node:hover .io-add,
+.io-add:focus-visible {
+  opacity: 1;
+}
+.io-add:hover {
+  transform: scale(1.12);
+}
+.io-add-in {
+  top: -11px;
+  left: -11px;
+  color: var(--in);
+  border-color: var(--in);
+}
+.io-add-in:hover {
+  background: var(--in-fill);
+}
+.io-add-out {
+  bottom: -11px;
+  right: -11px;
+  color: var(--out);
+  border-color: var(--out);
+}
+.io-add-out:hover {
+  background: var(--out-fill);
+}
+/* 接続ハンドルをより分かりやすく（ホバーでアクセント塗り＋拡大） */
+.handle {
+  width: 14px;
+  height: 14px;
+}
+.node:hover .handle {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.handle:hover {
+  transform: translateY(-50%) scale(1.18);
+}
