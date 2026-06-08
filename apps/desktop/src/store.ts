@@ -28,6 +28,7 @@ import {
   laneTaskBaseY,
   laneHeight,
   LANE_MIN_H,
+  LANE_TOP_Y,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
@@ -116,6 +117,8 @@ export interface AppState {
   tidyFlow: () => void;
   /** レーンの高さを変更（手動リサイズ）。下のレーンのノードを連動シフトして整合を保つ。 */
   setLaneHeight: (laneId: Id, height: number) => void;
+  /** スイムレーンを 1 つ上(-1)/下(+1)へ入れ替える。中のノードも連動して移動。 */
+  moveLane: (laneId: Id, dir: -1 | 1) => void;
   connect: (source: FlowNodeId, target: FlowNodeId) => void;
   setEdgeLabel: (edgeId: Id, label: string) => void;
   deleteFlowNode: (nodeId: FlowNodeId) => void;
@@ -461,6 +464,45 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       for (const n of Object.values(view.nodes)) {
         if (n.y >= threshold) n.y += delta;
       }
+      history.push(p);
+      sync();
+    },
+    moveLane: (laneId, dir) => {
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const view = p.flow.byLevel.find(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      const lane = view?.lanes[laneId];
+      if (!view || !lane) return;
+      const lanes = Object.values(view.lanes).sort(
+        (a, b) => a.order - b.order || a.id.localeCompare(b.id),
+      );
+      const idx = lanes.findIndex((l) => l.id === laneId);
+      const j = idx + dir;
+      if (j < 0 || j >= lanes.length) return;
+      // 入れ替える 2 レーンの上(U)/下(D)を特定
+      const U = dir === 1 ? lane : lanes[j]!;
+      const D = dir === 1 ? lanes[j]! : lane;
+      // 各レーンの上端 y（order 昇順の累積）
+      const tops = new Map<string, number>();
+      let acc = LANE_TOP_Y;
+      for (const l of lanes) {
+        tops.set(l.id, acc);
+        acc += laneHeight(l);
+      }
+      const yU = tops.get(U.id)!;
+      const hU = laneHeight(U);
+      const yD = tops.get(D.id)!;
+      const hD = laneHeight(D);
+      // U の帯のノードは下へ(+hD)、D の帯のノードは上へ(-hU)。帯外は不変。
+      for (const n of Object.values(view.nodes)) {
+        if (n.y >= yU && n.y < yU + hU) n.y += hD;
+        else if (n.y >= yD && n.y < yD + hD) n.y -= hU;
+      }
+      const tmp = U.order;
+      U.order = D.order;
+      D.order = tmp;
       history.push(p);
       sync();
     },

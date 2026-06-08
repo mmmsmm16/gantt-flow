@@ -55,6 +55,7 @@ export function FlowCanvas() {
   const deleteFlowNode = useApp((s) => s.deleteFlowNode);
   const tidyFlow = useApp((s) => s.tidyFlow);
   const setLaneHeight = useApp((s) => s.setLaneHeight);
+  const moveLane = useApp((s) => s.moveLane);
   const addIo = useApp((s) => s.addIo);
 
   // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
@@ -788,13 +789,37 @@ export function FlowCanvas() {
             ref={laneRailRef}
             style={{ width: LABEL_W * scale, height: lanesBottomY * scale }}
           >
-            {boxes.map((box) => (
+            {boxes.map((box, li) => (
               <div
                 key={`ll-${box.lane.id}`}
                 className="lane-label"
                 style={{ top: box.top * scale, height: box.height * scale }}
               >
                 {box.lane.title}
+                {boxes.length > 1 && (
+                  <span className="lane-reorder">
+                    <button
+                      className="lane-mv"
+                      title="レーンを上へ"
+                      aria-label={`${box.lane.title}レーンを上へ`}
+                      disabled={li === 0}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => moveLane(box.lane.id, -1)}
+                    >
+                      ▲
+                    </button>
+                    <button
+                      className="lane-mv"
+                      title="レーンを下へ"
+                      aria-label={`${box.lane.title}レーンを下へ`}
+                      disabled={li === boxes.length - 1}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => moveLane(box.lane.id, 1)}
+                    >
+                      ▼
+                    </button>
+                  </span>
+                )}
                 {box.lane.id !== '_' && (
                   <span
                     className="lane-resize"

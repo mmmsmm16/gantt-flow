@@ -824,6 +824,31 @@ button.danger:hover {
   padding: 0 6px;
   pointer-events: auto;
 }
+/* レーン並び替え（▲▼）。ホバー時に右上へ薄く表示。 */
+.lane-reorder {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.lane-label:hover .lane-reorder,
+.lane-reorder:focus-within {
+  opacity: 1;
+}
+.lane-mv {
+  font-size: 8px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.lane-mv:disabled {
+  opacity: 0.3;
+}
 
 .node {
   position: absolute;
