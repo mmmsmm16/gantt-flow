@@ -40,9 +40,11 @@ export function deriveBands(core: Core, view: FlowLevelView): Band[] {
     }
   }
 
-  // 入れ子（深いほど外側）に見えるよう、深さに応じて上下左右の余白を広げる。
+  // 入れ子（深いほど外側）に見えるよう、深さに応じて余白を広げる。
+  // ラベルは帯の上端に出るので、上側は広めに取る（大工程の囲い名が見やすいように）。
   const PAD_X = 12;
-  const PAD_Y = 16;
+  const PAD_TOP = 30;
+  const PAD_BOTTOM = 14;
   const STEP = 15; // depth ごとに広げる量（大が中を包む。ラベルが重ならない間隔）
   const bands: Band[] = [];
   for (const [taskId, v] of acc) {
@@ -54,8 +56,8 @@ export function deriveBands(core: Core, view: FlowLevelView): Band[] {
       depth: v.depth,
       x: v.minX - PAD_X - grow,
       width: v.maxX - v.minX + (PAD_X + grow) * 2,
-      top: v.minY - PAD_Y - grow,
-      height: v.maxY - v.minY + (PAD_Y + grow) * 2,
+      top: v.minY - PAD_TOP - grow,
+      height: v.maxY - v.minY + PAD_TOP + PAD_BOTTOM + grow * 2,
       label: a.name,
     });
   }

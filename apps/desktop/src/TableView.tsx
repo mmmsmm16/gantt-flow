@@ -195,6 +195,7 @@ export function TableView() {
               <option key={n} value={n} />
             ))}
           </datalist>
+          <div className="outline-scroll">
           <table
             className="grid"
             style={{
@@ -533,6 +534,7 @@ export function TableView() {
               })}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>

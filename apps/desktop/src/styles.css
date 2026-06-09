@@ -364,11 +364,29 @@ button.danger:hover {
 }
 
 /* ---- Outline table ---- */
+.outline {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .outline-actions {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+}
+.outline-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto; /* 縦・横スクロールはここだけ。操作バー/タブは固定。 */
+}
+.grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
 }
 .outline-collapse {
   display: inline-flex;
@@ -2170,13 +2188,14 @@ kbd {
   font-size: 12px;
 }
 
-/* 全項目表のとき: ヘッダ(タブ)と操作バーは固定、横スクロールは表本体だけに閉じ込める。 */
-.table-pane.full {
+/* 工程表ペイン共通: タブ(ヘッダ)を固定し、スクロールは表本体だけに閉じ込める
+   （アウトライン/全項目表とも。縦・横どちらにスクロールしてもタブは動かない）。 */
+.table-pane {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.table-pane.full > .table-head {
+.table-pane > .table-head {
   flex: none;
 }
 .ft-wrap {
