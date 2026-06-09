@@ -110,10 +110,15 @@ export function FlowCanvas() {
   };
 
   const relPoint = (e: { clientX: number; clientY: number }) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    return rect
-      ? { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale }
-      : { x: 0, y: 0 };
+    const el = canvasRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const rect = el.getBoundingClientRect();
+    // .flow-canvas 自身が横スクロール容器なので、スクロール量を足してから倍率で割る
+    // （でないとスクロール時に矢印プレビュー/ドラッグ/落下判定がカーソルとずれる）。
+    return {
+      x: (e.clientX - rect.left + el.scrollLeft) / scale,
+      y: (e.clientY - rect.top + el.scrollTop) / scale,
+    };
   };
 
   // Ctrl/⌘ + ホイールでズーム（通常ホイールはスクロールに委ねる）。passive:false で preventDefault。
