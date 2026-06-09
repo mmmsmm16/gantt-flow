@@ -45,8 +45,8 @@ function buildOutline(tasks: ProcessTask[], collapsed: Set<Id>): Row[] {
 }
 
 // ツリーガイド（VS Code 風）の縦線・エルボーを名前セルに重ねる。
-const INDENT = 22;
-const GUTTER = 10; // 列の中心 x
+const INDENT = 26;
+const GUTTER = 11; // 列の中心 x
 function TreeGuides({ depth, ancestorLines, isLast }: Omit<Row, 'task'>) {
   if (depth === 0) return null;
   const segs: JSX.Element[] = [];
@@ -321,7 +321,7 @@ export function TableView() {
                       <div className="name-cell" style={{ paddingLeft: depth * INDENT }}>
                         {hasChildren && (
                           <button
-                            className="caret"
+                            className={`caret lvl-${t.level}`}
                             aria-label={collapsed.has(t.id) ? '展開' : '折りたたみ'}
                             title={collapsed.has(t.id) ? '展開' : '折りたたみ'}
                             onClick={(e) => {

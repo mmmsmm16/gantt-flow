@@ -400,11 +400,24 @@ button.danger:hover {
   border: none;
   background: transparent;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   padding: 2px 4px;
   width: 18px;
   flex: none;
+}
+/* 折り畳みキャレットを粒度色に（親＝グループの先頭であることを一目で） */
+.caret.lvl-large {
+  color: var(--lvl-large);
+}
+.caret.lvl-medium {
+  color: var(--lvl-medium);
+}
+.caret.lvl-small {
+  color: var(--lvl-small);
+}
+.caret.lvl-detail {
+  color: var(--lvl-detail);
 }
 .caret:hover {
   background: transparent;
@@ -2131,39 +2144,48 @@ kbd {
 .tg-v,
 .tg-seg {
   position: absolute;
-  background: var(--line-strong);
+  background: var(--faint);
   pointer-events: none;
 }
 .tg-v {
   top: 0;
   bottom: 0;
-  width: 1.5px;
+  width: 2px;
 }
 .tg-eu {
   top: 0;
   height: 50%;
-  width: 1.5px;
+  width: 2px;
 }
 .tg-ed {
   top: 50%;
   bottom: 0;
-  width: 1.5px;
+  width: 2px;
 }
 .tg-eh {
   top: 50%;
-  height: 1.5px;
+  height: 2px;
+  border-radius: 0 0 0 2px;
 }
 /* 選択行ではガイドをアクセント色で強調（親子の流れを追いやすく） */
 .grid tr.selected .tg-v,
 .grid tr.selected .tg-seg {
   background: var(--accent);
 }
-/* 親行は太字＋わずかな地色で「まとまりの先頭」を示す */
+/* 親行は太字＋地色で「まとまりの先頭」を示す。No. も濃くして階層を読みやすく。 */
 .grid tr.is-parent .name-input {
   font-weight: 700;
 }
+.grid tr.is-parent .c-code {
+  color: var(--ink);
+  font-weight: 600;
+}
 .grid tr.is-parent > td {
-  background: color-mix(in srgb, var(--accent-soft) 35%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
+}
+/* 大工程（最上位の親）の上に区切り線を入れ、グループの始まりを明示する */
+.grid tr.is-parent:not(.is-child):not(:first-child) > td {
+  box-shadow: inset 0 1px 0 var(--line-strong);
 }
 .grid tr.is-parent:hover > td {
   background: var(--row-hover);
