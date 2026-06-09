@@ -50,35 +50,60 @@ describe('tidyFlowView', () => {
     expect(twice.nodes).toEqual(once.nodes);
   });
 
-  it('並行（同レーン・依存なし）の工程はレーンを太くしサブ行に積む / 逐次は太くしない', () => {
+  it('依存で並行する工程（共通の前工程）はレーンを太くしサブ行に積む / 無依存・逐次は太くしない', () => {
     const gen = counter();
-    // 担当 1 名のレーンに、依存のない 2 工程（並行）と、別途その後続（逐次）を置く。
+    // 同じ担当レーンに S→B, S→C（B・C は共通の前工程 S を持つ並行）。
     let p = emptyProject();
     p = addAssignee(p, { name: '担当', kind: 'department' }, gen);
     const who = Object.keys(p.core.assignees)[0]!;
-    p = addTask(p, { name: 'A', level: 'large' }, gen);
+    p = addTask(p, { name: 'S', level: 'large' }, gen);
     p = addTask(p, { name: 'B', level: 'large' }, gen);
-    const a = taskIdByName(p, 'A');
+    p = addTask(p, { name: 'C', level: 'large' }, gen);
+    const s = taskIdByName(p, 'S');
     const b = taskIdByName(p, 'B');
-    p = setAssignee(p, a, who);
-    p = setAssignee(p, b, who);
+    const c = taskIdByName(p, 'C');
+    for (const id of [s, b, c]) p = setAssignee(p, id, who);
+    p = addDependency(p, s, b, gen);
+    p = addDependency(p, s, c, gen);
     p = ensureLevelView(p, 'large');
     p = reconcileProject(p, gen);
     const view = p.flow.byLevel.find((v) => v.level === 'large')!;
 
-    // 並行（A・B に依存なし）→ レーンが太くなり、サブ行で y が異なる
+    // B・C は同レーン同段（並行）→ レーンが太くなり、サブ行で y が異なる
     const parallel = tidyFlowView(p.core, p.details, view);
-    const lane = Object.values(parallel.lanes)[0]!;
-    expect(laneHeight(lane)).toBeGreaterThan(LANE_DEFAULT_H);
-    const ay = (Object.values(parallel.nodes).find((n) => n.kind === 'task' && n.taskId === a) as FlowTaskNode).y;
+    expect(laneHeight(Object.values(parallel.lanes)[0]!)).toBeGreaterThan(LANE_DEFAULT_H);
     const by = (Object.values(parallel.nodes).find((n) => n.kind === 'task' && n.taskId === b) as FlowTaskNode).y;
-    expect(ay).not.toBe(by);
+    const cy = (Object.values(parallel.nodes).find((n) => n.kind === 'task' && n.taskId === c) as FlowTaskNode).y;
+    expect(by).not.toBe(cy);
 
-    // 逐次（A→B 依存）→ 別段になり並行解消 → レーンは既定の高さに戻る
-    const p2 = reconcileProject(addDependency(p, a, b, gen), gen);
-    const view2 = p2.flow.byLevel.find((v) => v.level === 'large')!;
-    const seq = tidyFlowView(p2.core, p2.details, view2);
-    expect(laneHeight(Object.values(seq.lanes)[0]!)).toBe(LANE_DEFAULT_H);
+    // 無依存の工程は整列で積まない（位置を保持・レーンも太くしない）
+    const g2 = counter();
+    let q = emptyProject();
+    q = addAssignee(q, { name: '担当', kind: 'department' }, g2);
+    const who2 = Object.keys(q.core.assignees)[0]!;
+    q = addTask(q, { name: 'X', level: 'large' }, g2);
+    q = addTask(q, { name: 'Y', level: 'large' }, g2);
+    for (const id of [taskIdByName(q, 'X'), taskIdByName(q, 'Y')]) q = setAssignee(q, id, who2);
+    q = ensureLevelView(q, 'large');
+    q = reconcileProject(q, g2);
+    const vq = q.flow.byLevel.find((v) => v.level === 'large')!;
+    const noDep = tidyFlowView(q.core, q.details, vq);
+    expect(laneHeight(Object.values(noDep.lanes)[0]!)).toBe(LANE_DEFAULT_H);
+  });
+
+  it('固定(pinned)した工程は整列で位置を動かさない', () => {
+    const p = createSampleProject(counter());
+    const view = mediumView(p);
+    const node = Object.values(view.nodes).find(
+      (n): n is FlowTaskNode => n.kind === 'task' && p.core.tasks[n.taskId]?.name === '与信確認',
+    )!;
+    node.pinned = true;
+    node.x = 999;
+    node.y = 888;
+    const tidied = tidyFlowView(p.core, p.details, view);
+    const after = tidied.nodes[node.id] as FlowTaskNode;
+    expect(after.x).toBe(999);
+    expect(after.y).toBe(888);
   });
 
   it('帳票/情報ノードは工程ノードに再吸着する（近接）', () => {

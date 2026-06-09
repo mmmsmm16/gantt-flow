@@ -121,6 +121,8 @@ export interface AppState {
   moveLane: (laneId: Id, dir: -1 | 1) => void;
   connect: (source: FlowNodeId, target: FlowNodeId) => void;
   setEdgeLabel: (edgeId: Id, label: string) => void;
+  /** 工程ノードの固定をトグル（固定すると整列で動かない）。 */
+  toggleNodePin: (nodeId: FlowNodeId) => void;
   deleteFlowNode: (nodeId: FlowNodeId) => void;
   deleteEdge: (edgeId: Id) => void;
   select: (taskId?: Id) => void;
@@ -530,6 +532,11 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         v.edges[id] = { id, source, target, pinned: true, role: 'flow' };
       });
     },
+    toggleNodePin: (nodeId) =>
+      editView((view) => {
+        const n = view.nodes[nodeId];
+        if (n && n.kind === 'task') n.pinned = !n.pinned;
+      }),
     setEdgeLabel: (edgeId, label) =>
       editView((view) => {
         const e = view.edges[edgeId];

@@ -56,6 +56,7 @@ export function FlowCanvas() {
   const tidyFlow = useApp((s) => s.tidyFlow);
   const setLaneHeight = useApp((s) => s.setLaneHeight);
   const moveLane = useApp((s) => s.moveLane);
+  const toggleNodePin = useApp((s) => s.toggleNodePin);
   const addIo = useApp((s) => s.addIo);
 
   // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
@@ -624,7 +625,7 @@ export function FlowCanvas() {
           const selCls = isSel ? ' sel' : '';
           const cls =
             n.kind === 'task'
-              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${selCls}`
+              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}`
               : n.kind === 'issue'
                 ? `node issue${selCls}`
                 : n.kind === 'comment'
@@ -742,6 +743,19 @@ export function FlowCanvas() {
                     }}
                   >
                     ＋
+                  </button>
+                  <button
+                    className="pin-btn"
+                    title={n.pinned ? '固定を解除（整列で動くようになる）' : 'この工程を固定（整列で動かさない）'}
+                    aria-label={n.pinned ? '固定を解除' : '工程を固定'}
+                    aria-pressed={!!n.pinned}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleNodePin(n.id);
+                    }}
+                  >
+                    📌
                   </button>
                 </>
               )}

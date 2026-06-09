@@ -88,6 +88,7 @@ export interface FlowTaskNode {
   x: number;
   y: number;
   laneId?: Id;
+  pinned?: boolean; // 固定: 整列(tidy)で位置を動かさない
 }
 
 export type ControlKind = 'start' | 'end' | 'decision' | 'merge';

@@ -73,7 +73,13 @@ const TaskDetail = z.object({
 const xy = { id: z.string(), x: z.number(), y: z.number() };
 
 const FlowNode = z.discriminatedUnion('kind', [
-  z.object({ ...xy, kind: z.literal('task'), taskId: z.string(), laneId: z.string().optional() }),
+  z.object({
+    ...xy,
+    kind: z.literal('task'),
+    taskId: z.string(),
+    laneId: z.string().optional(),
+    pinned: z.boolean().optional(),
+  }),
   z.object({
     ...xy,
     kind: z.literal('control'),

@@ -1282,6 +1282,7 @@ button.danger:hover {
 }
 /* ドラッグ中は他ノードの I/O＋・接続ハンドルを出さない（誤操作と視覚ノイズを防ぐ）。 */
 .flow-canvas.connecting .io-add,
+.flow-canvas.connecting .pin-btn,
 .flow-canvas.connecting .handle {
   opacity: 0 !important;
   pointer-events: none;
@@ -2658,6 +2659,44 @@ kbd {
 }
 .io-add-out:hover {
   background: var(--out-fill);
+}
+/* 工程の固定ボタン（右上角）。ホバー/選択で表示、固定中は常時表示＋強調。 */
+.pin-btn {
+  position: absolute;
+  top: -11px;
+  right: -11px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: 1.5px solid var(--line-strong);
+  opacity: 0;
+  filter: grayscale(1) opacity(0.8);
+  transition: opacity 0.12s, transform 0.08s;
+  z-index: 3;
+  cursor: pointer;
+}
+.node:hover .pin-btn,
+.pin-btn:focus-visible {
+  opacity: 1;
+}
+.pin-btn:hover {
+  transform: scale(1.12);
+}
+.node.task.pinned .pin-btn {
+  opacity: 1;
+  filter: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.node.task.pinned {
+  border-color: var(--accent); /* 固定中は枠を差し色に（選択リングとは別。常時表示の📌で判別） */
 }
 /* 接続ハンドルをより分かりやすく（ホバーでアクセント塗り＋拡大） */
 .handle {

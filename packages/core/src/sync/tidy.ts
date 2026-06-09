@@ -57,11 +57,17 @@ export function tidyFlowView(
     return (ta?.order ?? 0) - (tb?.order ?? 0) || a.taskId.localeCompare(b.taskId);
   });
 
+  // 整列の対象から外すノード:
+  //  ・固定(pinned) … ユーザーが位置を確定したもの（並行配置など）→ 動かさない。
+  //  ・無依存(孤立) … 前後関係が一切無い工程 → 縦に積まずに、置いた位置のまま残す（謎の縦整列を防ぐ）。
+  const hasDep = (taskId: Id): boolean => deps.some((d) => d.from === taskId || d.to === taskId);
+  const layoutNodes = sorted.filter((n) => !n.pinned && hasDep(n.taskId));
+
   // パス1: 各ノードの 段(col)・レーン(order)・サブ行(slot) を決め、レーンごとの最大サブ行数を集計。
   const place = new Map<Id, { col: number; lane: number; slot: number }>();
   const slotCount = new Map<string, number>();
   const laneRows = new Map<number, number>();
-  for (const node of sorted) {
+  for (const node of layoutNodes) {
     const col = layer.get(node.taskId) ?? 0;
     const lane = laneOrderOf(node.taskId);
     const key = `${lane}:${col}`;
@@ -77,8 +83,8 @@ export function tidyFlowView(
     lane.height = Math.max(LANE_DEFAULT_H, LANE_PAD + rows * ROW_SUB);
   }
 
-  // パス2: 確定したレーン高さ（累積）を使ってノード座標を決める。
-  for (const node of sorted) {
+  // パス2: 確定したレーン高さ（累積）を使ってノード座標を決める（固定・孤立は触らない）。
+  for (const node of layoutNodes) {
     const p = place.get(node.id)!;
     node.x = MARGIN_X + p.col * COL_W;
     node.y = laneTaskBaseY(next.lanes, p.lane) + p.slot * ROW_SUB;
