@@ -373,6 +373,7 @@ export function TableView() {
                         className="assignee"
                         list="assignee-names"
                         defaultValue={assigneeName}
+                        key={`asg-${assigneeName}`}
                         placeholder="（未割当）"
                         aria-label="担当"
                         onClick={(e) => e.stopPropagation()}
