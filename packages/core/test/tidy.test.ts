@@ -91,6 +91,40 @@ describe('tidyFlowView', () => {
     expect(laneHeight(Object.values(noDep.lanes)[0]!)).toBe(LANE_DEFAULT_H);
   });
 
+  it('全体スコープ（中/小・親横断）でも依存を認識し、縦に積まず左→右へ段組みする', () => {
+    const gen = counter();
+    // 大 P 配下に中工程 A→B→C を同一レーンで連結。全体（scope 未指定）ビューで整列する。
+    let p = emptyProject();
+    p = addAssignee(p, { name: '担当', kind: 'department' }, gen);
+    const who = Object.keys(p.core.assignees)[0]!;
+    p = addTask(p, { name: 'P', level: 'large' }, gen);
+    const parent = taskIdByName(p, 'P');
+    p = addTask(p, { name: 'A', level: 'medium', parentId: parent }, gen);
+    p = addTask(p, { name: 'B', level: 'medium', parentId: parent }, gen);
+    p = addTask(p, { name: 'C', level: 'medium', parentId: parent }, gen);
+    const a = taskIdByName(p, 'A');
+    const b = taskIdByName(p, 'B');
+    const c = taskIdByName(p, 'C');
+    for (const id of [a, b, c]) p = setAssignee(p, id, who);
+    p = addDependency(p, a, b, gen);
+    p = addDependency(p, b, c, gen);
+    p = ensureLevelView(p, 'medium'); // scope 未指定＝全体（親横断）
+    p = reconcileProject(p, gen);
+    const view = structuredClone(p.flow.byLevel.find((v) => v.level === 'medium' && !v.scopeParentId)!);
+    // 位置を逆順にぐちゃぐちゃに（手で動かした／レーン拡縮で崩れた状態を再現）。
+    for (const n of Object.values(view.nodes)) {
+      if (n.kind === 'task') n.x = 1000 - n.x;
+    }
+
+    const tidied = tidyFlowView(p.core, p.details, view);
+    const x = (taskId: string) =>
+      (Object.values(tidied.nodes).find((n) => n.kind === 'task' && n.taskId === taskId) as FlowTaskNode).x;
+    // 依存が認識されれば整列で A < B < C（横一列の段組み）に戻る。
+    // 認識されないと依存無し扱いで放置され、逆順のまま（または全て col0 で縦積み）になる。
+    expect(x(a)).toBeLessThan(x(b));
+    expect(x(b)).toBeLessThan(x(c));
+  });
+
   it('固定(pinned)した工程は整列で位置を動かさない', () => {
     const p = createSampleProject(counter());
     const view = mediumView(p);

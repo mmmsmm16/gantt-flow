@@ -23,8 +23,15 @@ export function tidyFlowView(
   const idsInView = new Set(taskNodes.map((n) => n.taskId));
 
   // 依存（このスコープ・両端が表示中）で longest-path 段組み。
+  // 全体スコープ（中/小/詳細で scope 未指定＝親横断ビュー）では reconcileFlow と同様、
+  // 親をまたいだ依存もすべて対象にする。これを忘れると依存が認識されず全工程が col0 に
+  // 縦積みされる（＝「依存があるのに縦に整列される」バグ）。
+  const allScope = view.scopeParentId === undefined && view.level !== 'large';
   const deps = Object.values(core.dependencies).filter(
-    (d) => sameScope(d.scopeParentId, view.scopeParentId) && idsInView.has(d.from) && idsInView.has(d.to),
+    (d) =>
+      (allScope || sameScope(d.scopeParentId, view.scopeParentId)) &&
+      idsInView.has(d.from) &&
+      idsInView.has(d.to),
   );
   const layer = new Map<Id, number>();
   for (const n of taskNodes) layer.set(n.taskId, 0);
