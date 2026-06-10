@@ -2607,6 +2607,14 @@ kbd {
   font-weight: 700;
   margin-left: -4px;
 }
+/* 色コマンドの候補に出す色見本 */
+.pi-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+}
 .palette-list {
   max-height: 52vh;
   overflow: auto;

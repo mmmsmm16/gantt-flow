@@ -2,10 +2,11 @@
 // 引数付きコマンド（2 段階方式: コマンド選択 → 入力欄が引数モードに変わり、候補選択 or 自由入力で確定）。
 // アプリ全体の発見性と速度を上げる単一の入口。ファイル系操作は App からハンドラを受け取る。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ProcessLevel, ProcessTask } from '@gantt-flow/core';
+import type { ProcessLevel, ProcessTask, TaskColor, TaskStatus } from '@gantt-flow/core';
 import { computeCodes } from '@gantt-flow/core';
 import { useApp, findView } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
+import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from '../theme';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
 import * as Icons from './icons';
@@ -29,6 +30,8 @@ export interface ArgOption {
   value: string;
   label: string;
   detail?: string;
+  /** 色コマンド用: 候補の左に出す色見本（CSS color 値）。 */
+  swatch?: string;
 }
 
 /** 引数付きコマンドの仕様。候補は実行時に評価（プロジェクトの最新状態を見る）。 */
@@ -165,6 +168,124 @@ export function CommandPalette(handlers: FileHandlers) {
         runWithArg: (v) => {
           const a = useApp.getState();
           if (a.selectedTaskId) a.setTaskLevel(a.selectedTaskId, v as ProcessLevel);
+        },
+      },
+      {
+        id: 'arg-fill-color',
+        label: '塗り色を設定…',
+        keywords: 'color iro 色 塗り fill 赤 青 緑 黄 紫 オレンジ グレー 仮説',
+        available: hasSel,
+        arg: {
+          placeholder: '塗り色を選択（フローのノードと表のドット）',
+          options: () => [
+            ...TASK_COLOR_KEYS.map((c) => ({
+              value: c,
+              label: TASK_COLOR_LABELS[c],
+              swatch: TASK_COLORS[c].fill,
+            })),
+            { value: '', label: '色なし（解除）' },
+          ],
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId)
+            a.updateDetail(a.selectedTaskId, { fillColor: (v || undefined) as TaskColor | undefined });
+        },
+      },
+      {
+        id: 'arg-text-color',
+        label: '文字色を設定…',
+        keywords: 'text color moji 文字色 赤 青 緑 黄 紫 オレンジ グレー',
+        available: hasSel,
+        arg: {
+          placeholder: '文字色を選択（作業名）',
+          options: () => [
+            ...TASK_COLOR_KEYS.map((c) => ({
+              value: c,
+              label: TASK_COLOR_LABELS[c],
+              swatch: TASK_COLORS[c].text,
+            })),
+            { value: '', label: '色なし（解除）' },
+          ],
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId)
+            a.updateDetail(a.selectedTaskId, { textColor: (v || undefined) as TaskColor | undefined });
+        },
+      },
+      {
+        id: 'arg-status',
+        label: 'ステータスを設定…',
+        keywords: 'status joukyou ステータス 進行 ヒアリング 確定',
+        available: hasSel,
+        arg: {
+          placeholder: 'ヒアリングの進行状態を選択',
+          options: () => [
+            { value: '', label: '未着手' },
+            { value: 'heard', label: 'ヒアリング済' },
+            { value: 'review', label: '確認待ち' },
+            { value: 'done', label: '確定' },
+          ],
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId)
+            a.updateDetail(a.selectedTaskId, { status: (v || undefined) as TaskStatus | undefined });
+        },
+      },
+      {
+        id: 'arg-note',
+        label: '備考を設定…',
+        keywords: 'note bikou 備考 メモ',
+        available: hasSel,
+        arg: {
+          placeholder: '備考（空欄で解除）',
+          freeText: true,
+          defaultValue: () => {
+            const a = useApp.getState();
+            return a.selectedTaskId ? a.project.details[a.selectedTaskId]?.note ?? '' : '';
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.updateDetail(a.selectedTaskId, { note: v.trim() || undefined });
+        },
+      },
+      {
+        id: 'arg-how',
+        label: '業務内容を設定…',
+        keywords: 'how gyoumu 業務内容 どうやって 手順',
+        available: hasSel,
+        arg: {
+          placeholder: '業務内容（どうやって。空欄で解除）',
+          freeText: true,
+          defaultValue: () => {
+            const a = useApp.getState();
+            return a.selectedTaskId ? a.project.details[a.selectedTaskId]?.how ?? '' : '';
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.updateDetail(a.selectedTaskId, { how: v.trim() || undefined });
+        },
+      },
+      {
+        id: 'arg-system',
+        label: '使用システムを設定…',
+        keywords: 'system shisutemu 使用システム ツール',
+        available: hasSel,
+        arg: {
+          placeholder: '使用システム（空欄で解除）',
+          freeText: true,
+          defaultValue: () => {
+            const a = useApp.getState();
+            return a.selectedTaskId ? a.project.details[a.selectedTaskId]?.system ?? '' : '';
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.updateDetail(a.selectedTaskId, { system: v.trim() || undefined });
         },
       },
       {
@@ -654,6 +775,9 @@ export function CommandPalette(handlers: FileHandlers) {
                   onMouseMove={() => setActive(i)}
                   onClick={() => runItem(i)}
                 >
+                  {a.opt.swatch && (
+                    <span className="pi-swatch" style={{ background: a.opt.swatch }} aria-hidden="true" />
+                  )}
                   <span className="pi-label">{a.opt.label}</span>
                   {a.opt.detail && <span className="pi-assignee">{a.opt.detail}</span>}
                 </button>
