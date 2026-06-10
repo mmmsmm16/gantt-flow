@@ -15,6 +15,7 @@ import {
   exportPngFile,
   printProjectAndFlow,
   forgetFileHandle,
+  openRecentFile,
 } from './persistence';
 import { useUI } from './ui/useUI';
 import { Modal, Toaster } from './ui/Dialogs';
@@ -138,6 +139,19 @@ export function App() {
   const onSample = () => {
     useApp.getState().loadSample();
     useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
+  };
+  const onOpenRecent = async (name: string) => {
+    try {
+      const p = await openRecentFile(name);
+      if (p) {
+        useApp.getState().loadProject(p);
+        useUI.getState().toast('開きました。', 'success');
+      } else {
+        useUI.getState().toast('このファイルを開けませんでした（権限が必要です）。', 'error');
+      }
+    } catch {
+      useUI.getState().toast('ファイルを開けませんでした。', 'error');
+    }
   };
   const onExportExcel = () => {
     const n = exportExcelFile(useApp.getState().project);
@@ -368,7 +382,7 @@ export function App() {
         </button>
       </header>
       {isEmpty ? (
-        <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} />
+        <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} onOpenRecent={onOpenRecent} />
       ) : (
         <div
           className={`panes${!fullMode && selectedTaskId ? ' with-inspector' : ''}${

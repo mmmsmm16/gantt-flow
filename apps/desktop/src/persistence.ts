@@ -24,6 +24,7 @@ interface FsFileHandle {
   readonly name: string;
   createWritable(): Promise<FsWritable>;
   getFile(): Promise<File>;
+  requestPermission?(opts: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
 }
 interface FsPickerType {
   description?: string;
@@ -99,6 +100,7 @@ export async function saveProjectToFile(
       const w = await fileHandle.createWritable();
       await w.write(json);
       await w.close();
+      void rememberRecent(fileHandle);
       return fileHandle.name;
     } catch (err) {
       if (isAbort(err)) return null; // ユーザーがキャンセル
@@ -286,6 +288,7 @@ export async function openProjectFromFile(): Promise<Project | null> {
     const file = await handle.getFile();
     const project = deserializeProject(await file.text()); // 不正なら throw
     fileHandle = handle; // 検証成功後にだけ保存先として採用
+    void rememberRecent(handle);
     return project;
   }
   return new Promise((resolve, reject) => {
@@ -309,4 +312,87 @@ export async function openProjectFromFile(): Promise<Project | null> {
     };
     input.click();
   });
+}
+
+// ---- 最近使ったファイル（IndexedDB にファイルハンドルを保存して再オープン可能に） ----
+// File System Access API のハンドルは構造化複製で永続化でき、再オープン時に権限を求めて読める。
+const RECENT_DB = 'gantt-flow';
+const RECENT_STORE = 'recent';
+
+interface RecentRecord {
+  name: string;
+  at: number;
+  handle: FsFileHandle;
+}
+
+export function recentFilesSupported(): boolean {
+  return typeof indexedDB !== 'undefined' && fsSupported();
+}
+
+function openRecentDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(RECENT_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(RECENT_STORE, { keyPath: 'name' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function rememberRecent(handle: FsFileHandle): Promise<void> {
+  if (!recentFilesSupported()) return;
+  try {
+    const db = await openRecentDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(RECENT_STORE, 'readwrite');
+      tx.objectStore(RECENT_STORE).put({ name: handle.name, at: nowMs(), handle } satisfies RecentRecord);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    /* IndexedDB 不可は無視（最近使ったファイルはベストエフォート） */
+  }
+}
+
+// Date.now を 1 か所に閉じ込め（呼び出しは UI イベント起点なので問題ない）。
+const nowMs = (): number => Date.now();
+
+export async function listRecentFiles(): Promise<{ name: string; at: number }[]> {
+  if (!recentFilesSupported()) return [];
+  try {
+    const db = await openRecentDb();
+    const all = await new Promise<RecentRecord[]>((resolve, reject) => {
+      const tx = db.transaction(RECENT_STORE, 'readonly');
+      const r = tx.objectStore(RECENT_STORE).getAll();
+      r.onsuccess = () => resolve(r.result as RecentRecord[]);
+      r.onerror = () => reject(r.error);
+    });
+    db.close();
+    return all.map((x) => ({ name: x.name, at: x.at })).sort((a, b) => b.at - a.at).slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+// 最近使ったファイルを開く。権限を求めて読み、保存先（fileHandle）にも採用する。
+export async function openRecentFile(name: string): Promise<Project | null> {
+  const db = await openRecentDb();
+  const rec = await new Promise<RecentRecord | undefined>((resolve, reject) => {
+    const tx = db.transaction(RECENT_STORE, 'readonly');
+    const r = tx.objectStore(RECENT_STORE).get(name);
+    r.onsuccess = () => resolve(r.result as RecentRecord | undefined);
+    r.onerror = () => reject(r.error);
+  });
+  db.close();
+  const handle = rec?.handle;
+  if (!handle) return null;
+  if (handle.requestPermission) {
+    const perm = await handle.requestPermission({ mode: 'read' });
+    if (perm !== 'granted') return null;
+  }
+  const file = await handle.getFile();
+  const project = deserializeProject(await file.text());
+  fileHandle = handle;
+  void rememberRecent(handle);
+  return project;
 }

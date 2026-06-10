@@ -1,14 +1,22 @@
 // 初回体験。工程が 0 件のときにペイン全体の代わりに表示するオンボーディング。
 // 「サンプルで試す」を主導線に、空作成 / 取り込み / 開く を並べる。
+import { useEffect, useState } from 'react';
 import * as Icons from './icons';
+import { listRecentFiles } from '../persistence';
 
 interface Props {
   onSample: () => void;
   onImport: () => void;
   onOpen: () => void;
+  onOpenRecent: (name: string) => void;
 }
 
-export function Welcome({ onSample, onImport, onOpen }: Props) {
+export function Welcome({ onSample, onImport, onOpen, onOpenRecent }: Props) {
+  const [recent, setRecent] = useState<{ name: string; at: number }[]>([]);
+  useEffect(() => {
+    void listRecentFiles().then(setRecent);
+  }, []);
+
   return (
     <div className="welcome" role="region" aria-label="はじめに">
       <div className="welcome-card">
@@ -46,6 +54,25 @@ export function Welcome({ onSample, onImport, onOpen }: Props) {
             保存ファイルを開く
           </button>
         </div>
+
+        {recent.length > 0 && (
+          <div className="welcome-recent">
+            <h2 className="welcome-recent-title">
+              <Icons.Clock />
+              最近開いたファイル
+            </h2>
+            <ul>
+              {recent.map((r) => (
+                <li key={r.name}>
+                  <button className="welcome-recent-item" onClick={() => onOpenRecent(r.name)} title={r.name}>
+                    <Icons.FolderOpen />
+                    <span className="wr-name">{r.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <ul className="welcome-points">
           <li>

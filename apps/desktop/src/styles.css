@@ -1714,6 +1714,51 @@ button.danger:hover {
 .welcome-primary:hover {
   filter: brightness(1.05);
 }
+/* 最近開いたファイル */
+.welcome-recent {
+  margin: 22px 0 4px;
+  text-align: left;
+}
+.welcome-recent-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  margin: 0 0 8px;
+}
+.welcome-recent ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.welcome-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+.welcome-recent-item:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+.welcome-recent-item .wr-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .welcome-points {
   list-style: none;
   margin: 24px 0 8px;
