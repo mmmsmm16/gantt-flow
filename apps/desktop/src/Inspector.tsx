@@ -1,6 +1,7 @@
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
+import { collectIoNames } from './suggestions';
 
 export function Inspector() {
   const project = useApp((s) => s.project);
@@ -28,6 +29,7 @@ export function Inspector() {
     ...(d?.outputs ?? []).map((item) => ({ item, io: 'outputs' as const })),
   ];
   const deptNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
+  const ioNames = collectIoNames(project);
 
   const deps = Object.values(project.core.dependencies);
   const preds = deps.filter((dep) => dep.to === taskId);
@@ -164,12 +166,19 @@ export function Inspector() {
               <option key={n} value={n} />
             ))}
           </datalist>
+          <datalist id="insp-io-names">
+            {ioNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
           {ios.map(({ item, io }) => (
             <div className={`io-row ${io === 'inputs' ? 'in' : 'out'}`} key={item.id}>
               <span className="io-tag">{io === 'inputs' ? '入' : '出'}</span>
               <input
                 className="io-name"
+                list="insp-io-names"
                 defaultValue={item.name}
+                key={`ion-${item.name}`}
                 onBlur={(e) => updateIo(taskId, item.id, { name: e.target.value })}
               />
               <select

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
+import { collectIoNames } from './suggestions';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import * as Icons from './ui/icons';
@@ -136,6 +137,7 @@ export function FullTable() {
   const codes = computeCodes(project.core);
   const deps = Object.values(project.core.dependencies);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
+  const ioNames = collectIoNames(project);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
 
   const vis = (k: string) => ftColumns[k] !== false;
@@ -470,6 +472,11 @@ export function FullTable() {
       </div>
       <datalist id="ft-assignees">
         {assigneeNames.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+      <datalist id="ft-io-names">
+        {ioNames.map((n) => (
           <option key={n} value={n} />
         ))}
       </datalist>
@@ -827,7 +834,7 @@ function IoCell({
         {items.map((it) => (
           // 色は入出力の向き（フローと統一）。種別(帳票/情報)はセレクトの値で区別。
           <span className={`ft-iochip ${direction}`} key={it.id}>
-            <input className="ft-io-name" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => onRename(it.id, e.target.value)} />
+            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => onRename(it.id, e.target.value)} />
             <select className="ft-io-kind" value={it.kind} aria-label="種別" onChange={(e) => onKind(it.id, e.target.value as IoKind)}>
               <option value="doc">帳票</option>
               <option value="info">情報</option>
