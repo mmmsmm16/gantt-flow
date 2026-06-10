@@ -60,6 +60,7 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'pane-table', action: 'pane.table', context: 'global', chord: { key: '1', mod: true }, help: { group: G.global, label: '表ペインへ' } },
   { id: 'pane-flow', action: 'pane.flow', context: 'global', chord: { key: '2', mod: true }, help: { group: G.global, label: 'フローペインへ' } },
   { id: 'pane-toggle', action: 'pane.toggle', context: 'global', chord: { key: 'f6' }, help: { group: G.global, label: 'ペインを切り替え' } },
+  { id: 'settings', action: 'global.settings', context: 'global', chord: { key: ',', mod: true }, help: { group: G.global, label: '設定を開く' } },
 
   // --- g リーダー(画面移動) ---
   { id: 'go-table', action: 'pane.table', context: 'global', chord: { key: 't' }, leader: true, help: { group: G.nav, label: '表ペインへ' } },

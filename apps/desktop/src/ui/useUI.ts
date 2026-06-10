@@ -150,9 +150,13 @@ interface UIState {
     ftWidths?: Record<string, number>;
   }) => void;
 
-  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / バックアップ / ショートカット設定）。同時に 1 つだけ。 */
-  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'keybindings' | null;
-  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'keybindings' | null) => void;
+  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / バックアップ / 設定）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'settings' | null;
+  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'settings' | null) => void;
+
+  /** 設定ダイアログのアクティブタブ（パレットからの深リンク用）。 */
+  settingsTab: 'general' | 'keys' | 'data';
+  setSettingsTab: (tab: 'general' | 'keys' | 'data') => void;
 
   /** 使い方ツアーの現在ステップ（null=非表示）。 */
   tourStep: number | null;
@@ -239,6 +243,9 @@ export const useUI = create<UIState>((set, get) => ({
 
   overlay: null,
   setOverlay: (overlay) => set({ overlay }),
+
+  settingsTab: 'general',
+  setSettingsTab: (tab) => set({ settingsTab: tab }),
 
   columnVisibility: readInitialColumns(),
   toggleColumn: (key) => {

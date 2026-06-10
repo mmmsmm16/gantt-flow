@@ -422,7 +422,9 @@ export function CommandPalette(handlers: FileHandlers) {
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
       { id: 'summary', label: 'サマリを開く（工数・自動化）', keywords: 'summary dashboard サマリ 集計 工数', run: () => ui.setOverlay('summary') },
       { id: 'help', label: 'ショートカット一覧', keywords: 'help shortcut ヘルプ', hint: '?', run: () => ui.setOverlay('help') },
-      { id: 'keybindings', label: 'ショートカット設定（キーの変更）', keywords: 'keybind shortcut settei ショートカット 設定 カスタマイズ キー', run: () => ui.setOverlay('keybindings') },
+      { id: 'settings-open', label: '設定を開く', keywords: 'settings settei 設定 環境設定 preferences', hint: '⌘,', run: () => { ui.setSettingsTab('general'); ui.setOverlay('settings'); } },
+      { id: 'keybindings', label: 'ショートカット設定（キーの変更）', keywords: 'keybind shortcut settei ショートカット 設定 カスタマイズ キー vim', run: () => { ui.setSettingsTab('keys'); ui.setOverlay('settings'); } },
+      { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },
     ];
   }, [handlers, canUndo, canRedo, selectedTaskId]);

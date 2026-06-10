@@ -81,6 +81,10 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
         case 'global.tableMode':
           ui.setTableMode(ui.tableMode === 'outline' ? 'full' : 'outline');
           return true;
+        case 'global.settings':
+          ui.setSettingsTab('general');
+          ui.setOverlay('settings');
+          return true;
         case 'pane.table':
           activatePane('table');
           return true;

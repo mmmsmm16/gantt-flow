@@ -31,7 +31,7 @@ import { takeAutosaveForRestore, clearAutosave } from './autosave';
 import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
-import { KeybindingsDialog } from './ui/KeybindingsDialog';
+import { SettingsDialog } from './ui/SettingsDialog';
 import { Tour, tourDone } from './ui/Tour';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
@@ -351,6 +351,17 @@ export function App() {
         </button>
         <button
           className="icon-btn"
+          onClick={() => {
+            useUI.getState().setSettingsTab('general');
+            useUI.getState().setOverlay('settings');
+          }}
+          aria-label="設定"
+          title="設定（テーマ / ショートカット / エクスポート）"
+        >
+          <Icons.Gear />
+        </button>
+        <button
+          className="icon-btn"
           onClick={() => useUI.getState().setOverlay('help')}
           aria-label="キーボードショートカット"
           title="キーボードショートカット (?)"
@@ -470,7 +481,7 @@ export function App() {
       <IssueListDialog />
       <SummaryDialog />
       <BackupsDialog />
-      <KeybindingsDialog />
+      <SettingsDialog />
       <Tour />
       <Modal />
       <BusyOverlay />
