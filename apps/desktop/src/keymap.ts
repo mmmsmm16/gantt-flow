@@ -43,6 +43,7 @@ const G = {
   nav: '画面移動(g リーダー)',
   table: '工程表(行選択モード)',
   flow: '工程フロー',
+  color: '工程カラー(選択中の工程)',
 } as const;
 
 export const DEFAULT_KEYMAP: KeyBinding[] = [
@@ -61,6 +62,16 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'pane-flow', action: 'pane.flow', context: 'global', chord: { key: '2', mod: true }, help: { group: G.global, label: 'フローペインへ' } },
   { id: 'pane-toggle', action: 'pane.toggle', context: 'global', chord: { key: 'f6' }, help: { group: G.global, label: 'ペインを切り替え' } },
   { id: 'settings', action: 'global.settings', context: 'global', chord: { key: ',', mod: true }, help: { group: G.global, label: '設定を開く' } },
+
+  // --- 工程カラーのクイック変更(よく使う 既定/青/赤 のみ。他の色はパレットから) ---
+  // Mac の Option+数字は記号入力になるため e.code(Digit*)で物理キー判定する。
+  // 修飾(Alt)付き=シングルキーOFFでも常に使える。
+  { id: 'fill-none', action: 'color.fillNone', context: 'global', chord: { code: 'Digit1', alt: true, shift: false }, help: { group: G.color, label: '塗り色: なし(既定)' } },
+  { id: 'fill-blue', action: 'color.fillBlue', context: 'global', chord: { code: 'Digit2', alt: true, shift: false }, help: { group: G.color, label: '塗り色: 青' } },
+  { id: 'fill-red', action: 'color.fillRed', context: 'global', chord: { code: 'Digit3', alt: true, shift: false }, help: { group: G.color, label: '塗り色: 赤' } },
+  { id: 'text-none', action: 'color.textNone', context: 'global', chord: { code: 'Digit1', alt: true, shift: true }, help: { group: G.color, label: '文字色: なし(既定)' } },
+  { id: 'text-blue', action: 'color.textBlue', context: 'global', chord: { code: 'Digit2', alt: true, shift: true }, help: { group: G.color, label: '文字色: 青' } },
+  { id: 'text-red', action: 'color.textRed', context: 'global', chord: { code: 'Digit3', alt: true, shift: true }, help: { group: G.color, label: '文字色: 赤' } },
 
   // --- g リーダー(画面移動) ---
   { id: 'go-table', action: 'pane.table', context: 'global', chord: { key: 't' }, leader: true, help: { group: G.nav, label: '表ペインへ' } },

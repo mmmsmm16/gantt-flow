@@ -199,6 +199,38 @@ describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
   });
 });
 
+describe('keymap: 工程カラーのクイックキー(Alt+数字)', () => {
+  it('Alt+1/2/3=塗り色、Alt+Shift+1/2/3=文字色(e.code で物理キー判定)', () => {
+    // Mac では Alt+数字が記号(¡™£)になるため key ではなく code で照合する
+    expect(
+      findBinding(ev({ key: '¡', code: 'Digit1', altKey: true }), DEFAULT_KEYMAP, ['global'], false)?.action,
+    ).toBe('color.fillNone');
+    expect(
+      findBinding(ev({ key: '™', code: 'Digit2', altKey: true }), DEFAULT_KEYMAP, ['global'], false)?.action,
+    ).toBe('color.fillBlue');
+    expect(
+      findBinding(
+        ev({ key: '⁄', code: 'Digit3', altKey: true, shiftKey: true }),
+        DEFAULT_KEYMAP,
+        ['global'],
+        false,
+      )?.action,
+    ).toBe('color.textRed');
+    // Shift の有無で塗り/文字を区別
+    expect(
+      findBinding(ev({ key: '1', code: 'Digit1', altKey: true, shiftKey: true }), DEFAULT_KEYMAP, ['global'], false)
+        ?.action,
+    ).toBe('color.textNone');
+  });
+
+  it('Alt 付きなのでシングルキーOFFでも有効(フィルタ対象外)', () => {
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(
+      findBinding(ev({ key: '™', code: 'Digit2', altKey: true }), off, ['global'], false)?.action,
+    ).toBe('color.fillBlue');
+  });
+});
+
 describe('keymap: chordKeys(表示)', () => {
   it('リーダーと修飾キーを表示順に並べる', () => {
     expect(chordKeys({ key: 't' }, true)).toEqual(['g', 'T']);

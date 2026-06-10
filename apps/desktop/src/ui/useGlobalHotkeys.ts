@@ -8,6 +8,7 @@
 //  3. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷)のみ。undo/redo はネイティブ優先
 //  4. g リーダー → findBinding → dispatch
 import { useEffect } from 'react';
+import type { TaskColor } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import {
@@ -59,7 +60,26 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
     const runGlobal = (action: string): boolean => {
       const ui = useUI.getState();
       const app = useApp.getState();
+      // 工程カラーのクイック変更(選択中の工程が対象。未選択なら何もしない)。
+      const setColor = (field: 'fillColor' | 'textColor', value: TaskColor | undefined): boolean => {
+        const a = useApp.getState();
+        if (!a.selectedTaskId) return false;
+        a.updateDetail(a.selectedTaskId, { [field]: value });
+        return true;
+      };
       switch (action) {
+        case 'color.fillNone':
+          return setColor('fillColor', undefined);
+        case 'color.fillBlue':
+          return setColor('fillColor', 'blue');
+        case 'color.fillRed':
+          return setColor('fillColor', 'red');
+        case 'color.textNone':
+          return setColor('textColor', undefined);
+        case 'color.textBlue':
+          return setColor('textColor', 'blue');
+        case 'color.textRed':
+          return setColor('textColor', 'red');
         case 'global.palette':
           ui.setOverlay(ui.overlay === 'palette' ? null : 'palette');
           return true;

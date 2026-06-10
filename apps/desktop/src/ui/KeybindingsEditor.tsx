@@ -19,7 +19,13 @@ import {
 } from '../keymap';
 
 // グループ表示順(keymap.ts の help.group と一致)。
-const GROUP_ORDER = ['全体', '画面移動(g リーダー)', '工程表(行選択モード)', '工程フロー'];
+const GROUP_ORDER = [
+  '全体',
+  '工程カラー(選択中の工程)',
+  '画面移動(g リーダー)',
+  '工程表(行選択モード)',
+  '工程フロー',
+];
 
 // 一覧の行ラベル: help があればそれ、無い補助キーは同 action の代表ラベル＋（別キー）。
 function labelOf(b: KeyBinding): string {
