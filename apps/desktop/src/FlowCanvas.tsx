@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, findView } from './store';
 import { useUI } from './ui/useUI';
+import { registerContextHandler } from './ui/useGlobalHotkeys';
 import * as Icons from './ui/icons';
 import {
   SIZE,
@@ -108,6 +109,15 @@ export function FlowCanvas() {
   // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
   const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
+
+  // 'flow' コンテキストのキーボードアクション(矢印移動・ズーム・リネーム・接続モード)。
+  // ハンドラ本体は描画後半(fitView 等の定義後)で ref に流し込み、登録自体は初回のみ行う。
+  const flowActionsRef = useRef<((action: string, e: KeyboardEvent) => boolean) | null>(null);
+  useEffect(
+    () =>
+      registerContextHandler('flow', (action, e) => flowActionsRef.current?.(action, e) ?? false),
+    [],
+  );
 
   // 範囲選択中に計算した「枠内ノード」を pointerup で確定するための受け渡し。
   const bandSelRef = useRef<FlowNodeId[]>([]);
@@ -458,6 +468,67 @@ export function FlowCanvas() {
       scroller.scrollLeft = Math.max(0, (minX - pad) * s);
       scroller.scrollTop = Math.max(0, (minY - pad) * s);
     });
+  };
+
+  // キーボード操作の対象ノード: 複数選択 > フロー固有選択(sel) > 選択中の工程のノード。
+  const keyTargets = (): FlowNodeId[] => {
+    if (multiSel.size > 0) return [...multiSel];
+    if (sel?.kind === 'node') return [sel.id];
+    if (selectedTaskId) {
+      const n = Object.values(view.nodes).find(
+        (o) => o.kind === 'task' && o.taskId === selectedTaskId,
+      );
+      if (n) return [n.id];
+    }
+    return [];
+  };
+
+  // 'flow' コンテキストのアクション実行(キー照合・ガードは useGlobalHotkeys 済み)。
+  flowActionsRef.current = (action, e) => {
+    const step = e.shiftKey ? 32 : 8;
+    const nudge = (dx: number, dy: number): boolean => {
+      const t = keyTargets();
+      if (!t.length) return false;
+      moveNodesBy(t, dx, dy);
+      return true;
+    };
+    switch (action) {
+      case 'flow.left':
+        return nudge(-step, 0);
+      case 'flow.right':
+        return nudge(step, 0);
+      case 'flow.up':
+        return nudge(0, -step);
+      case 'flow.down':
+        return nudge(0, step);
+      case 'flow.zoomIn':
+        zoomBy(1.2);
+        return true;
+      case 'flow.zoomOut':
+        zoomBy(1 / 1.2);
+        return true;
+      case 'flow.zoomReset':
+        setScale(1);
+        return true;
+      case 'flow.fit':
+        fitView();
+        return true;
+      case 'flow.rename': {
+        // ノード自身にフォーカスがある場合は要素側の Enter/F2 ハンドラに委ねる。
+        if ((document.activeElement as HTMLElement | null)?.closest('.node')) return false;
+        const tid =
+          selectedTaskId ??
+          (() => {
+            const t = sel?.kind === 'node' ? view.nodes[sel.id] : undefined;
+            return t?.kind === 'task' ? t.taskId : undefined;
+          })();
+        if (!tid) return false;
+        setEditingTaskId(tid);
+        return true;
+      }
+      default:
+        return false;
+    }
   };
 
   // 複数選択したノードを掴んでドラッグ中は、選択全体を同じ差分で動かして見せる。
