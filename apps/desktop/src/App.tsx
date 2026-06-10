@@ -28,6 +28,8 @@ import { SummaryDialog } from './ui/SummaryDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
+import { pushBackup } from './backups';
+import { BackupsDialog } from './ui/BackupsDialog';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -77,6 +79,7 @@ export function App() {
       const name = await saveProjectToFile(useApp.getState().project, opts);
       if (name === null) return; // ピッカーをキャンセル
       useApp.getState().markSaved();
+      pushBackup(useApp.getState().project); // 直近世代をこの端末に残す（復元用）
       useUI.getState().toast(`保存しました（${name}）`, 'success');
     } catch {
       useUI.getState().toast('保存できませんでした。', 'error');
@@ -481,6 +484,7 @@ export function App() {
       <HelpDialog />
       <IssueListDialog />
       <SummaryDialog />
+      <BackupsDialog />
       <Modal />
       <Toaster />
     </div>

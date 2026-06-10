@@ -130,9 +130,9 @@ interface UIState {
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
 
-  /** 全画面オーバーレイ（ヘルプ / コマンドパレット / 課題一覧 / サマリ）。同時に 1 つだけ。 */
-  overlay: 'help' | 'palette' | 'issues' | 'summary' | null;
-  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | null) => void;
+  /** 全画面オーバーレイ（ヘルプ / コマンドパレット / 課題一覧 / サマリ / バックアップ）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null;
+  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null) => void;
 
   dialog: Dialog | null;
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
