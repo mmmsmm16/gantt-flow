@@ -136,3 +136,45 @@ export const Trash = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
   </Svg>
 );
+export const Filter = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M3 5h18l-7 8v6l-4-2v-4Z" />
+  </Svg>
+);
+export const ListChecks = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M3 5l2 2 3-3M3 13l2 2 3-3M11 6h10M11 14h10M11 20h10" />
+  </Svg>
+);
+export const ChartBar = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M3 3v18h18" />
+    <path d="M7 16v-5M12 16V8M17 16v-3" />
+  </Svg>
+);
+export const Clock = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Svg>
+);
+export const MapIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" />
+    <path d="M9 4v14M15 6v14" />
+  </Svg>
+);
+export const Printer = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M6 9V3h12v6" />
+    <path d="M6 18H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2" />
+    <path d="M6 14h12v7H6z" />
+  </Svg>
+);
+export const Image = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="m21 15-5-5L5 21" />
+  </Svg>
+);

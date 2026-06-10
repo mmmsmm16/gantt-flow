@@ -117,6 +117,13 @@ export function FullTable() {
   const setFtColWidth = useUI((s) => s.setFtColWidth);
 
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
+  // 絞り込み（AND 条件）。担当・課題あり・工数未入力・自動化区分。
+  const [filters, setFilters] = useState<{ assignee: string; issues: boolean; noEffort: boolean; automation: Automation | '' }>({
+    assignee: '',
+    issues: false,
+    noEffort: false,
+    automation: '',
+  });
   const [resizing, setResizing] = useState<{ key: string; w: number } | null>(null);
   const [focusTask, setFocusTask] = useState<Id | null>(null);
   // 一括操作のための行マーク（複数選択）。Ctrl/⌘+クリックでトグル、Shift+クリックで範囲。
@@ -173,6 +180,26 @@ export function FullTable() {
       return c * (sort.dir === 'asc' ? 1 : -1);
     });
   }
+
+  // 絞り込みを適用（表示行を減らすだけ。階層の文脈列は各行が祖先名を出すので破綻しない）。
+  const filterActive = !!filters.assignee || filters.issues || filters.noEffort || !!filters.automation;
+  if (filterActive) {
+    rows = rows.filter((t) => {
+      const d = project.details[t.id];
+      if (filters.assignee) {
+        const name = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
+        if (name !== filters.assignee) return false;
+      }
+      if (filters.issues && !(d?.issues ?? []).some((i) => i.issue.trim())) return false;
+      if (filters.noEffort) {
+        // 工数未入力＝末端工程で effortMinutes が無い（親はロールアップ表示なので対象外）。
+        if (parentsWithChildren.has(t.id) || d?.effortMinutes != null) return false;
+      }
+      if (filters.automation && d?.automation !== filters.automation) return false;
+      return true;
+    });
+  }
+  const clearFilters = () => setFilters({ assignee: '', issues: false, noEffort: false, automation: '' });
 
   const clickSort = (key: string) =>
     setSort((cur) => (cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
@@ -383,6 +410,62 @@ export function FullTable() {
           <span className="ft-hint">
             行クリックで選択 / Ctrl・Shift+クリックで複数選択 / Ctrl+Enter＝行追加・Ctrl+D＝複製・Ctrl+Delete＝削除。
           </span>
+        )}
+      </div>
+      <div className="ft-filters" role="group" aria-label="絞り込み">
+        <span className="ft-filter-label">
+          <Icons.Filter />
+          絞り込み
+        </span>
+        <select
+          className="ft-filter-sel"
+          value={filters.assignee}
+          aria-label="担当で絞り込み"
+          onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))}
+        >
+          <option value="">担当: すべて</option>
+          {assigneeNames.map((n) => (
+            <option key={n} value={n}>
+              担当: {n}
+            </option>
+          ))}
+        </select>
+        <button
+          className={`ft-filter-chip${filters.issues ? ' on' : ''}`}
+          aria-pressed={filters.issues}
+          onClick={() => setFilters((f) => ({ ...f, issues: !f.issues }))}
+        >
+          課題あり
+        </button>
+        <button
+          className={`ft-filter-chip${filters.noEffort ? ' on' : ''}`}
+          aria-pressed={filters.noEffort}
+          onClick={() => setFilters((f) => ({ ...f, noEffort: !f.noEffort }))}
+        >
+          工数未入力
+        </button>
+        <select
+          className="ft-filter-sel"
+          value={filters.automation}
+          aria-label="自動化区分で絞り込み"
+          onChange={(e) => setFilters((f) => ({ ...f, automation: e.target.value as Automation | '' }))}
+        >
+          <option value="">自動化: すべて</option>
+          {AUTOMATION.filter((a) => a.key).map((a) => (
+            <option key={a.key} value={a.key}>
+              自動化: {a.label}
+            </option>
+          ))}
+        </select>
+        {filterActive && (
+          <>
+            <button className="ft-filter-clear" onClick={clearFilters}>
+              絞り込み解除
+            </button>
+            <span className="ft-filter-count">
+              {rows.length} / {flat.length} 件
+            </span>
+          </>
         )}
       </div>
       <datalist id="ft-assignees">
@@ -678,6 +761,9 @@ export function FullTable() {
           })}
         </tbody>
       </table>
+      {filterActive && rows.length === 0 && (
+        <div className="ft-empty-filter">条件に一致する工程がありません。</div>
+      )}
       </div>
     </div>
   );

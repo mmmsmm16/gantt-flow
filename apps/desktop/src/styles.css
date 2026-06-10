@@ -2290,6 +2290,61 @@ kbd {
 .ft-bulk-clear {
   color: var(--faint);
 }
+/* 絞り込みバー */
+.ft-filters {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.ft-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+}
+.ft-filter-sel {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.ft-filter-chip {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.ft-filter-chip:hover {
+  background: var(--hover);
+}
+.ft-filter-chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ft-filter-clear {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.ft-filter-count {
+  color: var(--faint);
+}
+.ft-empty-filter {
+  padding: 24px;
+  text-align: center;
+  color: var(--faint);
+}
 /* 一括選択でマークされた行（単一選択 .sel とは別の淡い強調） */
 .ft tbody tr.marked > td {
   background: var(--accent-soft);
