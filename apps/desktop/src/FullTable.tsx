@@ -10,6 +10,7 @@ import { collectIoNames } from './suggestions';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
+import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
@@ -630,7 +631,12 @@ export function FullTable() {
                     >
                       {own ? (
                         <input
-                          className={`ft-in ft-name lvl-${l.key}`}
+                          className={`ft-in ft-name lvl-${l.key}${d?.textColor ? ' colored-text' : ''}`}
+                          style={
+                            d?.textColor
+                              ? ({ '--task-text': TASK_COLORS[d.textColor].text } as React.CSSProperties)
+                              : undefined
+                          }
                           defaultValue={t.name}
                           placeholder={l.label}
                           aria-label={l.label}

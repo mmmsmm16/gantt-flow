@@ -4,6 +4,36 @@
 //   - styles.css の :root（ライト値）はこの値に合わせる（同期はコメントで明示）。
 // ダークテーマは出力に乗らないため CSS（[data-theme="dark"]）のみに存在する。
 
+import type { TaskColor } from '@gantt-flow/core';
+
+// 工程カラー(8色プリセット)の正準値(ライト)。base=濃枠・ドット / fill=淡背景 / text=文字色。
+// 画面(styles.css の CSS 変数注入)と SVG/PNG/印刷出力(flowSvg.ts)の両方がこれを参照する。
+// ダークテーマの見え方は styles.css 側で color-mix により導出する(ここにダーク値は持たない)。
+export const TASK_COLORS: Record<TaskColor, { base: string; fill: string; text: string }> = {
+  red: { base: '#dc2626', fill: '#fee2e2', text: '#b91c1c' },
+  orange: { base: '#ea580c', fill: '#ffedd5', text: '#c2410c' },
+  yellow: { base: '#ca8a04', fill: '#fef9c3', text: '#a16207' },
+  green: { base: '#16a34a', fill: '#dcfce7', text: '#15803d' },
+  teal: { base: '#0d9488', fill: '#ccfbf1', text: '#0f766e' },
+  blue: { base: '#2563eb', fill: '#dbeafe', text: '#1d4ed8' },
+  purple: { base: '#9333ea', fill: '#f3e8ff', text: '#7e22ce' },
+  gray: { base: '#6b7280', fill: '#f3f4f6', text: '#4b5563' },
+};
+
+export const TASK_COLOR_LABELS: Record<TaskColor, string> = {
+  red: '赤',
+  orange: 'オレンジ',
+  yellow: '黄',
+  green: '緑',
+  teal: '青緑',
+  blue: '青',
+  purple: '紫',
+  gray: 'グレー',
+};
+
+/** UI/コマンドで使う表示順。 */
+export const TASK_COLOR_KEYS: TaskColor[] = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray'];
+
 export const FLOW_LIGHT = {
   bg: '#ffffff',
   arrow: '#64748b',

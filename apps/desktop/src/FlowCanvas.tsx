@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp, findView } from './store';
 import { useUI } from './ui/useUI';
 import { registerContextHandler } from './ui/useGlobalHotkeys';
+import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 import {
   SIZE,
@@ -1004,9 +1005,20 @@ export function FlowCanvas() {
           const isSel = sel?.kind === 'node' && sel.id === n.id;
           const selCls = isSel ? ' sel' : '';
           const multiCls = isMultiSel(n) ? ' multi-sel' : '';
+          // 工程カラー(塗り/文字色)。colored クラス + CSS 変数で当て、ダークは CSS 側で導出。
+          const taskDetail = n.kind === 'task' ? project.details[n.taskId] : undefined;
+          const fillC = taskDetail?.fillColor;
+          const textC = taskDetail?.textColor;
+          const colorCls = `${fillC ? ' colored' : ''}${textC ? ' colored-text' : ''}`;
+          const colorVars: Record<string, string> = {};
+          if (fillC) {
+            colorVars['--task-base'] = TASK_COLORS[fillC].base;
+            colorVars['--task-fill'] = TASK_COLORS[fillC].fill;
+          }
+          if (textC) colorVars['--task-text'] = TASK_COLORS[textC].text;
           const cls =
             n.kind === 'task'
-              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}`
+              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}${colorCls}`
               : n.kind === 'issue'
                 ? `node issue${selCls}`
                 : n.kind === 'comment'
@@ -1054,7 +1066,7 @@ export function FlowCanvas() {
               style={
                 n.kind === 'issue'
                   ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
-                  : { left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h }
+                  : { left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h, ...colorVars }
               }
               role={focusable ? 'button' : undefined}
               tabIndex={focusable ? 0 : undefined}

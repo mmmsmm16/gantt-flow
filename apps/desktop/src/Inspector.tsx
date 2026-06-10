@@ -1,7 +1,47 @@
-import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskStatus } from '@gantt-flow/core';
+import type { CSSProperties } from 'react';
+import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames } from './suggestions';
+import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
+
+// 色スウォッチの 1 行(塗り/文字色で共用)。選択中は枠で強調、「なし」で解除。
+function ColorSwatchRow({
+  value,
+  styleOf,
+  onChange,
+  ariaLabel,
+}: {
+  value: TaskColor | undefined;
+  styleOf: (c: TaskColor) => CSSProperties;
+  onChange: (c: TaskColor | undefined) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="swatch-row" role="group" aria-label={ariaLabel}>
+      {TASK_COLOR_KEYS.map((c) => (
+        <button
+          key={c}
+          className={`swatch${value === c ? ' on' : ''}`}
+          style={styleOf(c)}
+          aria-pressed={value === c}
+          aria-label={TASK_COLOR_LABELS[c]}
+          title={TASK_COLOR_LABELS[c]}
+          onClick={() => onChange(value === c ? undefined : c)}
+        />
+      ))}
+      <button
+        className={`swatch swatch-none${value === undefined ? ' on' : ''}`}
+        aria-pressed={value === undefined}
+        aria-label="色なし"
+        title="色なし（既定に戻す）"
+        onClick={() => onChange(undefined)}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
 
 export function Inspector() {
   const project = useApp((s) => s.project);
@@ -73,6 +113,20 @@ export function Inspector() {
             <option value="review">確認待ち</option>
             <option value="done">確定</option>
           </select>
+          <label>塗り色（フローのノード）</label>
+          <ColorSwatchRow
+            value={d?.fillColor}
+            styleOf={(c) => ({ background: TASK_COLORS[c].fill, borderColor: TASK_COLORS[c].base })}
+            onChange={(c) => updateDetail(taskId, { fillColor: c })}
+            ariaLabel="塗り色"
+          />
+          <label>文字色（作業名）</label>
+          <ColorSwatchRow
+            value={d?.textColor}
+            styleOf={(c) => ({ background: TASK_COLORS[c].text, borderColor: TASK_COLORS[c].text })}
+            onChange={(c) => updateDetail(taskId, { textColor: c })}
+            ariaLabel="文字色"
+          />
           <label>工程No（空欄で自動採番）</label>
           <input
             defaultValue={task.code ?? ''}

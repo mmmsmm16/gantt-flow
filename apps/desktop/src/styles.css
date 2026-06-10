@@ -933,6 +933,24 @@ button.danger:hover {
 .node.task:hover {
   border-color: var(--faint);
 }
+/* 工程カラー(塗り)。--task-base/--task-fill は FlowCanvas が theme.ts の正準値を注入。
+   選択強調(.selected の枠色)が常に勝つよう、このルールは .selected より前に置く。 */
+.node.task.colored {
+  background: var(--task-fill);
+  border-color: var(--task-base);
+}
+[data-theme='dark'] .node.task.colored {
+  /* ダークは淡パステルが眩しいため、濃色(base)を地色に混ぜて導出する */
+  background: color-mix(in srgb, var(--task-base) 24%, var(--node-task-bg));
+  border-color: color-mix(in srgb, var(--task-base) 65%, var(--node-task-bg));
+}
+/* 工程カラー(文字色)。ノードのラベルに適用(ダークは白を混ぜて読めるよう持ち上げ)。 */
+.node.task.colored-text .node-label {
+  color: var(--task-text);
+}
+[data-theme='dark'] .node.task.colored-text .node-label {
+  color: color-mix(in srgb, var(--task-text) 60%, white);
+}
 .node.task:active {
   cursor: grabbing;
 }
@@ -3586,4 +3604,54 @@ kbd {
 }
 .handle:hover {
   transform: translateY(-50%) scale(1.18);
+}
+
+/* =========================================================================
+   工程カラー: 表のドット / 文字色 / インスペクタのスウォッチ
+   ========================================================================= */
+/* 作業名セル先頭の塗り色ドット(アウトライン表) */
+.color-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  align-self: center;
+}
+/* 作業名の文字色(アウトライン表 / 全項目表)。--task-text は各コンポーネントが注入。
+   全項目表の粒度色(.lvl-*)より後に定義して上書きする。ダークは白を混ぜて可読性を確保。 */
+input.colored-text {
+  color: var(--task-text);
+  font-weight: 600;
+}
+[data-theme='dark'] input.colored-text {
+  color: color-mix(in srgb, var(--task-text) 60%, white);
+}
+/* インスペクタの色スウォッチ */
+.swatch-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 2px 0 4px;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.swatch:hover {
+  transform: scale(1.12);
+}
+.swatch.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.swatch-none {
+  background: var(--panel);
+  border-color: var(--line) !important;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1;
 }

@@ -6,6 +6,7 @@ import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
 import { prevCandidates } from './suggestions';
+import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
 const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
@@ -339,8 +340,21 @@ export function TableView() {
                             {collapsed.has(t.id) ? '▶' : '▼'}
                           </button>
                         )}
+                        {detail?.fillColor && (
+                          <span
+                            className="color-dot"
+                            style={{ background: TASK_COLORS[detail.fillColor].base }}
+                            title="工程カラー（塗り色）"
+                            aria-hidden="true"
+                          />
+                        )}
                         <input
-                          className="name-input"
+                          className={`name-input${detail?.textColor ? ' colored-text' : ''}`}
+                          style={
+                            detail?.textColor
+                              ? ({ '--task-text': TASK_COLORS[detail.textColor].text } as React.CSSProperties)
+                              : undefined
+                          }
                           ref={(el) => {
                             if (el) nameRefs.current.set(t.id, el);
                             else nameRefs.current.delete(t.id);
