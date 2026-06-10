@@ -18,6 +18,7 @@ interface FileHandlers {
   onExportExcel: () => void;
   onExportCsv: () => void;
   onExportSvg: () => void;
+  onPrint: () => void;
 }
 
 interface Cmd {
@@ -138,6 +139,7 @@ export function CommandPalette(handlers: FileHandlers) {
       { id: 'export-excel', label: 'Excel に書き出す', keywords: 'export excel xlsx 出力 書き出し', run: handlers.onExportExcel },
       { id: 'export-csv', label: 'CSV に書き出す', keywords: 'export csv', run: handlers.onExportCsv },
       { id: 'export-svg', label: '画像 (SVG) に書き出す', keywords: 'export svg gazou 画像', run: handlers.onExportSvg },
+      { id: 'print', label: '印刷 / PDF（工程表＋フロー図）', keywords: 'print insatsu 印刷 pdf', hint: '⌘P', run: handlers.onPrint },
       { id: 'undo', label: '元に戻す', keywords: 'undo modosu もどす', hint: '⌘Z', run: app.undo, available: canUndo },
       { id: 'redo', label: 'やり直し', keywords: 'redo yarinaoshi', hint: '⌘Y', run: app.redo, available: canRedo },
       { id: 'theme', label: 'テーマを切り替え（ライト / ダーク）', keywords: 'theme dark light テーマ', run: ui.toggleTheme },

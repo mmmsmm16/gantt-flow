@@ -12,6 +12,7 @@ import {
   exportExcelFile,
   exportCsvFile,
   exportSvgFile,
+  printProjectAndFlow,
   forgetFileHandle,
 } from './persistence';
 import { useUI } from './ui/useUI';
@@ -150,6 +151,10 @@ export function App() {
       const name = exportSvgFile(st.project, view);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
     }
+  };
+  const onPrint = () => {
+    const st = useApp.getState();
+    printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
   };
 
   // グローバルショートカット: Ctrl/⌘+K=パレット, Ctrl/⌘+S=保存, Ctrl/⌘+Z=戻す,
@@ -307,6 +312,10 @@ export function App() {
           <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
         </Menu>
 
+        <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
+          <Icons.Printer />
+        </button>
+
         <button
           className="icon-btn"
           onClick={toggleTheme}
@@ -418,6 +427,7 @@ export function App() {
         onExportExcel={onExportExcel}
         onExportCsv={onExportCsv}
         onExportSvg={onExportSvg}
+        onPrint={onPrint}
       />
       <HelpDialog />
       <Modal />

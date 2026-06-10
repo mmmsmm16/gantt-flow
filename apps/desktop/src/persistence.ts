@@ -131,6 +131,65 @@ export function exportSvgFile(project: Project, view: FlowLevelView): string {
   return name;
 }
 
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// 印刷 / PDF: 工程表（全項目）＋現在のフロー図を 1 枚の印刷用 HTML にまとめ、
+// 隠し iframe で印刷ダイアログを出す（ブラウザの「PDF として保存」で PDF 化できる）。
+// ポップアップブロックを避けるため window.open ではなく iframe を使う。
+export function printProjectAndFlow(project: Project, view: FlowLevelView | undefined): void {
+  const title = project.meta.title || 'プロジェクト';
+  const rows = projectToRows(project);
+  const header = rows[0] ?? [];
+  const body = rows.slice(1);
+  const thead = `<tr>${header.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
+  const tbody = body
+    .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c).replace(/\n/g, '<br>')}</td>`).join('')}</tr>`)
+    .join('');
+  const svg = view ? buildFlowSvg(project, view) : '';
+  const today = new Date().toISOString().slice(0, 10);
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; color: #1a1a1a; margin: 16mm; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .meta { color: #666; font-size: 11px; margin-bottom: 14px; }
+  h2 { font-size: 13px; margin: 18px 0 6px; border-bottom: 2px solid #333; padding-bottom: 2px; }
+  table { border-collapse: collapse; width: 100%; font-size: 10px; table-layout: fixed; }
+  th, td { border: 1px solid #bbb; padding: 3px 5px; text-align: left; vertical-align: top; word-break: break-word; }
+  th { background: #f0f0f0; }
+  .figure { margin-top: 6px; }
+  .figure svg { max-width: 100%; height: auto; }
+  @media print { @page { size: A4 landscape; margin: 12mm; } h2 { break-before: page; } h2:first-of-type { break-before: auto; } }
+</style></head><body>
+  <h1>${escapeHtml(title)}</h1>
+  <div class="meta">工程表・業務フロー図 / 出力日: ${today}</div>
+  <h2>工程表（手順一覧表）</h2>
+  <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+  ${svg ? `<h2>業務フロー図</h2><div class="figure">${svg}</div>` : ''}
+</body></html>`;
+
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  Object.assign(iframe.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
+  iframe.onload = () => {
+    const win = iframe.contentWindow;
+    if (!win) return;
+    win.focus();
+    win.print();
+    setTimeout(() => iframe.remove(), 1000); // 印刷ダイアログ後に後片付け
+  };
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow?.document;
+  if (!doc) {
+    iframe.remove();
+    return;
+  }
+  doc.open();
+  doc.write(html);
+  doc.close();
+}
+
 // ---- 取り込み（Excel → 行列） ----
 export async function readTableFile(file: File): Promise<string[][]> {
   if (file.name.toLowerCase().endsWith('.csv')) {
