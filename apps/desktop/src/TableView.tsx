@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
@@ -103,6 +103,8 @@ export function TableView() {
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
   const deps = Object.values(project.core.dependencies);
+  // 親(大)同士の接続から導出される前工程(フローのブリッジ矢印と同じもの)。表でも見せて同期ずれを無くす。
+  const bridgePreds = bridgePredMap(project.core);
 
   // 新しく追加した行の作業名入力にフォーカスする（連続入力）。
   const [focusId, setFocusId] = useState<Id | null>(null);
@@ -120,9 +122,12 @@ export function TableView() {
   const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
   const openRow = (t: ProcessTask) => {
+    // 全体スコープで俯瞰中はスコープを維持(どの工程も見えている)。特定の親に
+    // 絞って見ているときだけ、クリックした工程の文脈(親)へスコープを追従させる。
+    const wasScoped = useApp.getState().scopeParentId !== undefined;
     select(t.id);
     setFlowLevel(t.level);
-    setScope(t.parentId);
+    if (wasScoped) setScope(t.parentId);
     useUI.getState().setInspectorOpen(true); // 表の行クリックは従来どおり詳細パネルを開く
   };
 
@@ -411,6 +416,15 @@ export function TableView() {
                           {preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
                         </span>
                       )}
+                      {(bridgePreds[t.id] ?? []).map((fromId) => (
+                        <span
+                          key={`br-${fromId}`}
+                          className="prev-names derived"
+                          title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ・解除は大工程側の接続を削除）"
+                        >
+                          ⤷ {project.core.tasks[fromId]?.name ?? ''}
+                        </span>
+                      ))}
                       {candidates.length > 0 && (
                         <select
                           className="prev-add"

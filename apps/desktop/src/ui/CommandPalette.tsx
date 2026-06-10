@@ -648,9 +648,11 @@ export function CommandPalette(handlers: FileHandlers) {
     const app = useApp.getState();
     const t = app.project.core.tasks[taskId];
     if (!t) return;
+    // 全体スコープで俯瞰中は維持。特定の親に絞っているときだけ文脈(親)へ追従。
+    const wasScoped = app.scopeParentId !== undefined;
     app.select(taskId);
     app.setLevel(t.level);
-    app.setScope(t.parentId);
+    if (wasScoped) app.setScope(t.parentId);
     useUI.getState().setInspectorOpen(true); // ジャンプは「詳細を見たい」操作なので開く
   };
 

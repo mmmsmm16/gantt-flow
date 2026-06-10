@@ -4,7 +4,7 @@
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
 import { useEffect, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames } from './suggestions';
 import { useUI } from './ui/useUI';
@@ -153,6 +153,8 @@ export function FullTable() {
   const tasks = Object.values(byId);
   const codes = computeCodes(project.core);
   const deps = Object.values(project.core.dependencies);
+  // 親(大)同士の接続から導出される前工程(フローのブリッジと同じ)。表でも見せて同期ずれを無くす。
+  const bridgePreds = bridgePredMap(project.core);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
   const ioNames = collectIoNames(project);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
@@ -702,6 +704,15 @@ export function FullTable() {
                           <button className="ft-x" aria-label="前工程を解除" onClick={() => removeDependency(dep.id)}>
                             ×
                           </button>
+                        </span>
+                      ))}
+                      {(bridgePreds[t.id] ?? []).map((fromId) => (
+                        <span
+                          className="ft-pill derived"
+                          key={`br-${fromId}`}
+                          title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ）"
+                        >
+                          ⤷ {byId[fromId]?.name ?? ''}
                         </span>
                       ))}
                       {prevCandidates.length > 0 && (

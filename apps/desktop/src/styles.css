@@ -3807,3 +3807,26 @@ input.colored-text {
 .keybind-row.inactive .kb-keys kbd {
   opacity: 0.42;
 }
+
+/* =========================================================================
+   導出された前/次工程（親同士の接続から自動。フローのブリッジ矢印と同じもの）
+   ========================================================================= */
+.prev-names.derived,
+.ft-pill.derived {
+  color: var(--faint);
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: transparent;
+}
+.dep-row.derived .dep-name {
+  color: var(--faint);
+}
+.dep-note {
+  flex: none;
+  font-size: 10px;
+  color: var(--faint);
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 7px;
+}

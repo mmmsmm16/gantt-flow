@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { collectIoNames } from './suggestions';
@@ -84,6 +84,10 @@ export function Inspector() {
   );
   const depCandidates = siblings.filter((o) => !predIds.has(o.id) && !succIds.has(o.id));
   const nameOf = (id: Id) => project.core.tasks[id]?.name ?? '（不明）';
+  // 親(大)同士の接続から導出される前/次工程(フローのブリッジと同じ)。読み取り専用で表示。
+  const bridges = deriveParentBridges(project.core, task.level);
+  const bridgePredsOf = bridges.filter((b) => b.to === taskId);
+  const bridgeSuccsOf = bridges.filter((b) => b.from === taskId);
 
   return (
     <aside className="inspector" key={taskId}>
@@ -165,7 +169,13 @@ export function Inspector() {
         <section>
           <h3>前工程 / 次工程</h3>
           <label>前工程（この工程の前に行う）</label>
-          {preds.length === 0 && <p className="hint">なし</p>}
+          {preds.length === 0 && bridgePredsOf.length === 0 && <p className="hint">なし</p>}
+          {bridgePredsOf.map((b) => (
+            <div className="dep-row derived" key={`br-${b.from}`} title="大工程同士の接続から自動で繋がっています（解除は大工程側の接続を削除）">
+              <span className="dep-name">⤷ {nameOf(b.from)}</span>
+              <span className="dep-note">親の接続</span>
+            </div>
+          ))}
           {preds.map((dep) => (
             <div className="dep-row" key={dep.id}>
               <span className="dep-name">{nameOf(dep.from)}</span>
@@ -193,7 +203,13 @@ export function Inspector() {
           )}
 
           <label>次工程（この工程の後に行う）</label>
-          {succs.length === 0 && <p className="hint">なし</p>}
+          {succs.length === 0 && bridgeSuccsOf.length === 0 && <p className="hint">なし</p>}
+          {bridgeSuccsOf.map((b) => (
+            <div className="dep-row derived" key={`bs-${b.to}`} title="大工程同士の接続から自動で繋がっています">
+              <span className="dep-name">⤷ {nameOf(b.to)}</span>
+              <span className="dep-note">親の接続</span>
+            </div>
+          ))}
           {succs.map((dep) => (
             <div className="dep-row" key={dep.id}>
               <span className="dep-name">{nameOf(dep.to)}</span>
