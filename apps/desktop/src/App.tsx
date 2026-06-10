@@ -96,6 +96,7 @@ export function App() {
       const p = await openProjectFromFile();
       if (p) {
         useApp.getState().loadProject(p);
+        useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('開きました。', 'success');
       }
     } catch {
@@ -112,6 +113,7 @@ export function App() {
     if (ok) {
       forgetFileHandle(); // 新規は保存先を引き継がない
       useApp.getState().newProject();
+      useUI.getState().setOutlineCollapsed(new Set());
     }
   };
   const onImport = () => {
@@ -127,6 +129,7 @@ export function App() {
         await new Promise((r) => requestAnimationFrame(() => r(undefined)));
         forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
         const report = useApp.getState().importRows(await readTableFile(file));
+        useUI.getState().setOutlineCollapsed(new Set());
         const c = report.created;
         let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
         if (report.unresolvedDeps.length)
@@ -151,6 +154,7 @@ export function App() {
   };
   const onSample = () => {
     useApp.getState().loadSample();
+    useUI.getState().setOutlineCollapsed(new Set());
     if (!tourDone()) {
       useUI.getState().setTourStep(0); // 初回だけ使い方ツアーを開始
     } else {
@@ -159,6 +163,7 @@ export function App() {
   };
   const onTemplate = (key: string) => {
     useApp.getState().loadTemplate(key);
+    useUI.getState().setOutlineCollapsed(new Set());
     useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
   };
   const onOpenRecent = async (name: string) => {
@@ -166,6 +171,7 @@ export function App() {
       const p = await openRecentFile(name);
       if (p) {
         useApp.getState().loadProject(p);
+        useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('開きました。', 'success');
       } else {
         useUI.getState().toast('このファイルを開けませんでした（権限が必要です）。', 'error');
@@ -236,6 +242,7 @@ export function App() {
       });
       if (ok) {
         useApp.getState().restoreProject(saved);
+        useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('前回の未保存データを復元しました。保存をお忘れなく。', 'success');
       } else {
         clearAutosave();

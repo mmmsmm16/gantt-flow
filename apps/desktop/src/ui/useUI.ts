@@ -3,6 +3,8 @@
 import { create } from 'zustand';
 import { loadSingleKeyEnabled, saveSingleKeyEnabled } from '../keymap';
 
+type Id = string;
+
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
 const COLS_KEY = 'gf-columns';
@@ -158,6 +160,11 @@ interface UIState {
   settingsTab: 'general' | 'keys' | 'data';
   setSettingsTab: (tab: 'general' | 'keys' | 'data') => void;
 
+  /** アウトライン表の折りたたみ状態（コマンド/非マウント時も保持するためここに置く。非永続）。 */
+  outlineCollapsed: Set<Id>;
+  toggleOutlineCollapsed: (id: Id) => void;
+  setOutlineCollapsed: (ids: Set<Id>) => void;
+
   /** 使い方ツアーの現在ステップ（null=非表示）。 */
   tourStep: number | null;
   setTourStep: (step: number | null) => void;
@@ -246,6 +253,15 @@ export const useUI = create<UIState>((set, get) => ({
 
   settingsTab: 'general',
   setSettingsTab: (tab) => set({ settingsTab: tab }),
+
+  outlineCollapsed: new Set<Id>(),
+  toggleOutlineCollapsed: (id) => {
+    const next = new Set(get().outlineCollapsed);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    set({ outlineCollapsed: next });
+  },
+  setOutlineCollapsed: (ids) => set({ outlineCollapsed: ids }),
 
   columnVisibility: readInitialColumns(),
   toggleColumn: (key) => {

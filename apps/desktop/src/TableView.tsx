@@ -95,7 +95,9 @@ export function TableView() {
   const toggleColumn = useUI((s) => s.toggleColumn);
 
   const tasks = Object.values(project.core.tasks);
-  const [collapsed, setCollapsed] = useState<Set<Id>>(new Set());
+  // 折りたたみ状態は useUI に置く(コマンドパレットの全折りたたみ/全展開と共有・非マウント時も保持)。
+  const collapsed = useUI((s) => s.outlineCollapsed);
+  const setCollapsed = useUI((s) => s.setOutlineCollapsed);
   const rows = buildOutline(tasks, collapsed);
   const codes = computeCodes(project.core);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
@@ -115,13 +117,7 @@ export function TableView() {
     setFocusId(null);
   }, [focusId, rows.length]);
 
-  const toggleCollapse = (id: Id) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
   const openRow = (t: ProcessTask) => {
     select(t.id);

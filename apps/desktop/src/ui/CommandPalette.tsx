@@ -416,8 +416,41 @@ export function CommandPalette(handlers: FileHandlers) {
             .then((ok) => ok && useApp.getState().tidyFlow());
         },
       },
+      {
+        id: 'add-child',
+        label: '子工程を追加（選択の下）',
+        keywords: 'child ko 子 工程 追加 下',
+        available: hasSel,
+        run: () => {
+          const a = useApp.getState();
+          if (!a.selectedTaskId) return;
+          const nid = a.addChildTask(a.selectedTaskId);
+          if (nid) a.select(nid);
+        },
+      },
+      {
+        id: 'collapse-all',
+        label: 'アウトラインを全折りたたみ',
+        keywords: 'collapse fold tatamu 折りたたみ 閉じる',
+        run: () => {
+          const parents = new Set(
+            Object.values(useApp.getState().project.core.tasks)
+              .map((t) => t.parentId)
+              .filter((p): p is string => !!p),
+          );
+          useUI.getState().setOutlineCollapsed(parents);
+        },
+      },
+      {
+        id: 'expand-all',
+        label: 'アウトラインを全展開',
+        keywords: 'expand unfold hiraku 展開 開く',
+        run: () => useUI.getState().setOutlineCollapsed(new Set()),
+      },
+      { id: 'table-mode', label: '表モード切替（アウトライン ⇄ 全項目表）', keywords: 'table mode hyou 表 切替 アウトライン 全項目', run: () => ui.setTableMode(useUI.getState().tableMode === 'outline' ? 'full' : 'outline') },
       { id: 'issues-layer', label: '課題レイヤの表示を切り替え', keywords: 'issue kadai 課題 レイヤ', run: app.toggleIssues },
       { id: 'wide', label: '表を広く / 分割に戻す', keywords: 'wide hyou table 表', run: ui.toggleTableWide },
+      { id: 'flow-wide', label: 'フローを広く / 分割に戻す', keywords: 'wide flow フロー 全幅 広く', run: ui.toggleFlowWide },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
       { id: 'summary', label: 'サマリを開く（工数・自動化）', keywords: 'summary dashboard サマリ 集計 工数', run: () => ui.setOverlay('summary') },

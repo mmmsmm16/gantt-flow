@@ -80,10 +80,7 @@ export function useRowSelectionKeys(opts: RowSelectionOpts): void {
         }
         case 'table.addChild': {
           if (!sel || idx < 0) return false;
-          // addChildTask は新 ID を返さないため、追加前後の差分から特定してフォーカスする。
-          const before = new Set(Object.keys(app.project.core.tasks));
-          app.addChildTask(sel);
-          const nid = Object.keys(useApp.getState().project.core.tasks).find((id) => !before.has(id));
+          const nid = app.addChildTask(sel);
           if (nid) {
             useApp.getState().select(nid);
             o.beginEdit(nid);

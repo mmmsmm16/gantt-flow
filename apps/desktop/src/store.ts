@@ -86,7 +86,8 @@ export interface AppState {
 
   addTask: (name: string) => void;
   addRootTask: (level: ProcessLevel) => void;
-  addChildTask: (parentId: Id) => void;
+  /** 子工程を追加し、新しい工程の ID を返す（フォーカス/選択用）。 */
+  addChildTask: (parentId: Id) => Id | undefined;
   removeTask: (taskId: Id) => void;
   setTaskLevel: (taskId: Id, level: ProcessLevel) => void;
   setTaskCode: (taskId: Id, code: string | undefined) => void;
@@ -261,9 +262,11 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
     addChildTask: (parentId) => {
       const parent = get().project.core.tasks[parentId];
-      if (!parent) return;
+      if (!parent) return undefined;
       const childLevel = LEVELS[RANK[parent.level] + 1] ?? 'detail';
+      const before = new Set(Object.keys(get().project.core.tasks));
       commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId }, uuid));
+      return Object.keys(get().project.core.tasks).find((id) => !before.has(id));
     },
 
     // 削除は配下を残す（子は祖父へ昇格し、依存は維持）。
