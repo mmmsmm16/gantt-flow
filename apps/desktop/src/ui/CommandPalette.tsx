@@ -11,6 +11,7 @@ import * as Icons from './icons';
 interface FileHandlers {
   onNew: () => void;
   onSave: () => void;
+  onSaveAs: () => void;
   onOpen: () => void;
   onImport: () => void;
   onSample: () => void;
@@ -119,6 +120,7 @@ export function CommandPalette(handlers: FileHandlers) {
         },
       },
       { id: 'save', label: '保存', keywords: 'save hozon ほぞん', hint: '⌘S', run: handlers.onSave },
+      { id: 'save-as', label: '名前を付けて保存', keywords: 'save as namae 別名 betsumei copy', run: handlers.onSaveAs },
       { id: 'sample', label: 'サンプルを開く', keywords: 'sample デモ demo れい', run: handlers.onSample },
       { id: 'new', label: '新規プロジェクト', keywords: 'new shinki あたらしい', run: handlers.onNew },
       { id: 'import', label: 'CSV / Excel を取り込む', keywords: 'import torikomi excel csv', run: handlers.onImport },

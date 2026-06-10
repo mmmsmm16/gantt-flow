@@ -12,6 +12,7 @@ import {
   exportExcelFile,
   exportCsvFile,
   exportSvgFile,
+  forgetFileHandle,
 } from './persistence';
 import { useUI } from './ui/useUI';
 import { Modal, Toaster } from './ui/Dialogs';
@@ -66,11 +67,17 @@ export function App() {
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
     : [];
 
-  const onSave = () => {
-    const name = saveProjectToFile(useApp.getState().project);
-    useApp.getState().markSaved();
-    useUI.getState().toast(`保存しました（${name}）`, 'success');
+  const onSave = async (opts: { saveAs?: boolean } = {}) => {
+    try {
+      const name = await saveProjectToFile(useApp.getState().project, opts);
+      if (name === null) return; // ピッカーをキャンセル
+      useApp.getState().markSaved();
+      useUI.getState().toast(`保存しました（${name}）`, 'success');
+    } catch {
+      useUI.getState().toast('保存できませんでした。', 'error');
+    }
   };
+  const onSaveAs = () => onSave({ saveAs: true });
   const onOpen = async () => {
     try {
       const p = await openProjectFromFile();
@@ -89,7 +96,10 @@ export function App() {
       confirmLabel: '作成',
       danger: true,
     });
-    if (ok) useApp.getState().newProject();
+    if (ok) {
+      forgetFileHandle(); // 新規は保存先を引き継がない
+      useApp.getState().newProject();
+    }
   };
   const onImport = () => {
     const input = document.createElement('input');
@@ -99,6 +109,7 @@ export function App() {
       const file = input.files?.[0];
       if (!file) return;
       try {
+        forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
         const report = useApp.getState().importRows(await readTableFile(file));
         const c = report.created;
         let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
@@ -273,7 +284,7 @@ export function App() {
           </button>
           <button
             className={`icon-btn${dirty ? ' has-unsaved' : ''}`}
-            onClick={onSave}
+            onClick={() => onSave()}
             aria-label={dirty ? '保存（未保存の変更あり）' : '保存'}
             title="保存 (Ctrl+S)"
           >
@@ -400,6 +411,7 @@ export function App() {
       <CommandPalette
         onNew={onNew}
         onSave={onSave}
+        onSaveAs={onSaveAs}
         onOpen={onOpen}
         onImport={onImport}
         onSample={onSample}
