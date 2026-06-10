@@ -29,16 +29,48 @@ function scrollRowIntoView(taskId: Id): void {
     ?.scrollIntoView({ block: 'nearest' });
 }
 
-// 選択行の指定セル(data-cell)の入力へフォーカスして編集を開始する。
-function focusCell(taskId: Id, colKey: string | undefined): boolean {
-  if (!colKey) return false;
+// セルを横スクロールで可視範囲に入れる。全項目表の固定列(sticky)の影に隠れないよう、
+// 左固定列(No.+粒度列)の右端を「実質の左端」、右固定列(アクション列)の左端を
+// 「実質の右端」として補正する(scrollIntoView は sticky のかぶりを考慮しないため)。
+function scrollCellVisible(cell: HTMLElement): void {
+  cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const scroller = cell.closest('.ft-scroll, .outline-scroll');
+  const td = cell.closest('td');
+  const row = cell.closest('tr');
+  if (!(scroller instanceof HTMLElement) || !td || !row) return;
+  if (getComputedStyle(td).position === 'sticky') return; // 固定列は常に見えている
+  const sr = scroller.getBoundingClientRect();
+  let stickyRight = sr.left; // 左固定列の右端
+  let stickyLeft = sr.right; // 右固定列の左端
+  for (const c of Array.from(row.children)) {
+    if (!(c instanceof HTMLElement)) continue;
+    const cs = getComputedStyle(c);
+    if (cs.position !== 'sticky') continue;
+    const r = c.getBoundingClientRect();
+    if (cs.left !== 'auto') stickyRight = Math.max(stickyRight, r.right);
+    else if (cs.right !== 'auto') stickyLeft = Math.min(stickyLeft, r.left);
+  }
+  const cr = td.getBoundingClientRect();
+  if (cr.left < stickyRight) scroller.scrollLeft -= stickyRight - cr.left + 8;
+  else if (cr.right > stickyLeft) scroller.scrollLeft += cr.right - stickyLeft + 8;
+}
+
+// 選択行の指定セル(data-cell)を取得。
+function cellOf(taskId: Id, colKey: string | undefined): HTMLElement | null {
+  if (!colKey) return null;
   const el = document.querySelector(
     `tr[data-taskid="${CSS.escape(taskId)}"] [data-cell="${CSS.escape(colKey)}"]`,
   );
-  if (!(el instanceof HTMLElement)) return false;
+  return el instanceof HTMLElement ? el : null;
+}
+
+// 選択行の指定セル(data-cell)の入力へフォーカスして編集を開始する。
+function focusCell(taskId: Id, colKey: string | undefined): boolean {
+  const el = cellOf(taskId, colKey);
+  if (!el) return false;
   el.focus();
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.select();
-  el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  scrollCellVisible(el);
   return true;
 }
 
@@ -91,6 +123,9 @@ export function useRowSelectionKeys(opts: RowSelectionOpts): { colIdx: number } 
               ? Math.max(0, cur - 1)
               : Math.min(o.columns.length - 1, cur + 1);
           setColIdx(next);
+          // 移動先のセルが見切れないように画面も追従(固定列の影も考慮)。
+          const cell = cellOf(sel, o.columns[next]);
+          if (cell) scrollCellVisible(cell);
           return true;
         }
         case 'table.edit': {
