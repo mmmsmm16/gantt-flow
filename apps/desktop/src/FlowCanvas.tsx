@@ -101,6 +101,12 @@ export function FlowCanvas() {
   const [vp, setVp] = useState({ left: 0, top: 0, w: 0, h: 0 });
   // フロー上で工程名をその場編集している対象（ダブルクリック / F2）。
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  // キーボード接続モード(c)。起点から候補(距離順)を Tab/矢印で循環し Enter で接続。
+  const [kbConnect, setKbConnect] = useState<{
+    from: FlowNodeId;
+    candidates: FlowNodeId[];
+    idx: number;
+  } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [panning, setPanning] = useState(false);
@@ -118,6 +124,38 @@ export function FlowCanvas() {
       registerContextHandler('flow', (action, e) => flowActionsRef.current?.(action, e) ?? false),
     [],
   );
+
+  // 接続モード中はモーダルにキーを横取りする(capture)。Tab/矢印=候補循環、Enter=確定、Esc/c=取消。
+  // stopPropagation で useGlobalHotkeys・既存 Delete/Esc ハンドラへは流さない。
+  useEffect(() => {
+    if (!kbConnect) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      const cycle = (d: number) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setKbConnect((c) =>
+          c ? { ...c, idx: (c.idx + d + c.candidates.length) % c.candidates.length } : c,
+        );
+      };
+      if (e.key === 'Tab') cycle(e.shiftKey ? -1 : 1);
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') cycle(1);
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') cycle(-1);
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        const target = kbConnect.candidates[kbConnect.idx];
+        if (target) connect(kbConnect.from, target);
+        setKbConnect(null);
+      } else if (e.key === 'Escape' || e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        e.stopPropagation();
+        setKbConnect(null);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [kbConnect, connect]);
 
   // 範囲選択中に計算した「枠内ノード」を pointerup で確定するための受け渡し。
   const bandSelRef = useRef<FlowNodeId[]>([]);
@@ -526,6 +564,25 @@ export function FlowCanvas() {
         setEditingTaskId(tid);
         return true;
       }
+      case 'flow.connect': {
+        const fromId = keyTargets()[0];
+        const from = fromId ? view.nodes[fromId] : undefined;
+        if (!from || (from.kind !== 'task' && from.kind !== 'control')) return false;
+        const fc = center(from);
+        const cands = Object.values(view.nodes)
+          .filter((n) => (n.kind === 'task' || n.kind === 'control') && n.id !== from.id)
+          .sort((a, b) => {
+            const ca = center(a);
+            const cb = center(b);
+            return (
+              Math.hypot(ca.cx - fc.cx, ca.cy - fc.cy) - Math.hypot(cb.cx - fc.cx, cb.cy - fc.cy)
+            );
+          })
+          .map((n) => n.id);
+        if (!cands.length) return false;
+        setKbConnect({ from: from.id, candidates: cands, idx: 0 });
+        return true;
+      }
       default:
         return false;
     }
@@ -666,6 +723,10 @@ export function FlowCanvas() {
   const bandSelSet = new Set(bandSel);
   const isMultiSel = (n: FlowNode) => multiSel.has(n.id) || bandSelSet.has(n.id);
 
+  // キーボード接続モードの現候補(ハイライトとプレビュー矢印の対象)。
+  const kbCandidate = kbConnect ? (kbConnect.candidates[kbConnect.idx] ?? null) : null;
+  const kbCandSet = kbConnect ? new Set(kbConnect.candidates) : null;
+
   return (
     <div className="flow-wrap">
       <div className="flow-palette">
@@ -732,11 +793,17 @@ export function FlowCanvas() {
             ＋
           </button>
         </span>
-        <span className="palette-hint">○ドラッグで矢印 / Shift+ドラッグで範囲選択 / Delete で削除 / Ctrl+ホイールで拡大縮小</span>
+        {kbConnect ? (
+          <span className="palette-hint connect-hint">
+            接続モード: Tab / 矢印で候補を選び Enter で接続（Esc で取消）
+          </span>
+        ) : (
+          <span className="palette-hint">○ドラッグで矢印 / c で接続モード / Shift+ドラッグで範囲選択 / Delete で削除</span>
+        )}
       </div>
 
       <div
-        className={`flow-canvas${panning ? ' panning' : ''}${conn ? ' connecting' : ''}`}
+        className={`flow-canvas${panning ? ' panning' : ''}${conn || kbConnect ? ' connecting' : ''}`}
         ref={canvasRef}
         onPointerDown={onCanvasPointerDown}
         onDoubleClick={onCanvasDoubleClick}
@@ -859,6 +926,28 @@ export function FlowCanvas() {
             />
           )}
 
+          {/* キーボード接続モード: 起点 → 現候補のプレビュー矢印 */}
+          {kbConnect &&
+            kbCandidate &&
+            (() => {
+              const s = view.nodes[kbConnect.from];
+              const t = view.nodes[kbCandidate];
+              if (!s || !t) return null;
+              const sp = posOf(s);
+              const ss = sizeOf(s);
+              const tc = center(t);
+              return (
+                <line
+                  x1={sp.x + ss.w}
+                  y1={sp.y + ss.h / 2}
+                  x2={tc.cx}
+                  y2={tc.cy}
+                  className="edge connecting on-target"
+                  markerEnd="url(#arrow)"
+                />
+              );
+            })()}
+
           {showIssues &&
             nodes.map((n) => {
               if (n.kind !== 'issue' || !isPrimaryIssue(n)) return null; // 集約: 代表のみ線を引く
@@ -924,15 +1013,24 @@ export function FlowCanvas() {
                   ? `node comment${selCls}`
                   : `node control control-${n.control}${selCls}`;
           // 接続ドラッグ中: 起点=conn-source / 落下先候補=droppable / カーソル直下=drop-active。
-          const connCls = !conn
-            ? ''
-            : n.id === conn.from
+          // キーボード接続モード(kbConnect)も同じ見た目を使う(現候補=drop-active)。
+          const connCls = conn
+            ? n.id === conn.from
               ? ' conn-source'
               : n.id === dropTargetId
                 ? ' droppable drop-active'
                 : isConnTarget(n)
                   ? ' droppable'
-                  : '';
+                  : ''
+            : kbConnect
+              ? n.id === kbConnect.from
+                ? ' conn-source'
+                : n.id === kbCandidate
+                  ? ' droppable drop-active'
+                  : kbCandSet?.has(n.id)
+                    ? ' droppable'
+                    : ''
+              : '';
           const activate = () => {
             if (n.kind === 'task') {
               select(n.taskId);
