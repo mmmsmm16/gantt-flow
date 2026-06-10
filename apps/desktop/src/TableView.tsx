@@ -376,6 +376,9 @@ export function TableView() {
                             if (el) nameRefs.current.set(t.id, el);
                             else nameRefs.current.delete(t.id);
                           }}
+                          // 非制御 input のため、外(フローのリネーム等)で名前が変わったら
+                          // key で作り直して defaultValue を反映する(全項目表と同じパターン)。
+                          key={`name-${t.name}`}
                           defaultValue={t.name}
                           placeholder="作業名"
                           aria-label="作業名"
