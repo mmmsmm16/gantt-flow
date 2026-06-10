@@ -10,6 +10,7 @@ import {
   ioIconRect,
   IO_ICON,
   laneLayout,
+  routeEdge,
   LANE_MIN_H,
   type LaneBox,
   type ControlKind,
@@ -728,6 +729,11 @@ export function FlowCanvas() {
   const kbCandidate = kbConnect ? (kbConnect.candidates[kbConnect.idx] ?? null) : null;
   const kbCandSet = kbConnect ? new Set(kbConnect.candidates) : null;
 
+  // 矢印経路の障害物 = 箱もの(工程/制御/付箋)。ドラッグ中はその位置(posOf)を反映。
+  const edgeObstacles = divNodes
+    .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+    .map((n) => ({ id: n.id, ...posOf(n), ...sizeOf(n) }));
+
   return (
     <div className="flow-wrap">
       <div className="flow-palette">
@@ -881,13 +887,14 @@ export function FlowCanvas() {
             const ss = sizeOf(s);
             const tp = posOf(t);
             const ts = sizeOf(t);
-            const x1 = sp.x + ss.w;
-            const y1 = sp.y + ss.h / 2;
-            const x2 = tp.x;
-            const y2 = tp.y + ts.h / 2;
-            const midX = (x1 + x2) / 2;
-            // 直角（オーソゴナル）コネクタ: 水平 → 垂直 → 水平
-            const d = `M${x1},${y1} H${midX} V${y2} H${x2}`;
+            // 直角コネクタ。他のノードと重なると「その工程と繋がっている」ように
+            // 誤読されるため、routeEdge が障害物を避ける通り道を選ぶ。
+            const route = routeEdge(
+              { ...sp, ...ss },
+              { ...tp, ...ts },
+              edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+            );
+            const d = route.d;
             return (
               <g key={e.id}>
                 <path
@@ -908,7 +915,7 @@ export function FlowCanvas() {
                   markerEnd="url(#arrow)"
                 />
                 {e.label && (
-                  <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} className="edge-label" textAnchor="middle">
+                  <text x={route.label.x} y={route.label.y - 4} className="edge-label" textAnchor="middle">
                     {e.label}
                   </text>
                 )}
@@ -972,12 +979,15 @@ export function FlowCanvas() {
             const sp = posOf(s);
             const ss = sizeOf(s);
             const tp = posOf(t);
-            const x1 = sp.x + ss.w;
-            const y1 = sp.y + ss.h / 2;
-            const x2 = tp.x;
-            const y2 = tp.y + sizeOf(t).h / 2;
+            const ts = sizeOf(t);
+            // 経路のラベル位置に追従(描画と同じ routeEdge を使い、迂回時もズレない)。
+            const route = routeEdge(
+              { ...sp, ...ss },
+              { ...tp, ...ts },
+              edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+            );
             return (
-              <div className="edge-toolbar" style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2 }}>
+              <div className="edge-toolbar" style={{ left: route.label.x, top: route.label.y }}>
                 <button title="分岐ラベルを編集" onClick={() => void editEdgeLabel(e.id, e.label ?? '')}>
                   ✎ ラベル
                 </button>

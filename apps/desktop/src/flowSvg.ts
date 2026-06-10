@@ -6,6 +6,7 @@ import {
   ioIconRect,
   IO_ICON,
   laneLayout,
+  routeEdge,
   type Project,
   type FlowLevelView,
   type FlowNode,
@@ -122,25 +123,27 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
-  // edges
+  // edges: 直角コネクタ。他ノードと重ならない通り道を routeEdge が選ぶ(画面と同一ロジック)。
+  const edgeObstacles = nodes
+    .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+    .map((n) => ({ id: n.id, x: n.x, y: n.y, w: sizeOf(n).w, h: sizeOf(n).h }));
   for (const e of Object.values(view.edges)) {
     const s = view.nodes[e.source];
     const t = view.nodes[e.target];
     if (!s || !t) continue;
     const ss = sizeOf(s);
     const ts = sizeOf(t);
-    const x1 = s.x + ss.w;
-    const y1 = s.y + ss.h / 2;
-    const x2 = t.x;
-    const y2 = t.y + ts.h / 2;
-    const midX = (x1 + x2) / 2;
-    // 直角（オーソゴナル）コネクタ: 水平 → 垂直 → 水平
+    const route = routeEdge(
+      { x: s.x, y: s.y, w: ss.w, h: ss.h },
+      { x: t.x, y: t.y, w: ts.w, h: ts.h },
+      edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+    );
     parts.push(
-      `<path d="M${x1},${y1} H${midX} V${y2} H${x2}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"/>`,
+      `<path d="${route.d}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"/>`,
     );
     if (e.label) {
       parts.push(
-        `<text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2 - 4}" font-size="11" fill="${FLOW_LIGHT.edgeLabel}" text-anchor="middle">${esc(e.label)}</text>`,
+        `<text x="${route.label.x}" y="${route.label.y - 4}" font-size="11" fill="${FLOW_LIGHT.edgeLabel}" text-anchor="middle">${esc(e.label)}</text>`,
       );
     }
   }
