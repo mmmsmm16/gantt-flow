@@ -98,6 +98,10 @@ export interface AppState {
   addDependency: (from: Id, to: Id) => void;
   removeDependency: (depId: Id) => void;
   addSiblingOf: (taskId: Id) => Id | undefined;
+  /** 工程を複製（同じ粒度・親の直後に、詳細＝I/O・課題なども複製）。1 undo。 */
+  duplicateTask: (taskId: Id) => Id | undefined;
+  /** クリップボード由来の行（[作業名, 担当?] ...）をまとめて工程として追加。作成数を返す。 */
+  pasteRowsAsTasks: (rows: string[][]) => number;
   moveTaskUp: (taskId: Id) => void;
   moveTaskDown: (taskId: Id) => void;
   indentTask: (taskId: Id) => void;
@@ -341,6 +345,88 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       }
       commit(p);
       return newId;
+    },
+
+    // 工程を複製: 同じ粒度・親の「直後」に同名の工程を作り、詳細（I/O・課題は新ID）も写す。
+    // 依存（前後関係）は引き継がない（複製で順序を二重に張らない）。1 undo。
+    duplicateTask: (taskId) => {
+      const cur = get().project;
+      const t = cur.core.tasks[taskId];
+      if (!t) return undefined;
+      const before = new Set(Object.keys(cur.core.tasks));
+      let p = cAddTask(
+        cur,
+        { name: t.name, level: t.level, parentId: t.parentId, assigneeId: t.assigneeId },
+        uuid,
+      );
+      const newId = Object.keys(p.core.tasks).find((id) => !before.has(id));
+      if (!newId) {
+        commit(p);
+        return undefined;
+      }
+      const sibs = Object.values(p.core.tasks)
+        .filter((o) => (o.parentId ?? undefined) === (t.parentId ?? undefined))
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+      const idx = sibs.findIndex((o) => o.id === taskId);
+      if (idx >= 0) p = cReorderTask(p, newId, idx + 1);
+      const d = cur.details[taskId];
+      if (d) {
+        p = cUpdateTaskDetail(p, newId, {
+          how: d.how,
+          system: d.system,
+          note: d.note,
+          volume: d.volume,
+          exception: d.exception,
+          dataLink: d.dataLink,
+          regulation: d.regulation,
+          automation: d.automation,
+          difficulty: d.difficulty,
+          effortMinutes: d.effortMinutes,
+        });
+        for (const it of d.inputs ?? [])
+          p = cAddIoItem(p, newId, 'inputs', { name: it.name, kind: it.kind, formInfo: it.formInfo, source: it.source }, uuid);
+        for (const it of d.outputs ?? [])
+          p = cAddIoItem(p, newId, 'outputs', { name: it.name, kind: it.kind, formInfo: it.formInfo }, uuid);
+        for (const iss of d.issues ?? [])
+          p = cAddIssueItem(p, newId, { issue: iss.issue, measure: iss.measure }, uuid);
+      }
+      commit(p);
+      set({ selectedTaskId: newId });
+      return newId;
+    },
+
+    // クリップボード（Excel/表計算）からの貼り付け: 1 行 = 1 工程として一括追加。
+    // 列は [作業名, 担当?]。粒度・親は選択中の工程（無ければ現在のビュー）に合わせ末尾へ追加。
+    pasteRowsAsTasks: (rows) => {
+      const cur = get().project;
+      const sel = get().selectedTaskId ? cur.core.tasks[get().selectedTaskId!] : undefined;
+      const level = sel?.level ?? get().level;
+      const parentId = sel ? sel.parentId : get().scopeParentId;
+      const items = rows
+        .map((r) => ({ name: (r[0] ?? '').trim(), assignee: (r[1] ?? '').trim() }))
+        .filter((r) => r.name);
+      if (!items.length) return 0;
+      let p = cur;
+      let count = 0;
+      for (const it of items) {
+        const before = new Set(Object.keys(p.core.tasks));
+        p = cAddTask(p, { name: it.name, level, parentId }, uuid);
+        const nid = Object.keys(p.core.tasks).find((id) => !before.has(id));
+        if (!nid) continue;
+        count += 1;
+        if (it.assignee) {
+          const ex = Object.values(p.core.assignees).find((a) => a.name === it.assignee);
+          let aid: Id;
+          if (ex) aid = ex.id;
+          else {
+            p = cAddAssignee(p, { name: it.assignee, kind: 'department' }, uuid);
+            aid = Object.values(p.core.assignees).find((a) => a.name === it.assignee)!.id;
+          }
+          p = cSetAssignee(p, nid, aid);
+        }
+      }
+      if (count) commit(p);
+      return count;
     },
 
     moveTaskUp: (taskId) => {

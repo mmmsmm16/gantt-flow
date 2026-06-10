@@ -351,6 +351,7 @@ export interface AddIoArgs {
   name: string;
   kind: IoKind;
   formInfo?: string;
+  source?: string; // 出所（他部署など）。入力帳票で「どこから来るか」
 }
 
 export function addIoItem(
@@ -363,7 +364,7 @@ export function addIoItem(
   const next = clone(p);
   if (!next.core.tasks[taskId]) return next;
   const d = ensureDetail(next, taskId);
-  const item: IoItem = { id: idGen(), name: args.name, kind: args.kind, formInfo: args.formInfo };
+  const item: IoItem = { id: idGen(), name: args.name, kind: args.kind, formInfo: args.formInfo, source: args.source };
   d[io] = [...(d[io] ?? []), item];
   return next;
 }

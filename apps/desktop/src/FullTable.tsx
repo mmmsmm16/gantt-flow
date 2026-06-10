@@ -35,7 +35,7 @@ const DEFAULT_W: Record<string, number> = {
   no: 48, large: 110, medium: 110, small: 110, detail: 110, assignee: 110, prev: 150,
   effort: 64, how: 200, system: 170, inputs: 168, outputs: 168, issue: 200, measure: 200,
   note: 200, volume: 130, exception: 180, automation: 108, dataLink: 140, regulation: 140,
-  difficulty: 62, act: 64,
+  difficulty: 62, act: 96,
 };
 const TOGGLE_COLS: { key: string; label: string }[] = [
   ...LEVELS,
@@ -109,6 +109,8 @@ export function FullTable() {
   const removeTask = useApp((s) => s.removeTask);
   const setAssigneeManyByName = useApp((s) => s.setAssigneeManyByName);
   const removeManyTasks = useApp((s) => s.removeManyTasks);
+  const duplicateTask = useApp((s) => s.duplicateTask);
+  const pasteRowsAsTasks = useApp((s) => s.pasteRowsAsTasks);
   const ftColumns = useUI((s) => s.ftColumns);
   const toggleFtColumn = useUI((s) => s.toggleFtColumn);
   const ftColWidths = useUI((s) => s.ftColWidths);
@@ -227,6 +229,21 @@ export function FullTable() {
     }
   };
 
+  // クリップボード（Excel/表計算）の各行を工程として一括追加。タブ区切り [作業名, 担当?]。
+  const onPasteRows = async () => {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      useUI.getState().toast('クリップボードを読み取れませんでした（ブラウザの許可が必要です）。', 'error');
+      return;
+    }
+    const parsed = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.split('\t'));
+    const n = pasteRowsAsTasks(parsed);
+    if (n) useUI.getState().toast(`${n}件の工程を貼り付けました。`, 'success');
+    else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
+  };
+
   // 列幅のドラッグ調整。
   const startResize = (key: string, e: React.PointerEvent) => {
     e.preventDefault();
@@ -259,6 +276,15 @@ export function FullTable() {
       const id = taskOfEvent(e);
       if (id) {
         const nid = addSiblingOf(id);
+        if (nid) setFocusTask(nid);
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+      e.preventDefault();
+      const id = taskOfEvent(e) ?? selectedTaskId;
+      if (id) {
+        const nid = duplicateTask(id);
         if (nid) setFocusTask(nid);
       }
       return;
@@ -325,6 +351,9 @@ export function FullTable() {
           ＋ 大工程
         </button>
         <button onClick={() => addRootTask('medium')}>＋ 中工程</button>
+        <button onClick={onPasteRows} title="クリップボード（Excel など）の各行を工程として追加。列はタブ区切りで [作業名, 担当]。">
+          貼り付けで追加
+        </button>
         <Menu
           className="icon-btn menu-trigger col-menu"
           title="表示する列"
@@ -352,7 +381,7 @@ export function FullTable() {
           </span>
         ) : (
           <span className="ft-hint">
-            行クリックで選択 / Ctrl・Shift+クリックで複数選択 / Ctrl+Enter＝行追加・Ctrl+Delete＝削除 / 列はドラッグで幅調整。
+            行クリックで選択 / Ctrl・Shift+クリックで複数選択 / Ctrl+Enter＝行追加・Ctrl+D＝複製・Ctrl+Delete＝削除。
           </span>
         )}
       </div>
@@ -614,6 +643,17 @@ export function FullTable() {
                       }}
                     >
                       ＋
+                    </button>
+                    <button
+                      className="ft-rowbtn"
+                      aria-label={`「${t.name}」を複製`}
+                      title="この行を複製（Ctrl+D）"
+                      onClick={() => {
+                        const nid = duplicateTask(t.id);
+                        if (nid) setFocusTask(nid);
+                      }}
+                    >
+                      ⧉
                     </button>
                     <button
                       className="ft-rowbtn danger"

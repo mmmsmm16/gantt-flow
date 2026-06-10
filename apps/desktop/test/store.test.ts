@@ -293,6 +293,44 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(3);
   });
 
+  it('工程を複製すると同名の兄弟が直後にでき、I/O・課題もコピーされる（依存は引き継がない）', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const t = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().addIo(t.id, 'inputs', '注文書');
+    s.getState().addIssue(t.id, '手作業が多い');
+    const nid = s.getState().duplicateTask(t.id)!;
+    expect(nid).toBeDefined();
+    const dup = s.getState().project.core.tasks[nid]!;
+    expect(dup.name).toBe('受付');
+    expect(dup.level).toBe(t.level);
+    const dd = s.getState().project.details[nid]!;
+    expect(dd.inputs).toHaveLength(1);
+    expect(dd.inputs![0]!.name).toBe('注文書');
+    expect(dd.inputs![0]!.id).not.toBe(s.getState().project.details[t.id]!.inputs![0]!.id); // 新ID
+    expect(dd.issues).toHaveLength(1);
+    s.getState().undo(); // 1 undo で複製が消える
+    expect(s.getState().project.core.tasks[nid]).toBeUndefined();
+  });
+
+  it('クリップボード行（[名前, 担当]）を貼り付けると複数工程が一括追加される', () => {
+    const s = createAppStore();
+    const n = s.getState().pasteRowsAsTasks([
+      ['見積作成', '営業部'],
+      ['与信確認', '経理部'],
+      ['', ''], // 空行は無視
+      ['出荷指示'],
+    ]);
+    expect(n).toBe(3);
+    const names = Object.values(s.getState().project.core.tasks).map((t) => t.name);
+    expect(names).toContain('見積作成');
+    expect(names).toContain('与信確認');
+    expect(names).toContain('出荷指示');
+    expect(Object.values(s.getState().project.core.assignees).map((a) => a.name)).toContain('経理部');
+    s.getState().undo(); // 1 undo で全件取り消し
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(0);
+  });
+
   it('一括操作: moveNodesBy で複数ノードをまとめて平行移動（1 undo）', () => {
     const s = createAppStore();
     s.getState().addTask('A');

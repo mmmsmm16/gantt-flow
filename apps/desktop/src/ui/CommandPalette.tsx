@@ -99,6 +99,16 @@ export function CommandPalette(handlers: FileHandlers) {
         },
       },
       {
+        id: 'duplicate-task',
+        label: '選択中の工程を複製',
+        keywords: 'duplicate fukusei 複製 コピー copy',
+        available: !!selectedTaskId,
+        run: () => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.duplicateTask(a.selectedTaskId);
+        },
+      },
+      {
         id: 'delete-task',
         label: '選択中の工程を削除',
         keywords: 'delete remove sakujo 削除 行 ぎょう',
