@@ -3,10 +3,12 @@
 // 各コンポーネントが登録したハンドラへ委譲する(二重発火を構造的に防ぐ)。
 //
 // ガード順序(厳守):
-//  1. IME 変換中(isComposing / keyCode 229)は何もしない
-//  2. オーバーレイ/ダイアログ/ビジー/ツアー中は停止(パレットとヘルプのトグルだけ例外)
-//  3. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷)のみ。undo/redo はネイティブ優先
-//  4. g リーダー → findBinding → dispatch
+//  1. IME 変換中(isImeKeyEvent)は何もしない
+//  2. Esc は useUI.closeTopLayer で「最上位レイヤを 1 つだけ閉じる」(dialog > overlay > 一時 UI)。
+//     各ダイアログ/メニューは個別の window Esc リスナーを持たない(1 押下で多重に閉じない)
+//  3. オーバーレイ/ダイアログ/ビジー/ツアー中は停止(パレットとヘルプのトグルだけ例外)
+//  4. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷)のみ。undo/redo はネイティブ優先
+//  5. g リーダー → findBinding(pushKeyContext した 'connect' 等が最優先) → dispatch
 import { useEffect } from 'react';
 import type { TaskColor } from '@gantt-flow/core';
 import { useApp } from '../store';
@@ -16,6 +18,7 @@ import {
   findBinding,
   getActiveKeymap,
   isEditableTarget,
+  isImeKeyEvent,
   type KeyBinding,
   type KeyContext,
 } from '../keymap';
@@ -30,6 +33,23 @@ export function registerContextHandler(ctx: KeyContext, handler: ContextActionHa
   contextHandlers.set(ctx, handler);
   return () => {
     if (contextHandlers.get(ctx) === handler) contextHandlers.delete(ctx);
+  };
+}
+
+// モーダルに最優先となる追加コンテキスト(接続モード等)。後から push したものほど優先。
+const modalContexts: KeyContext[] = [];
+
+/** 'connect' のようなモーダルなキーコンテキストを有効化する。有効中は通常の
+    table/flow/global より優先して照合される(IME・ダイアログ・編集中ガードは共通のまま)。
+    モード終了時に戻り値で必ず解除すること。 */
+export function pushKeyContext(ctx: KeyContext): () => void {
+  modalContexts.unshift(ctx);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const i = modalContexts.indexOf(ctx);
+    if (i >= 0) modalContexts.splice(i, 1);
   };
 }
 
@@ -132,10 +152,21 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || e.keyCode === 229) return; // IME 変換中
+      if (isImeKeyEvent(e)) return; // IME 変換中
 
       const ui = useUI.getState();
       const editable = isEditableTarget(document.activeElement);
+
+      // Esc は常に「最上位レイヤを 1 つだけ閉じる」(dialog > overlay > 一時 UI)。
+      // ここが唯一の Esc クローズ処理(各ダイアログは個別リスナーを持たない)。
+      // 独自の Esc を持つ UI(パレットの引数モード等)は stopPropagation か
+      // registerOverlayCloser で差し込む。busy/ツアーは Esc 対象外(下の blocked で停止)。
+      if (e.key === 'Escape' && ui.closeTopLayer()) {
+        e.preventDefault();
+        leader.cancel();
+        if (ui.leaderPending) ui.setLeaderPending(false);
+        return;
+      }
 
       // オーバーレイ等の表示中は停止(パレットの Ctrl+K トグルと、ヘルプ表示中の ? だけ例外)。
       const blocked =
@@ -156,7 +187,7 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       // フォーカス中の Esc = そのコントロールを離れて選択モードへ戻る(表・フロー共通)。
       // 入力欄だけでなくボタン(セル内の＋追加など)も対象。blur だけ行い選択は維持する
       // (選択解除はもう一度 Esc)。独自 Esc 処理を持つ入力は stopPropagation でここに
-      // 来ない(パレット等はオーバーレイガードで先に止まる)。
+      // 来ない(ダイアログ/オーバーレイは上の closeTopLayer が先に閉じている)。
       const ae = document.activeElement;
       if (e.key === 'Escape' && ae instanceof HTMLElement && ae !== document.body && ae.tagName !== 'SECTION') {
         ae.blur();
@@ -177,8 +208,11 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
         return;
       }
 
-      const contexts: KeyContext[] =
-        ui.activePane === 'table' ? ['table', 'global'] : ['flow', 'global'];
+      // pushKeyContext で有効化されたモーダルコンテキスト(接続モード等)が最優先。
+      const contexts: KeyContext[] = [
+        ...modalContexts,
+        ...(ui.activePane === 'table' ? (['table', 'global'] as const) : (['flow', 'global'] as const)),
+      ];
       const binding = findBinding(e, keymap, contexts, leaderActive);
 
       if (leaderActive) {

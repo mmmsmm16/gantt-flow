@@ -1,7 +1,9 @@
 // フロントの保存/開く/取り込み/出力。
-// 保存はまず File System Access API（showSaveFilePicker）で「同一ファイルへ上書き」を試み、
-// ハンドルを覚えておく＝2 回目以降はダイアログ無しで上書き。非対応ブラウザはダウンロードにフォールバック。
-// 将来 Tauri 配下では window.__TAURI__ 経由でローカルファイルへアトミック保存に差し替える。
+// バックエンドは 2 系統（呼び出し側の API は共通）:
+// - Tauri 配下: window.__TAURI__ 経由で Rust(fsstore) のコマンドを呼ぶ。
+//   アトミック保存（fsync+rename）＋助言ロック（開く時）＋mtime 競合検知（保存時）。
+// - ブラウザ: File System Access API（showSaveFilePicker）で「同一ファイルへ上書き」。
+//   ハンドルを覚えておく＝2 回目以降はダイアログ無しで上書き。非対応ブラウザはダウンロード。
 import * as XLSX from 'xlsx';
 import {
   serializeProject,
@@ -9,8 +11,11 @@ import {
   projectToRows,
   projectToCsv,
   computeCodes,
+  parseCsv,
   type Project,
   type FlowLevelView,
+  type LockInfo,
+  type AcquireResult,
 } from '@gantt-flow/core';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
 
@@ -32,6 +37,10 @@ interface FsPickerType {
 }
 declare global {
   interface Window {
+    // Tauri 2 のグローバルブリッジ（tauri.conf.json の withGlobalTauri: true）。使う範囲だけ宣言。
+    __TAURI__?: {
+      core: { invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> };
+    };
     showSaveFilePicker?: (opts?: {
       suggestedName?: string;
       types?: FsPickerType[];
@@ -47,19 +56,156 @@ const JSON_TYPES: FsPickerType[] = [
   { description: 'gantt-flow プロジェクト', accept: { 'application/json': ['.json'] } },
 ];
 
-// 開いている/保存先のファイルハンドル（File System Access API 対応時のみ）。
+// ---- Tauri バックエンド ----
+
+export const isTauri = (): boolean =>
+  typeof window !== 'undefined' && window.__TAURI__ !== undefined;
+
+// Rust 側コマンド呼び出し。JS 側キーは camelCase（Tauri 2 が snake_case 引数へ自動変換）。
+// エラーは文字列で reject される（Rust 側 map_err(|e| e.to_string())）。
+const invoke = <T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> =>
+  window.__TAURI__!.core.invoke<T>(cmd, args);
+
+const APP_VERSION = '0.0.0';
+// このアプリ実行（ウィンドウ）ごとの識別子。助言ロックの自他判定に使う。
+const SESSION_ID =
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+const LOCK_REFRESH_MS = 30_000; // ハートビート間隔
+const LOCK_STALE_MS = 90_000; // 3×間隔（docs/05-persistence.md §3）を超えたら引き継ぎ候補
+
+// WebView からは OS のユーザー名/ホスト名を取得できないため、表示用のベストエフォート値。
+const makeOwner = (): LockInfo => {
+  const now = Date.now();
+  return {
+    user: 'gantt-flow ユーザー',
+    host: typeof navigator !== 'undefined' && navigator.platform ? navigator.platform : 'unknown',
+    sessionId: SESSION_ID,
+    openedAt: now,
+    heartbeatAt: now,
+    appVersion: APP_VERSION,
+  };
+};
+
+// 開いている/保存先。ブラウザは File System Access のハンドル、Tauri は絶対パスを覚える。
 // これがあると次回の保存はダイアログ無しで同じファイルへ上書きする。
 let fileHandle: FsFileHandle | null = null;
+let filePath: string | null = null;
+// Tauri: 競合検知用。開く/保存のたびに mtime を記録し、次の保存前に比較する。
+let lastKnownMtime: string | null = null;
+// Tauri: 保持中の助言ロック。
+let lockPath: string | null = null;
+let lockOwner: LockInfo | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+
+const basename = (p: string): string => p.split(/[\\/]/).pop() || p;
+
+// stat 失敗は「不明」扱い（保存自体の失敗は save_project 側で検知される）。
+const statMtime = async (path: string): Promise<string | null> => {
+  try {
+    return await invoke<string | null>('stat_updated_at', { path });
+  } catch {
+    return null;
+  }
+};
+
+function stopHeartbeat(): void {
+  if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
+  heartbeatTimer = undefined;
+}
+
+let unloadHookInstalled = false;
+function installUnloadHook(): void {
+  // beforeunload は「閉じる」を取り消せるため使わない（取り消されてもロックが消えてしまう）。
+  if (unloadHookInstalled || typeof window === 'undefined' || typeof window.addEventListener !== 'function')
+    return;
+  unloadHookInstalled = true;
+  window.addEventListener('pagehide', () => void releaseHeldLock());
+}
+
+function beginHolding(path: string, owner: LockInfo): void {
+  stopHeartbeat();
+  lockPath = path;
+  lockOwner = owner;
+  installUnloadHook();
+  heartbeatTimer = setInterval(() => {
+    if (!lockPath || !lockOwner) return;
+    lockOwner = { ...lockOwner, heartbeatAt: Date.now() };
+    void invoke('refresh_lock', { path: lockPath, owner: lockOwner }).catch(() => undefined);
+  }, LOCK_REFRESH_MS);
+}
+
+async function releaseHeldLock(): Promise<void> {
+  stopHeartbeat();
+  const path = lockPath;
+  const owner = lockOwner;
+  lockPath = null;
+  lockOwner = null;
+  if (!path || !owner) return;
+  try {
+    await invoke('release_lock', { path, owner });
+  } catch {
+    /* 解放失敗は放置（残ったロックは stale 引き継ぎで回収される） */
+  }
+}
+
+/** 他セッションのロックを検出したときの判断。stale=true は放置されたロック（引き継ぎ候補）。 */
+export type LockDecision = 'takeover' | 'proceed' | 'cancel';
+export interface OpenOptions {
+  /** 省略時はロック無しで続行（呼び出し側が確認 UI を持たない場合のベストエフォート）。 */
+  confirmLock?: (held: LockInfo, stale: boolean) => Promise<LockDecision>;
+}
+
+type LockAttempt = { status: 'locked'; owner: LockInfo } | { status: 'unlocked' | 'cancelled' };
+
+async function acquireLockFor(
+  path: string,
+  confirmLock?: OpenOptions['confirmLock'],
+): Promise<LockAttempt> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const owner = makeOwner();
+    let res: AcquireResult;
+    try {
+      res = await invoke<AcquireResult>('acquire_lock', {
+        path,
+        owner,
+        staleAfterMs: LOCK_STALE_MS,
+        nowMs: Date.now(),
+      });
+    } catch {
+      return { status: 'unlocked' }; // ロックは助言的: 取得の失敗自体で「開く」を妨げない
+    }
+    if (res.ok) return { status: 'locked', owner };
+    const decision = confirmLock ? await confirmLock(res.held, res.stale) : 'proceed';
+    if (decision === 'cancel') return { status: 'cancelled' };
+    if (decision === 'proceed') return { status: 'unlocked' };
+    // takeover: 確認時に見たロック(held)からの引き継ぎ。内容が変わっていたら（先を越された等）
+    // false が返るので、取り直して再判断する。
+    try {
+      const stolen = await invoke<boolean>('steal_lock', { path, owner, expected: res.held });
+      if (stolen) return { status: 'locked', owner };
+    } catch {
+      return { status: 'unlocked' };
+    }
+  }
+  return { status: 'cancelled' }; // 競合が解消しない場合は安全側（開かない）に倒す
+}
 
 export function hasFileHandle(): boolean {
-  return fileHandle !== null;
+  return fileHandle !== null || filePath !== null;
 }
 export function currentFileName(): string | null {
+  if (filePath !== null) return basename(filePath);
   return fileHandle?.name ?? null;
 }
-/** 新規/取り込み等で「保存先を忘れる」（次の保存でピッカーを出す）。 */
+/** 新規/取り込み等で「保存先を忘れる」（次の保存でピッカーを出す）。ロックも返す。 */
 export function forgetFileHandle(): void {
   fileHandle = null;
+  filePath = null;
+  lastKnownMtime = null;
+  void releaseHeldLock();
 }
 
 const fsSupported = (): boolean =>
@@ -80,38 +226,86 @@ function download(name: string, data: BlobPart, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
-// 保存: File System Access 対応なら同一ファイルへ上書き（初回 / saveAs はピッカー）。
-// 戻り値はファイル名。ユーザーがピッカーをキャンセルしたら null（呼び出し側は何もしない）。
-// 非対応ブラウザは従来どおりダウンロード（拡張子 .json）。
+// 保存の結果。呼び出し側はこれで成功・キャンセル・競合を区別する（失敗は throw）。
+export type SaveOutcome =
+  | { kind: 'saved'; name: string } // 保存先ファイルへ書き込んだ
+  | { kind: 'downloaded'; name: string } // 上書き不可の環境のためダウンロードに保存した（ブラウザ）
+  | { kind: 'cancelled' } // ユーザーがピッカーをキャンセル
+  | { kind: 'conflict' }; // Tauri: 開いた後にファイルが他で変更されている（force で上書き可）
+
+// 保存。Tauri ではアトミック保存＋mtime 競合検知、ブラウザでは File System Access で上書き。
+// 書き込みの失敗は throw する（黙ってダウンロードに逃げない: 成功扱いになると dirty が消え、
+// 復旧データも消えてしまうため）。
 export async function saveProjectToFile(
   project: Project,
-  opts: { saveAs?: boolean } = {},
-): Promise<string | null> {
+  opts: { saveAs?: boolean; force?: boolean } = {},
+): Promise<SaveOutcome> {
   const json = serializeProject(project);
   const suggested = `${safeName(project.meta.title)}.json`;
+  if (isTauri()) return saveTauri(json, suggested, opts);
   if (fsSupported()) {
-    try {
-      if (!fileHandle || opts.saveAs) {
+    if (!fileHandle || opts.saveAs) {
+      try {
         fileHandle = await window.showSaveFilePicker!({
           suggestedName: suggested,
           types: JSON_TYPES,
         });
+      } catch (err) {
+        if (isAbort(err)) return { kind: 'cancelled' };
+        throw err;
       }
-      const w = await fileHandle.createWritable();
-      await w.write(json);
-      await w.close();
-      void rememberRecent(fileHandle);
-      return fileHandle.name;
-    } catch (err) {
-      if (isAbort(err)) return null; // ユーザーがキャンセル
-      // それ以外の失敗（権限など）はダウンロードにフォールバック
     }
+    const w = await fileHandle.createWritable();
+    await w.write(json);
+    await w.close();
+    void rememberRecent(fileHandle);
+    return { kind: 'saved', name: fileHandle.name };
   }
+  // File System Access 非対応ブラウザのみダウンロード（呼び出し側は「上書きではない」と分かる）。
   download(suggested, json, 'application/json');
-  return suggested;
+  return { kind: 'downloaded', name: suggested };
+}
+
+async function saveTauri(
+  json: string,
+  suggested: string,
+  opts: { saveAs?: boolean; force?: boolean },
+): Promise<SaveOutcome> {
+  let path = filePath;
+  let picked = false;
+  if (!path || opts.saveAs) {
+    path = await invoke<string | null>('pick_save_path', { suggestedName: suggested });
+    if (path === null) return { kind: 'cancelled' };
+    picked = true;
+  }
+  // 競合検知: 覚えているファイルへの上書きで、開く/前回保存の後に他者が変更していないか。
+  // ピッカーで選び直した場合は明示的な上書き意思なので確認しない。
+  if (!picked && !opts.force && lastKnownMtime !== null) {
+    const mtime = await statMtime(path);
+    if (mtime !== null && mtime !== lastKnownMtime) return { kind: 'conflict' };
+  }
+  await invoke<null>('save_project', { path, contents: json });
+  lastKnownMtime = await statMtime(path);
+  if (filePath !== path) {
+    fileHandle = null;
+    filePath = path;
+    // 保存先が変わったらロックも移す（ベストエフォート: 取れなくても保存自体は完了している）。
+    await releaseHeldLock();
+    void acquireLockFor(path).then((r) => {
+      if (r.status === 'locked') beginHolding(path!, r.owner);
+    });
+  }
+  return { kind: 'saved', name: basename(path) };
 }
 
 // ---- 出力（Phase4） ----
+
+/** ローカル時刻の YYYY-MM-DD（toISOString は UTC のため、日本では 0〜9 時に前日になる）。 */
+export function localDateYmd(d = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function exportCsvFile(project: Project): string {
   const name = `${safeName(project.meta.title)}.csv`;
   download(name, '﻿' + projectToCsv(project), 'text/csv;charset=utf-8');
@@ -153,10 +347,9 @@ export function exportExcelFile(project: Project): string {
 
 // 図に「タイトル・出力日・凡例」を載せた装飾版 SVG（共有/提出用）。
 function decoratedSvg(project: Project, view: FlowLevelView): string {
-  const date = new Date().toISOString().slice(0, 10);
   return decorateFlowSvg(buildFlowSvg(project, view), {
     title: project.meta.title || 'プロジェクト',
-    subtitle: `業務フロー図 / 出力日: ${date}`,
+    subtitle: `業務フロー図 / 出力日: ${localDateYmd()}`,
   });
 }
 
@@ -194,7 +387,9 @@ export async function exportPngFile(project: Project, view: FlowLevelView): Prom
     ctx.scale(scale, scale);
     ctx.drawImage(img, 0, 0, w, h);
     const png = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-    if (png) download(name, png, 'image/png');
+    // toBlob は図が大きすぎる等で null を返しうる。黙って成功扱いにせず失敗として伝える。
+    if (!png) throw new Error('PNG への変換に失敗しました（図が大きすぎる可能性があります）');
+    download(name, png, 'image/png');
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -217,7 +412,7 @@ export function printProjectAndFlow(project: Project, view: FlowLevelView | unde
     .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c).replace(/\n/g, '<br>')}</td>`).join('')}</tr>`)
     .join('');
   const svg = view ? buildFlowSvg(project, view) : '';
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateYmd();
   const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
   * { box-sizing: border-box; }
@@ -260,11 +455,12 @@ export function printProjectAndFlow(project: Project, view: FlowLevelView | unde
   doc.close();
 }
 
-// ---- 取り込み（Excel → 行列） ----
+// ---- 取り込み（CSV / Excel → 行列） ----
 export async function readTableFile(file: File): Promise<string[][]> {
   if (file.name.toLowerCase().endsWith('.csv')) {
-    const text = await file.text();
-    return text.replace(/\r\n?/g, '\n').split('\n').map((line) => line.split(','));
+    // RFC 4180 のクオート（"a, b"・""・改行入りセル）に対応した core のパーサを使う。
+    // 自前の split(',') ではエクスポートした CSV すら正しく読み戻せない。
+    return parseCsv(await file.text());
   }
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
   const sheet = wb.Sheets[wb.SheetNames[0]!]!;
@@ -272,9 +468,27 @@ export async function readTableFile(file: File): Promise<string[][]> {
   return rows.map((r) => r.map((c) => String(c ?? '')));
 }
 
-// 開く: File System Access 対応ならピッカーでハンドルを取得（以後の保存は上書き）。
-// 非対応ブラウザは <input type=file>。不正なファイルは throw（Zod）。
-export async function openProjectFromFile(): Promise<Project | null> {
+// 開く。Tauri ではダイアログ→読み込み→助言ロック取得（他セッションが保持していれば
+// opts.confirmLock で判断を仰ぐ）。ブラウザはピッカーでハンドルを取得（以後の保存は上書き）。
+// 非対応ブラウザは <input type=file>。不正なファイルは throw（Zod / 整合性エラー）。
+export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Project | null> {
+  if (isTauri()) {
+    const path = await invoke<string | null>('pick_open_path', {});
+    if (path === null) return null;
+    // mtime は読む「前」に取る（読んでいる間の変更を、次の保存で競合として拾う側に倒す）。
+    const mtime = await statMtime(path);
+    const text = await invoke<string>('open_project', { path });
+    const project = deserializeProject(text); // 不正なら throw
+    if (lockPath === path) await releaseHeldLock(); // 同じファイルの開き直しは自分のロックと競合させない
+    const lock = await acquireLockFor(path, opts.confirmLock);
+    if (lock.status === 'cancelled') return null; // 開くのをやめる（今の状態は変えない）
+    await releaseHeldLock(); // 前に開いていたファイルのロックを返す
+    if (lock.status === 'locked') beginHolding(path, lock.owner);
+    fileHandle = null;
+    filePath = path;
+    lastKnownMtime = mtime;
+    return project;
+  }
   if (typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function') {
     let handles: FsFileHandle[];
     try {
@@ -288,6 +502,7 @@ export async function openProjectFromFile(): Promise<Project | null> {
     const file = await handle.getFile();
     const project = deserializeProject(await file.text()); // 不正なら throw
     fileHandle = handle; // 検証成功後にだけ保存先として採用
+    filePath = null;
     void rememberRecent(handle);
     return project;
   }
@@ -305,6 +520,7 @@ export async function openProjectFromFile(): Promise<Project | null> {
         const text = await file.text();
         const project = deserializeProject(text); // 不正なら throw（Zod）
         fileHandle = null; // input 経由は上書き不可（毎回ダウンロード保存）
+        filePath = null;
         resolve(project);
       } catch (err) {
         reject(err);
@@ -393,6 +609,7 @@ export async function openRecentFile(name: string): Promise<Project | null> {
   const file = await handle.getFile();
   const project = deserializeProject(await file.text());
   fileHandle = handle;
+  filePath = null;
   void rememberRecent(handle);
   return project;
 }

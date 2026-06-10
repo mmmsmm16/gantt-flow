@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useApp, findView } from './store';
 import { useUI } from './ui/useUI';
-import { registerContextHandler } from './ui/useGlobalHotkeys';
+import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
+import { isImeKeyEvent } from './keymap';
+import { confirmRemoveTasks } from './taskOps';
 import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, type NavDir } from './spatialNav';
 import * as Icons from './ui/icons';
@@ -10,11 +12,18 @@ import {
   deriveBands,
   ioIconRect,
   IO_ICON,
+  issueLineTarget,
+  issuePrimaryIds,
   laneLayout,
+  nodeRect,
+  nodeSize,
   routeEdge,
+  sourceChipLayout,
   LANE_MIN_H,
+  type EdgeRoute,
   type LaneBox,
   type ControlKind,
+  type FlowEdge,
   type FlowNode,
   type FlowNodeId,
 } from '@gantt-flow/core';
@@ -33,14 +42,6 @@ const CONTROL_LABEL: Record<ControlKind, string> = {
   decision: '判断',
   merge: '合流',
 };
-
-function sizeOf(n: FlowNode) {
-  if (n.kind === 'task') return SIZE.task;
-  if (n.kind === 'doc') return SIZE.doc;
-  if (n.kind === 'issue') return SIZE.issue;
-  if (n.kind === 'comment') return SIZE.comment;
-  return SIZE.control;
-}
 
 export function FlowCanvas() {
   const project = useApp((s) => s.project);
@@ -65,7 +66,6 @@ export function FlowCanvas() {
   const addIo = useApp((s) => s.addIo);
   const moveNodesBy = useApp((s) => s.moveNodesBy);
   const deleteFlowNodes = useApp((s) => s.deleteFlowNodes);
-  const removeManyTasks = useApp((s) => s.removeManyTasks);
   const renameTask = useApp((s) => s.renameTask);
 
   // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
@@ -101,8 +101,6 @@ export function FlowCanvas() {
   multiSelRef.current = multiSel;
   // 範囲選択の矩形（キャンバス座標）。Shift+空白ドラッグで開く。
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
-  // ミニマップ用の可視領域（スクロール位置とビューサイズ。スクロール/リサイズで更新）。
-  const [vp, setVp] = useState({ left: 0, top: 0, w: 0, h: 0 });
   // フロー上で工程名をその場編集している対象（ダブルクリック / F2）。
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   // キーボード接続モード(c)。起点から候補(距離順)を Tab/矢印で循環し Enter で接続。
@@ -139,64 +137,24 @@ export function FlowCanvas() {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [kbConnect]);
 
-  // 接続モード中はモーダルにキーを横取りする(capture)。矢印/hjkl=方向で接続先を選ぶ、
-  // Tab=距離順の循環、Enter=確定、Esc/c=取消。
-  // stopPropagation で useGlobalHotkeys・既存 Delete/Esc ハンドラへは流さない。
+  // 接続モード中は 'connect' コンテキストを最優先で有効化し、Tab/矢印/hjkl/Enter/Esc/c は
+  // keymap('connect') → 中央ディスパッチ(useGlobalHotkeys)経由で受ける。IME・ダイアログ・
+  // 編集中などのガードを全ハンドラと共通化する(capture での横取りはしない＝プロンプト表示中の
+  // Enter はプロンプトの確定に届く)。ハンドラ本体は描画後半で ref に流し込む。
+  const connectActionsRef = useRef<((action: string) => boolean) | null>(null);
+  const connecting = kbConnect !== null;
   useEffect(() => {
-    if (!kbConnect) return undefined;
-    const DIR_KEYS: Record<string, NavDir> = {
-      arrowright: 'right',
-      l: 'right',
-      arrowleft: 'left',
-      h: 'left',
-      arrowup: 'up',
-      k: 'up',
-      arrowdown: 'down',
-      j: 'down',
+    if (!connecting) return undefined;
+    const release = pushKeyContext('connect');
+    const unregister = registerContextHandler(
+      'connect',
+      (action) => connectActionsRef.current?.(action) ?? false,
+    );
+    return () => {
+      unregister();
+      release();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing) return;
-      const cycle = (d: number) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setKbConnect((c) =>
-          c ? { ...c, idx: (c.idx + d + c.candidates.length) % c.candidates.length } : c,
-        );
-      };
-      // 方向選択: 現候補から見て押した方向の最近傍の候補へ(空間ナビと同じ感覚)。
-      const dir = DIR_KEYS[e.key.toLowerCase()];
-      const pickDir = (d2: NavDir) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setKbConnect((c) => {
-          if (!c || !view) return c;
-          const boxes = c.candidates.flatMap((id) => {
-            const n = view.nodes[id];
-            return n ? [{ id, x: n.x, y: n.y, w: sizeOf(n).w, h: sizeOf(n).h }] : [];
-          });
-          const cur = boxes.find((b) => b.id === c.candidates[c.idx]);
-          if (!cur) return c;
-          const next = nearestInDirection(cur, boxes, d2);
-          return next ? { ...c, idx: c.candidates.indexOf(next as FlowNodeId) } : c;
-        });
-      };
-      if (e.key === 'Tab') cycle(e.shiftKey ? -1 : 1);
-      else if (dir && !e.ctrlKey && !e.metaKey && !e.altKey) pickDir(dir);
-      else if (e.key === 'Enter') {
-        e.preventDefault();
-        e.stopPropagation();
-        const target = kbConnect.candidates[kbConnect.idx];
-        if (target) connect(kbConnect.from, target);
-        setKbConnect(null);
-      } else if (e.key === 'Escape' || e.key.toLowerCase() === 'c') {
-        e.preventDefault();
-        e.stopPropagation();
-        setKbConnect(null);
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [kbConnect, connect]);
+  }, [connecting]);
 
   // 範囲選択中に計算した「枠内ノード」を pointerup で確定するための受け渡し。
   const bandSelRef = useRef<FlowNodeId[]>([]);
@@ -302,29 +260,6 @@ export function FlowCanvas() {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // ミニマップの可視領域を、スクロール量とビューサイズから更新（rAF で間引き）。
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el) return undefined;
-    let raf = 0;
-    const update = () => {
-      raf = 0;
-      setVp({ left: el.scrollLeft, top: el.scrollTop, w: el.clientWidth, h: el.clientHeight });
-    };
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(update);
-    };
-    update();
-    el.addEventListener('scroll', onScroll, { passive: true });
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener('scroll', onScroll);
-      ro.disconnect();
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
   useEffect(() => {
     if (!drag) return;
     const onMove = (e: PointerEvent) => {
@@ -370,6 +305,31 @@ export function FlowCanvas() {
 
   const view = findView(project, level, scopeParentId);
 
+  // 確定座標での全エッジ経路(エッジ id → 経路)。routeEdge は障害物の数に応じて高くつくため
+  // ビュー単位でメモ化する。ドラッグ中はドラッグ対象に接続するエッジだけ見かけの位置で
+  // 再計算し(routeOf)、それ以外はこの結果を使い回す＝毎フレームの全再ルートを避ける。
+  const baseRoutes = useMemo(() => {
+    const routes = new Map<string, EdgeRoute>();
+    if (!view) return routes;
+    const obstacles = Object.values(view.nodes)
+      .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+      .map((n) => ({ id: n.id, ...nodeRect(n) }));
+    for (const e of Object.values(view.edges)) {
+      const s = view.nodes[e.source];
+      const t = view.nodes[e.target];
+      if (!s || !t) continue;
+      routes.set(
+        e.id,
+        routeEdge(
+          nodeRect(s),
+          nodeRect(t),
+          obstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+        ),
+      );
+    }
+    return routes;
+  }, [view]);
+
   useEffect(() => {
     if (!conn || !view) return;
     const onMove = (e: PointerEvent) => {
@@ -381,7 +341,7 @@ export function FlowCanvas() {
       const target = Object.values(view.nodes).find((n) => {
         // 落下先は工程/制御ノードのみ（付箋・I/O・課題には矢印を引けない＝ハイライトと一致）。
         if (n.kind !== 'task' && n.kind !== 'control') return false;
-        const s = sizeOf(n);
+        const s = nodeSize(n);
         return p.x >= n.x && p.x <= n.x + s.w && p.y >= n.y && p.y <= n.y + s.h;
       });
       setConn((c) => {
@@ -396,95 +356,6 @@ export function FlowCanvas() {
       window.removeEventListener('pointerup', onUp);
     };
   }, [conn, view, connect]);
-
-  // Delete=選択中の要素を削除（矢印/制御ノード/付箋＝図から、工程ノード＝確認のうえ工程ごと）。
-  // Esc=選択解除。テキスト編集中やオーバーレイ表示中は無視。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || useUI.getState().overlay) return;
-      // Delete/Esc の所有者は常に 1 ペイン: 表がアクティブな間は表側(行選択モード)が担当する。
-      if (useUI.getState().activePane !== 'flow') return;
-      const el = document.activeElement;
-      const editable =
-        el instanceof HTMLElement &&
-        (el.tagName === 'INPUT' ||
-          el.tagName === 'TEXTAREA' ||
-          el.tagName === 'SELECT' ||
-          el.isContentEditable);
-      if (editable) return;
-      if (e.key === 'Escape') {
-        setSel(null);
-        setMultiSel(new Set());
-        return;
-      }
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      // 複数選択があればまとめて削除（フロー固有要素は即時、工程は確認あり）。
-      const ms = multiSelRef.current;
-      if (ms.size > 0 && view) {
-        e.preventDefault();
-        const flowSpecific: string[] = [];
-        const taskIds: string[] = [];
-        for (const id of ms) {
-          const n = view.nodes[id];
-          if (!n) continue;
-          if (n.kind === 'control' || n.kind === 'comment') flowSpecific.push(id);
-          else if (n.kind === 'task') taskIds.push(n.taskId);
-        }
-        if (flowSpecific.length) deleteFlowNodes(flowSpecific);
-        if (taskIds.length) {
-          void useUI
-            .getState()
-            .confirm({
-              title: '工程を一括削除',
-              message: `選択中の ${taskIds.length} 件の工程を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-              confirmLabel: '削除',
-              danger: true,
-            })
-            .then((ok) => ok && removeManyTasks(taskIds));
-        }
-        setMultiSel(new Set());
-        return;
-      }
-      if (sel?.kind === 'edge') {
-        e.preventDefault();
-        deleteEdge(sel.id);
-        setSel(null);
-        return;
-      }
-      if (sel && view) {
-        const n = view.nodes[sel.id];
-        if (n && (n.kind === 'control' || n.kind === 'comment')) {
-          e.preventDefault();
-          deleteFlowNode(sel.id);
-          setSel(null);
-        }
-        return;
-      }
-      // フロー固有要素を選択していない場合は、選択中の工程ノードを工程ごと削除（確認あり）。
-      const a = useApp.getState();
-      const tid = a.selectedTaskId;
-      const t = tid ? a.project.core.tasks[tid] : undefined;
-      if (tid && t) {
-        e.preventDefault();
-        void useUI
-          .getState()
-          .confirm({
-            title: '工程を削除',
-            message: `「${t.name || '（無題）'}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-            confirmLabel: '削除',
-            danger: true,
-          })
-          .then((ok) => {
-            if (ok) {
-              a.removeTask(tid);
-              a.select(undefined);
-            }
-          });
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [sel, view, deleteEdge, deleteFlowNode, deleteFlowNodes, removeManyTasks]);
 
   if (!view) return <p className="empty">ビューがありません。</p>;
 
@@ -532,7 +403,7 @@ export function FlowCanvas() {
     let maxX = LABEL_W;
     let maxY = BAND_TOP;
     for (const n of nodes) {
-      const s = sizeOf(n);
+      const s = nodeSize(n);
       minX = Math.min(minX, n.x);
       minY = Math.min(minY, n.y);
       maxX = Math.max(maxX, n.x + s.w);
@@ -566,7 +437,7 @@ export function FlowCanvas() {
   const navBoxes = () =>
     divNodes
       .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
-      .map((n) => ({ id: n.id, ...posOf(n), ...sizeOf(n) }));
+      .map((n) => ({ id: n.id, ...posOf(n), ...nodeSize(n) }));
   const selectNodeById = (id: FlowNodeId) => {
     const n = view.nodes[id];
     if (!n) return;
@@ -675,6 +546,103 @@ export function FlowCanvas() {
         setKbConnect({ from: from.id, candidates: cands, idx: 0 });
         return true;
       }
+      case 'flow.delete': {
+        // Delete/Backspace=選択中の要素を削除（矢印/制御ノード/付箋＝図から、工程ノード＝確認のうえ工程ごと）。
+        // 複数選択があればまとめて削除（フロー固有要素は即時、工程は確認あり）。
+        if (multiSel.size > 0) {
+          const flowSpecific: string[] = [];
+          const taskIds: string[] = [];
+          for (const id of multiSel) {
+            const n = view.nodes[id];
+            if (!n) continue;
+            if (n.kind === 'control' || n.kind === 'comment') flowSpecific.push(id);
+            else if (n.kind === 'task') taskIds.push(n.taskId);
+          }
+          if (flowSpecific.length) deleteFlowNodes(flowSpecific);
+          if (taskIds.length) void confirmRemoveTasks(taskIds);
+          setMultiSel(new Set());
+          return true;
+        }
+        if (sel?.kind === 'edge') {
+          deleteEdge(sel.id);
+          setSel(null);
+          return true;
+        }
+        if (sel) {
+          const n = view.nodes[sel.id];
+          if (n && (n.kind === 'control' || n.kind === 'comment')) {
+            deleteFlowNode(sel.id);
+            setSel(null);
+            return true;
+          }
+          return false;
+        }
+        // フロー固有要素を選択していない場合は、選択中の工程ノードを工程ごと削除（確認あり）。
+        const tid = selectedTaskId;
+        if (!tid || !project.core.tasks[tid]) return false;
+        void confirmRemoveTasks([tid]).then((ok) => {
+          if (ok) select(undefined);
+        });
+        return true;
+      }
+      case 'flow.clear':
+        // Esc=選択解除（解除するものが無ければキーを消費しない）。
+        if (!sel && multiSel.size === 0) return false;
+        setSel(null);
+        setMultiSel(new Set());
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  // 'connect' コンテキストのアクション実行(キー照合・ガードは useGlobalHotkeys 済み)。
+  // Tab=距離順の循環、矢印/hjkl=方向で接続先を選ぶ、Enter=確定、Esc/c=取消。
+  connectActionsRef.current = (action) => {
+    const cycle = (d: number) => {
+      setKbConnect((c) =>
+        c ? { ...c, idx: (c.idx + d + c.candidates.length) % c.candidates.length } : c,
+      );
+      return true;
+    };
+    // 方向選択: 現候補から見て押した方向の最近傍の候補へ(空間ナビと同じ感覚)。
+    const pickDir = (d2: NavDir) => {
+      setKbConnect((c) => {
+        if (!c) return c;
+        const cboxes = c.candidates.flatMap((id) => {
+          const n = view.nodes[id];
+          return n ? [{ id, x: n.x, y: n.y, w: nodeSize(n).w, h: nodeSize(n).h }] : [];
+        });
+        const cur = cboxes.find((b) => b.id === c.candidates[c.idx]);
+        if (!cur) return c;
+        const next = nearestInDirection(cur, cboxes, d2);
+        return next ? { ...c, idx: c.candidates.indexOf(next as FlowNodeId) } : c;
+      });
+      return true;
+    };
+    switch (action) {
+      case 'connect.next':
+        return cycle(1);
+      case 'connect.prev':
+        return cycle(-1);
+      case 'connect.left':
+        return pickDir('left');
+      case 'connect.right':
+        return pickDir('right');
+      case 'connect.up':
+        return pickDir('up');
+      case 'connect.down':
+        return pickDir('down');
+      case 'connect.commit': {
+        if (!kbConnect) return false;
+        const target = kbConnect.candidates[kbConnect.idx];
+        if (target) connect(kbConnect.from, target);
+        setKbConnect(null);
+        return true;
+      }
+      case 'connect.cancel':
+        setKbConnect(null);
+        return true;
       default:
         return false;
     }
@@ -691,21 +659,8 @@ export function FlowCanvas() {
   };
   const center = (n: FlowNode) => {
     const p = posOf(n);
-    const s = sizeOf(n);
+    const s = nodeSize(n);
     return { cx: p.x + s.w / 2, cy: p.y + s.h / 2 };
-  };
-  // 課題線の終点。対象が I/O(doc) なら集約アイコンの中心へ寄せる（個別ノードは非表示のため）。
-  const targetCenter = (t: FlowNode) => {
-    if (t.kind === 'doc') {
-      const owner = nodes.find((nn) => nn.kind === 'task' && nn.taskId === t.taskId);
-      if (owner) {
-        const d = project.details[t.taskId];
-        const items = t.io === 'input' ? (d?.inputs ?? []) : (d?.outputs ?? []);
-        const r = ioIconRect(posOf(owner), t.io, items.length || 1);
-        return { cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
-      }
-    }
-    return center(t);
   };
   // I/O 集約アイコン（入力=左上 / 出力=右下に重ね、複数は1枚に名前を縦列挙）。
   const renderIoIcon = (
@@ -749,7 +704,7 @@ export function FlowCanvas() {
   const startConnect = (n: FlowNode, e: React.PointerEvent) => {
     e.stopPropagation();
     const p = posOf(n);
-    const s = sizeOf(n);
+    const s = nodeSize(n);
     setConn({ from: n.id, fx: p.x + s.w, fy: p.y + s.h / 2, x: p.x + s.w, y: p.y + s.h / 2 });
   };
 
@@ -761,7 +716,7 @@ export function FlowCanvas() {
     ? (divNodes.find((n) => {
         if (!isConnTarget(n)) return false;
         const p = posOf(n);
-        const s = sizeOf(n);
+        const s = nodeSize(n);
         return conn.x >= p.x && conn.x <= p.x + s.w && conn.y >= p.y && conn.y <= p.y + s.h;
       })?.id ?? null)
     : null;
@@ -773,24 +728,9 @@ export function FlowCanvas() {
     : null;
 
   // 課題ノードは工程ごとに1枚へ集約表示（モデルは1課題=1ノードのまま、描画だけ束ねる）。
-  // details の課題順で先頭に対応するノードを代表(primary)とし、それ以外は描画しない。
-  const issuePrimary = new Map<string, string>(); // taskId -> 代表ノードid
-  {
-    const groups = new Map<string, FlowNode[]>();
-    for (const n of divNodes) {
-      if (n.kind === 'issue') (groups.get(n.taskId) ?? groups.set(n.taskId, []).get(n.taskId)!).push(n);
-    }
-    for (const [taskId, arr] of groups) {
-      const order = project.details[taskId]?.issues ?? [];
-      const rank = (n: FlowNode) => {
-        if (n.kind !== 'issue') return 1e9;
-        const k = order.findIndex((i) => i.id === n.issueId);
-        return k < 0 ? 1e9 : k;
-      };
-      arr.sort((x, y) => rank(x) - rank(y) || x.id.localeCompare(y.id));
-      issuePrimary.set(taskId, arr[0]!.id);
-    }
-  }
+  // details の課題順で先頭に対応するノードを代表(primary)とし、それ以外は描画しない
+  // （選定規則は画像出力 flowSvg と共有: issuePrimaryIds）。taskId -> 代表ノードid。
+  const issuePrimary = issuePrimaryIds(divNodes, project.details);
   const isPrimaryIssue = (n: FlowNode) => n.kind === 'issue' && issuePrimary.get(n.taskId) === n.id;
   // 工程に記載された課題文（空欄は除外）。複数なら箇条書きで表示する。
   const issueTexts = (taskId: string): string[] =>
@@ -806,7 +746,7 @@ export function FlowCanvas() {
     bandSel = divNodes
       .filter((n) => {
         if (n.kind === 'issue' && !isPrimaryIssue(n)) return false;
-        const s = sizeOf(n);
+        const s = nodeSize(n);
         return n.x < rx1 && n.x + s.w > rx0 && n.y < ry1 && n.y + s.h > ry0;
       })
       .map((n) => n.id);
@@ -822,7 +762,28 @@ export function FlowCanvas() {
   // 矢印経路の障害物 = 箱もの(工程/制御/付箋)。ドラッグ中はその位置(posOf)を反映。
   const edgeObstacles = divNodes
     .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
-    .map((n) => ({ id: n.id, ...posOf(n), ...sizeOf(n) }));
+    .map((n) => ({ id: n.id, ...posOf(n), ...nodeSize(n) }));
+
+  // エッジ経路の参照。ドラッグ対象に接続するエッジだけ見かけの位置で再ルートし、
+  // それ以外はメモ済みの baseRoutes を返す(確定はドロップ時の store 更新で再計算される)。
+  const draggingIds: ReadonlySet<FlowNodeId> | null = drag
+    ? groupDrag
+      ? multiSel
+      : new Set([drag.id])
+    : null;
+  const routeOf = (e: FlowEdge): EdgeRoute | undefined => {
+    if (draggingIds && (draggingIds.has(e.source) || draggingIds.has(e.target))) {
+      const s = view.nodes[e.source];
+      const t = view.nodes[e.target];
+      if (!s || !t) return undefined;
+      return routeEdge(
+        { ...posOf(s), ...nodeSize(s) },
+        { ...posOf(t), ...nodeSize(t) },
+        edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+      );
+    }
+    return baseRoutes.get(e.id);
+  };
 
   return (
     <div className="flow-wrap">
@@ -970,20 +931,10 @@ export function FlowCanvas() {
           })()}
 
           {Object.values(view.edges).map((e) => {
-            const s = view.nodes[e.source];
-            const t = view.nodes[e.target];
-            if (!s || !t) return null;
-            const sp = posOf(s);
-            const ss = sizeOf(s);
-            const tp = posOf(t);
-            const ts = sizeOf(t);
             // 直角コネクタ。他のノードと重なると「その工程と繋がっている」ように
-            // 誤読されるため、routeEdge が障害物を避ける通り道を選ぶ。
-            const route = routeEdge(
-              { ...sp, ...ss },
-              { ...tp, ...ts },
-              edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
-            );
+            // 誤読されるため、routeEdge が障害物を避ける通り道を選ぶ(baseRoutes にメモ化)。
+            const route = routeOf(e);
+            if (!route) return null;
             const d = route.d;
             return (
               <g key={e.id}>
@@ -1032,7 +983,7 @@ export function FlowCanvas() {
               const t = view.nodes[kbCandidate];
               if (!s || !t) return null;
               const sp = posOf(s);
-              const ss = sizeOf(s);
+              const ss = nodeSize(s);
               const tc = center(t);
               return (
                 <line
@@ -1052,8 +1003,9 @@ export function FlowCanvas() {
               const target = view.nodes[n.targetNodeId];
               if (!target) return null;
               const a = center(n);
-              const b = targetCenter(target);
-              return <line key={`il-${n.id}`} x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} className="issue-line" />;
+              // 終点の規則(doc は集約アイコン中心へ寄せる)は画像出力と共有: issueLineTarget。
+              const b = issueLineTarget(target, nodes, project.details, posOf);
+              return <line key={`il-${n.id}`} x1={a.cx} y1={a.cy} x2={b.x} y2={b.y} className="issue-line" />;
             })}
 
         </svg>
@@ -1063,19 +1015,9 @@ export function FlowCanvas() {
           (() => {
             const e = view.edges[sel.id];
             if (!e) return null;
-            const s = view.nodes[e.source];
-            const t = view.nodes[e.target];
-            if (!s || !t) return null;
-            const sp = posOf(s);
-            const ss = sizeOf(s);
-            const tp = posOf(t);
-            const ts = sizeOf(t);
-            // 経路のラベル位置に追従(描画と同じ routeEdge を使い、迂回時もズレない)。
-            const route = routeEdge(
-              { ...sp, ...ss },
-              { ...tp, ...ts },
-              edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
-            );
+            // 経路のラベル位置に追従(描画と同じ routeOf を使い、迂回時もズレない)。
+            const route = routeOf(e);
+            if (!route) return null;
             return (
               <div className="edge-toolbar" style={{ left: route.label.x, top: route.label.y }}>
                 <button title="分岐ラベルを編集" onClick={() => void editEdgeLabel(e.id, e.label ?? '')}>
@@ -1172,7 +1114,7 @@ export function FlowCanvas() {
               style={
                 n.kind === 'issue'
                   ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
-                  : { left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h, ...colorVars }
+                  : { left: p.x, top: p.y, width: nodeSize(n).w, height: nodeSize(n).h, ...colorVars }
               }
               role={focusable ? 'button' : undefined}
               tabIndex={focusable ? 0 : undefined}
@@ -1261,6 +1203,7 @@ export function FlowCanvas() {
                   }}
                   onKeyDown={(e) => {
                     e.stopPropagation();
+                    if (isImeKeyEvent(e)) return; // IME 変換確定の Enter/Esc では閉じない
                     if (e.key === 'Enter') {
                       e.preventDefault();
                       renameTask(n.taskId, e.currentTarget.value);
@@ -1352,36 +1295,31 @@ export function FlowCanvas() {
             const inputs = d?.inputs ?? [];
             const plain = inputs.filter((it) => !it.source?.trim());
             const sourced = inputs.filter((it) => it.source?.trim());
-            const mw = 88;
-            const mh = 30;
             return (
               <g key={`io-${n.id}`}>
                 {renderIoIcon(p, 'input', plain)}
                 {renderIoIcon(p, 'output', d?.outputs ?? [])}
-                {/* 出所付きの入力帳票: 出所部署のレーンに置き、工程へ矢印を引く */}
+                {/* 出所付きの入力帳票: 出所部署のレーンに置き、工程へ矢印を引く
+                    （レーン照合・チップ矩形・「外部:」表示の規則は画像出力と共有: sourceChipLayout）。 */}
                 {sourced.map((it, i) => {
-                  // 出所とレーン名の照合は前後空白と全角/半角スペースのゆれを吸収する。
-                  const norm = (s: string) => s.replace(/[\s　]+/g, '');
-                  const box = boxes.find((b) => norm(b.lane.title) === norm(it.source ?? ''));
-                  const mx = p.x + i * (mw + 8);
-                  const my = box ? box.base : p.y - mh - 30; // 出所レーンの工程行 / 無ければ工程の真上
-                  const cx = mx + mw / 2;
+                  const chip = sourceChipLayout(p, it.source ?? '', i, boxes);
+                  const cx = chip.x + chip.w / 2;
                   return (
                     <g key={`src-${it.id}`} className="io-source">
                       <line
                         className="io-source-line"
-                        x1={cx}
-                        y1={my + mh / 2}
-                        x2={p.x}
-                        y2={p.y + SIZE.task.h / 2}
+                        x1={chip.line.x1}
+                        y1={chip.line.y1}
+                        x2={chip.line.x2}
+                        y2={chip.line.y2}
                         markerEnd="url(#io-arrow)"
                       />
-                      <rect className="io-source-chip" x={mx} y={my} width={mw} height={mh} rx={6} />
-                      <text className="io-source-name" x={cx} y={my + 13} textAnchor="middle">
+                      <rect className="io-source-chip" x={chip.x} y={chip.y} width={chip.w} height={chip.h} rx={6} />
+                      <text className="io-source-name" x={cx} y={chip.y + 13} textAnchor="middle">
                         {it.name || '帳票'}
                       </text>
-                      <text className="io-source-from" x={cx} y={my + 24} textAnchor="middle">
-                        {box ? it.source : `外部: ${it.source}`}
+                      <text className="io-source-from" x={cx} y={chip.y + 24} textAnchor="middle">
+                        {chip.label}
                       </text>
                     </g>
                   );
@@ -1462,86 +1400,129 @@ export function FlowCanvas() {
         )}
       </div>
 
-      {showMinimap &&
-        nodes.some((n) => n.kind === 'task') &&
-        (() => {
-          const MW = 170;
-          const MH = 116;
-          const PAD = 8;
-          let minX = Infinity;
-          let minY = Infinity;
-          let maxX = -Infinity;
-          let maxY = -Infinity;
-          const mmNodes = divNodes.filter((n) => !(n.kind === 'issue' && !isPrimaryIssue(n)));
-          for (const n of mmNodes) {
-            const s = sizeOf(n);
-            minX = Math.min(minX, n.x);
-            minY = Math.min(minY, n.y);
-            maxX = Math.max(maxX, n.x + s.w);
-            maxY = Math.max(maxY, n.y + s.h);
-          }
-          if (!isFinite(minX)) return null;
-          // レーン帯も含めて全体を捉える
-          minX = Math.min(minX, 0);
-          minY = Math.min(minY, BAND_TOP);
-          maxX = Math.max(maxX, LABEL_W + 200);
-          maxY = Math.max(maxY, lanesBottomY);
-          const cw = Math.max(1, maxX - minX);
-          const ch = Math.max(1, maxY - minY);
-          const mscale = Math.min((MW - PAD * 2) / cw, (MH - PAD * 2) / ch);
-          const toMM = (x: number, y: number) => ({ x: PAD + (x - minX) * mscale, y: PAD + (y - minY) * mscale });
-          const vr = {
-            x: PAD + (vp.left / scale - minX) * mscale,
-            y: PAD + (vp.top / scale - minY) * mscale,
-            w: (vp.w / scale) * mscale,
-            h: (vp.h / scale) * mscale,
-          };
-          const panTo = (clientX: number, clientY: number, rect: DOMRect) => {
-            const el = canvasRef.current;
-            if (!el) return;
-            const contentX = minX + (clientX - rect.left - PAD) / mscale;
-            const contentY = minY + (clientY - rect.top - PAD) / mscale;
-            el.scrollLeft = contentX * scale - el.clientWidth / 2;
-            el.scrollTop = contentY * scale - el.clientHeight / 2;
-          };
+      {showMinimap && nodes.some((n) => n.kind === 'task') && (
+        <FlowMinimap
+          scrollerRef={canvasRef}
+          scale={scale}
+          nodes={divNodes.filter((n) => !(n.kind === 'issue' && !isPrimaryIssue(n)))}
+          lanesBottomY={lanesBottomY}
+        />
+      )}
+    </div>
+  );
+}
+
+// ミニマップ（右下の俯瞰図）。スクロール位置/ビューサイズの購読をこの子に閉じ込め、
+// スクロールのたびに巨大なキャンバス全体（エッジ経路計算を含む）が再レンダリング
+// されるのを防ぐ（親はスクロールでは再描画されない）。
+function FlowMinimap({
+  scrollerRef,
+  scale,
+  nodes,
+  lanesBottomY,
+}: {
+  scrollerRef: RefObject<HTMLDivElement>;
+  scale: number;
+  nodes: FlowNode[];
+  lanesBottomY: number;
+}) {
+  // 可視領域（スクロール量とビューサイズ。スクロール/リサイズで rAF 間引きで更新）。
+  const [vp, setVp] = useState({ left: 0, top: 0, w: 0, h: 0 });
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return undefined;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      setVp({ left: el.scrollLeft, top: el.scrollTop, w: el.clientWidth, h: el.clientHeight });
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [scrollerRef]);
+
+  const MW = 170;
+  const MH = 116;
+  const PAD = 8;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const n of nodes) {
+    const s = nodeSize(n);
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + s.w);
+    maxY = Math.max(maxY, n.y + s.h);
+  }
+  if (!isFinite(minX)) return null;
+  // レーン帯も含めて全体を捉える
+  minX = Math.min(minX, 0);
+  minY = Math.min(minY, BAND_TOP);
+  maxX = Math.max(maxX, LABEL_W + 200);
+  maxY = Math.max(maxY, lanesBottomY);
+  const cw = Math.max(1, maxX - minX);
+  const ch = Math.max(1, maxY - minY);
+  const mscale = Math.min((MW - PAD * 2) / cw, (MH - PAD * 2) / ch);
+  const toMM = (x: number, y: number) => ({ x: PAD + (x - minX) * mscale, y: PAD + (y - minY) * mscale });
+  const vr = {
+    x: PAD + (vp.left / scale - minX) * mscale,
+    y: PAD + (vp.top / scale - minY) * mscale,
+    w: (vp.w / scale) * mscale,
+    h: (vp.h / scale) * mscale,
+  };
+  const panTo = (clientX: number, clientY: number, rect: DOMRect) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const contentX = minX + (clientX - rect.left - PAD) / mscale;
+    const contentY = minY + (clientY - rect.top - PAD) / mscale;
+    el.scrollLeft = contentX * scale - el.clientWidth / 2;
+    el.scrollTop = contentY * scale - el.clientHeight / 2;
+  };
+  return (
+    <div
+      className="flow-minimap"
+      style={{ width: MW, height: MH }}
+      title="ミニマップ（クリック / ドラッグで移動）"
+      onPointerDown={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        panTo(e.clientX, e.clientY, rect);
+        const move = (ev: PointerEvent) => panTo(ev.clientX, ev.clientY, rect);
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      }}
+    >
+      <svg width={MW} height={MH}>
+        {nodes.map((n) => {
+          const s = nodeSize(n);
+          const p = toMM(n.x, n.y);
           return (
-            <div
-              className="flow-minimap"
-              style={{ width: MW, height: MH }}
-              title="ミニマップ（クリック / ドラッグで移動）"
-              onPointerDown={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                panTo(e.clientX, e.clientY, rect);
-                const move = (ev: PointerEvent) => panTo(ev.clientX, ev.clientY, rect);
-                const up = () => {
-                  window.removeEventListener('pointermove', move);
-                  window.removeEventListener('pointerup', up);
-                };
-                window.addEventListener('pointermove', move);
-                window.addEventListener('pointerup', up);
-              }}
-            >
-              <svg width={MW} height={MH}>
-                {mmNodes.map((n) => {
-                  const s = sizeOf(n);
-                  const p = toMM(n.x, n.y);
-                  return (
-                    <rect
-                      key={n.id}
-                      x={p.x}
-                      y={p.y}
-                      width={Math.max(2, s.w * mscale)}
-                      height={Math.max(2, s.h * mscale)}
-                      rx={1}
-                      className={`mm-node mm-${n.kind}`}
-                    />
-                  );
-                })}
-                <rect className="mm-viewport" x={vr.x} y={vr.y} width={vr.w} height={vr.h} />
-              </svg>
-            </div>
+            <rect
+              key={n.id}
+              x={p.x}
+              y={p.y}
+              width={Math.max(2, s.w * mscale)}
+              height={Math.max(2, s.h * mscale)}
+              rx={1}
+              className={`mm-node mm-${n.kind}`}
+            />
           );
-        })()}
+        })}
+        <rect className="mm-viewport" x={vr.x} y={vr.y} width={vr.w} height={vr.h} />
+      </svg>
     </div>
   );
 }

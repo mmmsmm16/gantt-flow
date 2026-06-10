@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 use fsstore::{AcquireResult, LockInfo};
+use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
 fn save_project(path: String, contents: String) -> Result<(), String> {
@@ -39,6 +40,13 @@ fn acquire_lock(
     }
 }
 
+// 古い（stale な）ロックの引き継ぎ。expected には acquire_lock が返した held を渡す。
+// 内容が変わっていた（先に他セッションが引き継いだ等）場合は false を返す。
+#[tauri::command]
+fn steal_lock(path: String, owner: LockInfo, expected: Option<LockInfo>) -> Result<bool, String> {
+    fsstore::steal_lock(&PathBuf::from(path), &owner, expected.as_ref()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn refresh_lock(path: String, owner: LockInfo) -> Result<(), String> {
     fsstore::refresh_lock(&PathBuf::from(path), &owner).map_err(|e| e.to_string())
@@ -54,16 +62,48 @@ fn read_lock(path: String) -> Result<Option<LockInfo>, String> {
     fsstore::read_lock(&PathBuf::from(path)).map_err(|e| e.to_string())
 }
 
+fn file_path_to_string(p: tauri_plugin_dialog::FilePath) -> Result<String, String> {
+    let path = p.into_path().map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+// ファイル選択ダイアログ。blocking_* はメインスレッドで呼ぶと固まるため
+// async コマンド（別スレッドで実行される）にする。キャンセル時は None。
+#[tauri::command]
+async fn pick_open_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .blocking_pick_file()
+        .map(file_path_to_string)
+        .transpose()
+}
+
+#[tauri::command]
+async fn pick_save_path(app: tauri::AppHandle, suggested_name: String) -> Result<Option<String>, String> {
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .set_file_name(suggested_name)
+        .blocking_save_file()
+        .map(file_path_to_string)
+        .transpose()
+}
+
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             save_project,
             open_project,
             stat_updated_at,
             acquire_lock,
+            steal_lock,
             refresh_lock,
             release_lock,
             read_lock,
+            pick_open_path,
+            pick_save_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -23,7 +23,9 @@ export function deriveBands(core: Core, view: FlowLevelView): Band[] {
     const bottom = node.y + SIZE.task.h;
     let parentId = core.tasks[node.taskId]?.parentId;
     let depth = 1;
-    while (parentId) {
+    const visited = new Set<Id>(); // 親参照に循環があっても止まる（読込時検証の保険）
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId);
       const ancestor = core.tasks[parentId];
       if (!ancestor) break;
       const cur = acc.get(parentId);

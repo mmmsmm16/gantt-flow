@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Project, ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
-import { useUI } from './ui/useUI';
+import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
-import { prevCandidates } from './suggestions';
+import { revealTask, confirmRemoveTasks } from './taskOps';
+import { isImeKeyEvent } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
@@ -47,6 +48,35 @@ function buildOutline(tasks: ProcessTask[], collapsed: Set<Id>): Row[] {
   return rows;
 }
 
+// 「＋前工程」セレクトの候補を行別に引けるルックアップを 1 回の走査で作る。
+// prevCandidates(suggestions.ts) と同じ結果(順序含む)を返すが、行ごとに全工程・
+// 全依存をなめ直さない(全行分で O(n²) になり、選択移動のたびの再レンダーが重くなる)。
+export function buildPrevCandidateIndex(project: Project): (taskId: Id) => ProcessTask[] {
+  // 依存は両向きで登録し、「o↔taskId のどちら向きでも繋がり済みなら除外」を 1 回の参照で判定する。
+  const linked = new Set<string>();
+  for (const d of Object.values(project.core.dependencies)) {
+    linked.add(`${d.from}\u0000${d.to}`);
+    linked.add(`${d.to}\u0000${d.from}`);
+  }
+  // 同じ親・同じ粒度のグループに分け、prevCandidates と同じ順(order→id)に整列しておく。
+  const groups = new Map<string, ProcessTask[]>();
+  const groupKey = (t: ProcessTask) => `${t.parentId ?? ''}\u0000${t.level}`;
+  for (const t of Object.values(project.core.tasks)) {
+    const key = groupKey(t);
+    const arr = groups.get(key);
+    if (arr) arr.push(t);
+    else groups.set(key, [t]);
+  }
+  for (const arr of groups.values())
+    arr.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  return (taskId) => {
+    const t = project.core.tasks[taskId];
+    if (!t) return [];
+    const siblings = groups.get(groupKey(t)) ?? [];
+    return siblings.filter((o) => o.id !== taskId && !linked.has(`${o.id}\u0000${taskId}`));
+  };
+}
+
 // ツリーガイド（VS Code 風）の縦線・エルボーを名前セルに重ねる。
 const INDENT = 22;
 const GUTTER = 10; // 列の中心 x
@@ -70,8 +100,6 @@ export function TableView() {
   const project = useApp((s) => s.project);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
-  const setFlowLevel = useApp((s) => s.setLevel);
-  const setScope = useApp((s) => s.setScope);
   const renameTask = useApp((s) => s.renameTask);
   const setTaskLevel = useApp((s) => s.setTaskLevel);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
@@ -79,7 +107,6 @@ export function TableView() {
   const addRootTask = useApp((s) => s.addRootTask);
   const addChildTask = useApp((s) => s.addChildTask);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
-  const removeTask = useApp((s) => s.removeTask);
   const moveTaskUp = useApp((s) => s.moveTaskUp);
   const moveTaskDown = useApp((s) => s.moveTaskDown);
   const indentTask = useApp((s) => s.indentTask);
@@ -105,6 +132,8 @@ export function TableView() {
   const deps = Object.values(project.core.dependencies);
   // 親(大)同士の接続から導出される前工程(フローのブリッジ矢印と同じもの)。表でも見せて同期ずれを無くす。
   const bridgePreds = bridgePredMap(project.core);
+  // 前工程候補のインデックス。プロジェクトが変わったときだけ作り直す(選択移動だけの再レンダーでは再利用)。
+  const prevCandidatesFor = useMemo(() => buildPrevCandidateIndex(project), [project]);
 
   // 新しく追加した行の作業名入力にフォーカスする（連続入力）。
   const [focusId, setFocusId] = useState<Id | null>(null);
@@ -121,35 +150,22 @@ export function TableView() {
 
   const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
-  const openRow = (t: ProcessTask) => {
-    // 全体スコープで俯瞰中はスコープを維持(どの工程も見えている)。特定の親に
-    // 絞って見ているときだけ、クリックした工程の文脈(親)へスコープを追従させる。
-    const wasScoped = useApp.getState().scopeParentId !== undefined;
-    select(t.id);
-    setFlowLevel(t.level);
-    if (wasScoped) setScope(t.parentId);
-    useUI.getState().setInspectorOpen(true); // 表の行クリックは従来どおり詳細パネルを開く
-  };
+  // 行クリック/編集開始は工程へジャンプ(選択＋粒度同期＋詳細パネル)。
+  // スコープ追従の規則はパレット等と共通の revealTask(taskOps.ts)に集約。
+  const openRow = (t: ProcessTask) => revealTask(t.id);
 
   // 行選択モード(編集外のキーボード操作)。j/k=行移動・h/l=列カーソル・Enter=セル編集 などは
   // useGlobalHotkeys → 'table' コンテキスト経由でここに届く。
   const activePane = useUI((s) => s.activePane);
   // 列カーソルの対象(表示順)。行内の data-cell 属性と対応。
-  const cursorColumns = [
-    'level',
-    'name',
-    'assignee',
-    ...(columnVisibility.prev ? ['prev'] : []),
-    ...(columnVisibility.effort ? ['effort'] : []),
-    ...(columnVisibility.io ? ['io'] : []),
-  ];
+  const visibleOptionalColumns = OUTLINE_OPTIONAL_COLUMNS.filter((c) => columnVisibility[c.key]);
+  const cursorColumns = ['level', 'name', 'assignee', ...visibleOptionalColumns.map((c) => c.key)];
   const { colIdx } = useRowSelectionKeys({
     enabled: activePane === 'table',
     orderedIds: rows.map((r) => r.task.id),
     columns: cursorColumns,
     beginEdit: (id) => {
-      const t = project.core.tasks[id];
-      if (t) openRow(t); // 編集開始時のみフローの粒度/スコープを同期(j/k 中はしない)
+      revealTask(id); // 編集開始時のみフローの粒度/スコープを同期(j/k 中はしない)
       setFocusId(id); // 再レンダ後に名前入力へフォーカス
     },
     toggleCollapse: (id) => {
@@ -195,21 +211,14 @@ export function TableView() {
             </>
           }
         >
-          <MenuCheckItem
-            label="前工程"
-            checked={columnVisibility.prev}
-            onChange={() => toggleColumn('prev')}
-          />
-          <MenuCheckItem
-            label="工数"
-            checked={columnVisibility.effort}
-            onChange={() => toggleColumn('effort')}
-          />
-          <MenuCheckItem
-            label="I/O・課題"
-            checked={columnVisibility.io}
-            onChange={() => toggleColumn('io')}
-          />
+          {OUTLINE_OPTIONAL_COLUMNS.map((c) => (
+            <MenuCheckItem
+              key={c.key}
+              label={c.label}
+              checked={columnVisibility[c.key]}
+              onChange={() => toggleColumn(c.key)}
+            />
+          ))}
         </Menu>
         <button
           className="wide-toggle"
@@ -234,13 +243,8 @@ export function TableView() {
           <table
             className="grid"
             style={{
-              // 固定列の合計 + 作業名の最小幅。狭いペインではペインが横スクロールする。
-              minWidth:
-                354 +
-                160 +
-                (columnVisibility.prev ? 132 : 0) +
-                (columnVisibility.effort ? 78 : 0) +
-                (columnVisibility.io ? 224 : 0),
+              // 固定列の合計 + 作業名の最小幅 + 表示中の任意列。狭いペインではペインが横スクロールする。
+              minWidth: 354 + 160 + visibleOptionalColumns.reduce((sum, c) => sum + c.width, 0),
             }}
           >
             <thead>
@@ -250,9 +254,11 @@ export function TableView() {
                 <th className="c-level">粒度</th>
                 <th className="c-name">作業名</th>
                 <th className="c-assignee">担当</th>
-                {columnVisibility.prev && <th className="c-prev">前工程</th>}
-                {columnVisibility.effort && <th className="c-effort">工数</th>}
-                {columnVisibility.io && <th className="c-io">I/O・課題</th>}
+                {visibleOptionalColumns.map((c) => (
+                  <th key={c.key} className={`c-${c.key}`}>
+                    {c.label}
+                  </th>
+                ))}
                 <th className="c-act"></th>
               </tr>
             </thead>
@@ -266,7 +272,7 @@ export function TableView() {
                 const issueCount = detail?.issues?.length ?? 0;
                 const hasChildren = parentsWithChildren.has(t.id);
                 const preds = deps.filter((dep) => dep.to === t.id);
-                const candidates = prevCandidates(project, t.id);
+                const candidates = columnVisibility.prev ? prevCandidatesFor(t.id) : [];
                 return (
                   <tr
                     key={t.id}
@@ -385,6 +391,7 @@ export function TableView() {
                           aria-label="作業名"
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => {
+                            if (isImeKeyEvent(e)) return; // IME 変換の確定 Enter/Tab/Esc を編集操作にしない
                             if (e.key === 'Enter') {
                               // 確定して選択モードへ(誤挿入防止のため行追加はしない。追加は n / Ctrl+Enter)。
                               e.preventDefault();
@@ -502,40 +509,30 @@ export function TableView() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="io-chips">
-                        {(detail?.inputs ?? []).map((item) => (
-                          <span className="io-chip in" key={item.id}>
-                            <input
-                              className="io-chip-name"
-                              defaultValue={item.name}
-                              aria-label="入力名"
-                              onBlur={(e) => updateIo(t.id, item.id, { name: e.target.value })}
-                            />
-                            <button
-                              className="io-chip-x"
-                              aria-label="入力を削除"
-                              onClick={() => removeIo(t.id, item.id)}
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                        {(detail?.outputs ?? []).map((item) => (
-                          <span className="io-chip out" key={item.id}>
-                            <input
-                              className="io-chip-name"
-                              defaultValue={item.name}
-                              aria-label="出力名"
-                              onBlur={(e) => updateIo(t.id, item.id, { name: e.target.value })}
-                            />
-                            <button
-                              className="io-chip-x"
-                              aria-label="出力を削除"
-                              onClick={() => removeIo(t.id, item.id)}
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
+                        {(
+                          [
+                            ['in', detail?.inputs ?? [], '入力'],
+                            ['out', detail?.outputs ?? [], '出力'],
+                          ] as const
+                        ).flatMap(([dir, items, label]) =>
+                          items.map((item) => (
+                            <span className={`io-chip ${dir}`} key={item.id}>
+                              <input
+                                className="io-chip-name"
+                                defaultValue={item.name}
+                                aria-label={`${label}名`}
+                                onBlur={(e) => updateIo(t.id, item.id, { name: e.target.value })}
+                              />
+                              <button
+                                className="io-chip-x"
+                                aria-label={`${label}を削除`}
+                                onClick={() => removeIo(t.id, item.id)}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          )),
+                        )}
                         <button
                           className="io-add"
                           title="入力を追加"
@@ -570,7 +567,14 @@ export function TableView() {
                         <button
                           title="子工程を追加"
                           aria-label="子工程を追加"
-                          onClick={() => addChildTask(t.id)}
+                          onClick={() => {
+                            const nid = addChildTask(t.id);
+                            if (nid) {
+                              // 折りたたまれた親の下に作ると新しい行が見えないため、先に展開する。
+                              if (collapsed.has(t.id)) toggleCollapse(t.id);
+                              select(nid);
+                            }
+                          }}
                         >
                           ＋子
                         </button>
@@ -579,15 +583,7 @@ export function TableView() {
                         className="danger"
                         title="削除"
                         aria-label={`「${t.name}」を削除`}
-                        onClick={async () => {
-                          const ok = await useUI.getState().confirm({
-                            title: '工程を削除',
-                            message: `「${t.name}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-                            confirmLabel: '削除',
-                            danger: true,
-                          });
-                          if (ok) removeTask(t.id);
-                        }}
+                        onClick={() => void confirmRemoveTasks([t.id])}
                       >
                         ×
                       </button>

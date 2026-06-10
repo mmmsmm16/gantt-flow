@@ -16,7 +16,9 @@ const TABS: { key: 'general' | 'keys' | 'data'; label: string }[] = [
 
 function exportSettingsFile(): string {
   const json = JSON.stringify(collectSettings(), null, 2);
-  const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+  // ファイル名はローカル日付(toISOString=UTC だと午前9時前に前日の日付になる)
+  const d = new Date();
+  const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const name = `gantt-flow-settings-${date}.json`;
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   const a = document.createElement('a');
@@ -64,15 +66,10 @@ export function SettingsDialog() {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, open);
 
+  // Esc は useGlobalHotkeys の「最上位レイヤを閉じる」一元処理が担う(個別リスナー不要)。
+  // ショートカットタブのキーキャプチャ中は KeybindingsEditor の capture リスナーが先に止める。
   useEffect(() => {
-    if (!open) return undefined;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      // ショートカットタブのキーキャプチャ中は capture リスナーが先に止めるためここへは来ない
-      if (e.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    if (open) closeRef.current?.focus();
   }, [open]);
 
   if (!open) return null;

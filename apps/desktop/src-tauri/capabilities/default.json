@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "アプリ既定の権限。ファイル系・ロックは独自コマンド(save_project 等)で行うため core 既定のみ。",
+  "description": "アプリ既定の権限。ファイル系・ロックは独自コマンド(save_project 等)、ダイアログも Rust 側コマンド(pick_open_path 等)経由のため core 既定のみ（dialog:* 権限は JS から plugin:dialog を直接呼ぶ場合のみ必要）。",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

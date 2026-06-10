@@ -42,9 +42,10 @@ export function projectToRows(project: Project): string[][] {
     arr.forEach((t) => {
       const no = codes[t.id]!;
       const d = project.details[t.id];
+      // 前工程は 工程No で参照（作業名は重複しうるため再取込時に一意解決できない）。
       const prev = Object.values(dependencies)
         .filter((dep) => dep.to === t.id)
-        .map((dep) => nameOf(dep.from))
+        .map((dep) => codes[dep.from] ?? nameOf(dep.from))
         .join('；');
       rows.push([
         no,

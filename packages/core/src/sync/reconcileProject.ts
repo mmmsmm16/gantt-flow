@@ -5,8 +5,10 @@ import type { Project, ProcessLevel, Id, FlowLevelView } from '../model/types';
 import type { IdGen } from '../ids';
 
 export function reconcileProject(project: Project, idGen: IdGen): Project {
-  const next = structuredClone(project);
-  next.flow.byLevel = next.flow.byLevel.map(
+  // reconcileFlow は view を内部で clone する純関数なので、ここで flow まで deep clone すると
+  // 各ビューを二重に複製してしまう。flow 以外だけ clone し、ビューは reconcileFlow に任せる。
+  const next = structuredClone({ ...project, flow: { byLevel: [] as FlowLevelView[] } });
+  next.flow.byLevel = project.flow.byLevel.map(
     (view) => reconcileFlow(next.core, next.details, view, idGen).view,
   );
   return next;

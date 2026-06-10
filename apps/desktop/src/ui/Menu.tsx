@@ -1,5 +1,6 @@
 // 小さな汎用ドロップダウン（出力メニュー等）。外側クリック / Esc で閉じる。
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useUI } from './useUI';
 
 export function Menu({
   label,
@@ -20,14 +21,12 @@ export function Menu({
     const onDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
     window.addEventListener('pointerdown', onDown);
-    window.addEventListener('keydown', onKey);
+    // Esc は useGlobalHotkeys の「最上位レイヤを閉じる」一元処理から、一時 UI として閉じてもらう。
+    const unregister = useUI.getState().registerTransientLayer(() => setOpen(false));
     return () => {
       window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('keydown', onKey);
+      unregister();
     };
   }, [open]);
 

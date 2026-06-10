@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { createSampleProject, updateTaskDetail } from '@gantt-flow/core';
+import {
+  addIoItem,
+  createSampleProject,
+  ioIconRect,
+  issuePrimaryIds,
+  laneLayout,
+  sourceChipLayout,
+  updateTaskDetail,
+  type FlowNode,
+  type Project,
+} from '@gantt-flow/core';
 import { buildFlowSvg } from '../src/flowSvg';
 import { TASK_COLORS, FLOW_LIGHT } from '../src/theme';
 
@@ -39,5 +49,111 @@ describe('buildFlowSvg のスイムレーン描画', () => {
     expect(svg).toContain(`fill="${TASK_COLORS.blue.text}"`);
     // 他の工程は既定色のまま
     expect(svg).toContain(`fill="${FLOW_LIGHT.task.fill}" stroke="${FLOW_LIGHT.task.stroke}"`);
+  });
+});
+
+// 中（スコープ＝受注業務）のビュー。レーンがあり I/O 描画のテストに使う。
+const mediumView = (p: Project) => p.flow.byLevel.find((v) => v.level === 'medium' && v.scopeParentId)!;
+const firstTaskNode = (p: Project) =>
+  Object.values(mediumView(p).nodes).find(
+    (n): n is Extract<FlowNode, { kind: 'task' }> => n.kind === 'task',
+  )!;
+const parseViewBox = (svg: string) => {
+  const m = svg.match(/viewBox="(-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+)"/);
+  expect(m).not.toBeNull();
+  const [x, y, w, h] = m!.slice(1).map(Number);
+  return { x: x!, y: y!, w: w!, h: h! };
+};
+
+describe('buildFlowSvg の出力範囲（I/O のはみ出し）', () => {
+  it('原点より左上へはみ出す入力 I/O アイコンも viewBox に含める（負方向へ拡張）', () => {
+    let p = createSampleProject(counter());
+    const taskId = firstTaskNode(p).taskId;
+    let j = 0;
+    for (let i = 0; i < 6; i++) {
+      p = addIoItem(p, taskId, 'inputs', { name: `入力${i}`, kind: 'doc' }, () => `io-${j++}`);
+    }
+    const view = mediumView(p);
+    const n = Object.values(view.nodes).find(
+      (nn): nn is Extract<FlowNode, { kind: 'task' }> => nn.kind === 'task' && nn.taskId === taskId,
+    )!;
+    // 工程を左端・最上段レーン付近へ置く → 入力アイコンは x<0 / y<0 へはみ出す
+    n.x = 20;
+    n.y = 80;
+    const plain = (p.details[taskId]?.inputs ?? []).filter((it) => !it.source?.trim()).length;
+    const r = ioIconRect({ x: n.x, y: n.y }, 'input', plain);
+    expect(r.x).toBeLessThan(0); // 前提: 本当に左へはみ出している
+    expect(r.y).toBeLessThan(0);
+
+    const svg = buildFlowSvg(p, view);
+    const vb = parseViewBox(svg);
+    expect(vb.x).toBeLessThanOrEqual(r.x);
+    expect(vb.y).toBeLessThanOrEqual(r.y);
+    expect(vb.x + vb.w).toBeGreaterThanOrEqual(r.x + r.w);
+    expect(vb.y + vb.h).toBeGreaterThanOrEqual(r.y + r.h);
+    // 背景もはみ出し領域を覆う（原点 0,0 固定の rect だと負側が透ける）
+    expect(svg).toContain(`<rect x="${vb.x}" y="${vb.y}" width="100%" height="100%"`);
+  });
+
+  it('はみ出しが無い図は従来どおり viewBox が 0 0 起点', () => {
+    const p = createSampleProject(counter());
+    const large = p.flow.byLevel.find((v) => v.level === 'large' && !v.scopeParentId)!;
+    const svg = buildFlowSvg(p, large);
+    expect(svg).toMatch(/viewBox="0 0 \d/);
+  });
+});
+
+describe('出所付き入力帳票（チップ配置は sourceChipLayout を画面と共有）', () => {
+  it('レーンに無い出所は「外部:」付きで工程の真上、レーン一致（空白ゆれ吸収）は工程行に置く', () => {
+    let p = createSampleProject(counter());
+    const taskId = firstTaskNode(p).taskId;
+    let j = 0;
+    p = addIoItem(p, taskId, 'inputs', { name: '注文FAX', kind: 'doc', source: '取引先' }, () => `io-${j++}`);
+    p = addIoItem(p, taskId, 'inputs', { name: '指示書', kind: 'doc', source: '営業部 ' }, () => `io-${j++}`);
+    const view = mediumView(p);
+    const n = Object.values(view.nodes).find(
+      (nn): nn is Extract<FlowNode, { kind: 'task' }> => nn.kind === 'task' && nn.taskId === taskId,
+    )!;
+    const boxes = laneLayout(view.lanes);
+    const svg = buildFlowSvg(p, view);
+
+    // 出所がレーンに無い → 「外部:」付き・工程の真上に浮く
+    const chip0 = sourceChipLayout({ x: n.x, y: n.y }, '取引先', 0, boxes);
+    expect(chip0.label).toBe('外部: 取引先');
+    expect(chip0.y).toBe(n.y - chip0.h - 30);
+    expect(svg).toContain(`<rect x="${chip0.x}" y="${chip0.y}" width="${chip0.w}" height="${chip0.h}" rx="6"`);
+    expect(svg).toContain('外部: 取引先');
+
+    // 出所がレーン名と一致（末尾空白を吸収）→ そのレーンの工程行・「外部:」は付かない
+    const chip1 = sourceChipLayout({ x: n.x, y: n.y }, '営業部 ', 1, boxes);
+    const sales = boxes.find((b) => b.lane.title === '営業部')!;
+    expect(chip1.y).toBe(sales.base);
+    expect(chip1.label).toBe('営業部 ');
+    expect(svg).toContain(`<rect x="${chip1.x}" y="${chip1.y}" width="${chip1.w}" height="${chip1.h}" rx="6"`);
+    expect(svg).not.toContain('外部: 営業部');
+  });
+});
+
+describe('issuePrimaryIds（課題の代表ノード選定。画面と画像出力で共有）', () => {
+  const issueNode = (id: string, taskId: string, issueId: string): FlowNode => ({
+    id,
+    kind: 'issue',
+    taskId,
+    issueId,
+    targetNodeId: 'tgt',
+    x: 0,
+    y: 0,
+    visible: true,
+  });
+
+  it('details の課題順で先頭に対応するノードを代表に選ぶ', () => {
+    const nodes = [issueNode('n2', 't1', 'i2'), issueNode('n1', 't1', 'i1')];
+    const m = issuePrimaryIds(nodes, { t1: { issues: [{ id: 'i1' }, { id: 'i2' }] } });
+    expect(m.get('t1')).toBe('n1');
+  });
+
+  it('順序が不明な課題は末尾扱い・同順はノード id 昇順で決定論', () => {
+    const nodes = [issueNode('nb', 't1', 'ix'), issueNode('na', 't1', 'iy')];
+    expect(issuePrimaryIds(nodes, {}).get('t1')).toBe('na');
   });
 });

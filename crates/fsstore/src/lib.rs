@@ -27,8 +27,32 @@ fn rand_suffix() -> String {
     format!("{:x}-{:x}", std::process::id(), nanos)
 }
 
+/// rename をディスクへ確定させるため親ディレクトリを fsync する。
+/// POSIX ではディレクトリエントリの永続化に必要（fsync(2)）。
+/// ネットワーク FS 等でディレクトリ fsync 非対応の場合だけは黙認する。
+#[cfg(unix)]
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    match fs::File::open(dir).and_then(|d| d.sync_all()) {
+        Err(e) if matches!(
+            e.kind(),
+            io::ErrorKind::Unsupported | io::ErrorKind::InvalidInput
+        ) =>
+        {
+            Ok(())
+        }
+        r => r,
+    }
+}
+
+/// Windows ではディレクトリを File として開けないためベストエフォート（何もしない）。
+#[cfg(not(unix))]
+fn sync_dir(_dir: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 /// 同一ディレクトリ内の一時ファイルへ書き、fsync 後に rename（原子的置換）。
 /// 途中でクラッシュしても元ファイルは無傷（rename 前なら一時ファイルだけが残る）。
+/// rename 後に親ディレクトリも fsync し、電源断で rename 自体が巻き戻らないようにする。
 pub fn atomic_save(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = path.parent().filter(|p| !p.as_os_str().is_empty());
     let dir = dir.unwrap_or_else(|| Path::new("."));
@@ -43,6 +67,7 @@ pub fn atomic_save(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
+    sync_dir(dir)?;
     Ok(())
 }
 
@@ -68,7 +93,10 @@ pub fn stat_updated_at(path: &Path) -> io::Result<Option<String>> {
 
 // ---- 助言ロック ----
 
+/// `.lock` ファイルおよび invoke 境界のワイヤ形式は camelCase
+/// （TS 側 `ProjectRepository.ts` の LockInfo と一致させる）。
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct LockInfo {
     pub user: String,
     pub host: String,
@@ -90,12 +118,29 @@ fn lock_path(path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-pub fn read_lock(path: &Path) -> io::Result<Option<LockInfo>> {
+/// ロックファイルの読み取り結果。「無い」と「壊れていて読めない」を区別する
+/// （acquire 時の扱いが異なるため）。
+enum LockRead {
+    Missing,
+    Unreadable,
+    Held(LockInfo),
+}
+
+fn read_lock_raw(path: &Path) -> io::Result<LockRead> {
     match fs::read(lock_path(path)) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes)
+            .map(LockRead::Held)
+            .unwrap_or(LockRead::Unreadable)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(LockRead::Missing),
         Err(e) => Err(e),
     }
+}
+
+pub fn read_lock(path: &Path) -> io::Result<Option<LockInfo>> {
+    Ok(match read_lock_raw(path)? {
+        LockRead::Held(info) => Some(info),
+        _ => None,
+    })
 }
 
 fn write_lock(path: &Path, owner: &LockInfo) -> io::Result<()> {
@@ -103,8 +148,29 @@ fn write_lock(path: &Path, owner: &LockInfo) -> io::Result<()> {
     atomic_save(&lock_path(path), &bytes)
 }
 
+/// ロックファイルを create_new（O_EXCL）で原子的に作成する。既存なら AlreadyExists。
+fn try_create_lock(path: &Path, owner: &LockInfo) -> io::Result<()> {
+    let bytes = serde_json::to_vec(owner).map_err(to_io)?;
+    let lp = lock_path(path);
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lp)?;
+    let written = f.write_all(&bytes);
+    let written = written.and_then(|_| f.sync_all());
+    if let Err(e) = written {
+        // 書きかけの残骸を残さない（Windows ではハンドルを閉じてから削除）
+        drop(f);
+        let _ = fs::remove_file(&lp);
+        return Err(e);
+    }
+    Ok(())
+}
+
 /// 取得を試みる。
-/// - ロックが無い / 自分のセッション → 取得（書き込み）して Acquired
+/// - ロックが無い → create_new（O_EXCL）の原子的作成で取得。読み取り→書き込みの
+///   隙間で複数セッションが同時に Acquired を得る競合を防ぐ。
+/// - 自分のセッション → 内容を書き直して Acquired
 /// - 他者が保持 → Held{ stale }（新鮮なら stale=false、古ければ true=引き継ぎ候補）
 pub fn acquire_lock(
     path: &Path,
@@ -112,25 +178,59 @@ pub fn acquire_lock(
     stale_after_ms: i64,
     now_ms: i64,
 ) -> io::Result<AcquireResult> {
-    match read_lock(path)? {
-        None => {
-            write_lock(path, owner)?;
-            Ok(AcquireResult::Acquired)
+    // 「作成失敗の直後に保持者が解放した」ケースに備えて数回やり直す。
+    let mut unreadable_seen = false;
+    for _ in 0..3 {
+        match try_create_lock(path, owner) {
+            Ok(()) => return Ok(AcquireResult::Acquired),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
         }
-        Some(info) => {
-            if info.session_id == owner.session_id {
-                write_lock(path, owner)?; // 自分のロックを更新
-                return Ok(AcquireResult::Acquired);
+        match read_lock_raw(path)? {
+            LockRead::Missing => continue, // 直後に解放された → 作り直し
+            LockRead::Held(info) => {
+                if info.session_id == owner.session_id {
+                    write_lock(path, owner)?; // 自分のロックの内容更新（rename 置換）
+                    return Ok(AcquireResult::Acquired);
+                }
+                let stale = now_ms - info.heartbeat_at > stale_after_ms;
+                return Ok(AcquireResult::Held { info, stale });
             }
-            let stale = now_ms - info.heartbeat_at > stale_after_ms;
-            Ok(AcquireResult::Held { info, stale })
+            LockRead::Unreadable => {
+                // 壊れたロックはクラッシュ残骸の可能性が高いが、他セッションの
+                // 書き込み途中を読んだだけかもしれない。少し待って読み直し、
+                // それでも壊れていれば残骸とみなして引き継ぐ（rename 置換）。
+                // ※ この引き継ぎだけは原子的でなく、同時に引き継ぐ他セッションと
+                //    競合し得る僅かな窓が残る（共有フォルダでは CAS が使えないため）。
+                if unreadable_seen {
+                    write_lock(path, owner)?;
+                    return Ok(AcquireResult::Acquired);
+                }
+                unreadable_seen = true;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
         }
     }
+    Err(io::Error::new(
+        io::ErrorKind::Other,
+        "ロックの取得が競合し続けました。再試行してください",
+    ))
 }
 
 /// 放置/クラッシュ残骸のロックをユーザー確認の上で引き継ぐ（強制上書き）。
-pub fn steal_lock(path: &Path, owner: &LockInfo) -> io::Result<()> {
-    write_lock(path, owner)
+/// `expected` には確認ダイアログを出した時点で読んだ LockInfo を渡す。
+/// 上書き直前に再読し、内容が変わっていた（保持者が更新した・別セッションが
+/// 先に引き継いだ等）場合は何もせず false を返す。
+/// ※ 再検証と rename の間にも僅かな競合窓は残る（共有フォルダ上で原子的な
+///    compare-and-swap が使えないための既知の制約）。
+pub fn steal_lock(path: &Path, owner: &LockInfo, expected: Option<&LockInfo>) -> io::Result<bool> {
+    if let Some(expected) = expected {
+        if read_lock(path)?.as_ref() != Some(expected) {
+            return Ok(false);
+        }
+    }
+    write_lock(path, owner)?;
+    Ok(true)
 }
 
 /// ハートビート（heartbeat_at を更新した owner を渡す）。
@@ -221,7 +321,7 @@ mod tests {
         let d = TempDir::new();
         let p = d.file("p.json");
         let other = owner("s_other", 1000);
-        steal_lock(&p, &other).unwrap(); // 他者がロック中
+        assert!(steal_lock(&p, &other, None).unwrap()); // 他者がロック中
         let me = owner("s_me", 1000);
 
         // まだ新鮮（now が heartbeat+1s、しきい値 90s）
@@ -244,7 +344,7 @@ mod tests {
         let d = TempDir::new();
         let p = d.file("p.json");
         let me = owner("s1", 1000);
-        steal_lock(&p, &me).unwrap();
+        assert!(steal_lock(&p, &me, None).unwrap());
         assert_eq!(acquire_lock(&p, &me, 90_000, 5000).unwrap(), AcquireResult::Acquired);
     }
 
@@ -253,10 +353,10 @@ mod tests {
         let d = TempDir::new();
         let p = d.file("p.json");
         let other = owner("s_other", 1000);
-        steal_lock(&p, &other).unwrap();
+        assert!(steal_lock(&p, &other, None).unwrap());
         let me = owner("s_me", 200_000);
         // 引き継ぎ
-        steal_lock(&p, &me).unwrap();
+        assert!(steal_lock(&p, &me, None).unwrap());
         assert_eq!(read_lock(&p).unwrap().unwrap().session_id, "s_me");
         // 他者は解放できない（所有者でない）
         release_lock(&p, &other).unwrap();
@@ -264,5 +364,89 @@ mod tests {
         // 所有者は解放できる
         release_lock(&p, &me).unwrap();
         assert_eq!(read_lock(&p).unwrap(), None);
+    }
+
+    #[test]
+    fn steal_verifies_expected_content() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        let stale_holder = owner("s_stale", 1000);
+        assert!(steal_lock(&p, &stale_holder, None).unwrap());
+
+        // 先に別セッションが引き継いでいた → expected と一致せず失敗
+        let first = owner("s_first", 200_000);
+        assert!(steal_lock(&p, &first, Some(&stale_holder)).unwrap());
+        let second = owner("s_second", 200_000);
+        assert!(!steal_lock(&p, &second, Some(&stale_holder)).unwrap());
+        assert_eq!(read_lock(&p).unwrap().unwrap().session_id, "s_first");
+
+        // 読んだ内容のままなら引き継げる
+        assert!(steal_lock(&p, &second, Some(&first)).unwrap());
+        assert_eq!(read_lock(&p).unwrap().unwrap().session_id, "s_second");
+    }
+
+    #[test]
+    fn acquire_does_not_clobber_existing_lock() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        let other = owner("s_other", 1000);
+        assert!(steal_lock(&p, &other, None).unwrap());
+        let me = owner("s_me", 1000);
+        match acquire_lock(&p, &me, 90_000, 2000).unwrap() {
+            AcquireResult::Held { .. } => {}
+            _ => panic!("should be held"),
+        }
+        // 既存ロックは上書きされていない
+        assert_eq!(read_lock(&p).unwrap().unwrap().session_id, "s_other");
+    }
+
+    #[test]
+    fn acquire_takes_over_unreadable_lock() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        // クラッシュ残骸（JSON として壊れたロックファイル）
+        fs::write(lock_path(&p), b"{broken").unwrap();
+        let me = owner("s_me", 1000);
+        assert_eq!(acquire_lock(&p, &me, 90_000, 1000).unwrap(), AcquireResult::Acquired);
+        assert_eq!(read_lock(&p).unwrap(), Some(me));
+    }
+
+    #[test]
+    fn concurrent_acquire_yields_single_winner() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        let acquired = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for i in 0..8 {
+                let p = &p;
+                let acquired = &acquired;
+                s.spawn(move || {
+                    let me = owner(&format!("s{}", i), 1000);
+                    match acquire_lock(p, &me, 90_000, 1000).unwrap() {
+                        AcquireResult::Acquired => {
+                            acquired.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        AcquireResult::Held { .. } => {}
+                    }
+                });
+            }
+        });
+        // O_EXCL により勝者はちょうど 1 セッションだけ
+        assert_eq!(acquired.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn lock_file_json_is_camel_case() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        let me = owner("s1", 1000);
+        assert!(steal_lock(&p, &me, None).unwrap());
+        let raw = String::from_utf8(fs::read(lock_path(&p)).unwrap()).unwrap();
+        // TS 側（ProjectRepository.ts）の LockInfo と同じ camelCase キー
+        assert!(raw.contains("\"sessionId\""));
+        assert!(raw.contains("\"openedAt\""));
+        assert!(raw.contains("\"heartbeatAt\""));
+        assert!(raw.contains("\"appVersion\""));
+        assert!(!raw.contains("session_id"));
     }
 }

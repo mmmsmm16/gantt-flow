@@ -1,5 +1,6 @@
 // 同期の心臓部（`docs/04-sync-spec.md`）。指定粒度ビューを現在のコアに合わせて再構築する純粋関数。
-// 不変条件: 「対象タスク 1 件 ⇄ タスクノード 1 個」/ 手動配置(x,y)は保持 / pinned エッジは消さない / 冪等。
+// 不変条件: 「対象タスク 1 件 ⇄ タスクノード 1 個」/ 手動配置(x,y)は保持
+//          / pinned エッジは依存変更では消さない（端点ノードが消えたら撤去） / 冪等。
 // v1 スコープ: タスクノード + 依存由来エッジ + 自動配置 + レーン。I/O・課題オブジェクトは次段で追加。
 import type {
   Core,
@@ -169,9 +170,13 @@ export function reconcileFlow(
     return (id && next.lanes[id]?.order) || 0;
   };
 
-  // 3. 孤立ノード撤去: 対象外になったタスクノードを消す（移動/削除）→ report
+  // 3. 孤立ノード撤去: 対象外になったタスクのノードを消す（移動/削除）→ report
+  //    タスクノードだけでなく、そのタスク由来の I/O（doc）・課題（issue）ノードも一緒に消す。
   for (const n of Object.values(next.nodes)) {
-    if (n.kind === 'task' && !targetIds.has(n.taskId)) {
+    if (
+      (n.kind === 'task' || n.kind === 'doc' || n.kind === 'issue') &&
+      !targetIds.has(n.taskId)
+    ) {
       delete next.nodes[n.id];
       report.removed.push(n.id);
     }
@@ -232,11 +237,12 @@ export function reconcileFlow(
   }
   const depIds = new Set([...depsInScope.map((d) => d.id), ...bridges.map((b) => b.depId)]);
 
-  // 5a. 不要な導出エッジを撤去（pinned は残す / 端点消失も撤去）
+  // 5a. 不要な導出エッジを撤去。pinned が守るのは「依存の変化」からだけで、
+  //     端点ノードが消えたエッジは pinned でも撤去する（選択も描画もできない幽霊になるため）。
   for (const e of Object.values(next.edges)) {
     const depGone = e.derivedFromDependencyId && !depIds.has(e.derivedFromDependencyId);
     const danglingEndpoint = !next.nodes[e.source] || !next.nodes[e.target];
-    if (!e.pinned && (depGone || danglingEndpoint)) delete next.edges[e.id];
+    if (danglingEndpoint || (!e.pinned && depGone)) delete next.edges[e.id];
   }
 
   // 5b. 各依存に導出エッジを 1 本保証。ただし
@@ -246,6 +252,8 @@ export function reconcileFlow(
   for (const e of Object.values(next.edges)) {
     if (e.derivedFromDependencyId) derivedByDep.set(e.derivedFromDependencyId, e);
   }
+  // 直接依存が張った端点対。同じ対に解決されたブリッジは張らない（同一区間の二重矢印防止）。
+  const directPairs = new Set<string>();
   for (const d of depsInScope) {
     const s = nodeIdByTask.get(d.from);
     const t = nodeIdByTask.get(d.to);
@@ -254,28 +262,50 @@ export function reconcileFlow(
     if (existing) {
       existing.source = s;
       existing.target = t;
+      directPairs.add(`${s}->${t}`);
       continue;
     }
     if (reachableFlow(next.edges, s, t)) continue; // 既存経路を尊重
     const id = idGen();
     next.edges[id] = { id, source: s, target: t, derivedFromDependencyId: d.id, role: 'flow' };
+    directPairs.add(`${s}->${t}`);
   }
 
   // 5c. 全体スコープの大またぎブリッジ（親の依存 1 本 ⇄ 子の末端→先頭エッジ 1 本）。
+  //     直接依存と同じ端点対に解決された場合は直接依存のエッジを優先し、ブリッジ側は出さない。
   for (const br of bridges) {
+    const duplicatesDirect = directPairs.has(`${br.from}->${br.to}`);
     const existing = derivedByDep.get(br.depId);
     if (existing) {
+      if (duplicatesDirect) {
+        delete next.edges[existing.id];
+        continue;
+      }
       existing.source = br.from;
       existing.target = br.to;
       continue;
     }
-    if (reachableFlow(next.edges, br.from, br.to)) continue;
+    if (duplicatesDirect || reachableFlow(next.edges, br.from, br.to)) continue;
     const id = idGen();
     next.edges[id] = { id, source: br.from, target: br.to, derivedFromDependencyId: br.depId, role: 'flow' };
   }
 
   // 6. I/O・課題オブジェクト: 表(TaskDetail)を源泉に存在を導出。配置/表示は安定IDで保持。
   //    帳票/情報は工程の角に重ねて配置、課題は重ならない空きへ。
+  //    既存ノードの索引は走査 1 回でタスク別にまとめる（対象数×全ノードの再走査を避ける）。
+  const docsByTask = new Map<Id, FlowDocNode[]>();
+  const issuesByTask = new Map<Id, FlowIssueNote[]>();
+  for (const n of Object.values(next.nodes)) {
+    if (n.kind === 'doc') {
+      const arr = docsByTask.get(n.taskId);
+      if (arr) arr.push(n);
+      else docsByTask.set(n.taskId, [n]);
+    } else if (n.kind === 'issue') {
+      const arr = issuesByTask.get(n.taskId);
+      if (arr) arr.push(n);
+      else issuesByTask.set(n.taskId, [n]);
+    }
+  }
   for (const t of targets) {
     const taskNodeId = nodeIdByTask.get(t.id);
     if (!taskNodeId) continue;
@@ -287,9 +317,7 @@ export function reconcileFlow(
 
     // 6a. I/O ノード（IoItem 1件 ⇔ doc ノード 1個）
     const docByIo = new Map<Id, FlowDocNode>();
-    for (const n of Object.values(next.nodes)) {
-      if (n.kind === 'doc' && n.taskId === t.id) docByIo.set(n.ioId, n);
-    }
+    for (const n of docsByTask.get(t.id) ?? []) docByIo.set(n.ioId, n);
     const ensureDoc = (ioId: Id, io: 'input' | 'output', index: number) => {
       const existing = docByIo.get(ioId);
       if (existing) {
@@ -312,8 +340,8 @@ export function reconcileFlow(
       wantIo.add(item.id);
       ensureDoc(item.id, 'output', k);
     });
-    for (const n of Object.values(next.nodes)) {
-      if (n.kind === 'doc' && n.taskId === t.id && !wantIo.has(n.ioId)) {
+    for (const n of docsByTask.get(t.id) ?? []) {
+      if (!wantIo.has(n.ioId)) {
         delete next.nodes[n.id];
         report.removed.push(n.id);
       }
@@ -328,9 +356,7 @@ export function reconcileFlow(
       return taskNode.id;
     };
     const noteByIssue = new Map<Id, FlowIssueNote>();
-    for (const n of Object.values(next.nodes)) {
-      if (n.kind === 'issue' && n.taskId === t.id) noteByIssue.set(n.issueId, n);
-    }
+    for (const n of issuesByTask.get(t.id) ?? []) noteByIssue.set(n.issueId, n);
     const wantIssue = new Set<Id>();
     for (const item of issues) {
       wantIssue.add(item.id);
@@ -358,12 +384,18 @@ export function reconcileFlow(
       noteByIssue.set(item.id, node);
       report.added.push(id);
     }
-    for (const n of Object.values(next.nodes)) {
-      if (n.kind === 'issue' && n.taskId === t.id && !wantIssue.has(n.issueId)) {
+    for (const n of issuesByTask.get(t.id) ?? []) {
+      if (!wantIssue.has(n.issueId)) {
         delete next.nodes[n.id];
         report.removed.push(n.id);
       }
     }
+  }
+
+  // 7. 端点を失ったエッジの後始末。6 で消えた doc/issue ノードに繋がっていたエッジは
+  //    pinned でもここで撤去し、1 回の reconcile で幽霊エッジが残らないようにする（冪等性の維持）。
+  for (const e of Object.values(next.edges)) {
+    if (!next.nodes[e.source] || !next.nodes[e.target]) delete next.edges[e.id];
   }
 
   return { view: next, report };

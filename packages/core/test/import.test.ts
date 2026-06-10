@@ -47,6 +47,43 @@ describe('importCsv（初回ブートストラップ）', () => {
     expect(report.unresolvedDeps[0]!.ref).toBe('存在しない工程');
   });
 
+  it('業務内容・使用システム・工数(分)・備考と「課題→方策」を取り込む', () => {
+    const csv = `作業名,粒度,課題,業務内容,使用システム,工数(分),備考
+A,中,基準が属人的→チェックリストを標準化,目視で確認,販売管理,30,繁忙期は遅延`;
+    const { project, report } = importCsv(csv, counter('imp'));
+    const id = Object.values(project.core.tasks).find((t) => t.name === 'A')!.id;
+    const d = project.details[id]!;
+    expect(d.how).toBe('目視で確認');
+    expect(d.system).toBe('販売管理');
+    expect(d.effortMinutes).toBe(30);
+    expect(d.note).toBe('繁忙期は遅延');
+    expect(d.issues).toHaveLength(1);
+    expect(d.issues![0]).toMatchObject({ issue: '基準が属人的', measure: 'チェックリストを標準化' });
+    expect(report.warnings).toHaveLength(0);
+  });
+
+  it('数値でない工数(分)は警告して無視する', () => {
+    const csv = `作業名,粒度,工数(分)\nA,中,30分くらい`;
+    const { project, report } = importCsv(csv, counter('imp'));
+    const id = Object.values(project.core.tasks).find((t) => t.name === 'A')!.id;
+    expect(project.details[id]!.effortMinutes).toBeUndefined();
+    expect(report.warnings.some((w) => w.includes('工数(分)'))).toBe(true);
+  });
+
+  it('同名の工程が複数ある名前参照は未解決として記録する（誤接続しない）', () => {
+    const csv = `作業名,粒度,前工程
+受注業務,大,
+内容確認,中,
+請求業務,大,
+内容確認,中,
+与信確認,中,内容確認`;
+    const { project, report } = importCsv(csv, counter('imp'));
+    expect(Object.keys(project.core.dependencies)).toHaveLength(0);
+    expect(report.unresolvedDeps).toHaveLength(1);
+    expect(report.unresolvedDeps[0]!.ref).toBe('内容確認');
+    expect(report.warnings.some((w) => w.includes('内容確認'))).toBe(true);
+  });
+
   it('CSV パーサはクオート/カンマ/改行を扱う', () => {
     const rows = parseCsv('a,"b,c","d\ne"\n1,2,3');
     expect(rows[0]).toEqual(['a', 'b,c', 'd\ne']);
