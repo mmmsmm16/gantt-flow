@@ -10,7 +10,7 @@ import {
   type FlowLevelView,
   type FlowNode,
 } from '@gantt-flow/core';
-import { FLOW_LIGHT } from './theme';
+import { FLOW_LIGHT, TASK_COLORS } from './theme';
 
 // 画面 (--font-ui) と一致させる和文優先スタック。出力＝画面の体験を保つ。styles.css と同期。
 const FONT_STACK =
@@ -182,11 +182,16 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const cx = n.x + s.w / 2;
     if (n.kind === 'task') {
       const name = project.core.tasks[n.taskId]?.name ?? '';
+      // 工程カラー(任意)。塗りは淡背景+濃枠、文字色は text を使用(未設定は既定)。
+      const d = project.details[n.taskId];
+      const fill = d?.fillColor ? TASK_COLORS[d.fillColor].fill : FLOW_LIGHT.task.fill;
+      const stroke = d?.fillColor ? TASK_COLORS[d.fillColor].base : FLOW_LIGHT.task.stroke;
+      const textFill = d?.textColor ? TASK_COLORS[d.textColor].text : FLOW_LIGHT.task.text;
       parts.push(
-        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="9" fill="${FLOW_LIGHT.task.fill}" stroke="${FLOW_LIGHT.task.stroke}" stroke-width="1.5"/>`,
+        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`,
       );
       parts.push(
-        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${FLOW_LIGHT.task.text}" text-anchor="middle">${esc(name)}</text>`,
+        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${textFill}" text-anchor="middle">${esc(name)}</text>`,
       );
     } else if (n.kind === 'issue') {
       if (!isPrimaryIssue(n)) continue; // 集約: 代表のみ描画
