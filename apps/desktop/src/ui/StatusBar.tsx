@@ -19,6 +19,7 @@ export function StatusBar() {
   const dirty = useApp((s) => s.dirty);
   const activePane = useUI((s) => s.activePane);
   const leaderPending = useUI((s) => s.leaderPending);
+  const singleKey = useUI((s) => s.singleKey);
 
   const tasks = Object.values(project.core.tasks);
   const byLevel = (l: ProcessLevel) => tasks.filter((t) => t.level === l).length;
@@ -63,8 +64,12 @@ export function StatusBar() {
       ) : (
         <span className="st-item st-hint" title="ショートカット一覧は ? キー">
           {activePane === 'table'
-            ? 'j/k 移動・Enter 編集・n 追加・? 一覧'
-            : '矢印で移動・c 接続・f フィット・? 一覧'}
+            ? singleKey
+              ? 'j/k 移動・Enter 編集・n 追加・? 一覧'
+              : '↑↓ 移動・Enter 編集・⌘K コマンド・? 一覧'
+            : singleKey
+              ? '矢印で移動・c 接続・f フィット・? 一覧'
+              : '矢印で移動・Enter 編集・⌘K コマンド・? 一覧'}
         </span>
       )}
       <span className="st-sep" aria-hidden="true" />

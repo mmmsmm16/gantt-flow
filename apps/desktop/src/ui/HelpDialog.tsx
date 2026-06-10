@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
-import { getActiveKeymap, chordKeys } from '../keymap';
+import { DEFAULT_KEYMAP, getActiveKeymap, chordKeys } from '../keymap';
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -56,36 +56,48 @@ const STATIC_GROUPS: Group[] = [
 ];
 
 // 実効キーマップから「グループ → ショートカット一覧」を組み立てる。
-// 同じ action のサブキー(help なし)は代表エントリに「 / 」で連結して 1 行にまとめる。
+// action 単位で 1 行にまとめる(ラベル/グループは DEFAULT_KEYMAP の代表エントリから引く)。
+// こうすると代表キー(例: j)がシングルキーOFFや無効化で消えても、残った代替キー(↓)で
+// 行が生き残る=「動く操作は必ずヘルプに載る」を保証できる。
 function buildKeymapGroups(): Group[] {
   const keymap = getActiveKeymap();
   const groups = new Map<string, Shortcut[]>();
-  for (const b of keymap) {
-    if (!b.help) continue;
-    const alts = keymap.filter((o) => o.action === b.action && o.id !== b.id && !o.help && !!o.leader === !!b.leader);
-    const keys = chordKeys(b.chord, b.leader);
-    // 代替キー(j と ↓ など)は末尾の 1 打に「j / ↓」のように併記する。
-    if (alts.length > 0 && keys.length > 0) {
+  const seen = new Set<string>();
+  for (const def of DEFAULT_KEYMAP) {
+    if (!def.help) continue;
+    const dedupKey = `${def.action}${def.leader ? ':leader' : ''}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    // この action のいま有効なバインド(リーダー有無は別の行として扱う)
+    const actives = keymap.filter((b) => b.action === def.action && !!b.leader === !!def.leader);
+    if (actives.length === 0) continue; // すべて無効 → 行ごと出さない
+    const keysList = actives.map((b) => chordKeys(b.chord, b.leader));
+    const keys = keysList[0]!;
+    if (keysList.length > 1 && keys.length > 0) {
+      // 代替キー(j と ↓ など)は末尾の 1 打に「j / ↓」のように併記する。
       const last = keys[keys.length - 1]!;
-      const altLabels = alts.map((a) => chordKeys(a.chord, a.leader).join('+'));
-      keys[keys.length - 1] = [last, ...altLabels].join(' / ');
+      keys[keys.length - 1] = [last, ...keysList.slice(1).map((k) => k.join('+'))].join(' / ');
     }
-    const arr = groups.get(b.help.group) ?? [];
-    arr.push({ keys, label: b.help.label });
-    groups.set(b.help.group, arr);
+    const arr = groups.get(def.help.group) ?? [];
+    arr.push({ keys, label: def.help.label });
+    groups.set(def.help.group, arr);
   }
   return [...groups.entries()].map(([title, items]) => ({ title, items }));
 }
 
 export function HelpDialog() {
   const open = useUI((s) => s.overlay === 'help');
+  const singleKey = useUI((s) => s.singleKey);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, open);
 
-  // 開くたびに実効キーマップから再生成(カスタマイズの反映)。
-  const groups = useMemo(() => (open ? [...buildKeymapGroups(), ...STATIC_GROUPS] : []), [open]);
+  // 開くたびに実効キーマップから再生成(カスタマイズ・シングルキー設定の反映)。
+  const groups = useMemo(
+    () => (open ? [...buildKeymapGroups(), ...STATIC_GROUPS] : []),
+    [open, singleKey],
+  );
 
   useEffect(() => {
     if (!open) return undefined;
@@ -134,7 +146,11 @@ export function HelpDialog() {
             </section>
           ))}
         </div>
-        <p className="help-foot">単キーの操作は、テキスト入力中は無効です（誤入力を防ぐため）。</p>
+        <p className="help-foot">
+          {singleKey
+            ? '単キーの操作は、テキスト入力中は無効です（誤入力を防ぐため）。'
+            : 'シングルキー操作（j/k 移動・g リーダーなどの Vim 風キー）は設定で ON にできます。'}
+        </p>
       </div>
     </div>
   );

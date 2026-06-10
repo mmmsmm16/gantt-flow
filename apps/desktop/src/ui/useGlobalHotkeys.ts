@@ -134,7 +134,8 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       const leaderActive = leader.isPending();
 
       // g 単打 → リーダー待機開始(編集外・修飾なしのみ。Shift+G は別バインド)。
-      if (!editable && !leaderActive && !mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g' && !e.repeat) {
+      // シングルキー操作 OFF のときはリーダー自体を無効化(チップも出さない)。
+      if (ui.singleKey && !editable && !leaderActive && !mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g' && !e.repeat) {
         leader.arm();
         ui.setLeaderPending(true);
         e.preventDefault();

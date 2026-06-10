@@ -1,6 +1,7 @@
 // UI 状態（ドメインストアとは別系統。undo/redo 履歴を汚さない）。
 // テーマ＋自前ダイアログ（confirm/prompt）＋トースト＋表レイアウト（表を広く）。
 import { create } from 'zustand';
+import { loadSingleKeyEnabled, saveSingleKeyEnabled } from '../keymap';
 
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
@@ -126,6 +127,10 @@ interface UIState {
   leaderPending: boolean;
   setLeaderPending: (pending: boolean) => void;
 
+  /** シングルキー操作(Vim 風: j/k/hjkl/gリーダー等)が有効か。既定 OFF。設定で切替。 */
+  singleKey: boolean;
+  setSingleKey: (enabled: boolean) => void;
+
   /** 全項目表の列表示（true=表示。未指定キーは表示）。localStorage 永続。 */
   ftColumns: Record<string, boolean>;
   toggleFtColumn: (key: string) => void;
@@ -195,6 +200,12 @@ export const useUI = create<UIState>((set, get) => ({
 
   leaderPending: false,
   setLeaderPending: (pending) => set({ leaderPending: pending }),
+
+  singleKey: loadSingleKeyEnabled(),
+  setSingleKey: (enabled) => {
+    saveSingleKeyEnabled(enabled); // 永続化 + 実効キーマップのキャッシュ破棄
+    set({ singleKey: enabled });
+  },
 
   ftColumns: readFtColumns(),
   toggleFtColumn: (key) => {
