@@ -1,7 +1,9 @@
 // 画面下部のステータスバー。工程数・担当数・合計工数・現在ビュー・保存状態を一目で。
+// 右側にアクティブペイン別のキー操作ヒントと g リーダー待機チップ(発見性)。
 import type { ProcessLevel } from '@gantt-flow/core';
 import { effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from '../store';
+import { useUI } from './useUI';
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = {
   large: '大',
@@ -15,6 +17,8 @@ export function StatusBar() {
   const level = useApp((s) => s.level);
   const scopeParentId = useApp((s) => s.scopeParentId);
   const dirty = useApp((s) => s.dirty);
+  const activePane = useUI((s) => s.activePane);
+  const leaderPending = useUI((s) => s.leaderPending);
 
   const tasks = Object.values(project.core.tasks);
   const byLevel = (l: ProcessLevel) => tasks.filter((t) => t.level === l).length;
@@ -52,6 +56,18 @@ export function StatusBar() {
         </>
       )}
       <span className="st-spacer" />
+      {leaderPending ? (
+        <span className="st-item st-leader" aria-live="polite" title="g に続けて t=表 / f=フロー / i=課題 / s=サマリ / 1〜4=粒度">
+          <kbd>g</kbd> 続けてキーを入力…
+        </span>
+      ) : (
+        <span className="st-item st-hint" title="ショートカット一覧は ? キー">
+          {activePane === 'table'
+            ? 'j/k 移動・Enter 編集・n 追加・? 一覧'
+            : '矢印で移動・c 接続・f フィット・? 一覧'}
+        </span>
+      )}
+      <span className="st-sep" aria-hidden="true" />
       <span className="st-item st-view" title="フローで表示中の粒度とスコープ">
         表示: {LEVEL_LABEL[level]}
         {scopeName ? ` / ${scopeName}` : ' / 全体'}

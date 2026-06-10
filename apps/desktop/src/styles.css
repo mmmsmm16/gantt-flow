@@ -1938,6 +1938,22 @@ kbd {
 .st-sub {
   color: var(--faint);
 }
+/* キー操作ヒント / g リーダー待機チップ */
+.st-hint {
+  color: var(--faint);
+}
+.st-leader {
+  color: var(--accent);
+  font-weight: 600;
+}
+.st-leader kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 .st-sep {
   width: 1px;
   height: 13px;
