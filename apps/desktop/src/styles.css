@@ -2292,6 +2292,76 @@ kbd {
   color: var(--faint);
 }
 
+/* ショートカット設定 */
+.keybind-modal {
+  width: min(640px, 100%);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+}
+.keybind-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+.keybind-group h4 {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.keybind-group:first-child h4 {
+  margin-top: 0;
+}
+.keybind-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.keybind-row.disabled .kb-label {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+.kb-keys {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  min-width: 120px;
+}
+.kb-capture {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.kb-off {
+  font-size: 12px;
+  color: var(--faint);
+}
+.kb-actions {
+  display: flex;
+  gap: 4px;
+}
+.kb-actions button {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.kb-actions button:hover {
+  background: var(--hover);
+}
+.kb-fixed {
+  font-size: 11px;
+  color: var(--faint);
+  padding: 3px 8px;
+}
+
 /* サマリ */
 .summary-grid {
   display: grid;

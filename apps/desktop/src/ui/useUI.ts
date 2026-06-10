@@ -138,9 +138,9 @@ interface UIState {
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
 
-  /** 全画面オーバーレイ（ヘルプ / コマンドパレット / 課題一覧 / サマリ / バックアップ）。同時に 1 つだけ。 */
-  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null;
-  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null) => void;
+  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / バックアップ / ショートカット設定）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'keybindings' | null;
+  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'keybindings' | null) => void;
 
   /** 使い方ツアーの現在ステップ（null=非表示）。 */
   tourStep: number | null;

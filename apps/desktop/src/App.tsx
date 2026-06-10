@@ -31,6 +31,7 @@ import { takeAutosaveForRestore, clearAutosave } from './autosave';
 import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
+import { KeybindingsDialog } from './ui/KeybindingsDialog';
 import { Tour, tourDone } from './ui/Tour';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
@@ -469,6 +470,7 @@ export function App() {
       <IssueListDialog />
       <SummaryDialog />
       <BackupsDialog />
+      <KeybindingsDialog />
       <Tour />
       <Modal />
       <BusyOverlay />
