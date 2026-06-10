@@ -69,6 +69,8 @@ const TaskDetail = z.object({
   regulation: z.string().optional(),
   difficulty: z.enum(['H', 'M', 'L']).optional(),
   status: z.enum(['todo', 'heard', 'review', 'done']).optional(),
+  fillColor: z.enum(['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray']).optional(),
+  textColor: z.enum(['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray']).optional(),
 });
 
 const xy = { id: z.string(), x: z.number(), y: z.number() };

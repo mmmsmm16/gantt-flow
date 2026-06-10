@@ -43,6 +43,8 @@ export type Automation = 'manual' | 'system' | 'partial';
 export type Difficulty = 'H' | 'M' | 'L';
 /** ヒアリングの進行状態。未着手 / ヒアリング済 / 確認待ち / 確定。 */
 export type TaskStatus = 'todo' | 'heard' | 'review' | 'done';
+/** 工程カラー(名前付きプリセット)。仮説工程の色分けなど。実際の色値は UI 層が解決する。 */
+export type TaskColor = 'red' | 'orange' | 'yellow' | 'green' | 'teal' | 'blue' | 'purple' | 'gray';
 export type IoKind = 'doc' | 'info'; // 帳票 / 情報
 
 export interface IoItem {
@@ -78,6 +80,8 @@ export interface TaskDetail {
   regulation?: string;
   difficulty?: Difficulty;
   status?: TaskStatus; // ヒアリング進行管理（任意・未指定は未着手扱い）
+  fillColor?: TaskColor; // 工程ノードの塗り色（任意・未指定は既定の白）
+  textColor?: TaskColor; // 作業名の文字色（任意・未指定は既定のインク色）
 }
 
 // ---- フロー詳細（図にだけある情報・同期で保持） ----

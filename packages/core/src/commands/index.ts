@@ -335,6 +335,8 @@ export type TaskDetailPatch = Partial<
     | 'regulation'
     | 'difficulty'
     | 'status'
+    | 'fillColor'
+    | 'textColor'
   >
 >;
 
