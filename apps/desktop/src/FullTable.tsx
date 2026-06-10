@@ -9,6 +9,7 @@ import { useApp } from './store';
 import { collectIoNames } from './suggestions';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
+import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
 import * as Icons from './ui/icons';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
@@ -243,6 +244,21 @@ export function FullTable() {
 
   const clickSort = (key: string) =>
     setSort((cur) => (cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
+
+  // 行選択モード(編集外のキーボード操作)。アウトラインと同じ操作系を共有フックで。
+  const activePane = useUI((s) => s.activePane);
+  useRowSelectionKeys({
+    enabled: activePane === 'table',
+    orderedIds: rows.map((t) => t.id),
+    beginEdit: (id) => setFocusTask(id), // 自粒度の作業名入力へ(未描画なら描画数を広げて待つ)
+  });
+
+  // キーボード移動で選択が未描画領域に入ったら、その行まで描画数を広げる。
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const idx = rows.findIndex((t) => t.id === selectedTaskId);
+    if (idx >= renderCount) setRenderCount(Math.ceil((idx + 1) / ROW_CHUNK) * ROW_CHUNK);
+  }, [selectedTaskId, rows, renderCount]);
 
   // 行クリック: 通常＝単一選択（インスペクタ）、Ctrl/⌘＝トグル、Shift＝アンカーからの範囲選択。
   const onRowClick = (e: React.MouseEvent, t: ProcessTask) => {
