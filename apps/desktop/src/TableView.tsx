@@ -5,6 +5,7 @@ import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
+import { prevCandidates } from './suggestions';
 import * as Icons from './ui/icons';
 
 const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
@@ -247,20 +248,8 @@ export function TableView() {
                 const ioCount = (detail?.inputs?.length ?? 0) + (detail?.outputs?.length ?? 0);
                 const issueCount = detail?.issues?.length ?? 0;
                 const hasChildren = parentsWithChildren.has(t.id);
-                const siblings = tasks.filter(
-                  (o) =>
-                    o.id !== t.id &&
-                    (o.parentId ?? undefined) === (t.parentId ?? undefined) &&
-                    o.level === t.level,
-                );
                 const preds = deps.filter((dep) => dep.to === t.id);
-                const predIds = new Set(preds.map((dep) => dep.from));
-                const succIds = new Set(
-                  deps.filter((dep) => dep.from === t.id).map((dep) => dep.to),
-                );
-                const prevCandidates = siblings.filter(
-                  (o) => !predIds.has(o.id) && !succIds.has(o.id),
-                );
+                const candidates = prevCandidates(project, t.id);
                 return (
                   <tr
                     key={t.id}
@@ -411,7 +400,7 @@ export function TableView() {
                           {preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
                         </span>
                       )}
-                      {prevCandidates.length > 0 && (
+                      {candidates.length > 0 && (
                         <select
                           className="prev-add"
                           value=""
@@ -421,7 +410,7 @@ export function TableView() {
                           }}
                         >
                           <option value="">＋前工程</option>
-                          {prevCandidates.map((o) => (
+                          {candidates.map((o) => (
                             <option key={o.id} value={o.id}>
                               {o.name}
                             </option>

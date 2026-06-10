@@ -4,7 +4,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessLevel, ProcessTask } from '@gantt-flow/core';
 import { computeCodes } from '@gantt-flow/core';
-import { useApp } from '../store';
+import { useApp, findView } from '../store';
+import { collectIoNames, prevCandidates } from '../suggestions';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
 import * as Icons from './icons';
@@ -164,6 +165,190 @@ export function CommandPalette(handlers: FileHandlers) {
         runWithArg: (v) => {
           const a = useApp.getState();
           if (a.selectedTaskId) a.setTaskLevel(a.selectedTaskId, v as ProcessLevel);
+        },
+      },
+      {
+        id: 'arg-effort',
+        label: '工数を設定…',
+        keywords: 'effort kousuu 工数 時間 hours',
+        available: hasSel,
+        arg: {
+          placeholder: '工数（時間・0.5 刻み）。空欄で解除',
+          freeText: true,
+          validate: (v) => {
+            if (!v.trim()) return null; // 空=解除
+            const n = Number(v);
+            return Number.isFinite(n) && n >= 0 ? null : '0 以上の数値（時間）を入力してください';
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (!a.selectedTaskId) return;
+          a.updateDetail(a.selectedTaskId, {
+            effortMinutes: v.trim() ? Math.round(Number(v) * 60) : undefined,
+          });
+        },
+      },
+      {
+        id: 'arg-rename',
+        label: '工程名を変更…',
+        keywords: 'rename namae 名前 工程名 リネーム',
+        available: hasSel,
+        arg: {
+          placeholder: '新しい工程名',
+          freeText: true,
+          defaultValue: () => {
+            const a = useApp.getState();
+            return a.selectedTaskId ? a.project.core.tasks[a.selectedTaskId]?.name ?? '' : '';
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.renameTask(a.selectedTaskId, v);
+        },
+      },
+      {
+        id: 'arg-issue',
+        label: '課題を追加…',
+        keywords: 'issue kadai 課題 追加',
+        available: hasSel,
+        arg: { placeholder: '課題の内容', freeText: true },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId && v.trim()) a.addIssue(a.selectedTaskId, v.trim());
+        },
+      },
+      {
+        id: 'arg-measure',
+        label: '方策を追加…',
+        keywords: 'measure housaku 方策 改善 対策',
+        available: hasSel,
+        arg: { placeholder: '方策（改善案）の内容', freeText: true },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId && v.trim()) a.addIssueWithMeasure(a.selectedTaskId, v.trim());
+        },
+      },
+      {
+        id: 'arg-input',
+        label: 'インプットを追加…',
+        keywords: 'input nyuuryoku インプット 入力 帳票 io',
+        available: hasSel,
+        arg: {
+          placeholder: '帳票 / 情報の名称',
+          freeText: true,
+          options: () =>
+            collectIoNames(useApp.getState().project).map((n) => ({ value: n, label: n })),
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId && v.trim()) a.addIo(a.selectedTaskId, 'inputs', v.trim());
+        },
+      },
+      {
+        id: 'arg-output',
+        label: 'アウトプットを追加…',
+        keywords: 'output shutsuryoku アウトプット 出力 帳票 io',
+        available: hasSel,
+        arg: {
+          placeholder: '帳票 / 情報の名称',
+          freeText: true,
+          options: () =>
+            collectIoNames(useApp.getState().project).map((n) => ({ value: n, label: n })),
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId && v.trim()) a.addIo(a.selectedTaskId, 'outputs', v.trim());
+        },
+      },
+      {
+        id: 'arg-pred',
+        label: '前工程を設定…',
+        keywords: 'pred zenkoutei 前工程 依存 dependency 順序',
+        available: hasSel,
+        arg: {
+          placeholder: '前工程にする工程を選択',
+          options: () => {
+            const a = useApp.getState();
+            if (!a.selectedTaskId) return [];
+            const codes2 = computeCodes(a.project.core);
+            return prevCandidates(a.project, a.selectedTaskId).map((t) => ({
+              value: t.id,
+              label: t.name || '（無題）',
+              detail: codes2[t.id],
+            }));
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.addDependency(v, a.selectedTaskId);
+        },
+      },
+      {
+        id: 'arg-scope',
+        label: 'スコープを切替…',
+        keywords: 'scope sukoopu スコープ 親 表示範囲',
+        arg: {
+          placeholder: '表示するスコープ（親工程）を選択',
+          options: () => {
+            const a = useApp.getState();
+            const parentLevel = ({ large: null, medium: 'large', small: 'medium', detail: 'small' } as const)[
+              a.level
+            ];
+            if (!parentLevel) return [{ value: '', label: '（全体）' }];
+            return [
+              { value: '', label: '（全体）' },
+              ...Object.values(a.project.core.tasks)
+                .filter((t) => t.level === parentLevel)
+                .sort((x, y) => x.order - y.order)
+                .map((t) => ({ value: t.id, label: t.name || '（無題）' })),
+            ];
+          },
+        },
+        runWithArg: (v) => useApp.getState().setScope(v || undefined),
+      },
+      {
+        id: 'arg-comment',
+        label: '付箋を追加…',
+        keywords: 'comment fusen 付箋 メモ note 追加',
+        arg: { placeholder: '付箋のテキスト', freeText: true },
+        runWithArg: (v) => {
+          if (v.trim()) useApp.getState().addComment(v.trim());
+        },
+      },
+      {
+        id: 'arg-connect',
+        label: '接続先を指定…（選択工程から矢印）',
+        keywords: 'connect setsuzoku 接続 矢印 依存 つなぐ',
+        available: hasSel,
+        arg: {
+          placeholder: '接続先の工程 / 制御ノードを選択',
+          options: () => {
+            const a = useApp.getState();
+            const view = findView(a.project, a.level, a.scopeParentId);
+            if (!view || !a.selectedTaskId) return [];
+            const from = Object.values(view.nodes).find(
+              (n) => n.kind === 'task' && n.taskId === a.selectedTaskId,
+            );
+            if (!from) return [];
+            const ctrlLabel: Record<string, string> = { start: '開始', end: '終了', decision: '判断', merge: '合流' };
+            return Object.values(view.nodes).flatMap((n) => {
+              if (n.id === from.id) return [];
+              if (n.kind === 'task')
+                return [{ value: n.id, label: a.project.core.tasks[n.taskId]?.name || '（無題）' }];
+              if (n.kind === 'control')
+                return [{ value: n.id, label: `${ctrlLabel[n.control] ?? n.control}（制御ノード）` }];
+              return [];
+            });
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          const view = findView(a.project, a.level, a.scopeParentId);
+          const from = view
+            ? Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === a.selectedTaskId)
+            : undefined;
+          if (from) a.connect(from.id, v);
         },
       },
       {
