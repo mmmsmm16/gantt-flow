@@ -143,6 +143,13 @@ interface UIState {
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
 
+  /** 設定インポート用の一括反映（列設定）。undefined のキーは変更しない。 */
+  hydrateSettings: (p: {
+    columns?: ColumnVisibility;
+    ftColumns?: Record<string, boolean>;
+    ftWidths?: Record<string, number>;
+  }) => void;
+
   /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / バックアップ / ショートカット設定）。同時に 1 つだけ。 */
   overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'keybindings' | null;
   setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'keybindings' | null) => void;
@@ -242,6 +249,27 @@ export const useUI = create<UIState>((set, get) => ({
       /* 永続化失敗は無視（メモリ上は反映済み） */
     }
     set({ columnVisibility: next });
+  },
+
+  hydrateSettings: (p) => {
+    const patch: Record<string, unknown> = {};
+    try {
+      if (p.columns) {
+        localStorage.setItem(COLS_KEY, JSON.stringify(p.columns));
+        patch.columnVisibility = p.columns;
+      }
+      if (p.ftColumns) {
+        localStorage.setItem(FT_COLS_KEY, JSON.stringify(p.ftColumns));
+        patch.ftColumns = p.ftColumns;
+      }
+      if (p.ftWidths) {
+        localStorage.setItem(FT_W_KEY, JSON.stringify(p.ftWidths));
+        patch.ftColWidths = p.ftWidths;
+      }
+    } catch {
+      /* 永続化失敗は無視（メモリ上は反映） */
+    }
+    if (Object.keys(patch).length) set(patch);
   },
 
   tourStep: null,
