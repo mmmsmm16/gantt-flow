@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, findView } from './store';
 import { useUI } from './ui/useUI';
+import { registerContextHandler } from './ui/useGlobalHotkeys';
+import { TASK_COLORS } from './theme';
+import { nearestInDirection, firstVisual, type NavDir } from './spatialNav';
 import * as Icons from './ui/icons';
 import {
   SIZE,
@@ -8,6 +11,7 @@ import {
   ioIconRect,
   IO_ICON,
   laneLayout,
+  routeEdge,
   LANE_MIN_H,
   type LaneBox,
   type ControlKind,
@@ -43,6 +47,7 @@ export function FlowCanvas() {
   const level = useApp((s) => s.level);
   const scopeParentId = useApp((s) => s.scopeParentId);
   const showIssues = useApp((s) => s.showIssues);
+  const showMinimap = useUI((s) => s.minimap);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const moveNode = useApp((s) => s.moveNode);
@@ -100,6 +105,12 @@ export function FlowCanvas() {
   const [vp, setVp] = useState({ left: 0, top: 0, w: 0, h: 0 });
   // フロー上で工程名をその場編集している対象（ダブルクリック / F2）。
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  // キーボード接続モード(c)。起点から候補(距離順)を Tab/矢印で循環し Enter で接続。
+  const [kbConnect, setKbConnect] = useState<{
+    from: FlowNodeId;
+    candidates: FlowNodeId[];
+    idx: number;
+  } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [panning, setPanning] = useState(false);
@@ -108,6 +119,84 @@ export function FlowCanvas() {
   // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
   const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
+
+  // 'flow' コンテキストのキーボードアクション(矢印移動・ズーム・リネーム・接続モード)。
+  // ハンドラ本体は描画後半(fitView 等の定義後)で ref に流し込み、登録自体は初回のみ行う。
+  const flowActionsRef = useRef<((action: string, e: KeyboardEvent) => boolean) | null>(null);
+  useEffect(
+    () =>
+      registerContextHandler('flow', (action, e) => flowActionsRef.current?.(action, e) ?? false),
+    [],
+  );
+
+  // 接続モードの現候補へ視点を追従(候補が画面外だと何を選んでいるか分からないため)。
+  // 'nearest' なので見えている間はスクロールせず、枠外のときだけ最小限寄せる。
+  useEffect(() => {
+    const id = kbConnect ? kbConnect.candidates[kbConnect.idx] : undefined;
+    if (!id) return;
+    document
+      .querySelector(`[data-nodeid="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [kbConnect]);
+
+  // 接続モード中はモーダルにキーを横取りする(capture)。矢印/hjkl=方向で接続先を選ぶ、
+  // Tab=距離順の循環、Enter=確定、Esc/c=取消。
+  // stopPropagation で useGlobalHotkeys・既存 Delete/Esc ハンドラへは流さない。
+  useEffect(() => {
+    if (!kbConnect) return undefined;
+    const DIR_KEYS: Record<string, NavDir> = {
+      arrowright: 'right',
+      l: 'right',
+      arrowleft: 'left',
+      h: 'left',
+      arrowup: 'up',
+      k: 'up',
+      arrowdown: 'down',
+      j: 'down',
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      const cycle = (d: number) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setKbConnect((c) =>
+          c ? { ...c, idx: (c.idx + d + c.candidates.length) % c.candidates.length } : c,
+        );
+      };
+      // 方向選択: 現候補から見て押した方向の最近傍の候補へ(空間ナビと同じ感覚)。
+      const dir = DIR_KEYS[e.key.toLowerCase()];
+      const pickDir = (d2: NavDir) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setKbConnect((c) => {
+          if (!c || !view) return c;
+          const boxes = c.candidates.flatMap((id) => {
+            const n = view.nodes[id];
+            return n ? [{ id, x: n.x, y: n.y, w: sizeOf(n).w, h: sizeOf(n).h }] : [];
+          });
+          const cur = boxes.find((b) => b.id === c.candidates[c.idx]);
+          if (!cur) return c;
+          const next = nearestInDirection(cur, boxes, d2);
+          return next ? { ...c, idx: c.candidates.indexOf(next as FlowNodeId) } : c;
+        });
+      };
+      if (e.key === 'Tab') cycle(e.shiftKey ? -1 : 1);
+      else if (dir && !e.ctrlKey && !e.metaKey && !e.altKey) pickDir(dir);
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        const target = kbConnect.candidates[kbConnect.idx];
+        if (target) connect(kbConnect.from, target);
+        setKbConnect(null);
+      } else if (e.key === 'Escape' || e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        e.stopPropagation();
+        setKbConnect(null);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [kbConnect, connect]);
 
   // 範囲選択中に計算した「枠内ノード」を pointerup で確定するための受け渡し。
   const bandSelRef = useRef<FlowNodeId[]>([]);
@@ -313,6 +402,8 @@ export function FlowCanvas() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || useUI.getState().overlay) return;
+      // Delete/Esc の所有者は常に 1 ペイン: 表がアクティブな間は表側(行選択モード)が担当する。
+      if (useUI.getState().activePane !== 'flow') return;
       const el = document.activeElement;
       const editable =
         el instanceof HTMLElement &&
@@ -458,6 +549,137 @@ export function FlowCanvas() {
     });
   };
 
+  // キーボード操作の対象ノード: 複数選択 > フロー固有選択(sel) > 選択中の工程のノード。
+  const keyTargets = (): FlowNodeId[] => {
+    if (multiSel.size > 0) return [...multiSel];
+    if (sel?.kind === 'node') return [sel.id];
+    if (selectedTaskId) {
+      const n = Object.values(view.nodes).find(
+        (o) => o.kind === 'task' && o.taskId === selectedTaskId,
+      );
+      if (n) return [n.id];
+    }
+    return [];
+  };
+
+  // 矢印キーで選択を隣のノードへ移す(空間ナビ)。未選択なら左上のノードから開始。
+  const navBoxes = () =>
+    divNodes
+      .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+      .map((n) => ({ id: n.id, ...posOf(n), ...sizeOf(n) }));
+  const selectNodeById = (id: FlowNodeId) => {
+    const n = view.nodes[id];
+    if (!n) return;
+    setMultiSel(new Set());
+    if (n.kind === 'task') {
+      select(n.taskId); // インスペクタは開かない(選択のみ)
+      setSel(null);
+    } else {
+      setSel({ kind: 'node', id });
+      select(undefined);
+    }
+    // 選択先が画面外ならスクロールで追従
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-nodeid="${CSS.escape(id)}"]`)
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  };
+  const spatialSelect = (dir: NavDir): boolean => {
+    const boxes = navBoxes();
+    if (!boxes.length) return false;
+    const curId = keyTargets()[0];
+    const cur = curId ? boxes.find((b) => b.id === curId) : undefined;
+    const nextId = cur ? nearestInDirection(cur, boxes, dir) : firstVisual(boxes);
+    if (nextId) selectNodeById(nextId);
+    return true; // 方向の先に無くてもキーは消費(画面スクロールの暴発を防ぐ)
+  };
+
+  // 'flow' コンテキストのアクション実行(キー照合・ガードは useGlobalHotkeys 済み)。
+  flowActionsRef.current = (action, e) => {
+    const step = e.shiftKey ? 32 : 8;
+    const nudge = (dx: number, dy: number): boolean => {
+      const t = keyTargets();
+      if (!t.length) return false;
+      moveNodesBy(t, dx, dy);
+      return true;
+    };
+    switch (action) {
+      case 'flow.left':
+        return spatialSelect('left');
+      case 'flow.right':
+        return spatialSelect('right');
+      case 'flow.up':
+        return spatialSelect('up');
+      case 'flow.down':
+        return spatialSelect('down');
+      case 'flow.moveLeft':
+        return nudge(-step, 0);
+      case 'flow.moveRight':
+        return nudge(step, 0);
+      case 'flow.moveUp':
+        return nudge(0, -step);
+      case 'flow.moveDown':
+        return nudge(0, step);
+      case 'flow.zoomIn':
+        zoomBy(1.2);
+        return true;
+      case 'flow.zoomOut':
+        zoomBy(1 / 1.2);
+        return true;
+      case 'flow.zoomReset':
+        setScale(1);
+        return true;
+      case 'flow.fit':
+        fitView();
+        return true;
+      case 'flow.rename': {
+        // ノード自身にフォーカスがある場合は要素側の Enter/F2 ハンドラに委ねる。
+        if ((document.activeElement as HTMLElement | null)?.closest('.node')) return false;
+        const tid =
+          selectedTaskId ??
+          (() => {
+            const t = sel?.kind === 'node' ? view.nodes[sel.id] : undefined;
+            return t?.kind === 'task' ? t.taskId : undefined;
+          })();
+        if (!tid) return false;
+        setEditingTaskId(tid);
+        return true;
+      }
+      case 'flow.addInput':
+      case 'flow.addOutput': {
+        // 選択中の工程に I/O を追加(名前を尋ねてから登録。表/インスペクタにも反映)。
+        const targetId = keyTargets()[0];
+        const tn = targetId ? view.nodes[targetId] : undefined;
+        const taskId = tn?.kind === 'task' ? tn.taskId : selectedTaskId;
+        if (!taskId || !project.core.tasks[taskId]) return false;
+        void addIoPrompt(taskId, action === 'flow.addInput' ? 'inputs' : 'outputs');
+        return true;
+      }
+      case 'flow.connect': {
+        const fromId = keyTargets()[0];
+        const from = fromId ? view.nodes[fromId] : undefined;
+        if (!from || (from.kind !== 'task' && from.kind !== 'control')) return false;
+        const fc = center(from);
+        const cands = Object.values(view.nodes)
+          .filter((n) => (n.kind === 'task' || n.kind === 'control') && n.id !== from.id)
+          .sort((a, b) => {
+            const ca = center(a);
+            const cb = center(b);
+            return (
+              Math.hypot(ca.cx - fc.cx, ca.cy - fc.cy) - Math.hypot(cb.cx - fc.cx, cb.cy - fc.cy)
+            );
+          })
+          .map((n) => n.id);
+        if (!cands.length) return false;
+        setKbConnect({ from: from.id, candidates: cands, idx: 0 });
+        return true;
+      }
+      default:
+        return false;
+    }
+  };
+
   // 複数選択したノードを掴んでドラッグ中は、選択全体を同じ差分で動かして見せる。
   const groupDrag = !!drag && multiSel.has(drag.id) && multiSel.size > 1;
   const ddx = drag ? drag.x - drag.ox : 0;
@@ -593,6 +815,15 @@ export function FlowCanvas() {
   const bandSelSet = new Set(bandSel);
   const isMultiSel = (n: FlowNode) => multiSel.has(n.id) || bandSelSet.has(n.id);
 
+  // キーボード接続モードの現候補(ハイライトとプレビュー矢印の対象)。
+  const kbCandidate = kbConnect ? (kbConnect.candidates[kbConnect.idx] ?? null) : null;
+  const kbCandSet = kbConnect ? new Set(kbConnect.candidates) : null;
+
+  // 矢印経路の障害物 = 箱もの(工程/制御/付箋)。ドラッグ中はその位置(posOf)を反映。
+  const edgeObstacles = divNodes
+    .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+    .map((n) => ({ id: n.id, ...posOf(n), ...sizeOf(n) }));
+
   return (
     <div className="flow-wrap">
       <div className="flow-palette">
@@ -659,11 +890,17 @@ export function FlowCanvas() {
             ＋
           </button>
         </span>
-        <span className="palette-hint">○ドラッグで矢印 / Shift+ドラッグで範囲選択 / Delete で削除 / Ctrl+ホイールで拡大縮小</span>
+        {kbConnect ? (
+          <span className="palette-hint connect-hint">
+            接続モード: 矢印（hjkl）で接続先を選び Enter で接続（Tab=順送り / Esc で取消）
+          </span>
+        ) : (
+          <span className="palette-hint">○ドラッグで矢印 / c で接続モード / Shift+ドラッグで範囲選択 / Delete で削除</span>
+        )}
       </div>
 
       <div
-        className={`flow-canvas${panning ? ' panning' : ''}${conn ? ' connecting' : ''}`}
+        className={`flow-canvas${panning ? ' panning' : ''}${conn || kbConnect ? ' connecting' : ''}`}
         ref={canvasRef}
         onPointerDown={onCanvasPointerDown}
         onDoubleClick={onCanvasDoubleClick}
@@ -740,13 +977,14 @@ export function FlowCanvas() {
             const ss = sizeOf(s);
             const tp = posOf(t);
             const ts = sizeOf(t);
-            const x1 = sp.x + ss.w;
-            const y1 = sp.y + ss.h / 2;
-            const x2 = tp.x;
-            const y2 = tp.y + ts.h / 2;
-            const midX = (x1 + x2) / 2;
-            // 直角（オーソゴナル）コネクタ: 水平 → 垂直 → 水平
-            const d = `M${x1},${y1} H${midX} V${y2} H${x2}`;
+            // 直角コネクタ。他のノードと重なると「その工程と繋がっている」ように
+            // 誤読されるため、routeEdge が障害物を避ける通り道を選ぶ。
+            const route = routeEdge(
+              { ...sp, ...ss },
+              { ...tp, ...ts },
+              edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+            );
+            const d = route.d;
             return (
               <g key={e.id}>
                 <path
@@ -767,7 +1005,7 @@ export function FlowCanvas() {
                   markerEnd="url(#arrow)"
                 />
                 {e.label && (
-                  <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} className="edge-label" textAnchor="middle">
+                  <text x={route.label.x} y={route.label.y - 4} className="edge-label" textAnchor="middle">
                     {e.label}
                   </text>
                 )}
@@ -785,6 +1023,28 @@ export function FlowCanvas() {
               markerEnd="url(#arrow)"
             />
           )}
+
+          {/* キーボード接続モード: 起点 → 現候補のプレビュー矢印 */}
+          {kbConnect &&
+            kbCandidate &&
+            (() => {
+              const s = view.nodes[kbConnect.from];
+              const t = view.nodes[kbCandidate];
+              if (!s || !t) return null;
+              const sp = posOf(s);
+              const ss = sizeOf(s);
+              const tc = center(t);
+              return (
+                <line
+                  x1={sp.x + ss.w}
+                  y1={sp.y + ss.h / 2}
+                  x2={tc.cx}
+                  y2={tc.cy}
+                  className="edge connecting on-target"
+                  markerEnd="url(#arrow)"
+                />
+              );
+            })()}
 
           {showIssues &&
             nodes.map((n) => {
@@ -809,12 +1069,15 @@ export function FlowCanvas() {
             const sp = posOf(s);
             const ss = sizeOf(s);
             const tp = posOf(t);
-            const x1 = sp.x + ss.w;
-            const y1 = sp.y + ss.h / 2;
-            const x2 = tp.x;
-            const y2 = tp.y + sizeOf(t).h / 2;
+            const ts = sizeOf(t);
+            // 経路のラベル位置に追従(描画と同じ routeEdge を使い、迂回時もズレない)。
+            const route = routeEdge(
+              { ...sp, ...ss },
+              { ...tp, ...ts },
+              edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+            );
             return (
-              <div className="edge-toolbar" style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2 }}>
+              <div className="edge-toolbar" style={{ left: route.label.x, top: route.label.y }}>
                 <button title="分岐ラベルを編集" onClick={() => void editEdgeLabel(e.id, e.label ?? '')}>
                   ✎ ラベル
                 </button>
@@ -842,27 +1105,52 @@ export function FlowCanvas() {
           const isSel = sel?.kind === 'node' && sel.id === n.id;
           const selCls = isSel ? ' sel' : '';
           const multiCls = isMultiSel(n) ? ' multi-sel' : '';
+          // 工程カラー(塗り/文字色)。colored クラス + CSS 変数で当て、ダークは CSS 側で導出。
+          const taskDetail = n.kind === 'task' ? project.details[n.taskId] : undefined;
+          const fillC = taskDetail?.fillColor;
+          const textC = taskDetail?.textColor;
+          const colorCls = `${fillC ? ' colored' : ''}${textC ? ' colored-text' : ''}`;
+          const colorVars: Record<string, string> = {};
+          if (fillC) {
+            colorVars['--task-base'] = TASK_COLORS[fillC].base;
+            colorVars['--task-fill'] = TASK_COLORS[fillC].fill;
+          }
+          if (textC) colorVars['--task-text'] = TASK_COLORS[textC].text;
           const cls =
             n.kind === 'task'
-              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}`
+              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}${colorCls}`
               : n.kind === 'issue'
                 ? `node issue${selCls}`
                 : n.kind === 'comment'
                   ? `node comment${selCls}`
                   : `node control control-${n.control}${selCls}`;
           // 接続ドラッグ中: 起点=conn-source / 落下先候補=droppable / カーソル直下=drop-active。
-          const connCls = !conn
-            ? ''
-            : n.id === conn.from
+          // キーボード接続モード(kbConnect)も同じ見た目を使う(現候補=drop-active)。
+          const connCls = conn
+            ? n.id === conn.from
               ? ' conn-source'
               : n.id === dropTargetId
                 ? ' droppable drop-active'
                 : isConnTarget(n)
                   ? ' droppable'
-                  : '';
+                  : ''
+            : kbConnect
+              ? n.id === kbConnect.from
+                ? ' conn-source'
+                : n.id === kbCandidate
+                  ? ' droppable drop-active'
+                  : kbCandSet?.has(n.id)
+                    ? ' droppable'
+                    : ''
+              : '';
           const activate = () => {
             if (n.kind === 'task') {
-              select(n.taskId);
+              if (n.taskId === selectedTaskId) {
+                // 選択済みノードの再クリック/再 Enter = 詳細パネルを開く(1回目は選択のみ)
+                useUI.getState().setInspectorOpen(true);
+              } else {
+                select(n.taskId);
+              }
               setSel(null);
             } else {
               setSel({ kind: 'node', id: n.id });
@@ -879,11 +1167,12 @@ export function FlowCanvas() {
           return (
             <div
               key={n.id}
+              data-nodeid={n.id}
               className={cls + connCls + multiCls}
               style={
                 n.kind === 'issue'
                   ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
-                  : { left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h }
+                  : { left: p.x, top: p.y, width: sizeOf(n).w, height: sizeOf(n).h, ...colorVars }
               }
               role={focusable ? 'button' : undefined}
               tabIndex={focusable ? 0 : undefined}
@@ -1173,7 +1462,8 @@ export function FlowCanvas() {
         )}
       </div>
 
-      {nodes.some((n) => n.kind === 'task') &&
+      {showMinimap &&
+        nodes.some((n) => n.kind === 'task') &&
         (() => {
           const MW = 170;
           const MH = 116;

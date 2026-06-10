@@ -323,6 +323,13 @@ button.danger:hover {
   box-shadow: var(--shadow);
   padding: 14px 16px;
 }
+/* キーボード操作の対象ペイン(activePane)。控えめな枠で「いまどちらに居るか」を示す。 */
+.pane.pane-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.pane:focus {
+  outline: none; /* ペイン自体のフォーカスリングは出さない(pane-active が代替) */
+}
 .pane h2 {
   font-size: 13px;
   font-weight: 700;
@@ -925,6 +932,24 @@ button.danger:hover {
 }
 .node.task:hover {
   border-color: var(--faint);
+}
+/* 工程カラー(塗り)。--task-base/--task-fill は FlowCanvas が theme.ts の正準値を注入。
+   選択強調(.selected の枠色)が常に勝つよう、このルールは .selected より前に置く。 */
+.node.task.colored {
+  background: var(--task-fill);
+  border-color: var(--task-base);
+}
+[data-theme='dark'] .node.task.colored {
+  /* ダークは淡パステルが眩しいため、濃色(base)を地色に混ぜて導出する */
+  background: color-mix(in srgb, var(--task-base) 24%, var(--node-task-bg));
+  border-color: color-mix(in srgb, var(--task-base) 65%, var(--node-task-bg));
+}
+/* 工程カラー(文字色)。ノードのラベルに適用(ダークは白を混ぜて読めるよう持ち上げ)。 */
+.node.task.colored-text .node-label {
+  color: var(--task-text);
+}
+[data-theme='dark'] .node.task.colored-text .node-label {
+  color: color-mix(in srgb, var(--task-text) 60%, white);
 }
 .node.task:active {
   cursor: grabbing;
@@ -1931,6 +1956,22 @@ kbd {
 .st-sub {
   color: var(--faint);
 }
+/* キー操作ヒント / g リーダー待機チップ */
+.st-hint {
+  color: var(--faint);
+}
+.st-leader {
+  color: var(--accent);
+  font-weight: 600;
+}
+.st-leader kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 .st-sep {
   width: 1px;
   height: 13px;
@@ -1962,7 +2003,15 @@ kbd {
    ヘルプ（ショートカット一覧）
    ========================================================================= */
 .help-modal {
-  width: min(680px, 100%);
+  /* グループが増えても見切れないよう、ヘッダ/フッタ固定＋本文(grid)スクロールにする */
+  width: min(760px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.help-modal .help-head,
+.help-modal .help-foot {
+  flex: none;
 }
 .help-head {
   display: flex;
@@ -1974,6 +2023,10 @@ kbd {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px 28px;
+  align-content: start;
+  overflow: auto;
+  min-height: 0;
+  padding-right: 6px; /* スクロールバーと内容の間 */
 }
 .help-group h4 {
   margin: 0 0 8px;
@@ -2011,6 +2064,11 @@ kbd {
   .help-grid {
     grid-template-columns: 1fr;
   }
+}
+.help-foot {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  color: var(--faint);
 }
 
 /* =========================================================================
@@ -2280,6 +2338,76 @@ kbd {
   color: var(--faint);
 }
 
+/* ショートカット設定 */
+.keybind-modal {
+  width: min(640px, 100%);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+}
+.keybind-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+.keybind-group h4 {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.keybind-group:first-child h4 {
+  margin-top: 0;
+}
+.keybind-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.keybind-row.disabled .kb-label {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+.kb-keys {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  min-width: 120px;
+}
+.kb-capture {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.kb-off {
+  font-size: 12px;
+  color: var(--faint);
+}
+.kb-actions {
+  display: flex;
+  gap: 4px;
+}
+.kb-actions button {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.kb-actions button:hover {
+  background: var(--hover);
+}
+.kb-fixed {
+  font-size: 11px;
+  color: var(--faint);
+  padding: 3px 8px;
+}
+
 /* サマリ */
 .summary-grid {
   display: grid;
@@ -2463,6 +2591,42 @@ kbd {
 .palette-esc {
   color: var(--faint);
 }
+/* 引数モード: 選択中コマンドのチップ（Esc で一覧へ戻る） */
+.palette-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.palette-error {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--danger);
+  border-bottom: 1px solid var(--line);
+}
+.palette-item.free .pi-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+.pi-arg-mark {
+  color: var(--faint);
+  font-weight: 700;
+  margin-left: -4px;
+}
+/* 色コマンドの候補に出す色見本 */
+.pi-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+}
 .palette-list {
   max-height: 52vh;
   overflow: auto;
@@ -2562,6 +2726,11 @@ kbd {
 .node.multi-sel {
   outline: 2px dashed var(--accent);
   outline-offset: 2px;
+}
+/* 接続モード中のヒント（強調表示） */
+.palette-hint.connect-hint {
+  color: var(--accent);
+  font-weight: 600;
 }
 /* 選択中の矢印に浮かぶミニツールバー（ラベル編集 / 削除） */
 .edge-toolbar {
@@ -3455,4 +3624,216 @@ kbd {
 }
 .handle:hover {
   transform: translateY(-50%) scale(1.18);
+}
+
+/* =========================================================================
+   工程カラー: 表のドット / 文字色 / インスペクタのスウォッチ
+   ========================================================================= */
+/* 作業名セル先頭の塗り色ドット(アウトライン表) */
+.color-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  align-self: center;
+}
+/* 作業名の文字色(アウトライン表 / 全項目表)。--task-text は各コンポーネントが注入。
+   全項目表の粒度色(.lvl-*)より後に定義して上書きする。ダークは白を混ぜて可読性を確保。 */
+input.colored-text {
+  color: var(--task-text);
+  font-weight: 600;
+}
+[data-theme='dark'] input.colored-text {
+  color: color-mix(in srgb, var(--task-text) 60%, white);
+}
+/* インスペクタの色スウォッチ */
+.swatch-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 2px 0 4px;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.swatch:hover {
+  transform: scale(1.12);
+}
+.swatch.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.swatch-none {
+  background: var(--panel);
+  border-color: var(--line) !important;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* =========================================================================
+   設定ダイアログ（タブ / 一般 / ショートカットエディタ / データ）
+   ========================================================================= */
+.settings-modal {
+  width: min(680px, 100%);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+.settings-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.settings-tab {
+  padding: 7px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-size: 13px;
+  color: var(--faint);
+  cursor: pointer;
+}
+.settings-tab:hover {
+  color: var(--ink);
+}
+.settings-tab.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.settings-body {
+  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.settings-section h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.settings-radio-row {
+  display: flex;
+  gap: 8px;
+}
+.settings-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.settings-radio.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.settings-toggle input {
+  margin-top: 3px;
+}
+.settings-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+.settings-toggle small {
+  color: var(--faint);
+  line-height: 1.5;
+}
+.settings-desc {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--muted, var(--faint));
+  line-height: 1.6;
+}
+.settings-note {
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 10px;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+.settings-actions button {
+  font-size: 13px;
+  padding: 7px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.settings-actions button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.settings-actions button:hover {
+  filter: brightness(1.05);
+}
+/* ショートカットエディタ（タブ内） */
+.keybind-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--faint);
+  background: var(--hover);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+.keybind-toolbar {
+  margin-bottom: 8px;
+}
+.keybind-row.inactive .kb-label,
+.keybind-row.inactive .kb-keys kbd {
+  opacity: 0.42;
+}
+
+/* =========================================================================
+   導出された前/次工程（親同士の接続から自動。フローのブリッジ矢印と同じもの）
+   ========================================================================= */
+.prev-names.derived,
+.ft-pill.derived {
+  color: var(--faint);
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: transparent;
+}
+.dep-row.derived .dep-name {
+  color: var(--faint);
+}
+.dep-note {
+  flex: none;
+  font-size: 10px;
+  color: var(--faint);
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+/* 表の列カーソル(h/l・←→で移動、Enterで編集)。選択行の現在セルを示す */
+.cell-cursor {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -1px;
+  border-radius: 5px;
 }

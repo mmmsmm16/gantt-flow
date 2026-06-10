@@ -1,7 +1,10 @@
-// キーボードショートカット一覧。? もしくはツールバーのヘルプから開く。発見性とアクセシビリティ向け。
-import { useEffect, useRef } from 'react';
+// キーボードショートカット一覧。? もしくはツールバーのヘルプから開く。
+// キーボード操作は keymap.ts(実効キーマップ=既定+ユーザー上書き)から自動生成し、
+// 表示と実際の動作が常に一致するようにする。マウス操作と編集中キーは固定の説明を併記。
+import { useEffect, useMemo, useRef } from 'react';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
+import { DEFAULT_KEYMAP, getActiveKeymap, chordKeys } from '../keymap';
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -16,59 +19,83 @@ interface Group {
   items: Shortcut[];
 }
 
-const GROUPS: Group[] = [
+// keymap に載らない操作(編集中のキー・マウスジェスチャ)は固定で併記する。
+const STATIC_GROUPS: Group[] = [
   {
-    title: '全体',
+    title: '工程表（セルの編集中）',
     items: [
-      { keys: [MOD, 'K'], label: 'コマンドパレット / 検索' },
-      { keys: [MOD, 'S'], label: '保存' },
-      { keys: [MOD, 'Z'], label: '元に戻す' },
-      { keys: [MOD, 'Y'], label: 'やり直し' },
-      { keys: ['?'], label: 'このショートカット一覧' },
-    ],
-  },
-  {
-    title: '工程表（作業名の編集中）',
-    items: [
-      { keys: ['Enter'], label: '次の行を追加' },
-      { keys: ['Tab'], label: '字下げ（子にする）' },
-      { keys: ['Shift', 'Tab'], label: '字上げ（親に出す）' },
-      { keys: ['Alt', '↑ / ↓'], label: '行を上下に移動' },
-      { keys: ['Esc'], label: '編集を取り消す' },
+      { keys: ['Enter'], label: '確定して選択モードへ戻る' },
+      { keys: ['Esc'], label: '編集をやめて選択モードへ戻る' },
+      { keys: ['Tab'], label: '字下げ（作業名のみ・子にする）' },
+      { keys: ['Alt', '↑ / ↓'], label: '行を上下に移動（作業名のみ）' },
     ],
   },
   {
     title: '全項目表（フル表）',
     items: [
-      { keys: ['Enter'], label: '作業名で次の行を追加 / セルで下へ移動' },
       { keys: [MOD, 'Enter'], label: '現在の行の次に工程を追加' },
+      { keys: [MOD, 'D'], label: '現在の行を複製' },
       { keys: [MOD, 'Delete'], label: '現在の行（工程）を削除' },
       { keys: ['ヘッダをドラッグ'], label: '列幅を調整' },
-      { keys: ['ヘッダをクリック'], label: '並べ替え（工数・担当ほか）' },
     ],
   },
   {
-    title: '工程フロー',
+    title: '工程フロー（マウス）',
     items: [
       { keys: ['ダブルクリック（空白）'], label: '工程を作成' },
-      { keys: ['ダブルクリック / F2（工程）'], label: '工程名をその場で編集' },
+      { keys: ['ダブルクリック（工程）'], label: '工程名をその場で編集' },
       { keys: ['ハンドル ○ をドラッグ'], label: '矢印（前後関係）を引く' },
-      { keys: ['空白をドラッグ'], label: '画面をパン（移動）' },
       { keys: ['Shift', 'ドラッグ'], label: '範囲選択（まとめて移動 / 削除）' },
       { keys: [MOD, 'ホイール'], label: '拡大 / 縮小' },
-      { keys: ['Delete'], label: '選択中の制御ノード / 付箋 / 矢印を削除' },
       { keys: ['ダブルクリック（矢印）'], label: '分岐ラベルを編集' },
       { keys: ['右クリック（矢印）'], label: '矢印を削除' },
     ],
   },
 ];
 
+// 実効キーマップから「グループ → ショートカット一覧」を組み立てる。
+// action 単位で 1 行にまとめる(ラベル/グループは DEFAULT_KEYMAP の代表エントリから引く)。
+// こうすると代表キー(例: j)がシングルキーOFFや無効化で消えても、残った代替キー(↓)で
+// 行が生き残る=「動く操作は必ずヘルプに載る」を保証できる。
+function buildKeymapGroups(): Group[] {
+  const keymap = getActiveKeymap();
+  const groups = new Map<string, Shortcut[]>();
+  const seen = new Set<string>();
+  for (const def of DEFAULT_KEYMAP) {
+    if (!def.help) continue;
+    const dedupKey = `${def.action}${def.leader ? ':leader' : ''}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    // この action のいま有効なバインド(リーダー有無は別の行として扱う)
+    const actives = keymap.filter((b) => b.action === def.action && !!b.leader === !!def.leader);
+    if (actives.length === 0) continue; // すべて無効 → 行ごと出さない
+    const keysList = actives.map((b) => chordKeys(b.chord, b.leader));
+    const keys = keysList[0]!;
+    if (keysList.length > 1 && keys.length > 0) {
+      // 代替キー(j と ↓ など)は末尾の 1 打に「j / ↓」のように併記する。
+      const last = keys[keys.length - 1]!;
+      keys[keys.length - 1] = [last, ...keysList.slice(1).map((k) => k.join('+'))].join(' / ');
+    }
+    const arr = groups.get(def.help.group) ?? [];
+    arr.push({ keys, label: def.help.label });
+    groups.set(def.help.group, arr);
+  }
+  return [...groups.entries()].map(([title, items]) => ({ title, items }));
+}
+
 export function HelpDialog() {
   const open = useUI((s) => s.overlay === 'help');
+  const singleKey = useUI((s) => s.singleKey);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, open);
+
+  // 開くたびに実効キーマップから再生成(カスタマイズ・シングルキー設定の反映)。
+  const groups = useMemo(
+    () => (open ? [...buildKeymapGroups(), ...STATIC_GROUPS] : []),
+    [open, singleKey],
+  );
 
   useEffect(() => {
     if (!open) return undefined;
@@ -99,7 +126,7 @@ export function HelpDialog() {
           </button>
         </div>
         <div className="help-grid">
-          {GROUPS.map((g) => (
+          {groups.map((g) => (
             <section key={g.title} className="help-group">
               <h4>{g.title}</h4>
               <dl>
@@ -117,6 +144,11 @@ export function HelpDialog() {
             </section>
           ))}
         </div>
+        <p className="help-foot">
+          {singleKey
+            ? '単キーの操作は、テキスト入力中は無効です（誤入力を防ぐため）。'
+            : 'シングルキー操作（j/k 移動・g リーダーなどの Vim 風キー）は設定で ON にできます。'}
+        </p>
       </div>
     </div>
   );

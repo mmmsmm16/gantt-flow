@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
+import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
+import { prevCandidates } from './suggestions';
+import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
 const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
@@ -92,12 +95,16 @@ export function TableView() {
   const toggleColumn = useUI((s) => s.toggleColumn);
 
   const tasks = Object.values(project.core.tasks);
-  const [collapsed, setCollapsed] = useState<Set<Id>>(new Set());
+  // 折りたたみ状態は useUI に置く(コマンドパレットの全折りたたみ/全展開と共有・非マウント時も保持)。
+  const collapsed = useUI((s) => s.outlineCollapsed);
+  const setCollapsed = useUI((s) => s.setOutlineCollapsed);
   const rows = buildOutline(tasks, collapsed);
   const codes = computeCodes(project.core);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
   const deps = Object.values(project.core.dependencies);
+  // 親(大)同士の接続から導出される前工程(フローのブリッジ矢印と同じもの)。表でも見せて同期ずれを無くす。
+  const bridgePreds = bridgePredMap(project.core);
 
   // 新しく追加した行の作業名入力にフォーカスする（連続入力）。
   const [focusId, setFocusId] = useState<Id | null>(null);
@@ -112,19 +119,47 @@ export function TableView() {
     setFocusId(null);
   }, [focusId, rows.length]);
 
-  const toggleCollapse = (id: Id) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
   const openRow = (t: ProcessTask) => {
+    // 全体スコープで俯瞰中はスコープを維持(どの工程も見えている)。特定の親に
+    // 絞って見ているときだけ、クリックした工程の文脈(親)へスコープを追従させる。
+    const wasScoped = useApp.getState().scopeParentId !== undefined;
     select(t.id);
     setFlowLevel(t.level);
-    setScope(t.parentId);
+    if (wasScoped) setScope(t.parentId);
+    useUI.getState().setInspectorOpen(true); // 表の行クリックは従来どおり詳細パネルを開く
   };
+
+  // 行選択モード(編集外のキーボード操作)。j/k=行移動・h/l=列カーソル・Enter=セル編集 などは
+  // useGlobalHotkeys → 'table' コンテキスト経由でここに届く。
+  const activePane = useUI((s) => s.activePane);
+  // 列カーソルの対象(表示順)。行内の data-cell 属性と対応。
+  const cursorColumns = [
+    'level',
+    'name',
+    'assignee',
+    ...(columnVisibility.prev ? ['prev'] : []),
+    ...(columnVisibility.effort ? ['effort'] : []),
+    ...(columnVisibility.io ? ['io'] : []),
+  ];
+  const { colIdx } = useRowSelectionKeys({
+    enabled: activePane === 'table',
+    orderedIds: rows.map((r) => r.task.id),
+    columns: cursorColumns,
+    beginEdit: (id) => {
+      const t = project.core.tasks[id];
+      if (t) openRow(t); // 編集開始時のみフローの粒度/スコープを同期(j/k 中はしない)
+      setFocusId(id); // 再レンダ後に名前入力へフォーカス
+    },
+    toggleCollapse: (id) => {
+      if (parentsWithChildren.has(id)) toggleCollapse(id);
+    },
+  });
+  const cursorCol = cursorColumns[colIdx];
+  // 選択行のカーソル列のセルを強調する(キーボードで「いまどのセルか」を示す)。
+  const cellCursorCls = (taskId: Id, key: string) =>
+    taskId === selectedTaskId && activePane === 'table' && cursorCol === key ? ' cell-cursor' : '';
 
   const commitName = (t: ProcessTask, value: string) => {
     if (value !== t.name) renameTask(t.id, value);
@@ -230,23 +265,12 @@ export function TableView() {
                 const ioCount = (detail?.inputs?.length ?? 0) + (detail?.outputs?.length ?? 0);
                 const issueCount = detail?.issues?.length ?? 0;
                 const hasChildren = parentsWithChildren.has(t.id);
-                const siblings = tasks.filter(
-                  (o) =>
-                    o.id !== t.id &&
-                    (o.parentId ?? undefined) === (t.parentId ?? undefined) &&
-                    o.level === t.level,
-                );
                 const preds = deps.filter((dep) => dep.to === t.id);
-                const predIds = new Set(preds.map((dep) => dep.from));
-                const succIds = new Set(
-                  deps.filter((dep) => dep.from === t.id).map((dep) => dep.to),
-                );
-                const prevCandidates = siblings.filter(
-                  (o) => !predIds.has(o.id) && !succIds.has(o.id),
-                );
+                const candidates = prevCandidates(project, t.id);
                 return (
                   <tr
                     key={t.id}
+                    data-taskid={t.id}
                     className={[
                       t.id === selectedTaskId ? 'selected' : '',
                       dragId === t.id ? 'dragging' : '',
@@ -304,7 +328,8 @@ export function TableView() {
                     </td>
                     <td className="c-level" onClick={(e) => e.stopPropagation()}>
                       <select
-                        className={`lvl lvl-${t.level}`}
+                        className={`lvl lvl-${t.level}${cellCursorCls(t.id, 'level')}`}
+                        data-cell="level"
                         value={t.level}
                         aria-label="粒度"
                         onChange={(e) => setTaskLevel(t.id, e.target.value as ProcessLevel)}
@@ -332,23 +357,42 @@ export function TableView() {
                             {collapsed.has(t.id) ? '▶' : '▼'}
                           </button>
                         )}
+                        {detail?.fillColor && (
+                          <span
+                            className="color-dot"
+                            style={{ background: TASK_COLORS[detail.fillColor].base }}
+                            title="工程カラー（塗り色）"
+                            aria-hidden="true"
+                          />
+                        )}
                         <input
-                          className="name-input"
+                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                          data-cell="name"
+                          style={
+                            detail?.textColor
+                              ? ({ '--task-text': TASK_COLORS[detail.textColor].text } as React.CSSProperties)
+                              : undefined
+                          }
                           ref={(el) => {
                             if (el) nameRefs.current.set(t.id, el);
                             else nameRefs.current.delete(t.id);
                           }}
+                          // 非制御 input のため、外(フローのリネーム等)で名前が変わったら
+                          // key で作り直して defaultValue を反映する(全項目表と同じパターン)。
+                          key={`name-${t.name}`}
                           defaultValue={t.name}
                           placeholder="作業名"
                           aria-label="作業名"
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
+                              // 確定して選択モードへ(誤挿入防止のため行追加はしない。追加は n / Ctrl+Enter)。
                               e.preventDefault();
+                              e.stopPropagation(); // blur 後にグローバルの Enter(セル編集)が再発火しないように
                               commitName(t, e.currentTarget.value);
-                              const id = addSiblingOf(t.id);
-                              if (id) setFocusId(id);
+                              e.currentTarget.blur();
                             } else if (e.key === 'Escape') {
+                              e.stopPropagation(); // グローバルの Esc(選択解除)を発火させない
                               e.currentTarget.value = t.name;
                               e.currentTarget.blur();
                             } else if (e.key === 'Tab') {
@@ -371,7 +415,8 @@ export function TableView() {
                     </td>
                     <td className="c-assignee">
                       <input
-                        className="assignee"
+                        className={`assignee${cellCursorCls(t.id, 'assignee')}`}
+                        data-cell="assignee"
                         list="assignee-names"
                         defaultValue={assigneeName}
                         key={`asg-${assigneeName}`}
@@ -393,9 +438,19 @@ export function TableView() {
                           {preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
                         </span>
                       )}
-                      {prevCandidates.length > 0 && (
+                      {(bridgePreds[t.id] ?? []).map((fromId) => (
+                        <span
+                          key={`br-${fromId}`}
+                          className="prev-names derived"
+                          title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ・解除は大工程側の接続を削除）"
+                        >
+                          ⤷ {project.core.tasks[fromId]?.name ?? ''}
+                        </span>
+                      ))}
+                      {candidates.length > 0 && (
                         <select
-                          className="prev-add"
+                          className={`prev-add${cellCursorCls(t.id, 'prev')}`}
+                          data-cell="prev"
                           value=""
                           aria-label="前工程を追加"
                           onChange={(e) => {
@@ -403,7 +458,7 @@ export function TableView() {
                           }}
                         >
                           <option value="">＋前工程</option>
-                          {prevCandidates.map((o) => (
+                          {candidates.map((o) => (
                             <option key={o.id} value={o.id}>
                               {o.name}
                             </option>
@@ -420,7 +475,8 @@ export function TableView() {
                         </span>
                       ) : (
                         <input
-                          className="effort-input"
+                          className={`effort-input${cellCursorCls(t.id, 'effort')}`}
+                          data-cell="effort"
                           type="number"
                           min={0}
                           step={0.5}
@@ -440,7 +496,11 @@ export function TableView() {
                     </td>
                     )}
                     {columnVisibility.io && (
-                    <td className="c-io" onClick={(e) => e.stopPropagation()}>
+                    <td
+                      className={`c-io${cellCursorCls(t.id, 'io')}`}
+                      data-cell="io"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="io-chips">
                         {(detail?.inputs ?? []).map((item) => (
                           <span className="io-chip in" key={item.id}>
@@ -494,7 +554,10 @@ export function TableView() {
                           <span
                             className="chip chip-issue io-issue"
                             title="課題（クリックでインスペクタ）"
-                            onClick={() => select(t.id)}
+                            onClick={() => {
+                              select(t.id);
+                              useUI.getState().setInspectorOpen(true);
+                            }}
                           >
                             課題{issueCount}
                           </span>

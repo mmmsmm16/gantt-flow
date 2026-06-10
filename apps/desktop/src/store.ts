@@ -86,7 +86,8 @@ export interface AppState {
 
   addTask: (name: string) => void;
   addRootTask: (level: ProcessLevel) => void;
-  addChildTask: (parentId: Id) => void;
+  /** 子工程を追加し、新しい工程の ID を返す（フォーカス/選択用）。 */
+  addChildTask: (parentId: Id) => Id | undefined;
   removeTask: (taskId: Id) => void;
   setTaskLevel: (taskId: Id, level: ProcessLevel) => void;
   setTaskCode: (taskId: Id, code: string | undefined) => void;
@@ -208,13 +209,9 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     });
   };
 
-  const defaultScopeFor = (level: ProcessLevel): Id | undefined => {
-    if (level === 'large') return undefined;
-    const parentRank = RANK[level] - 1;
-    const parentLevel = LEVELS[parentRank]!;
-    const candidate = Object.values(get().project.core.tasks).find((t) => t.level === parentLevel);
-    return candidate?.id;
-  };
+  // 粒度切替時の既定スコープは常に「全体」(親をまたいで俯瞰できるのが基本姿勢)。
+  // 特定の親に絞るのはスコープセレクタ/表クリックでの明示操作のみ。
+  const defaultScopeFor = (_level: ProcessLevel): Id | undefined => undefined;
 
   // 同一親グループの兄弟を order 昇順で返す。
   const siblingsOf = (taskId: Id) =>
@@ -261,9 +258,11 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
     addChildTask: (parentId) => {
       const parent = get().project.core.tasks[parentId];
-      if (!parent) return;
+      if (!parent) return undefined;
       const childLevel = LEVELS[RANK[parent.level] + 1] ?? 'detail';
+      const before = new Set(Object.keys(get().project.core.tasks));
       commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId }, uuid));
+      return Object.keys(get().project.core.tasks).find((id) => !before.has(id));
     },
 
     // 削除は配下を残す（子は祖父へ昇格し、依存は維持）。
@@ -742,7 +741,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     select: (taskId) => set({ selectedTaskId: taskId }),
 
     setLevel: (level) => {
-      const scopeParentId = defaultScopeFor(level);
+      // 同じ粒度なら現在のスコープを保つ(行クリック等での意図しないスコープ解除を防ぐ)。
+      const scopeParentId = level === get().level ? get().scopeParentId : defaultScopeFor(level);
       const reconciled = reconcileProject(ensureLevelView(get().project, level, scopeParentId), uuid);
       history.replaceTop(reconciled); // 粒度切替はビュー状態（undo 対象外）
       set({ project: reconciled, level, scopeParentId });
@@ -792,19 +792,11 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const tpl = TEMPLATES.find((t) => t.key === key);
       if (!tpl) return;
       const p = tpl.create(uuid, new Date().toISOString());
-      // 最初の大工程配下の中ビューを既定で開く（サンプルと同じ体験）。
-      const firstLarge = Object.values(p.core.tasks)
-        .filter((t) => t.level === 'large')
-        .sort((a, b) => a.order - b.order)[0];
-      adopt(p, 'medium', firstLarge?.id);
+      adopt(p, 'medium', undefined); // 既定は全体スコープ(大をまたいで業務全体を俯瞰)
     },
     loadSample: () => {
       const sample = createSampleProject(uuid, new Date().toISOString());
-      // 受注業務（最初の大工程）配下の中ビューを既定で開く（リッチなフローが見える）。
-      const firstLarge = Object.values(sample.core.tasks)
-        .filter((t) => t.level === 'large')
-        .sort((a, b) => a.order - b.order)[0];
-      adopt(sample, 'medium', firstLarge?.id);
+      adopt(sample, 'medium', undefined); // 既定は全体スコープ
     },
   };
 };

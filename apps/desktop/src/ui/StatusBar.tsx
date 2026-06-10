@@ -1,7 +1,9 @@
 // 画面下部のステータスバー。工程数・担当数・合計工数・現在ビュー・保存状態を一目で。
+// 右側にアクティブペイン別のキー操作ヒントと g リーダー待機チップ(発見性)。
 import type { ProcessLevel } from '@gantt-flow/core';
 import { effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from '../store';
+import { useUI } from './useUI';
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = {
   large: '大',
@@ -15,6 +17,9 @@ export function StatusBar() {
   const level = useApp((s) => s.level);
   const scopeParentId = useApp((s) => s.scopeParentId);
   const dirty = useApp((s) => s.dirty);
+  const activePane = useUI((s) => s.activePane);
+  const leaderPending = useUI((s) => s.leaderPending);
+  const singleKey = useUI((s) => s.singleKey);
 
   const tasks = Object.values(project.core.tasks);
   const byLevel = (l: ProcessLevel) => tasks.filter((t) => t.level === l).length;
@@ -22,9 +27,6 @@ export function StatusBar() {
   const totalMin = roots.reduce((s, t) => s + effortRollupMinutes(project.core, project.details, t.id), 0);
   const assignees = Object.keys(project.core.assignees).length;
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
-  // ヒアリング進行（ステータスが 1 件でも入っていれば「確定 n / 全 m」を出す）
-  const statuses = tasks.map((t) => project.details[t.id]?.status).filter(Boolean);
-  const doneCount = tasks.filter((t) => project.details[t.id]?.status === 'done').length;
 
   return (
     <footer className="statusbar" aria-label="ステータス">
@@ -42,16 +44,23 @@ export function StatusBar() {
       <span className="st-item" title="末端工程の合計工数（自動集計）">
         合計工数 <strong>{formatHours(totalMin)}</strong>
       </span>
-      {statuses.length > 0 && (
-        <>
-          <span className="st-sep" aria-hidden="true" />
-          <span className="st-item" title="ステータスが「確定」の工程数 / 全工程">
-            確定 <strong>{doneCount}</strong>
-            <span className="st-sub">/ {tasks.length}</span>
-          </span>
-        </>
-      )}
       <span className="st-spacer" />
+      {leaderPending ? (
+        <span className="st-item st-leader" aria-live="polite" title="g に続けて t=表 / f=フロー / i=課題 / s=サマリ / 1〜4=粒度">
+          <kbd>g</kbd> 続けてキーを入力…
+        </span>
+      ) : (
+        <span className="st-item st-hint" title="ショートカット一覧は ? キー">
+          {activePane === 'table'
+            ? singleKey
+              ? 'j/k 移動・Enter 編集・n 追加・? 一覧'
+              : '↑↓ 移動・Enter 編集・⌘K コマンド・? 一覧'
+            : singleKey
+              ? '矢印で選択・Alt+矢印で移動・c 接続・? 一覧'
+              : '矢印で選択・Alt+矢印で移動・⌘K コマンド・? 一覧'}
+        </span>
+      )}
+      <span className="st-sep" aria-hidden="true" />
       <span className="st-item st-view" title="フローで表示中の粒度とスコープ">
         表示: {LEVEL_LABEL[level]}
         {scopeName ? ` / ${scopeName}` : ' / 全体'}

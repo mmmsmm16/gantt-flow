@@ -3,6 +3,7 @@
 // v1 スコープ: タスクノード + 依存由来エッジ + 自動配置 + レーン。I/O・課題オブジェクトは次段で追加。
 import type {
   Core,
+  ProcessLevel,
   TaskDetail,
   FlowLevelView,
   FlowTaskNode,
@@ -28,6 +29,62 @@ const COL_W = 220;
 
 const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
   (a ?? undefined) === (b ?? undefined);
+
+// ---- 親(上位粒度)の依存から導出する「大またぎブリッジ」 ----
+// 親同士が繋がっていれば、子の「末端 → 先頭」を 1 本繋いで流れを見せる。
+// フロー(全体スコープ)の描画と工程表の前工程表示の両方がこれを使う＝同期ずれを構造的に防ぐ。
+
+export interface ParentBridge {
+  /** 前側(親依存の from)の子のうち、後続を持たない末端(無ければ並び順の最後)。 */
+  from: Id;
+  /** 後側(親依存の to)の子のうち、先行を持たない先頭(無ければ並び順の最初)。 */
+  to: Id;
+  /** 由来となった親レベルの依存。 */
+  viaDepId: Id;
+}
+
+/** 指定粒度の子タスクに対して、親レベルの依存から導出されるブリッジ接続を返す(純関数)。 */
+export function deriveParentBridges(core: Core, level: ProcessLevel): ParentBridge[] {
+  const kids = Object.values(core.tasks).filter((t) => t.level === level);
+  const byParent = new Map<Id, typeof kids>();
+  for (const t of kids) {
+    if (!t.parentId) continue;
+    const arr = byParent.get(t.parentId) ?? byParent.set(t.parentId, []).get(t.parentId)!;
+    arr.push(t);
+  }
+  for (const arr of byParent.values()) arr.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const kidIds = new Set(kids.map((t) => t.id));
+  const sameLevelDeps = Object.values(core.dependencies).filter(
+    (d) => kidIds.has(d.from) && kidIds.has(d.to),
+  );
+  const hasSucc = (taskId: Id) => sameLevelDeps.some((d) => d.from === taskId);
+  const hasPred = (taskId: Id) => sameLevelDeps.some((d) => d.to === taskId);
+  const out: ParentBridge[] = [];
+  for (const pd of Object.values(core.dependencies)) {
+    const fromKids = byParent.get(pd.from);
+    const toKids = byParent.get(pd.to);
+    if (!fromKids?.length || !toKids?.length) continue; // 両端の親に子がいる依存のみ
+    const terminals = fromKids.filter((t) => !hasSucc(t.id));
+    const initials = toKids.filter((t) => !hasPred(t.id));
+    const a = (terminals.length ? terminals : fromKids)[
+      terminals.length ? terminals.length - 1 : fromKids.length - 1
+    ]!;
+    const b = (initials.length ? initials : toKids)[0]!;
+    out.push({ from: a.id, to: b.id, viaDepId: pd.id });
+  }
+  return out;
+}
+
+/** 全粒度ぶんのブリッジを「taskId → 導出された前工程の taskId[]」にまとめる(工程表の表示用)。 */
+export function bridgePredMap(core: Core): Record<Id, Id[]> {
+  const map: Record<Id, Id[]> = {};
+  for (const level of ['medium', 'small', 'detail'] as const) {
+    for (const br of deriveParentBridges(core, level)) {
+      (map[br.to] ??= []).push(br.from);
+    }
+  }
+  return map;
+}
 
 // ユーザーが手で作った経路（pinned 直結、または A→判断→B のような制御ノード経由＝端点が pinned）
 // だけをたどって to に到達できるか。導出エッジ（依存から自動生成。非 pinned）はたどらない。
@@ -163,29 +220,14 @@ export function reconcileFlow(
   );
 
   // 全体スコープ: 親(大)レベルの依存を、子(中)の「末端→先頭」に 1 本ブリッジして
-  // 大をまたぐ流れを見せる（親が繋がっていれば子も繋ぐ）。
+  // 大をまたぐ流れを見せる（親が繋がっていれば子も繋ぐ）。導出は deriveParentBridges に
+  // 一元化(工程表の前工程表示と共有=同期ずれを構造的に防ぐ)。
   const bridges: { from: FlowNodeId; to: FlowNodeId; depId: Id }[] = [];
   if (allScope) {
-    const byParent = new Map<Id, typeof targets>();
-    for (const t of targets) {
-      if (t.parentId) {
-        const arr = byParent.get(t.parentId) ?? byParent.set(t.parentId, []).get(t.parentId)!;
-        arr.push(t);
-      }
-    }
-    const hasSucc = (taskId: Id) => depsInScope.some((d) => d.from === taskId);
-    const hasPred = (taskId: Id) => depsInScope.some((d) => d.to === taskId);
-    for (const pd of Object.values(core.dependencies)) {
-      const fromKids = byParent.get(pd.from);
-      const toKids = byParent.get(pd.to);
-      if (!fromKids?.length || !toKids?.length) continue; // 両端の大に子がいる依存のみ
-      const terminals = fromKids.filter((t) => !hasSucc(t.id));
-      const initials = toKids.filter((t) => !hasPred(t.id));
-      const a = (terminals.length ? terminals : fromKids)[terminals.length ? terminals.length - 1 : fromKids.length - 1]!;
-      const b = (initials.length ? initials : toKids)[0]!;
-      const s = nodeIdByTask.get(a.id);
-      const t2 = nodeIdByTask.get(b.id);
-      if (s && t2) bridges.push({ from: s, to: t2, depId: pd.id });
+    for (const br of deriveParentBridges(core, view.level)) {
+      const s = nodeIdByTask.get(br.from);
+      const t2 = nodeIdByTask.get(br.to);
+      if (s && t2) bridges.push({ from: s, to: t2, depId: br.viaDepId });
     }
   }
   const depIds = new Set([...depsInScope.map((d) => d.id), ...bridges.map((b) => b.depId)]);

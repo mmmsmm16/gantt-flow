@@ -6,11 +6,12 @@ import {
   ioIconRect,
   IO_ICON,
   laneLayout,
+  routeEdge,
   type Project,
   type FlowLevelView,
   type FlowNode,
 } from '@gantt-flow/core';
-import { FLOW_LIGHT } from './theme';
+import { FLOW_LIGHT, TASK_COLORS } from './theme';
 
 // 画面 (--font-ui) と一致させる和文優先スタック。出力＝画面の体験を保つ。styles.css と同期。
 const FONT_STACK =
@@ -122,25 +123,27 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
-  // edges
+  // edges: 直角コネクタ。他ノードと重ならない通り道を routeEdge が選ぶ(画面と同一ロジック)。
+  const edgeObstacles = nodes
+    .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+    .map((n) => ({ id: n.id, x: n.x, y: n.y, w: sizeOf(n).w, h: sizeOf(n).h }));
   for (const e of Object.values(view.edges)) {
     const s = view.nodes[e.source];
     const t = view.nodes[e.target];
     if (!s || !t) continue;
     const ss = sizeOf(s);
     const ts = sizeOf(t);
-    const x1 = s.x + ss.w;
-    const y1 = s.y + ss.h / 2;
-    const x2 = t.x;
-    const y2 = t.y + ts.h / 2;
-    const midX = (x1 + x2) / 2;
-    // 直角（オーソゴナル）コネクタ: 水平 → 垂直 → 水平
+    const route = routeEdge(
+      { x: s.x, y: s.y, w: ss.w, h: ss.h },
+      { x: t.x, y: t.y, w: ts.w, h: ts.h },
+      edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+    );
     parts.push(
-      `<path d="M${x1},${y1} H${midX} V${y2} H${x2}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"/>`,
+      `<path d="${route.d}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"/>`,
     );
     if (e.label) {
       parts.push(
-        `<text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2 - 4}" font-size="11" fill="${FLOW_LIGHT.edgeLabel}" text-anchor="middle">${esc(e.label)}</text>`,
+        `<text x="${route.label.x}" y="${route.label.y - 4}" font-size="11" fill="${FLOW_LIGHT.edgeLabel}" text-anchor="middle">${esc(e.label)}</text>`,
       );
     }
   }
@@ -182,11 +185,16 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const cx = n.x + s.w / 2;
     if (n.kind === 'task') {
       const name = project.core.tasks[n.taskId]?.name ?? '';
+      // 工程カラー(任意)。塗りは淡背景+濃枠、文字色は text を使用(未設定は既定)。
+      const d = project.details[n.taskId];
+      const fill = d?.fillColor ? TASK_COLORS[d.fillColor].fill : FLOW_LIGHT.task.fill;
+      const stroke = d?.fillColor ? TASK_COLORS[d.fillColor].base : FLOW_LIGHT.task.stroke;
+      const textFill = d?.textColor ? TASK_COLORS[d.textColor].text : FLOW_LIGHT.task.text;
       parts.push(
-        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="9" fill="${FLOW_LIGHT.task.fill}" stroke="${FLOW_LIGHT.task.stroke}" stroke-width="1.5"/>`,
+        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`,
       );
       parts.push(
-        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${FLOW_LIGHT.task.text}" text-anchor="middle">${esc(name)}</text>`,
+        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${textFill}" text-anchor="middle">${esc(name)}</text>`,
       );
     } else if (n.kind === 'issue') {
       if (!isPrimaryIssue(n)) continue; // 集約: 代表のみ描画

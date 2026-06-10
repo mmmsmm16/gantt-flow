@@ -1,9 +1,13 @@
 // UI 状態（ドメインストアとは別系統。undo/redo 履歴を汚さない）。
 // テーマ＋自前ダイアログ（confirm/prompt）＋トースト＋表レイアウト（表を広く）。
 import { create } from 'zustand';
+import { loadSingleKeyEnabled, saveSingleKeyEnabled } from '../keymap';
+
+type Id = string;
 
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
+const MINIMAP_KEY = 'gf-minimap';
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
 const FT_W_KEY = 'gf-ft-widths';
@@ -118,6 +122,18 @@ interface UIState {
   tableMode: 'outline' | 'full';
   setTableMode: (mode: 'outline' | 'full') => void;
 
+  /** いまキーボード操作の対象になっているペイン（単キーのルーティングに使う）。 */
+  activePane: 'table' | 'flow';
+  setActivePane: (pane: 'table' | 'flow') => void;
+
+  /** g リーダーキー待機中（ステータスバーの表示用）。 */
+  leaderPending: boolean;
+  setLeaderPending: (pending: boolean) => void;
+
+  /** シングルキー操作(Vim 風: j/k/hjkl/gリーダー等)が有効か。既定 OFF。設定で切替。 */
+  singleKey: boolean;
+  setSingleKey: (enabled: boolean) => void;
+
   /** 全項目表の列表示（true=表示。未指定キーは表示）。localStorage 永続。 */
   ftColumns: Record<string, boolean>;
   toggleFtColumn: (key: string) => void;
@@ -130,9 +146,33 @@ interface UIState {
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
 
-  /** 全画面オーバーレイ（ヘルプ / コマンドパレット / 課題一覧 / サマリ / バックアップ）。同時に 1 つだけ。 */
-  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null;
-  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null) => void;
+  /** 設定インポート用の一括反映（列設定）。undefined のキーは変更しない。 */
+  hydrateSettings: (p: {
+    columns?: ColumnVisibility;
+    ftColumns?: Record<string, boolean>;
+    ftWidths?: Record<string, number>;
+  }) => void;
+
+  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / バックアップ / 設定）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'settings' | null;
+  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'settings' | null) => void;
+
+  /** 設定ダイアログのアクティブタブ（パレットからの深リンク用）。 */
+  settingsTab: 'general' | 'keys' | 'data';
+  setSettingsTab: (tab: 'general' | 'keys' | 'data') => void;
+
+  /** フロー右下のミニマップを表示するか。localStorage 永続(既定 ON)。 */
+  minimap: boolean;
+  toggleMinimap: () => void;
+
+  /** 詳細パネル(インスペクタ)を表示するか。「選択」とは独立(フローでは選択だけでは開かない)。 */
+  inspectorOpen: boolean;
+  setInspectorOpen: (open: boolean) => void;
+
+  /** アウトライン表の折りたたみ状態（コマンド/非マウント時も保持するためここに置く。非永続）。 */
+  outlineCollapsed: Set<Id>;
+  toggleOutlineCollapsed: (id: Id) => void;
+  setOutlineCollapsed: (ids: Set<Id>) => void;
 
   /** 使い方ツアーの現在ステップ（null=非表示）。 */
   tourStep: number | null;
@@ -172,13 +212,27 @@ export const useUI = create<UIState>((set, get) => ({
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
 
   tableWide: false,
-  toggleTableWide: () => set({ tableWide: !get().tableWide, flowWide: false }),
+  toggleTableWide: () =>
+    set({ tableWide: !get().tableWide, flowWide: false, ...(get().tableWide ? {} : { activePane: 'table' as const }) }),
 
   flowWide: false,
-  toggleFlowWide: () => set({ flowWide: !get().flowWide, tableWide: false }),
+  toggleFlowWide: () =>
+    set({ flowWide: !get().flowWide, tableWide: false, ...(get().flowWide ? {} : { activePane: 'flow' as const }) }),
 
   tableMode: 'outline',
-  setTableMode: (mode) => set({ tableMode: mode }),
+  setTableMode: (mode) => set({ tableMode: mode, ...(mode === 'full' ? { activePane: 'table' as const } : {}) }),
+
+  activePane: 'table',
+  setActivePane: (pane) => set({ activePane: pane }),
+
+  leaderPending: false,
+  setLeaderPending: (pending) => set({ leaderPending: pending }),
+
+  singleKey: loadSingleKeyEnabled(),
+  setSingleKey: (enabled) => {
+    saveSingleKeyEnabled(enabled); // 永続化 + 実効キーマップのキャッシュ破棄
+    set({ singleKey: enabled });
+  },
 
   ftColumns: readFtColumns(),
   toggleFtColumn: (key) => {
@@ -206,6 +260,39 @@ export const useUI = create<UIState>((set, get) => ({
   overlay: null,
   setOverlay: (overlay) => set({ overlay }),
 
+  settingsTab: 'general',
+  setSettingsTab: (tab) => set({ settingsTab: tab }),
+
+  minimap: (() => {
+    try {
+      return localStorage.getItem(MINIMAP_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  })(),
+  toggleMinimap: () => {
+    const next = !get().minimap;
+    try {
+      if (next) localStorage.removeItem(MINIMAP_KEY);
+      else localStorage.setItem(MINIMAP_KEY, '0');
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ minimap: next });
+  },
+
+  inspectorOpen: false,
+  setInspectorOpen: (open) => set({ inspectorOpen: open }),
+
+  outlineCollapsed: new Set<Id>(),
+  toggleOutlineCollapsed: (id) => {
+    const next = new Set(get().outlineCollapsed);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    set({ outlineCollapsed: next });
+  },
+  setOutlineCollapsed: (ids) => set({ outlineCollapsed: ids }),
+
   columnVisibility: readInitialColumns(),
   toggleColumn: (key) => {
     const next = { ...get().columnVisibility, [key]: !get().columnVisibility[key] };
@@ -215,6 +302,27 @@ export const useUI = create<UIState>((set, get) => ({
       /* 永続化失敗は無視（メモリ上は反映済み） */
     }
     set({ columnVisibility: next });
+  },
+
+  hydrateSettings: (p) => {
+    const patch: Record<string, unknown> = {};
+    try {
+      if (p.columns) {
+        localStorage.setItem(COLS_KEY, JSON.stringify(p.columns));
+        patch.columnVisibility = p.columns;
+      }
+      if (p.ftColumns) {
+        localStorage.setItem(FT_COLS_KEY, JSON.stringify(p.ftColumns));
+        patch.ftColumns = p.ftColumns;
+      }
+      if (p.ftWidths) {
+        localStorage.setItem(FT_W_KEY, JSON.stringify(p.ftWidths));
+        patch.ftColWidths = p.ftWidths;
+      }
+    } catch {
+      /* 永続化失敗は無視（メモリ上は反映） */
+    }
+    if (Object.keys(patch).length) set(patch);
   },
 
   tourStep: null,

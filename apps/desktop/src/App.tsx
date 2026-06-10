@@ -28,8 +28,10 @@ import { SummaryDialog } from './ui/SummaryDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
+import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
+import { SettingsDialog } from './ui/SettingsDialog';
 import { Tour, tourDone } from './ui/Tour';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
@@ -69,6 +71,9 @@ export function App() {
   const toggleFlowWide = useUI((s) => s.toggleFlowWide);
   const tableMode = useUI((s) => s.tableMode);
   const setTableMode = useUI((s) => s.setTableMode);
+  const activePane = useUI((s) => s.activePane);
+  const setActivePane = useUI((s) => s.setActivePane);
+  const inspectorOpen = useUI((s) => s.inspectorOpen);
   const fullMode = tableMode === 'full';
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
@@ -92,6 +97,7 @@ export function App() {
       const p = await openProjectFromFile();
       if (p) {
         useApp.getState().loadProject(p);
+        useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('開きました。', 'success');
       }
     } catch {
@@ -108,6 +114,7 @@ export function App() {
     if (ok) {
       forgetFileHandle(); // 新規は保存先を引き継がない
       useApp.getState().newProject();
+      useUI.getState().setOutlineCollapsed(new Set());
     }
   };
   const onImport = () => {
@@ -123,6 +130,7 @@ export function App() {
         await new Promise((r) => requestAnimationFrame(() => r(undefined)));
         forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
         const report = useApp.getState().importRows(await readTableFile(file));
+        useUI.getState().setOutlineCollapsed(new Set());
         const c = report.created;
         let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
         if (report.unresolvedDeps.length)
@@ -147,6 +155,7 @@ export function App() {
   };
   const onSample = () => {
     useApp.getState().loadSample();
+    useUI.getState().setOutlineCollapsed(new Set());
     if (!tourDone()) {
       useUI.getState().setTourStep(0); // 初回だけ使い方ツアーを開始
     } else {
@@ -155,6 +164,7 @@ export function App() {
   };
   const onTemplate = (key: string) => {
     useApp.getState().loadTemplate(key);
+    useUI.getState().setOutlineCollapsed(new Set());
     useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
   };
   const onOpenRecent = async (name: string) => {
@@ -162,6 +172,7 @@ export function App() {
       const p = await openRecentFile(name);
       if (p) {
         useApp.getState().loadProject(p);
+        useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('開きました。', 'success');
       } else {
         useUI.getState().toast('このファイルを開けませんでした（権限が必要です）。', 'error');
@@ -202,53 +213,9 @@ export function App() {
     printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
   };
 
-  // グローバルショートカット: Ctrl/⌘+K=パレット, Ctrl/⌘+S=保存, Ctrl/⌘+Z=戻す,
-  // Ctrl+Y / Ctrl+Shift+Z=やり直し, ?=ヘルプ。IME 変換中は無視。テキスト編集中の
-  // undo/redo はネイティブ優先（保存・パレットは常に握る）。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing) return;
-      const el = document.activeElement;
-      const editable =
-        el instanceof HTMLElement &&
-        (el.tagName === 'INPUT' ||
-          el.tagName === 'TEXTAREA' ||
-          el.tagName === 'SELECT' ||
-          el.isContentEditable);
-
-      // 修飾なし: ? でショートカット一覧（編集中は無視）。
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (e.key === '?' && !editable) {
-          e.preventDefault();
-          useUI.getState().setOverlay(useUI.getState().overlay === 'help' ? null : 'help');
-        }
-        return;
-      }
-      if (!(e.ctrlKey || e.metaKey)) return;
-
-      const k = e.key.toLowerCase();
-      if (k === 'k') {
-        e.preventDefault();
-        useUI.getState().setOverlay(useUI.getState().overlay === 'palette' ? null : 'palette');
-        return;
-      }
-      if (k === 's') {
-        e.preventDefault();
-        onSave();
-        return;
-      }
-      if (editable) return;
-      if (k === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        useApp.getState().undo();
-      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
-        e.preventDefault();
-        useApp.getState().redo();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // グローバルショートカット(キーマップ駆動)。keymap.ts が単一の真実、
+  // ディスパッチは useGlobalHotkeys に一元化(IME・編集中・オーバーレイのガード込み)。
+  useGlobalHotkeys({ onSave: () => void onSave(), onPrint });
 
   // 未保存のまま閉じようとしたら確認（データ消失の防止）。
   useEffect(() => {
@@ -276,6 +243,7 @@ export function App() {
       });
       if (ok) {
         useApp.getState().restoreProject(saved);
+        useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('前回の未保存データを復元しました。保存をお忘れなく。', 'success');
       } else {
         clearAutosave();
@@ -391,6 +359,17 @@ export function App() {
         </button>
         <button
           className="icon-btn"
+          onClick={() => {
+            useUI.getState().setSettingsTab('general');
+            useUI.getState().setOverlay('settings');
+          }}
+          aria-label="設定"
+          title="設定（テーマ / ショートカット / エクスポート）"
+        >
+          <Icons.Gear />
+        </button>
+        <button
+          className="icon-btn"
           onClick={() => useUI.getState().setOverlay('help')}
           aria-label="キーボードショートカット"
           title="キーボードショートカット (?)"
@@ -402,12 +381,18 @@ export function App() {
         <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} onOpenRecent={onOpenRecent} onTemplate={onTemplate} />
       ) : (
         <div
-          className={`panes${!fullMode && selectedTaskId ? ' with-inspector' : ''}${
+          className={`panes${!fullMode && selectedTaskId && inspectorOpen ? ' with-inspector' : ''}${
             tableWide || fullMode ? ' table-wide' : ''
           }${flowWide ? ' flow-wide' : ''}`}
         >
           {!flowWide && (
-          <section className={`pane table-pane${fullMode ? ' full' : ''}`} id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
+          <section
+            className={`pane table-pane${fullMode ? ' full' : ''}${activePane === 'table' ? ' pane-active' : ''}`}
+            id="main-table"
+            tabIndex={-1}
+            aria-label="工程表（手順一覧表）"
+            onPointerDownCapture={() => setActivePane('table')}
+          >
             <div className="table-head">
               <h2>工程表（手順一覧表）</h2>
               <span className="seg table-mode-seg" role="group" aria-label="表示モード">
@@ -423,7 +408,12 @@ export function App() {
           </section>
           )}
           {!tableWide && !fullMode && (
-            <section className="pane flow-pane" aria-label="工程フロー図">
+            <section
+              className={`pane flow-pane${activePane === 'flow' ? ' pane-active' : ''}`}
+              tabIndex={-1}
+              aria-label="工程フロー図"
+              onPointerDownCapture={() => setActivePane('flow')}
+            >
               <div className="flow-head">
                 <h2>工程フロー</h2>
                 <span className="seg" role="group" aria-label="粒度">
@@ -474,7 +464,7 @@ export function App() {
               <FlowCanvas />
             </section>
           )}
-          {!fullMode && selectedTaskId && (
+          {!fullMode && selectedTaskId && inspectorOpen && (
             <section className="pane inspector-pane">
               <Inspector />
             </section>
@@ -499,6 +489,7 @@ export function App() {
       <IssueListDialog />
       <SummaryDialog />
       <BackupsDialog />
+      <SettingsDialog />
       <Tour />
       <Modal />
       <BusyOverlay />

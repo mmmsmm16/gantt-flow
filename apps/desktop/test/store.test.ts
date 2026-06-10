@@ -188,20 +188,34 @@ describe('app store（command → reconcile → history）', () => {
     expect(deps[0]!.to).toBe(bNode.taskId);
   });
 
-  it('サンプルを読み込むと中ビュー（受注業務）が開き、履歴はリセットされる', () => {
+  it('サンプルを読み込むと中・全体スコープのビューが開き、履歴はリセットされる', () => {
     const s = createAppStore();
     s.getState().loadSample();
     expect(Object.keys(s.getState().project.core.tasks).length).toBeGreaterThan(10);
     expect(s.getState().level).toBe('medium');
-    expect(s.getState().scopeParentId).toBeDefined();
+    expect(s.getState().scopeParentId).toBeUndefined(); // 既定は全体スコープ
     expect(s.getState().canUndo).toBe(false); // 読み込み直後は履歴なし
-    // 既定ビュー（中・スコープ=受注業務）に中工程ノードが 4 つ並ぶ
+    // 全体ビューには全中工程(10)が並ぶ
     const cur = s
       .getState()
-      .project.flow.byLevel.find(
-        (v) => v.level === 'medium' && v.scopeParentId === s.getState().scopeParentId,
-      )!;
-    expect(Object.values(cur.nodes).filter((n) => n.kind === 'task')).toHaveLength(4);
+      .project.flow.byLevel.find((v) => v.level === 'medium' && v.scopeParentId === undefined)!;
+    expect(Object.values(cur.nodes).filter((n) => n.kind === 'task')).toHaveLength(10);
+  });
+
+  it('粒度切替の既定スコープは全体。同一粒度の setLevel はスコープを保つ', () => {
+    const s = createAppStore();
+    s.getState().loadSample();
+    s.getState().setLevel('small');
+    expect(s.getState().scopeParentId).toBeUndefined(); // 切替後も全体
+    // 明示的にスコープを絞る → 同一粒度の setLevel では解除されない
+    const firstMedium = Object.values(s.getState().project.core.tasks).find((t) => t.level === 'medium')!;
+    s.getState().setLevel('small');
+    s.getState().setScope(firstMedium.id);
+    s.getState().setLevel('small');
+    expect(s.getState().scopeParentId).toBe(firstMedium.id);
+    // 粒度を変えると既定(全体)に戻る
+    s.getState().setLevel('medium');
+    expect(s.getState().scopeParentId).toBeUndefined();
   });
 
   it('整列（tidyFlow）で配置が決定論的に組み直され、1 undo で戻せる', () => {

@@ -39,6 +39,19 @@ describe('persistence: JSON ラウンドトリップ', () => {
     expect(back).toEqual(p);
   });
 
+  it('工程カラー(fillColor/textColor)がラウンドトリップで保持される', () => {
+    let p = sampleProject();
+    const id = taskIdByName(p, '受付');
+    p = { ...p, details: { ...p.details, [id]: { ...p.details[id]!, fillColor: 'red' as const, textColor: 'blue' as const } } };
+    const back = deserializeProject(serializeProject(p));
+    expect(back.details[id]!.fillColor).toBe('red');
+    expect(back.details[id]!.textColor).toBe('blue');
+    // 不正な色名はスキーマで弾かれる
+    const raw = JSON.parse(serializeProject(p));
+    raw.details[id].fillColor = 'magenta';
+    expect(tryDeserializeProject(JSON.stringify(raw)).ok).toBe(false);
+  });
+
   it('壊れた JSON / スキーマ不一致は弾く', () => {
     expect(tryDeserializeProject('{ not json').ok).toBe(false);
     // schemaVersion を欠いた不正データ

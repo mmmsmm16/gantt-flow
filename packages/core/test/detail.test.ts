@@ -22,6 +22,20 @@ describe('詳細編集コマンド', () => {
     expect(p.details[id]!.difficulty).toBe('H');
   });
 
+  it('updateTaskDetail で工程カラー(塗り/文字色)を設定・解除できる', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    const id = taskIdByName(p, 'A');
+    p = updateTaskDetail(p, id, { fillColor: 'red', textColor: 'blue' });
+    expect(p.details[id]!.fillColor).toBe('red');
+    expect(p.details[id]!.textColor).toBe('blue');
+    // undefined で解除
+    p = updateTaskDetail(p, id, { fillColor: undefined });
+    expect(p.details[id]!.fillColor).toBeUndefined();
+    expect(p.details[id]!.textColor).toBe('blue'); // 触っていない方は残る
+  });
+
   it('updateIoItem で帳票/情報・様式を変更', () => {
     const g = counter();
     let p = emptyProject();
