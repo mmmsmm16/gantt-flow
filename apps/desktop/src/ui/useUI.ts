@@ -5,6 +5,30 @@ import { create } from 'zustand';
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
 const COLS_KEY = 'gf-columns';
+const FT_COLS_KEY = 'gf-ft-columns';
+const FT_W_KEY = 'gf-ft-widths';
+
+// 全項目表の列表示（true=表示。キーが無ければ表示扱い）。localStorage 永続。
+function readFtColumns(): Record<string, boolean> {
+  try {
+    const saved = localStorage.getItem(FT_COLS_KEY);
+    if (saved) return JSON.parse(saved) as Record<string, boolean>;
+  } catch {
+    /* localStorage 不可/破損: 既定（全表示） */
+  }
+  return {};
+}
+
+// 全項目表の列幅の手動上書き（px）。未指定キーは既定幅。localStorage 永続。
+function readFtWidths(): Record<string, number> {
+  try {
+    const saved = localStorage.getItem(FT_W_KEY);
+    if (saved) return JSON.parse(saved) as Record<string, number>;
+  } catch {
+    /* 既定幅 */
+  }
+  return {};
+}
 
 // 工程表の任意列（前工程 / 工数 / I/O・課題）の表示トグル。既定は全て表示。
 export interface ColumnVisibility {
@@ -86,9 +110,37 @@ interface UIState {
   tableWide: boolean;
   toggleTableWide: () => void;
 
+  /** フローに集中するため、表を畳んでフローを全幅にする（tableWide と排他）。 */
+  flowWide: boolean;
+  toggleFlowWide: () => void;
+
+  /** 工程表の表示モード: アウトライン（階層＋インスペクタ） / 全項目フル表（全列1グリッド）。 */
+  tableMode: 'outline' | 'full';
+  setTableMode: (mode: 'outline' | 'full') => void;
+
+  /** 全項目表の列表示（true=表示。未指定キーは表示）。localStorage 永続。 */
+  ftColumns: Record<string, boolean>;
+  toggleFtColumn: (key: string) => void;
+
+  /** 全項目表の列幅の手動上書き（px）。未指定キーは既定幅。localStorage 永続。 */
+  ftColWidths: Record<string, number>;
+  setFtColWidth: (key: string, width: number) => void;
+
   /** 工程表の任意列（前工程 / 工数 / I/O・課題）の表示トグル。localStorage 永続。 */
   columnVisibility: ColumnVisibility;
   toggleColumn: (key: keyof ColumnVisibility) => void;
+
+  /** 全画面オーバーレイ（ヘルプ / コマンドパレット / 課題一覧 / サマリ / バックアップ）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null;
+  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null) => void;
+
+  /** 使い方ツアーの現在ステップ（null=非表示）。 */
+  tourStep: number | null;
+  setTourStep: (step: number | null) => void;
+
+  /** 重い処理中の全画面スピナー（メッセージ＝表示中）。取り込みなどで無応答に見えるのを防ぐ。 */
+  busy: string | null;
+  setBusy: (message: string | null) => void;
 
   dialog: Dialog | null;
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
@@ -120,7 +172,39 @@ export const useUI = create<UIState>((set, get) => ({
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
 
   tableWide: false,
-  toggleTableWide: () => set({ tableWide: !get().tableWide }),
+  toggleTableWide: () => set({ tableWide: !get().tableWide, flowWide: false }),
+
+  flowWide: false,
+  toggleFlowWide: () => set({ flowWide: !get().flowWide, tableWide: false }),
+
+  tableMode: 'outline',
+  setTableMode: (mode) => set({ tableMode: mode }),
+
+  ftColumns: readFtColumns(),
+  toggleFtColumn: (key) => {
+    const cur = get().ftColumns;
+    const next = { ...cur, [key]: cur[key] === false }; // 表示(≠false)→false、非表示→true
+    try {
+      localStorage.setItem(FT_COLS_KEY, JSON.stringify(next));
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ ftColumns: next });
+  },
+
+  ftColWidths: readFtWidths(),
+  setFtColWidth: (key, width) => {
+    const next = { ...get().ftColWidths, [key]: Math.max(40, Math.round(width)) };
+    try {
+      localStorage.setItem(FT_W_KEY, JSON.stringify(next));
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ ftColWidths: next });
+  },
+
+  overlay: null,
+  setOverlay: (overlay) => set({ overlay }),
 
   columnVisibility: readInitialColumns(),
   toggleColumn: (key) => {
@@ -132,6 +216,12 @@ export const useUI = create<UIState>((set, get) => ({
     }
     set({ columnVisibility: next });
   },
+
+  tourStep: null,
+  setTourStep: (tourStep) => set({ tourStep }),
+
+  busy: null,
+  setBusy: (busy) => set({ busy }),
 
   dialog: null,
   confirm: (opts) =>

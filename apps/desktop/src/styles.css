@@ -6,49 +6,52 @@
 :root {
   color-scheme: light;
 
-  /* 中立色 */
-  --bg: #f4f6fb;
+  /* 中立色（青に合わせた涼しい紙白＝ブループリント系のニュートラル） */
+  --bg: #eceef2;
   --panel: #ffffff;
-  --panel-2: #f8fafc;
-  --ink: #1e293b;
-  --muted: #64748b;
-  --faint: #94a3b8;
-  --line: #e2e8f0;
-  --line-faint: #f1f5f9;
-  --line-strong: #cbd5e1;
-  --hdr: #f8fafc;
-  --toolbar-bg: rgba(255, 255, 255, 0.82);
+  --panel-2: #f3f5f8;
+  --ink: #28303c;
+  --muted: #5b6573;
+  --faint: #98a1af;
+  --line: #e2e6ec;
+  --line-faint: #eef1f5;
+  --line-strong: #cdd4de;
+  --hdr: #f3f5f8;
+  --toolbar-bg: rgba(255, 255, 255, 0.85);
   --btn-bg: #ffffff;
-  --row-hover: #f7f8fd;
+  --row-hover: #eef2f7;
   --input-bg: #ffffff;
 
-  /* アクセント（iris 系・既定インディゴから微調整） */
-  --accent: #5b5bd6;
-  --accent-strong: #4b47cc;
-  --accent-soft: #ecedfb;
+  /* アクセント（青系の差し色 #5271A5） */
+  --accent: #5271a5;
+  --accent-strong: #3f5a89;
+  --accent-soft: #e1e8f3;
+  --on-accent: #ffffff; /* アクセント塗りの上に乗せる文字色（暗い青なので白） */
 
-  /* 意味色（入=青・出=緑・課題=赤・付箋=黄） */
-  --in: #2563eb;
-  --in-fill: #dbeafe;
-  --out: #15803d;
-  --out-fill: #dcfce7;
-  --red: #dc2626;
-  --red-fill: #fee2e2;
-  --amber: #ca8a04;
-  --amber-fill: #fef9c3;
-  --amber-ink: #854d0e;
+  /* 意味色（入=ティール・出=橙・課題=赤・付箋=黄）。入力はアクセント青との被りを避けてティールに。 */
+  --in: #0e8a8a;
+  --in-fill: #d6efee;
+  --out: #c2540b;
+  --out-fill: #fbe3ca;
+  /* 成功/保存済みの緑（I/O と用途を分離するための別トークン）。 */
+  --ok: #15803d;
+  --red: #d6452f;
+  --red-fill: #fbe4de;
+  --amber: #b9820a;
+  --amber-fill: #f6ecc6;
+  --amber-ink: #7a5407;
 
-  /* 粒度色（トークン化・ダーク追従）。medium/detail はアクセント/ミュートに追従。 */
-  --lvl-large: #b45309;
+  /* 粒度色（トークン化・ダーク追従）。medium はアクセント(青)、small は入力ティールと被らないよう緑に。 */
+  --lvl-large: #b5701d;
   --lvl-medium: var(--accent);
-  --lvl-small: #0e7490;
+  --lvl-small: #2f9e6b;
   --lvl-detail: var(--muted);
 
-  /* フローキャンバス */
+  /* フローキャンバス（涼しい紙白＝画像出力 theme.ts と整合） */
   --canvas-bg: #ffffff;
   --canvas-dot: #e2e8f0;
   --lane-col: #f8fafc;
-  --lane-stripe: rgba(2, 6, 23, 0.015);
+  --lane-stripe: rgba(2, 6, 23, 0.04);
   --lane-line: #e2e8f0;
   --lane-divider: #cbd5e1;
   --band-stroke: #cbd5e1;
@@ -59,8 +62,8 @@
   --issue-line: #cbd5e1;
 
   /* 立体・形・字 */
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.05);
-  --shadow-pop: 0 10px 30px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.1);
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-pop: 0 10px 30px rgba(15, 23, 42, 0.16), 0 2px 8px rgba(15, 23, 42, 0.1);
   --ring: 0 0 0 3px var(--accent-soft);
   --radius: 10px;
   --radius-sm: 7px;
@@ -73,50 +76,53 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #0b0f17;
-  --panel: #131a26;
-  --panel-2: #0f1521;
-  --ink: #e6eaf2;
-  --muted: #9aa6b8;
-  --faint: #6b7689;
-  --line: #222c3b;
-  --line-faint: #1a2230;
-  --line-strong: #33415a;
-  --hdr: #0f1521;
-  --toolbar-bg: rgba(15, 21, 33, 0.78);
-  --btn-bg: #1a2230;
-  --row-hover: #172033;
-  --input-bg: #0f1521;
+  /* 青系の差し色＋青寄りチャコール（暗すぎない柔らかめのダーク） */
+  --bg: #1a1f28;
+  --panel: #222936;
+  --panel-2: #1e242e;
+  --ink: #e4e8ef;
+  --muted: #98a2b2;
+  --faint: #6b7585;
+  --line: #2f3744;
+  --line-faint: #262d38;
+  --line-strong: #3f4856;
+  --hdr: #1e242e;
+  --toolbar-bg: rgba(30, 36, 46, 0.85);
+  --btn-bg: #2a313d;
+  --row-hover: #262d39;
+  --input-bg: #1e242e;
 
-  --accent: #8b8cf6;
-  --accent-strong: #a3a4f8;
-  --accent-soft: rgba(139, 140, 246, 0.18);
+  --accent: #5271a5; /* ライトと同じ固定の差し色（ダークでも明るくしない） */
+  --accent-strong: #6886ba; /* ホバーは少し明るく持ち上げる */
+  --accent-soft: rgba(82, 113, 165, 0.34);
+  --on-accent: #ffffff; /* #5271A5 は中濃度なので白文字でコントラスト確保 */
 
-  --in: #60a5fa;
-  --in-fill: rgba(37, 99, 235, 0.2);
-  --out: #4ade80;
-  --out-fill: rgba(22, 163, 74, 0.2);
-  --red: #f87171;
-  --red-fill: rgba(220, 38, 38, 0.2);
-  --amber: #fcd34d;
+  --in: #46c8c0;
+  --in-fill: rgba(14, 138, 138, 0.24);
+  --out: #f0a15c;
+  --out-fill: rgba(216, 110, 20, 0.22);
+  --ok: #46d98a;
+  --red: #f4796a;
+  --red-fill: rgba(220, 60, 38, 0.2);
+  --amber: #f0c453;
   --amber-fill: rgba(202, 138, 4, 0.2);
-  --amber-ink: #fcd34d;
+  --amber-ink: #f0c453;
 
   --lvl-large: #e0995a;
-  --lvl-small: #3fb6cf;
+  --lvl-small: #34d18d;
 
-  --canvas-bg: #0d121c;
-  --canvas-dot: rgba(148, 163, 184, 0.16);
-  --lane-col: #0f1521;
-  --lane-stripe: rgba(255, 255, 255, 0.02);
-  --lane-line: #222c3b;
-  --lane-divider: #33415a;
-  --band-stroke: #33415a;
-  --node-task-bg: #172033;
-  --node-task-border: #33415a;
-  --edge: #64748b;
-  --arrow: #94a3b8;
-  --issue-line: #33415a;
+  --canvas-bg: #161b23;
+  --canvas-dot: rgba(150, 170, 200, 0.16);
+  --lane-col: #1e242e;
+  --lane-stripe: rgba(255, 255, 255, 0.04);
+  --lane-line: #2f3744;
+  --lane-divider: #3f4856;
+  --band-stroke: #3f4856;
+  --node-task-bg: #232a37;
+  --node-task-border: #3f4856;
+  --edge: #7c8798;
+  --arrow: #98a4b4;
+  --issue-line: #3f4856;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.45);
@@ -230,7 +236,7 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 button.primary:hover {
   background: var(--accent-strong);
@@ -325,6 +331,18 @@ button.danger:hover {
   margin: 2px 0 12px;
 }
 /* 工程フローのヘッダ: タイトル＋粒度タブ＋スコープ＋課題トグルを横並びに */
+/* フロー: ヘッダ(粒度タブ)・パレットは固定、横スクロールは .flow-canvas だけに閉じ込める。
+   さらに左右パディングをやめてキャンバスを端まで広げ、担当ラベルのレールが左端で隙間なく貼り付くようにする。 */
+.flow-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 14px 0;
+}
+.flow-pane > .flow-head {
+  flex: none;
+  padding: 0 16px;
+}
 .flow-head {
   display: flex;
   align-items: center;
@@ -346,11 +364,29 @@ button.danger:hover {
 }
 
 /* ---- Outline table ---- */
+.outline {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .outline-actions {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+}
+.outline-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto; /* 縦・横スクロールはここだけ。操作バー/タブは固定。 */
+}
+.grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
 }
 .outline-collapse {
   display: inline-flex;
@@ -364,11 +400,24 @@ button.danger:hover {
   border: none;
   background: transparent;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   padding: 2px 4px;
   width: 18px;
   flex: none;
+}
+/* 折り畳みキャレットを粒度色に（親＝グループの先頭であることを一目で） */
+.caret.lvl-large {
+  color: var(--lvl-large);
+}
+.caret.lvl-medium {
+  color: var(--lvl-medium);
+}
+.caret.lvl-small {
+  color: var(--lvl-small);
+}
+.caret.lvl-detail {
+  color: var(--lvl-detail);
 }
 .caret:hover {
   background: transparent;
@@ -377,9 +426,20 @@ button.danger:hover {
 }
 .grid {
   width: 100%;
+  /* 列幅を固定化し、作業名（幅指定なし）に残りを割り当てる。狭いときは min-width で
+     ペインが横スクロール（列が潰れて作業名が読めなくなるのを防ぐ）。min-width は
+     表示中の列数に応じて TableView がインラインで与える。 */
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+.grid th,
+.grid td {
+  overflow: hidden;
+}
+.name-input {
+  text-overflow: ellipsis;
 }
 .grid th {
   text-align: left;
@@ -649,7 +709,10 @@ button.danger:hover {
 /* ---- Flow canvas ---- */
 .flow-canvas {
   position: relative;
+  flex: 1;
+  min-height: 0;
   min-width: 100%;
+  overflow: auto; /* 横スクロールはここだけ。ヘッダ/パレットは固定。 */
   background: var(--canvas-bg);
   cursor: grab;
 }
@@ -736,6 +799,30 @@ button.danger:hover {
 .io-icon.io-output .io-name {
   fill: var(--out);
 }
+/* 出所付き入力帳票: 出所部署のレーンに置く帳票チップ＋工程への矢印（入力＝ティール） */
+.io-source-chip {
+  fill: var(--in-fill);
+  stroke: var(--in);
+  stroke-width: 1.2;
+}
+.io-source-name {
+  fill: var(--in);
+  font-size: 11px;
+  font-weight: 600;
+}
+.io-source-from {
+  fill: var(--muted);
+  font-size: 8.5px;
+}
+.io-source-line {
+  stroke: var(--in);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 3;
+  fill: none;
+}
+.io-source-head {
+  fill: var(--in);
+}
 
 .band {
   position: absolute;
@@ -743,14 +830,20 @@ button.danger:hover {
   border-radius: 12px;
   pointer-events: none;
 }
+/* 入れ子（大⊃中⊃小）を見分けやすく: 外側=大ほど太く粗い破線・濃いふち。 */
 .band-large {
-  background: color-mix(in srgb, var(--lvl-large) 7%, transparent);
+  background: color-mix(in srgb, var(--lvl-large) 6%, transparent);
+  border-width: 2px;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--lvl-large) 50%, var(--band-stroke));
 }
 .band-medium {
-  background: color-mix(in srgb, var(--lvl-medium) 7%, transparent);
+  background: color-mix(in srgb, var(--lvl-medium) 8%, transparent);
+  border-color: color-mix(in srgb, var(--lvl-medium) 45%, var(--band-stroke));
 }
 .band-small {
-  background: color-mix(in srgb, var(--lvl-small) 7%, transparent);
+  background: color-mix(in srgb, var(--lvl-small) 9%, transparent);
+  border-color: color-mix(in srgb, var(--lvl-small) 40%, var(--band-stroke));
 }
 .band-label {
   position: absolute;
@@ -760,12 +853,23 @@ button.danger:hover {
   font-weight: 600;
   color: var(--muted);
 }
+/* 担当ラベルの固定レール: .flow-scale の外。横スクロールでも左端に貼り付く（JSで translateX）。 */
+.lane-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  background: var(--lane-col);
+  border-right: 1px solid var(--lane-divider);
+  pointer-events: none; /* ラベル/グリップだけ操作可 */
+  will-change: transform;
+}
 .lane-label {
   position: absolute;
   left: 0;
-  width: 96px;
+  width: 100%;
   display: flex;
-  align-items: center;
+  align-items: center; /* レーンの帯の中央に担当名を置く */
   justify-content: center;
   text-align: center;
   z-index: 1;
@@ -773,6 +877,32 @@ button.danger:hover {
   font-weight: 700;
   color: var(--ink);
   padding: 0 6px;
+  pointer-events: auto;
+}
+/* レーン並び替え（▲▼）。ホバー時に右上へ薄く表示。 */
+.lane-reorder {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.lane-label:hover .lane-reorder,
+.lane-reorder:focus-within {
+  opacity: 1;
+}
+.lane-mv {
+  font-size: 8px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.lane-mv:disabled {
+  opacity: 0.3;
 }
 
 .node {
@@ -807,9 +937,31 @@ button.danger:hover {
   background: var(--red-fill);
   border: 1.5px solid var(--red);
   color: var(--red);
-  border-radius: 0;
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  /* 記載された課題文を表示するため内容に応じて自動サイズ（左寄せ・折り返し）。 */
+  width: 174px;
+  height: auto;
+  min-height: 28px;
+  padding: 5px 8px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.35;
+}
+.node.issue .node-label.issue-text {
+  white-space: normal;
+  font-weight: 600;
+}
+.node.issue .issue-list {
+  margin: 0;
+  padding-left: 14px;
+  text-align: left;
+}
+.node.issue .issue-list li {
+  margin: 1px 0;
 }
 .node.comment {
   background: var(--amber-fill);
@@ -853,6 +1005,23 @@ button.danger:hover {
 .node-label {
   position: relative;
   z-index: 1;
+}
+/* フロー上で工程名をその場編集する入力 */
+.node-edit {
+  position: relative;
+  z-index: 2;
+  width: 92%;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font: inherit;
+  text-align: center;
+  background: var(--panel);
+  color: var(--ink);
+}
+.node-edit:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 /* ---- Inspector ---- */
@@ -1023,15 +1192,52 @@ button.danger:hover {
 .flow-wrap {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative; /* ミニマップを右下に固定配置するため */
+}
+/* ミニマップ（全体俯瞰＋現在地。クリック/ドラッグで移動） */
+.flow-minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 7;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  overflow: hidden;
+  backdrop-filter: blur(2px);
+}
+.mm-node {
+  fill: var(--line-strong);
+}
+.mm-node.mm-task {
+  fill: var(--accent);
+  opacity: 0.75;
+}
+.mm-node.mm-control {
+  fill: var(--faint);
+}
+.mm-node.mm-comment {
+  fill: #d9b44a;
+}
+.mm-node.mm-issue {
+  fill: var(--danger);
+}
+.mm-viewport {
+  fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.2;
 }
 .flow-palette {
-  position: sticky;
-  top: 0;
+  flex: none;
   z-index: 6;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 2px 10px;
+  padding: 4px 16px 10px;
   background: var(--panel);
   font-size: 12px;
   color: var(--muted);
@@ -1111,6 +1317,41 @@ button.danger:hover {
   stroke: var(--accent);
   stroke-width: 2;
   stroke-dasharray: 5 4;
+}
+/* 落下先の工程に重なったら実線＋太めにして「ここに繋がる」を明示。 */
+.edge.connecting.on-target {
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+
+/* === 接続ドラッグ中の落下先ガイド ===
+   ドラッグを始めると、繋げられる相手（工程/制御ノード）を差し色（青）のリングで示し、
+   それ以外（付箋・課題・I/O）は控えめにする。カーソル直下は強調。 */
+.flow-canvas.connecting .node.droppable {
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+.flow-canvas.connecting .node.drop-active {
+  outline-style: solid;
+  outline-width: 3px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.flow-canvas.connecting .node.conn-source {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+/* 繋げられない要素はドラッグ中だけ控えめに（落下先を目立たせる）。 */
+.flow-canvas.connecting .node:not(.droppable):not(.conn-source) {
+  opacity: 0.45;
+}
+/* ドラッグ中は他ノードの I/O＋・接続ハンドルを出さない（誤操作と視覚ノイズを防ぐ）。 */
+.flow-canvas.connecting .io-add,
+.flow-canvas.connecting .pin-btn,
+.flow-canvas.connecting .handle {
+  opacity: 0 !important;
+  pointer-events: none;
 }
 .edge-label {
   font-size: 11px;
@@ -1236,6 +1477,10 @@ button.danger:hover {
   top: 96px;
   transform: translateX(-50%);
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
   color: var(--faint);
   font-size: 13px;
   background: var(--panel);
@@ -1342,7 +1587,7 @@ button.danger:hover {
   border-left-color: var(--red);
 }
 .toast-success {
-  border-left-color: var(--out);
+  border-left-color: var(--ok);
 }
 .toast-info {
   border-left-color: var(--accent);
@@ -1388,4 +1633,1826 @@ button.danger:hover {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* =========================================================================
+   Welcome / オンボーディング（工程 0 件のとき）
+   ========================================================================= */
+.welcome {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, var(--accent-soft), transparent 60%),
+    var(--bg);
+}
+.welcome-card {
+  width: min(680px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 28px 30px 24px;
+  animation: rise 0.28s ease both;
+}
+.welcome-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.welcome-brand h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}
+.welcome-brand .brand-accent {
+  color: var(--accent);
+}
+.welcome-tagline {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.welcome-lead {
+  margin: 18px 0 20px;
+  color: var(--ink);
+  line-height: 1.75;
+  font-size: 13.5px;
+}
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.welcome-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--btn-bg);
+  color: var(--ink);
+  padding: 11px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, transform 0.05s, box-shadow 0.14s;
+}
+.welcome-actions button:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-2);
+}
+.welcome-actions button:active {
+  transform: translateY(1px);
+}
+.welcome-primary {
+  border-color: transparent !important;
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong)) !important;
+  color: var(--on-accent) !important;
+  box-shadow: var(--shadow);
+}
+.welcome-primary:hover {
+  filter: brightness(1.05);
+}
+/* 業務テンプレート */
+.welcome-templates {
+  margin: 22px 0 4px;
+  text-align: left;
+}
+.welcome-templates ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.welcome-template-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  cursor: pointer;
+  text-align: left;
+}
+.welcome-template-item:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+.welcome-template-item strong {
+  font-size: 13px;
+}
+.welcome-template-item span {
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.5;
+}
+@media (max-width: 560px) {
+  .welcome-templates ul {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 最近開いたファイル */
+.welcome-recent {
+  margin: 22px 0 4px;
+  text-align: left;
+}
+.welcome-recent-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  margin: 0 0 8px;
+}
+.welcome-recent ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.welcome-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+.welcome-recent-item:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+.welcome-recent-item .wr-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.welcome-points {
+  list-style: none;
+  margin: 24px 0 8px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.welcome-points li {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.welcome-points strong {
+  font-size: 12.5px;
+}
+.welcome-points span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.welcome-foot {
+  margin: 18px 0 0;
+  color: var(--faint);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.welcome-foot svg {
+  vertical-align: -3px;
+}
+@media (max-width: 560px) {
+  .welcome-points {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =========================================================================
+   アクセシビリティ（フォーカスリング全般 / 動き低減）
+   ========================================================================= */
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+[role='option']:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 共有の kbd 表記 */
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 19px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+}
+
+/* =========================================================================
+   ステータスバー
+   ========================================================================= */
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+  padding: 0 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-top: 1px solid var(--line);
+  user-select: none;
+}
+.statusbar strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+.st-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.st-sub {
+  color: var(--faint);
+}
+.st-sep {
+  width: 1px;
+  height: 13px;
+  background: var(--line);
+}
+.st-spacer {
+  flex: 1;
+}
+.st-view {
+  color: var(--muted);
+}
+.st-save {
+  gap: 5px;
+}
+.st-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.st-save.is-dirty .st-dot {
+  background: var(--amber);
+}
+.st-save.is-dirty {
+  color: var(--amber-ink);
+}
+
+/* =========================================================================
+   ヘルプ（ショートカット一覧）
+   ========================================================================= */
+.help-modal {
+  width: min(680px, 100%);
+}
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.help-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 28px;
+}
+.help-group h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.help-group dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.help-row dt {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.help-row dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+  text-align: right;
+}
+@media (max-width: 560px) {
+  .help-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================================
+   課題一覧 / サマリ ダイアログ
+   ========================================================================= */
+.issues-modal,
+.summary-modal {
+  width: min(860px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.issues-count {
+  font-size: 12px;
+  color: var(--faint);
+  font-weight: 500;
+}
+.issues-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.issues-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.issues-export:hover {
+  background: var(--hover);
+}
+.issues-export:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.issues-empty,
+.summary-empty {
+  color: var(--faint);
+  font-size: 13px;
+  padding: 12px 2px;
+}
+.issues-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+.issues-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.issues-table th,
+.issues-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 7px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.issues-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  color: var(--faint);
+  font-weight: 700;
+  font-size: 11px;
+}
+.issues-table tbody tr {
+  cursor: pointer;
+}
+.issues-table tbody tr:hover td {
+  background: var(--hover);
+}
+.issues-table .il-no {
+  width: 64px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.issues-table .il-task {
+  width: 18%;
+  font-weight: 600;
+}
+.issues-table .il-assignee {
+  width: 12%;
+  color: var(--faint);
+}
+
+/* 重い処理中の全画面スピナー */
+.busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.busy-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.busy-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: busy-spin 0.8s linear infinite;
+}
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .busy-spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* 使い方ツアー（コーチマーク）。ページ操作を妨げない: レイヤは素通し、カードだけ操作可能 */
+.tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+.tour-highlight {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  transition: all 0.25s ease;
+}
+.tour-card {
+  position: fixed;
+  width: 340px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg, var(--shadow));
+  pointer-events: auto;
+}
+.tour-card h4 {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+}
+.tour-card p {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tour-dots {
+  display: flex;
+  gap: 5px;
+}
+.tour-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.tour-dot.on {
+  background: var(--accent);
+}
+.tour-actions {
+  display: flex;
+  gap: 8px;
+}
+.tour-skip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.tour-next {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 14px;
+  border: none;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.tour-next:hover {
+  filter: brightness(1.06);
+}
+
+/* バックアップ復元 */
+.backups-modal {
+  width: min(560px, 100%);
+}
+.backup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.backup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2, var(--panel));
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+.backup-item:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+.bk-when {
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+.bk-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.bk-meta {
+  color: var(--faint);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.bk-latest {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+.backup-foot {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* サマリ */
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 16px;
+  overflow: auto;
+  min-height: 0;
+}
+.summary-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--panel-2, var(--panel));
+}
+.summary-card:first-child {
+  grid-row: span 2;
+}
+.summary-card h4 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--faint);
+  font-weight: 700;
+}
+.sum-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sum-bars li {
+  display: grid;
+  grid-template-columns: 84px 1fr 56px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.sum-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sum-bar-track {
+  height: 12px;
+  background: var(--hover);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.sum-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 6px;
+}
+.sum-bar-val {
+  text-align: right;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.summary-total {
+  margin: 12px 0 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--faint);
+}
+.sum-auto-bar {
+  display: flex;
+  height: 16px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--hover);
+}
+.sum-auto-seg {
+  height: 100%;
+}
+.auto-manual {
+  background: #dc6a4b;
+}
+.auto-partial {
+  background: #e0a44a;
+}
+.auto-system {
+  background: #4a9d7a;
+}
+.auto-none {
+  background: var(--line-strong);
+}
+.sum-auto-legend {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+}
+.sum-auto-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sum-auto-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.sum-levels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.sum-levels li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sum-level-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--hover);
+}
+.sum-level-total {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  color: var(--faint);
+}
+@media (max-width: 640px) {
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .summary-card:first-child {
+    grid-row: auto;
+  }
+}
+
+/* =========================================================================
+   コマンドパレット（Ctrl/⌘+K）
+   ========================================================================= */
+.palette-backdrop {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.palette {
+  width: min(560px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: pop-in 0.14s ease-out;
+}
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+.palette-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  outline: none;
+}
+.palette-esc {
+  color: var(--faint);
+}
+.palette-list {
+  max-height: 52vh;
+  overflow: auto;
+  padding: 6px;
+}
+.palette-empty {
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--faint);
+  font-size: 13px;
+}
+.palette-section {
+  padding: 8px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.palette-item:hover {
+  background: transparent;
+}
+.palette-item.active {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.pi-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-hint {
+  flex-shrink: 0;
+}
+.pi-code {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 30px;
+}
+.pi-badge {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pi-assignee {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* ---- フロー: 要素選択 / 整列・全体ボタン ---- */
+.node.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
+}
+.node.control-decision.sel,
+.node.control-merge.sel {
+  outline: none;
+  box-shadow: none;
+}
+.control-diamond {
+  /* 選択時は菱形ポリゴンを強調（下の .sel ルールで色付け） */
+}
+.node.control-decision.sel .control-diamond polygon,
+.node.control-merge.sel .control-diamond polygon {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.edge.sel {
+  stroke: var(--accent);
+  stroke-width: 2.6;
+}
+
+/* 複数選択（範囲選択 / Shift+クリック）したノードの強調 */
+.node.multi-sel {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+/* 選択中の矢印に浮かぶミニツールバー（ラベル編集 / 削除） */
+.edge-toolbar {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  transform: translate(-50%, -130%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.edge-toolbar button {
+  font-size: 11px;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink);
+}
+.edge-toolbar button:hover {
+  background: var(--hover);
+}
+.edge-toolbar button.danger:hover {
+  background: var(--danger-soft, var(--accent-soft));
+  color: var(--danger);
+}
+/* 範囲選択の矩形（ラバーバンド） */
+.flow-band {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.palette-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 2px;
+}
+.flow-palette .palette-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.flow-palette .palette-act svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- フロー: レーン高さの手動リサイズ ---- */
+/* .lane-label は上の定義で position:absolute（＝リサイズハンドルの配置基準）。
+   ここで position:relative に上書きすると絶対配置が壊れてラベルが流し込みで
+   下方向に累積ずれするため、上書きしない（太いレーンで担当名が帯からずれる不具合）。 */
+.lane-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+.lane-resize::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 26px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0.35; /* 常に薄く見せて「ここで高さを変えられる」ことを示す */
+  transition: opacity 0.12s, width 0.12s, height 0.12s;
+}
+.lane-label:hover .lane-resize::after,
+.lane-resize:hover::after {
+  opacity: 1;
+  width: 34px;
+  height: 4px;
+}
+.lane-resize:hover::after {
+  background: var(--accent);
+}
+.lane-resize-guide {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+}
+
+/* =========================================================================
+   エラー境界（クラッシュ復旧画面）
+   ========================================================================= */
+.crash {
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+.crash-card {
+  width: min(520px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 24px 26px;
+}
+.crash-card h1 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+.crash-card p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 13px;
+}
+.crash-detail {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--red);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow: auto;
+}
+.crash-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* ---- アクセシビリティ: スキップリンク / フォーカス可視化 ---- */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 200;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--shadow-pop);
+  transition: top 0.16s ease;
+}
+.skip-link:focus {
+  top: 12px;
+  outline: none;
+}
+.node:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  z-index: 5;
+}
+.lane-resize:focus-visible {
+  outline: none;
+}
+.lane-resize:focus-visible::after {
+  opacity: 1;
+  background: var(--accent);
+  height: 4px;
+  width: 40px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---- 工程表: 親子のツリーガイド（VS Code 風の縦線＋エルボー） ---- */
+.grid td.c-name {
+  position: relative;
+}
+.tg-v,
+.tg-seg {
+  position: absolute;
+  background: var(--faint);
+  pointer-events: none;
+}
+.tg-v {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+}
+.tg-eu {
+  top: 0;
+  height: 50%;
+  width: 2px;
+}
+.tg-ed {
+  top: 50%;
+  bottom: 0;
+  width: 2px;
+}
+.tg-eh {
+  top: 50%;
+  height: 2px;
+  border-radius: 0 0 0 2px;
+}
+/* 選択行ではガイドをアクセント色で強調（親子の流れを追いやすく） */
+.grid tr.selected .tg-v,
+.grid tr.selected .tg-seg {
+  background: var(--accent);
+}
+/* 親行は太字＋地色で「まとまりの先頭」を示す。No. も濃くして階層を読みやすく。 */
+.grid tr.is-parent .name-input {
+  font-weight: 700;
+}
+.grid tr.is-parent .c-code {
+  color: var(--ink);
+  font-weight: 600;
+}
+.grid tr.is-parent > td {
+  background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
+}
+/* 大工程（最上位の親）の上に区切り線を入れ、グループの始まりを明示する */
+.grid tr.is-parent:not(.is-child):not(:first-child) > td {
+  box-shadow: inset 0 1px 0 var(--line-strong);
+}
+.grid tr.is-parent:hover > td {
+  background: var(--row-hover);
+}
+.grid tr.is-parent.selected > td {
+  background: var(--accent-soft);
+}
+
+/* =========================================================================
+   工程表: 表示モード切替（アウトライン / 全項目表）＋ 全項目フル表
+   ========================================================================= */
+.table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 10px;
+}
+.table-head h2 {
+  margin: 0;
+}
+.table-mode-seg button {
+  font-size: 12px;
+}
+
+/* 工程表ペイン共通: タブ(ヘッダ)を固定し、スクロールは表本体だけに閉じ込める
+   （アウトライン/全項目表とも。縦・横どちらにスクロールしてもタブは動かない）。 */
+.table-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.table-pane > .table-head {
+  flex: none;
+}
+.ft-wrap {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ft-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto; /* 横スクロールはここだけ。操作バー/タブは動かない。 */
+}
+.ft-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ft-hint {
+  color: var(--faint);
+  font-size: 12px;
+  margin-left: 4px;
+}
+/* 一括操作バー（複数行選択中に表示） */
+.ft-bulk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+  font-size: 12px;
+}
+.ft-bulk strong {
+  color: var(--accent);
+}
+.ft-bulk button {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.ft-bulk button:hover {
+  background: var(--hover);
+}
+.ft-bulk button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.ft-bulk-clear {
+  color: var(--faint);
+}
+/* 絞り込みバー */
+.ft-filters {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.ft-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+}
+.ft-filter-sel {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.ft-filter-chip {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.ft-filter-chip:hover {
+  background: var(--hover);
+}
+.ft-filter-chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ft-filter-clear {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.ft-filter-count {
+  color: var(--faint);
+}
+.ft-empty-filter {
+  padding: 24px;
+  text-align: center;
+  color: var(--faint);
+}
+/* ステータス（ヒアリング進行）の色分け。文字色で状態を示す（select のまま軽量に） */
+.ft-status.st-heard,
+.insp-status.st-heard {
+  color: #b07a1e;
+}
+.ft-status.st-review,
+.insp-status.st-review {
+  color: #2f6fb0;
+}
+.ft-status.st-done,
+.insp-status.st-done {
+  color: #2f8f5b;
+  font-weight: 600;
+}
+.ft-status.st-todo,
+.insp-status.st-todo {
+  color: var(--faint);
+}
+/* 逐次レンダリングのセンチネル（ここが見えたら次のチャンクを描画） */
+.ft-more {
+  padding: 14px;
+  text-align: center;
+  color: var(--faint);
+  font-size: 12px;
+}
+/* 一括選択でマークされた行（単一選択 .sel とは別の淡い強調） */
+.ft tbody tr.marked > td {
+  background: var(--accent-soft);
+}
+.ft tbody tr.marked > td.ft-sticky,
+.ft tbody tr.marked > td.ft-sticky-r {
+  background: var(--accent-soft);
+}
+.ft-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--muted);
+  padding: 12px 4px;
+}
+
+.ft {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: max-content; /* 列幅の合計まで広がる＝潰さずに横スクロール */
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ft th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--hdr);
+  text-align: left;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line-faint);
+  white-space: nowrap;
+}
+.ft td {
+  padding: 0;
+  border-bottom: 1px solid var(--line-faint);
+  border-right: 1px solid var(--line-faint);
+  vertical-align: top;
+  background: var(--panel);
+}
+.ft tbody tr:hover td {
+  background: var(--row-hover);
+}
+.ft tbody tr.sel td {
+  background: var(--accent-soft);
+}
+.ft tbody tr.parent td {
+  background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+  font-weight: 600;
+}
+.ft tbody tr.parent:hover td {
+  background: var(--row-hover);
+}
+
+/* 先頭列固定（No. と 作業名）＋ヘッダ固定の交差はさらに前面に */
+.ft .ft-sticky {
+  position: sticky;
+  z-index: 1;
+}
+/* 先頭固定列（No.＋表示中の粒度列）。left は表示列に応じて JS でインラインに与える。 */
+.ft .ft-sticky-last {
+  box-shadow: 1px 0 0 var(--line-strong);
+}
+.ft td.ft-sticky {
+  background: var(--panel);
+}
+.ft tbody tr.parent td.ft-sticky {
+  background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft tbody tr:hover td.ft-sticky {
+  background: var(--row-hover);
+}
+.ft tbody tr.sel td.ft-sticky {
+  background: var(--accent-soft);
+}
+.ft thead th.ft-sticky {
+  z-index: 3;
+}
+/* 上位粒度の列に表示する親の工程名（読み取り） */
+.ft-anc {
+  display: block;
+  padding: 6px 7px;
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 列幅は colgroup（ドラッグ調整）で制御。ここは内容寄せ等のみ。 */
+.ft td.ft-c-no {
+  text-align: left;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  padding: 7px 6px;
+  white-space: nowrap;
+}
+
+/* セル内の入力 */
+.ft-in {
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 6px 7px;
+  background: transparent;
+  color: var(--ink);
+}
+.ft-in:hover {
+  border-color: var(--line);
+  background: var(--input-bg);
+}
+.ft-in:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-bg);
+  box-shadow: var(--ring);
+}
+.ft-name { font-weight: 600; }
+.ft-num { text-align: right; }
+.ft-roll { display: block; padding: 6px 7px; text-align: right; color: var(--muted); }
+
+/* 前工程セル */
+.ft-prev { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; align-items: center; }
+.ft-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 4px 1px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.ft-add-sel { font-size: 11px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); padding: 2px 4px; }
+
+/* I/O セル */
+.ft-io { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; }
+.ft-iochip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border-radius: 6px;
+  padding: 1px 2px 1px 4px;
+  font-size: 11px;
+  border: 1px solid var(--in);
+  background: var(--in-fill);
+  max-width: 100%;
+}
+/* 入出力の向きで色分け（フローの I/O タグと統一）。種別(帳票/情報)では色を変えない。 */
+.ft-iochip.in { border-color: var(--in); background: var(--in-fill); }
+.ft-iochip.out { border-color: var(--out); background: var(--out-fill); }
+.ft-io-name { font: inherit; font-size: 11px; width: 64px; border: none; background: transparent; color: var(--ink); padding: 2px; }
+.ft-io-name:focus { outline: none; }
+.ft-io-kind { font-size: 10px; border: none; background: transparent; color: var(--muted); }
+
+/* 課題 / 方策セル（独立列。行ごとに 1 課題・1 方策が並ぶ） */
+.ft-issues { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
+.ft-issue-row { display: flex; align-items: center; gap: 2px; min-height: 28px; }
+.ft-issue-row .ft-in { flex: 1; }
+
+/* 追加/削除ボタン */
+.ft-add {
+  font-size: 11px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 2px 6px;
+  align-self: flex-start;
+}
+.ft-x {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.ft-x:hover { color: var(--red); background: transparent; }
+.ft-del {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  padding: 6px;
+  width: 100%;
+}
+.ft-del:hover { color: var(--red); background: var(--red-fill); }
+.ft .lvl { width: 100%; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 6px 2px; font-size: 12px; }
+.ft .lvl:hover { border-color: var(--line); }
+
+/* 全項目表: 並べ替えヘッダ */
+.ft-sort {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+}
+.ft-sort:hover {
+  background: transparent;
+  color: var(--ink);
+}
+.ft-sortmark {
+  color: var(--faint);
+  font-size: 9px;
+  flex: none;
+}
+.ft th.sorted,
+.ft th.sorted .ft-sort,
+.ft th.sorted .ft-sortmark {
+  color: var(--accent);
+}
+.ft-clear-sort {
+  font-size: 12px;
+  padding: 5px 9px;
+}
+.col-menu {
+  margin-left: 2px;
+}
+
+/* 全項目表: 列幅ドラッグ・折り返しセル・行操作・固定アクション列 */
+.ft th {
+  position: sticky; /* 既存: top:0。列リサイズハンドルの配置基準も兼ねる */
+}
+.ft-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 4;
+}
+.ft-resize:hover,
+.ft-wrap.resizing .ft-resize {
+  background: linear-gradient(90deg, transparent, var(--accent-soft));
+}
+.ft-wrap.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* 折り返し対応の自動伸縮テキスト（全文表示・Enterで改行） */
+.ft-area {
+  display: block;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  min-height: 30px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+/* 前工程の「＋」をインプット列の＋と同サイズに（行を太らせない） */
+.ft-add-sel {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  text-align: center;
+  text-align-last: center;
+  cursor: pointer;
+  flex: none;
+}
+.ft-prev {
+  align-items: flex-start;
+}
+
+/* アクション列を右端に固定（行追加/削除を常に手前に） */
+.ft .ft-sticky-r {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: -1px 0 0 var(--line-strong);
+}
+.ft thead th.ft-sticky-r {
+  z-index: 3;
+  background: var(--hdr);
+}
+.ft tbody tr:hover td.ft-sticky-r {
+  background: var(--row-hover);
+}
+.ft tbody tr.sel td.ft-sticky-r {
+  background: var(--accent-soft);
+}
+.ft tbody tr.parent td.ft-sticky-r {
+  background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft-rowact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 3px;
+}
+.ft-rowbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+}
+.ft-rowbtn:hover {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.ft-rowbtn.danger:hover {
+  background: var(--red-fill);
+  color: var(--red);
+  border-color: transparent;
+}
+.ft-rowbtn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 選択行を分かりやすく（先頭セルにアクセントバー） */
+.ft tbody tr.sel td.ft-c-no {
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* 全項目表: 今いるセル/行を分かりやすく（フォーカス中の強調） */
+/* 入力単体のリングは抑え、セル枠で「アクティブセル」を示す（Excel 風） */
+.ft .ft-in:focus,
+.ft .ft-area:focus {
+  outline: none;
+  box-shadow: none;
+  border-color: transparent;
+  background: var(--input-bg);
+}
+/* アクティブ行（フォーカスのある行）＝ クリック選択行 を同じ強調に */
+.ft tbody tr:focus-within > td,
+.ft tbody tr.sel > td {
+  background: var(--accent-soft);
+}
+.ft tbody tr:focus-within > td.ft-sticky,
+.ft tbody tr:focus-within > td.ft-sticky-r,
+.ft tbody tr.sel > td.ft-sticky,
+.ft tbody tr.sel > td.ft-sticky-r {
+  background: var(--accent-soft);
+}
+.ft tbody tr:focus-within > td.ft-c-no,
+.ft tbody tr.sel > td.ft-c-no {
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+/* アクティブセル（フォーカスのあるセル）を太枠で明示 */
+.ft td:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.ft td.ft-sticky:focus-within,
+.ft td.ft-sticky-r:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 2;
+}
+
+/* フローを全幅にする（表を畳む） */
+.panes.flow-wide {
+  grid-template-columns: 1fr;
+}
+.panes.flow-wide.with-inspector {
+  grid-template-columns: 1fr 360px;
+}
+.flow-head .flow-wide-toggle {
+  margin-left: auto;
+}
+
+/* 工程ノード: 角の I/O 追加ボタン（ホバーで表示。左上=入力 / 右下=出力） */
+.io-add {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid;
+  background: var(--panel);
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.08s;
+  z-index: 3;
+  cursor: pointer;
+}
+.node:hover .io-add,
+.node.selected .io-add,
+.io-add:focus-visible {
+  opacity: 1;
+}
+.io-add:hover {
+  transform: scale(1.12);
+}
+.io-add-in {
+  top: -11px;
+  left: -11px;
+  color: var(--in);
+  border-color: var(--in);
+}
+.io-add-in:hover {
+  background: var(--in-fill);
+}
+.io-add-out {
+  bottom: -11px;
+  right: -11px;
+  color: var(--out);
+  border-color: var(--out);
+}
+.io-add-out:hover {
+  background: var(--out-fill);
+}
+/* 工程の固定ボタン（右上角）。ホバー/選択で表示、固定中は常時表示＋強調。 */
+.pin-btn {
+  position: absolute;
+  top: -11px;
+  right: -11px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: 1.5px solid var(--line-strong);
+  opacity: 0;
+  filter: grayscale(1) opacity(0.8);
+  transition: opacity 0.12s, transform 0.08s;
+  z-index: 3;
+  cursor: pointer;
+}
+.node:hover .pin-btn,
+.pin-btn:focus-visible {
+  opacity: 1;
+}
+.pin-btn:hover {
+  transform: scale(1.12);
+}
+.node.task.pinned .pin-btn {
+  opacity: 1;
+  filter: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.node.task.pinned {
+  border-color: var(--accent); /* 固定中は枠を差し色に（選択リングとは別。常時表示の📌で判別） */
+}
+/* 接続ハンドルをより分かりやすく（ホバーでアクセント塗り＋拡大） */
+.handle {
+  width: 14px;
+  height: 14px;
+}
+.node:hover .handle {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.handle:hover {
+  transform: translateY(-50%) scale(1.18);
 }

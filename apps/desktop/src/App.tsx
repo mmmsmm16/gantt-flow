@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { findView, useApp } from './store';
 import { type ProcessLevel } from '@gantt-flow/core';
 import { TableView } from './TableView';
+import { FullTable } from './FullTable';
 import { FlowCanvas } from './FlowCanvas';
 import { Inspector } from './Inspector';
 import {
@@ -11,11 +12,25 @@ import {
   exportExcelFile,
   exportCsvFile,
   exportSvgFile,
+  exportPngFile,
+  printProjectAndFlow,
+  forgetFileHandle,
+  openRecentFile,
 } from './persistence';
 import { useUI } from './ui/useUI';
-import { Modal, Toaster } from './ui/Dialogs';
+import { Modal, Toaster, BusyOverlay } from './ui/Dialogs';
 import * as Icons from './ui/icons';
 import { Menu, MenuItem } from './ui/Menu';
+import { Welcome } from './ui/Welcome';
+import { HelpDialog } from './ui/HelpDialog';
+import { IssueListDialog } from './ui/IssueListDialog';
+import { SummaryDialog } from './ui/SummaryDialog';
+import { StatusBar } from './ui/StatusBar';
+import { CommandPalette } from './ui/CommandPalette';
+import { takeAutosaveForRestore, clearAutosave } from './autosave';
+import { pushBackup } from './backups';
+import { BackupsDialog } from './ui/BackupsDialog';
+import { Tour, tourDone } from './ui/Tour';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -46,19 +61,32 @@ export function App() {
   const redo = useApp((s) => s.redo);
 
   const selectedTaskId = useApp((s) => s.selectedTaskId);
+  const isEmpty = Object.keys(project.core.tasks).length === 0;
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
   const tableWide = useUI((s) => s.tableWide);
+  const flowWide = useUI((s) => s.flowWide);
+  const toggleFlowWide = useUI((s) => s.toggleFlowWide);
+  const tableMode = useUI((s) => s.tableMode);
+  const setTableMode = useUI((s) => s.setTableMode);
+  const fullMode = tableMode === 'full';
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
     : [];
 
-  const onSave = () => {
-    const name = saveProjectToFile(useApp.getState().project);
-    useApp.getState().markSaved();
-    useUI.getState().toast(`保存しました（${name}）`, 'success');
+  const onSave = async (opts: { saveAs?: boolean } = {}) => {
+    try {
+      const name = await saveProjectToFile(useApp.getState().project, opts);
+      if (name === null) return; // ピッカーをキャンセル
+      useApp.getState().markSaved();
+      pushBackup(useApp.getState().project); // 直近世代をこの端末に残す（復元用）
+      useUI.getState().toast(`保存しました（${name}）`, 'success');
+    } catch {
+      useUI.getState().toast('保存できませんでした。', 'error');
+    }
   };
+  const onSaveAs = () => onSave({ saveAs: true });
   const onOpen = async () => {
     try {
       const p = await openProjectFromFile();
@@ -77,7 +105,10 @@ export function App() {
       confirmLabel: '作成',
       danger: true,
     });
-    if (ok) useApp.getState().newProject();
+    if (ok) {
+      forgetFileHandle(); // 新規は保存先を引き継がない
+      useApp.getState().newProject();
+    }
   };
   const onImport = () => {
     const input = document.createElement('input');
@@ -87,6 +118,10 @@ export function App() {
       const file = input.files?.[0];
       if (!file) return;
       try {
+        useUI.getState().setBusy('取り込んでいます…');
+        // スピナーを描画してから重い処理へ（同期処理で固まる前に 1 フレーム譲る）。
+        await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+        forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
         const report = useApp.getState().importRows(await readTableFile(file));
         const c = report.created;
         let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
@@ -104,9 +139,44 @@ export function App() {
         });
       } catch {
         useUI.getState().toast('取り込みに失敗しました（CSV / Excel を確認してください）。', 'error');
+      } finally {
+        useUI.getState().setBusy(null);
       }
     };
     input.click();
+  };
+  const onSample = () => {
+    useApp.getState().loadSample();
+    if (!tourDone()) {
+      useUI.getState().setTourStep(0); // 初回だけ使い方ツアーを開始
+    } else {
+      useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
+    }
+  };
+  const onTemplate = (key: string) => {
+    useApp.getState().loadTemplate(key);
+    useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
+  };
+  const onOpenRecent = async (name: string) => {
+    try {
+      const p = await openRecentFile(name);
+      if (p) {
+        useApp.getState().loadProject(p);
+        useUI.getState().toast('開きました。', 'success');
+      } else {
+        useUI.getState().toast('このファイルを開けませんでした（権限が必要です）。', 'error');
+      }
+    } catch {
+      useUI.getState().toast('ファイルを開けませんでした。', 'error');
+    }
+  };
+  const onExportExcel = () => {
+    const n = exportExcelFile(useApp.getState().project);
+    useUI.getState().toast(`出力しました（${n}）`, 'success');
+  };
+  const onExportCsv = () => {
+    const n = exportCsvFile(useApp.getState().project);
+    useUI.getState().toast(`出力しました（${n}）`, 'success');
   };
   const onExportSvg = () => {
     const st = useApp.getState();
@@ -116,18 +186,28 @@ export function App() {
       useUI.getState().toast(`出力しました（${name}）`, 'success');
     }
   };
+  const onExportPng = async () => {
+    const st = useApp.getState();
+    const view = findView(st.project, st.level, st.scopeParentId);
+    if (!view) return;
+    try {
+      const name = await exportPngFile(st.project, view);
+      useUI.getState().toast(`出力しました（${name}）`, 'success');
+    } catch {
+      useUI.getState().toast('PNG の出力に失敗しました。', 'error');
+    }
+  };
+  const onPrint = () => {
+    const st = useApp.getState();
+    printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+  };
 
-  // グローバルショートカット: Ctrl/⌘+Z=戻す, Ctrl+Y / Ctrl+Shift+Z=やり直し, Ctrl/⌘+S=保存。
-  // IME 変換中は無視し、テキスト編集中の undo/redo はネイティブを優先（保存は常に握る）。
+  // グローバルショートカット: Ctrl/⌘+K=パレット, Ctrl/⌘+S=保存, Ctrl/⌘+Z=戻す,
+  // Ctrl+Y / Ctrl+Shift+Z=やり直し, ?=ヘルプ。IME 変換中は無視。テキスト編集中の
+  // undo/redo はネイティブ優先（保存・パレットは常に握る）。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || !(e.ctrlKey || e.metaKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === 's') {
-        e.preventDefault();
-        saveProjectToFile(useApp.getState().project);
-        return;
-      }
+      if (e.isComposing) return;
       const el = document.activeElement;
       const editable =
         el instanceof HTMLElement &&
@@ -135,6 +215,28 @@ export function App() {
           el.tagName === 'TEXTAREA' ||
           el.tagName === 'SELECT' ||
           el.isContentEditable);
+
+      // 修飾なし: ? でショートカット一覧（編集中は無視）。
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === '?' && !editable) {
+          e.preventDefault();
+          useUI.getState().setOverlay(useUI.getState().overlay === 'help' ? null : 'help');
+        }
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey)) return;
+
+      const k = e.key.toLowerCase();
+      if (k === 'k') {
+        e.preventDefault();
+        useUI.getState().setOverlay(useUI.getState().overlay === 'palette' ? null : 'palette');
+        return;
+      }
+      if (k === 's') {
+        e.preventDefault();
+        onSave();
+        return;
+      }
       if (editable) return;
       if (k === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -148,9 +250,45 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // 未保存のまま閉じようとしたら確認（データ消失の防止）。
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (useApp.getState().dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // 起動時: 自動退避データがあれば復元を提案（クラッシュ/誤クローズからの復旧）。
+  useEffect(() => {
+    const saved = takeAutosaveForRestore();
+    if (!saved) return;
+    void (async () => {
+      const ok = await useUI.getState().confirm({
+        title: '前回の作業を復元しますか？',
+        message:
+          '保存されていない作業が見つかりました（自動退避）。復元するとその状態から再開できます。破棄すると元に戻せません。',
+        confirmLabel: '復元する',
+        cancelLabel: '破棄',
+      });
+      if (ok) {
+        useApp.getState().restoreProject(saved);
+        useUI.getState().toast('前回の未保存データを復元しました。保存をお忘れなく。', 'success');
+      } else {
+        clearAutosave();
+      }
+    })();
+  }, []);
+
   return (
     <div className="app">
-      <header className="toolbar">
+      <a className="skip-link" href="#main-table">
+        工程表へスキップ
+      </a>
+      <header className="toolbar" role="banner">
         <span className="brand">
           <svg className="brand-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
             <rect className="bg" width="18" height="18" rx="5" />
@@ -196,7 +334,7 @@ export function App() {
           </button>
           <button
             className={`icon-btn${dirty ? ' has-unsaved' : ''}`}
-            onClick={onSave}
+            onClick={() => onSave()}
             aria-label={dirty ? '保存（未保存の変更あり）' : '保存'}
             title="保存 (Ctrl+S)"
           >
@@ -214,24 +352,34 @@ export function App() {
             </>
           }
         >
-          <MenuItem
-            onClick={() => {
-              const n = exportExcelFile(useApp.getState().project);
-              useUI.getState().toast(`出力しました（${n}）`, 'success');
-            }}
-          >
-            Excel (.xlsx)
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              const n = exportCsvFile(useApp.getState().project);
-              useUI.getState().toast(`出力しました（${n}）`, 'success');
-            }}
-          >
-            CSV (.csv)
-          </MenuItem>
+          <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
+          <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
+          <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
           <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
         </Menu>
+
+        <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
+          <Icons.Printer />
+        </button>
+
+        <span className="tool-group" role="group" aria-label="ビュー">
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('issues')}
+            aria-label="課題一覧"
+            title="課題一覧（工程横断）"
+          >
+            <Icons.ListChecks />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('summary')}
+            aria-label="サマリ"
+            title="サマリ（担当別工数・自動化など）"
+          >
+            <Icons.ChartBar />
+          </button>
+        </span>
 
         <button
           className="icon-btn"
@@ -241,65 +389,119 @@ export function App() {
         >
           {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
         </button>
+        <button
+          className="icon-btn"
+          onClick={() => useUI.getState().setOverlay('help')}
+          aria-label="キーボードショートカット"
+          title="キーボードショートカット (?)"
+        >
+          <Icons.Keyboard />
+        </button>
       </header>
-      <div
-        className={`panes${selectedTaskId ? ' with-inspector' : ''}${tableWide ? ' table-wide' : ''}`}
-      >
-        <section className="pane table-pane">
-          <h2>工程表（手順一覧表）</h2>
-          <TableView />
-        </section>
-        {!tableWide && (
-          <section className="pane flow-pane">
-            <div className="flow-head">
-              <h2>工程フロー</h2>
-              <span className="seg" role="group" aria-label="粒度">
-                {LEVELS.map((l) => (
-                  <button
-                    key={l.key}
-                    className={l.key === level ? 'on' : ''}
-                    onClick={() => setLevel(l.key)}
-                    title={`${l.label}工程の粒度で表示`}
-                  >
-                    {l.label}
-                  </button>
-                ))}
+      {isEmpty ? (
+        <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} onOpenRecent={onOpenRecent} onTemplate={onTemplate} />
+      ) : (
+        <div
+          className={`panes${!fullMode && selectedTaskId ? ' with-inspector' : ''}${
+            tableWide || fullMode ? ' table-wide' : ''
+          }${flowWide ? ' flow-wide' : ''}`}
+        >
+          {!flowWide && (
+          <section className={`pane table-pane${fullMode ? ' full' : ''}`} id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
+            <div className="table-head">
+              <h2>工程表（手順一覧表）</h2>
+              <span className="seg table-mode-seg" role="group" aria-label="表示モード">
+                <button className={!fullMode ? 'on' : ''} onClick={() => setTableMode('outline')}>
+                  アウトライン
+                </button>
+                <button className={fullMode ? 'on' : ''} onClick={() => setTableMode('full')}>
+                  全項目表
+                </button>
               </span>
-              {parentLevel && (
-                <select
-                  className="scope"
-                  value={scopeParentId ?? ''}
-                  onChange={(e) => setScope(e.target.value || undefined)}
-                  title="表示するスコープ（親工程）"
-                >
-                  <option value="">（スコープ: 全体）</option>
-                  {scopeOptions.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button
-                className={`icon-btn toggle-btn${showIssues ? ' on' : ''}`}
-                onClick={toggleIssues}
-                aria-pressed={showIssues}
-                aria-label="課題レイヤの表示切替"
-                title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
-              >
-                {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
-              </button>
             </div>
-            <FlowCanvas />
+            {fullMode ? <FullTable /> : <TableView />}
           </section>
-        )}
-        {selectedTaskId && (
-          <section className="pane inspector-pane">
-            <Inspector />
-          </section>
-        )}
-      </div>
+          )}
+          {!tableWide && !fullMode && (
+            <section className="pane flow-pane" aria-label="工程フロー図">
+              <div className="flow-head">
+                <h2>工程フロー</h2>
+                <span className="seg" role="group" aria-label="粒度">
+                  {LEVELS.map((l) => (
+                    <button
+                      key={l.key}
+                      className={l.key === level ? 'on' : ''}
+                      onClick={() => setLevel(l.key)}
+                      title={`${l.label}工程の粒度で表示`}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </span>
+                {parentLevel && (
+                  <select
+                    className="scope"
+                    value={scopeParentId ?? ''}
+                    onChange={(e) => setScope(e.target.value || undefined)}
+                    title="表示するスコープ（親工程）"
+                  >
+                    <option value="">（スコープ: 全体）</option>
+                    {scopeOptions.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  className={`icon-btn toggle-btn${showIssues ? ' on' : ''}`}
+                  onClick={toggleIssues}
+                  aria-pressed={showIssues}
+                  aria-label="課題レイヤの表示切替"
+                  title={showIssues ? '課題レイヤを隠す' : '課題レイヤを表示'}
+                >
+                  {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
+                </button>
+                <button
+                  className="wide-toggle flow-wide-toggle"
+                  onClick={toggleFlowWide}
+                  aria-pressed={flowWide}
+                  title={flowWide ? '表を表示して分割に戻す' : '表を畳んでフローを全幅にする'}
+                >
+                  {flowWide ? '↔ 分割に戻す' : '⤢ フローを広く'}
+                </button>
+              </div>
+              <FlowCanvas />
+            </section>
+          )}
+          {!fullMode && selectedTaskId && (
+            <section className="pane inspector-pane">
+              <Inspector />
+            </section>
+          )}
+        </div>
+      )}
+      {!isEmpty && <StatusBar />}
+      <CommandPalette
+        onNew={onNew}
+        onSave={onSave}
+        onSaveAs={onSaveAs}
+        onOpen={onOpen}
+        onImport={onImport}
+        onSample={onSample}
+        onExportExcel={onExportExcel}
+        onExportCsv={onExportCsv}
+        onExportSvg={onExportSvg}
+        onExportPng={onExportPng}
+        onPrint={onPrint}
+      />
+      <HelpDialog />
+      <IssueListDialog />
+      <SummaryDialog />
+      <BackupsDialog />
+      <Tour />
       <Modal />
+      <BusyOverlay />
       <Toaster />
     </div>
   );

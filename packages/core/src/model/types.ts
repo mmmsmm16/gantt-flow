@@ -41,6 +41,8 @@ export interface Core {
 
 export type Automation = 'manual' | 'system' | 'partial';
 export type Difficulty = 'H' | 'M' | 'L';
+/** ヒアリングの進行状態。未着手 / ヒアリング済 / 確認待ち / 確定。 */
+export type TaskStatus = 'todo' | 'heard' | 'review' | 'done';
 export type IoKind = 'doc' | 'info'; // 帳票 / 情報
 
 export interface IoItem {
@@ -48,6 +50,7 @@ export interface IoItem {
   name: string;
   kind: IoKind;
   formInfo?: string; // 様式番号・保管（主に帳票）
+  source?: string; // 出所（他部署など）。入力で「どこから来る帳票か」を示す
 }
 
 export type IssueTarget = { kind: 'task' } | { kind: 'io'; ioId: Id };
@@ -74,6 +77,7 @@ export interface TaskDetail {
   dataLink?: string;
   regulation?: string;
   difficulty?: Difficulty;
+  status?: TaskStatus; // ヒアリング進行管理（任意・未指定は未着手扱い）
 }
 
 // ---- フロー詳細（図にだけある情報・同期で保持） ----
@@ -87,6 +91,7 @@ export interface FlowTaskNode {
   x: number;
   y: number;
   laneId?: Id;
+  pinned?: boolean; // 固定: 整列(tidy)で位置を動かさない
 }
 
 export type ControlKind = 'start' | 'end' | 'decision' | 'merge';
@@ -154,6 +159,7 @@ export interface Swimlane {
   assigneeId?: Id;
   title: string;
   order: number;
+  height?: number; // レーンの高さ（px）。未指定＝既定。並行工程で太く / 手動リサイズで保持。
 }
 
 export type Orientation = 'horizontal' | 'vertical';

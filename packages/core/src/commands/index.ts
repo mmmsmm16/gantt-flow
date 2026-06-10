@@ -179,6 +179,68 @@ export function deleteTask(p: Project, taskId: Id): Project {
   return next;
 }
 
+// タスク削除（配下を残す版）。対象 1 件だけ消し、直下の子（とその子孫）は祖父へ昇格させて保持する。
+// 子のサブツリーは粒度を 1 段上げ、依存は維持（対象本体の前後はブリッジ）。
+export function deleteTaskKeepChildren(p: Project, taskId: Id): Project {
+  const next = clone(p);
+  const target = next.core.tasks[taskId];
+  if (!target) return next;
+  const grandparentId = target.parentId;
+
+  // 対象本体の前後をブリッジ（A→[対象]→B を A→B に）。
+  const deps = Object.values(next.core.dependencies);
+  const preds = deps.filter((d) => d.to === taskId).map((d) => d.from);
+  const succs = deps.filter((d) => d.from === taskId).map((d) => d.to);
+  for (const a of preds) {
+    for (const b of succs) {
+      if (a === b) continue;
+      if (Object.values(next.core.dependencies).some((d) => d.from === a && d.to === b)) continue;
+      const id = idGenFromTask(next, a);
+      next.core.dependencies[id] = { id, from: a, to: b, type: 'FS', scopeParentId: next.core.tasks[a]?.parentId };
+    }
+  }
+  // 対象が端点の依存だけ撤去（子の依存は残す）。
+  for (const d of Object.values(next.core.dependencies)) {
+    if (d.from === taskId || d.to === taskId) delete next.core.dependencies[d.id];
+  }
+
+  // 対象の子孫（対象自身は除く）の粒度を 1 段上げる（対象が消えて 1 階層浅くなるため）。
+  const directChildren = Object.values(next.core.tasks)
+    .filter((t) => t.parentId === taskId)
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const subtree = new Set<Id>();
+  const stack = directChildren.map((c) => c.id);
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (subtree.has(cur)) continue;
+    subtree.add(cur);
+    for (const t of Object.values(next.core.tasks)) if (t.parentId === cur) stack.push(t.id);
+  }
+  for (const id of subtree) {
+    const t = next.core.tasks[id]!;
+    t.level = LEVELS_ORDER[Math.max(0, LEVEL_RANK[t.level] - 1)]!;
+  }
+
+  // 直下の子を祖父へ付け替え、対象がいた位置へ差し込む（order 正規化）。
+  const groupNoTarget = Object.values(next.core.tasks)
+    .filter((t) => t.id !== taskId && (t.parentId ?? undefined) === (grandparentId ?? undefined) && !subtree.has(t.id))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const at = (() => {
+    const withTarget = Object.values(next.core.tasks)
+      .filter((t) => (t.parentId ?? undefined) === (grandparentId ?? undefined) && (t.id === taskId || !subtree.has(t.id)))
+      .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    const i = withTarget.findIndex((t) => t.id === taskId);
+    return i < 0 ? groupNoTarget.length : i;
+  })();
+  for (const c of directChildren) c.parentId = grandparentId;
+  const finalOrder = [...groupNoTarget.slice(0, at), ...directChildren, ...groupNoTarget.slice(at)];
+  finalOrder.forEach((t, i) => (t.order = i));
+
+  delete next.core.tasks[taskId];
+  delete next.details[taskId];
+  return next;
+}
+
 // 兄弟内での並べ替え。toIndex は同一親グループ内の目標位置。order を 0..n-1 に正規化する。
 export function reorderTask(p: Project, taskId: Id, toIndex: number): Project {
   const next = clone(p);
@@ -272,6 +334,7 @@ export type TaskDetailPatch = Partial<
     | 'dataLink'
     | 'regulation'
     | 'difficulty'
+    | 'status'
   >
 >;
 
@@ -289,6 +352,7 @@ export interface AddIoArgs {
   name: string;
   kind: IoKind;
   formInfo?: string;
+  source?: string; // 出所（他部署など）。入力帳票で「どこから来るか」
 }
 
 export function addIoItem(
@@ -301,7 +365,7 @@ export function addIoItem(
   const next = clone(p);
   if (!next.core.tasks[taskId]) return next;
   const d = ensureDetail(next, taskId);
-  const item: IoItem = { id: idGen(), name: args.name, kind: args.kind, formInfo: args.formInfo };
+  const item: IoItem = { id: idGen(), name: args.name, kind: args.kind, formInfo: args.formInfo, source: args.source };
   d[io] = [...(d[io] ?? []), item];
   return next;
 }
@@ -319,7 +383,7 @@ export function updateIoItem(
   p: Project,
   taskId: Id,
   ioId: Id,
-  patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>,
+  patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo' | 'source'>>,
 ): Project {
   const next = clone(p);
   const d = next.details[taskId];

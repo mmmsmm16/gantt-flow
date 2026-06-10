@@ -22,6 +22,14 @@ import {
   ensureLevelView,
   importCsv,
   rowsToProject,
+  createSampleProject,
+  TEMPLATES,
+  tidyFlowView,
+  nearestLaneOrder,
+  laneTaskBaseY,
+  laneHeight,
+  LANE_MIN_H,
+  LANE_TOP_Y,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
@@ -37,7 +45,7 @@ import {
   removeIssueItem as cRemoveIssueItem,
   updateIssueItem as cUpdateIssueItem,
   updateTaskDetail as cUpdateTaskDetail,
-  deleteTask as cDeleteTask,
+  deleteTaskKeepChildren as cDeleteTaskKeepChildren,
   reorderTask as cReorderTask,
   reparentTask as cReparentTask,
 } from '@gantt-flow/core';
@@ -84,29 +92,53 @@ export interface AppState {
   setTaskCode: (taskId: Id, code: string | undefined) => void;
   renameTask: (taskId: Id, name: string) => void;
   setAssigneeByName: (taskId: Id, name: string) => void;
+  /** 複数工程の担当を一括設定（1 undo 単位）。空名は未割当に。 */
+  setAssigneeManyByName: (taskIds: Id[], name: string) => void;
+  /** 複数工程を一括削除（各々の配下は1つ上へ繰り上げ、1 undo 単位）。 */
+  removeManyTasks: (taskIds: Id[]) => void;
   addDependency: (from: Id, to: Id) => void;
   removeDependency: (depId: Id) => void;
   addSiblingOf: (taskId: Id) => Id | undefined;
+  /** 工程を複製（同じ粒度・親の直後に、詳細＝I/O・課題なども複製）。1 undo。 */
+  duplicateTask: (taskId: Id) => Id | undefined;
+  /** クリップボード由来の行（[作業名, 担当?] ...）をまとめて工程として追加。作成数を返す。 */
+  pasteRowsAsTasks: (rows: string[][]) => number;
   moveTaskUp: (taskId: Id) => void;
   moveTaskDown: (taskId: Id) => void;
   indentTask: (taskId: Id) => void;
   outdentTask: (taskId: Id) => void;
   dropTask: (dragId: Id, targetId: Id, mode: 'before' | 'after' | 'child') => void;
   addIo: (taskId: Id, io: 'inputs' | 'outputs', name: string) => void;
-  updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo'>>) => void;
+  updateIo: (taskId: Id, ioId: Id, patch: Partial<Pick<IoItem, 'name' | 'kind' | 'formInfo' | 'source'>>) => void;
   removeIo: (taskId: Id, ioId: Id) => void;
   addIssue: (taskId: Id, text: string) => void;
+  /** 方策だけ先に入力されたとき、課題文は空のまま方策付きで起票する。 */
+  addIssueWithMeasure: (taskId: Id, measure: string) => void;
   updateIssue: (taskId: Id, issueId: Id, patch: Partial<Pick<IssueItem, 'issue' | 'measure' | 'target'>>) => void;
   removeIssue: (taskId: Id, issueId: Id) => void;
   updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
+  /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
+  moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
   /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。 */
   addTaskAt: (x: number, y: number) => void;
-  addControlNode: (control: ControlKind) => void;
-  addComment: (text: string) => void;
+  /** 制御ノードを追加。x,y を渡せばその位置（例: 画面中央）に置く。省略時は左上に段積み。 */
+  addControlNode: (control: ControlKind, x?: number, y?: number) => void;
+  /** 付箋を追加。x,y を渡せばその位置に置く。省略時は既定位置に段積み。 */
+  addComment: (text: string, x?: number, y?: number) => void;
+  /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
+  tidyFlow: () => void;
+  /** レーンの高さを変更（手動リサイズ）。下のレーンのノードを連動シフトして整合を保つ。 */
+  setLaneHeight: (laneId: Id, height: number) => void;
+  /** スイムレーンを 1 つ上(-1)/下(+1)へ入れ替える。中のノードも連動して移動。 */
+  moveLane: (laneId: Id, dir: -1 | 1) => void;
   connect: (source: FlowNodeId, target: FlowNodeId) => void;
   setEdgeLabel: (edgeId: Id, label: string) => void;
+  /** 工程ノードの固定をトグル（固定すると整列で動かない）。 */
+  toggleNodePin: (nodeId: FlowNodeId) => void;
   deleteFlowNode: (nodeId: FlowNodeId) => void;
+  /** 複数のフロー固有ノード（制御/付箋）をまとめて削除（1 undo 単位）。工程/I/O/課題は無視。 */
+  deleteFlowNodes: (nodeIds: FlowNodeId[]) => void;
   deleteEdge: (edgeId: Id) => void;
   select: (taskId?: Id) => void;
   setLevel: (level: ProcessLevel) => void;
@@ -119,6 +151,11 @@ export interface AppState {
   importCsvText: (text: string) => ImportReport;
   importRows: (rows: string[][]) => ImportReport;
   newProject: () => void;
+  loadSample: () => void;
+  /** テンプレート（templates.ts の key）から新規プロジェクトを開始する。 */
+  loadTemplate: (key: string) => void;
+  /** 自動退避データから復元（未保存＝dirty 扱い。ファイル保存を促す）。 */
+  restoreProject: (project: Project) => void;
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
@@ -229,7 +266,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId }, uuid));
     },
 
-    removeTask: (taskId) => commit(cDeleteTask(get().project, taskId)),
+    // 削除は配下を残す（子は祖父へ昇格し、依存は維持）。
+    removeTask: (taskId) => commit(cDeleteTaskKeepChildren(get().project, taskId)),
 
     setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level)),
     setTaskCode: (taskId, code) => commit(cSetTaskCode(get().project, taskId, code)),
@@ -254,6 +292,40 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(cSetAssignee(p, taskId, assigneeId));
     },
 
+    setAssigneeManyByName: (taskIds, name) => {
+      let p = get().project;
+      const trimmed = name.trim();
+      let assigneeId: Id | undefined;
+      if (trimmed) {
+        const existing = Object.values(p.core.assignees).find((a) => a.name === trimmed);
+        if (existing) assigneeId = existing.id;
+        else {
+          p = cAddAssignee(p, { name: trimmed, kind: 'department' }, uuid);
+          assigneeId = Object.values(p.core.assignees).find((a) => a.name === trimmed)!.id;
+        }
+      }
+      let changed = false;
+      for (const id of taskIds) {
+        if (p.core.tasks[id]) {
+          p = cSetAssignee(p, id, assigneeId);
+          changed = true;
+        }
+      }
+      if (changed) commit(p);
+    },
+
+    removeManyTasks: (taskIds) => {
+      let p = get().project;
+      let changed = false;
+      for (const id of taskIds) {
+        if (p.core.tasks[id]) {
+          p = cDeleteTaskKeepChildren(p, id);
+          changed = true;
+        }
+      }
+      if (changed) commit(p);
+    },
+
     addDependency: (from, to) => {
       if (!from || !to || from === to) return;
       commit(cAddDependency(get().project, from, to, uuid));
@@ -261,13 +333,105 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
     removeDependency: (depId) => commit(cRemoveDependency(get().project, depId)),
 
-    // 「次行を追加」: 同じ親・同じ粒度の兄弟を末尾に足し、新タスクの id を返す（フォーカス用）。
+    // 「次行を追加」: 同じ親・同じ粒度の兄弟を「クリック行の直下」に挿入し、新タスクの id を返す（フォーカス用）。
     addSiblingOf: (taskId) => {
-      const t = get().project.core.tasks[taskId];
+      const cur = get().project;
+      const t = cur.core.tasks[taskId];
       if (!t) return undefined;
-      const before = new Set(Object.keys(get().project.core.tasks));
-      commit(cAddTask(get().project, { name: '', level: t.level, parentId: t.parentId }, uuid));
-      return Object.keys(get().project.core.tasks).find((id) => !before.has(id));
+      const before = new Set(Object.keys(cur.core.tasks));
+      let p = cAddTask(cur, { name: '', level: t.level, parentId: t.parentId }, uuid);
+      const newId = Object.keys(p.core.tasks).find((id) => !before.has(id));
+      if (newId) {
+        const sibs = Object.values(p.core.tasks)
+          .filter((o) => (o.parentId ?? undefined) === (t.parentId ?? undefined))
+          .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+        const idx = sibs.findIndex((o) => o.id === taskId);
+        if (idx >= 0) p = cReorderTask(p, newId, idx + 1); // クリック行の直下へ
+      }
+      commit(p);
+      return newId;
+    },
+
+    // 工程を複製: 同じ粒度・親の「直後」に同名の工程を作り、詳細（I/O・課題は新ID）も写す。
+    // 依存（前後関係）は引き継がない（複製で順序を二重に張らない）。1 undo。
+    duplicateTask: (taskId) => {
+      const cur = get().project;
+      const t = cur.core.tasks[taskId];
+      if (!t) return undefined;
+      const before = new Set(Object.keys(cur.core.tasks));
+      let p = cAddTask(
+        cur,
+        { name: t.name, level: t.level, parentId: t.parentId, assigneeId: t.assigneeId },
+        uuid,
+      );
+      const newId = Object.keys(p.core.tasks).find((id) => !before.has(id));
+      if (!newId) {
+        commit(p);
+        return undefined;
+      }
+      const sibs = Object.values(p.core.tasks)
+        .filter((o) => (o.parentId ?? undefined) === (t.parentId ?? undefined))
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+      const idx = sibs.findIndex((o) => o.id === taskId);
+      if (idx >= 0) p = cReorderTask(p, newId, idx + 1);
+      const d = cur.details[taskId];
+      if (d) {
+        p = cUpdateTaskDetail(p, newId, {
+          how: d.how,
+          system: d.system,
+          note: d.note,
+          volume: d.volume,
+          exception: d.exception,
+          dataLink: d.dataLink,
+          regulation: d.regulation,
+          automation: d.automation,
+          difficulty: d.difficulty,
+          effortMinutes: d.effortMinutes,
+        });
+        for (const it of d.inputs ?? [])
+          p = cAddIoItem(p, newId, 'inputs', { name: it.name, kind: it.kind, formInfo: it.formInfo, source: it.source }, uuid);
+        for (const it of d.outputs ?? [])
+          p = cAddIoItem(p, newId, 'outputs', { name: it.name, kind: it.kind, formInfo: it.formInfo }, uuid);
+        for (const iss of d.issues ?? [])
+          p = cAddIssueItem(p, newId, { issue: iss.issue, measure: iss.measure }, uuid);
+      }
+      commit(p);
+      set({ selectedTaskId: newId });
+      return newId;
+    },
+
+    // クリップボード（Excel/表計算）からの貼り付け: 1 行 = 1 工程として一括追加。
+    // 列は [作業名, 担当?]。粒度・親は選択中の工程（無ければ現在のビュー）に合わせ末尾へ追加。
+    pasteRowsAsTasks: (rows) => {
+      const cur = get().project;
+      const sel = get().selectedTaskId ? cur.core.tasks[get().selectedTaskId!] : undefined;
+      const level = sel?.level ?? get().level;
+      const parentId = sel ? sel.parentId : get().scopeParentId;
+      const items = rows
+        .map((r) => ({ name: (r[0] ?? '').trim(), assignee: (r[1] ?? '').trim() }))
+        .filter((r) => r.name);
+      if (!items.length) return 0;
+      let p = cur;
+      let count = 0;
+      for (const it of items) {
+        const before = new Set(Object.keys(p.core.tasks));
+        p = cAddTask(p, { name: it.name, level, parentId }, uuid);
+        const nid = Object.keys(p.core.tasks).find((id) => !before.has(id));
+        if (!nid) continue;
+        count += 1;
+        if (it.assignee) {
+          const ex = Object.values(p.core.assignees).find((a) => a.name === it.assignee);
+          let aid: Id;
+          if (ex) aid = ex.id;
+          else {
+            p = cAddAssignee(p, { name: it.assignee, kind: 'department' }, uuid);
+            aid = Object.values(p.core.assignees).find((a) => a.name === it.assignee)!.id;
+          }
+          p = cSetAssignee(p, nid, aid);
+        }
+      }
+      if (count) commit(p);
+      return count;
     },
 
     moveTaskUp: (taskId) => {
@@ -328,6 +492,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     removeIo: (taskId, ioId) => commit(cRemoveIoItem(get().project, taskId, ioId)),
 
     addIssue: (taskId, text) => commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid)),
+    addIssueWithMeasure: (taskId, measure) =>
+      commit(cAddIssueItem(get().project, taskId, { issue: '', measure }, uuid)),
     updateIssue: (taskId, issueId, patch) => commit(cUpdateIssueItem(get().project, taskId, issueId, patch)),
     removeIssue: (taskId, issueId) => commit(cRemoveIssueItem(get().project, taskId, issueId)),
     updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
@@ -346,7 +512,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       node.y = y;
 
       if (node.kind === 'task') {
-        const laneOrder = Math.max(0, Math.round((y - 40) / 120));
+        const laneOrder = nearestLaneOrder(view.lanes, y);
         const lane = Object.values(view.lanes).find((l) => l.order === laneOrder);
         const task = p.core.tasks[node.taskId];
         if (lane?.assigneeId && task && task.assigneeId !== lane.assigneeId) {
@@ -360,18 +526,43 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       sync();
     },
 
+    // 複数ノードをまとめて平行移動（範囲選択した要素を一括ドラッグ）。
+    // レーン再割当（逆同期）はしない＝選択をそのままずらす素直な挙動。1 undo 単位。
+    moveNodesBy: (nodeIds, dx, dy) => {
+      if ((dx === 0 && dy === 0) || nodeIds.length === 0) return;
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const view = p.flow.byLevel.find(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      if (!view) return;
+      let changed = false;
+      for (const id of nodeIds) {
+        const n = view.nodes[id];
+        if (n) {
+          n.x = Math.round(n.x + dx);
+          n.y = Math.round(n.y + dy);
+          changed = true;
+        }
+      }
+      if (!changed) return;
+      history.push(p);
+      sync();
+    },
+
     // フロー上で工程を新規作成 → ドロップ位置のレーン(担当)へ。1 操作 = 1 undo（作成と配置を 1 スナップショットに集約）。
     addTaskAt: (x, y) => {
       const { level, scopeParentId } = get();
       const view0 = findView(get().project, level, scopeParentId);
-      const laneOrder = Math.max(0, Math.round((y - 40) / 120));
+      const laneOrder = view0 ? nearestLaneOrder(view0.lanes, y) : 0;
       const lane = view0
         ? Object.values(view0.lanes).find((l) => l.order === laneOrder)
         : undefined;
       const before = new Set(Object.keys(get().project.core.tasks));
+      // フロー上で作る工程は既定名を与える（空の白箱にしない。リネームは表/インスペクタで）。
       let p = cAddTask(
         get().project,
-        { name: '', level, parentId: scopeParentId, assigneeId: lane?.assigneeId },
+        { name: '新規工程', level, parentId: scopeParentId, assigneeId: lane?.assigneeId },
         uuid,
       );
       p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
@@ -392,18 +583,93 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     // フロー固有要素（制御ノード/コメント/手動エッジ）の編集。view を直接いじって push。
-    addControlNode: (control) =>
+    addControlNode: (control, x, y) =>
       editView((view) => {
         const id = uuid();
         const k = Object.values(view.nodes).filter((n) => n.kind === 'control').length;
-        view.nodes[id] = { id, kind: 'control', control, x: 420 + k * 28, y: 44 + k * 18 };
+        // 位置指定あり（画面中央など）＝そこへ。同じ点への連続追加は少しずらして重なりを防ぐ。
+        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420 + k * 28;
+        const py = y != null ? Math.round(y) + (k % 5) * 14 : 44 + k * 18;
+        view.nodes[id] = { id, kind: 'control', control, x: px, y: py };
       }),
-    addComment: (text) =>
+    addComment: (text, x, y) =>
       editView((view) => {
         const id = uuid();
         const k = Object.values(view.nodes).filter((n) => n.kind === 'comment').length;
-        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: 420, y: 320 + k * 24 };
+        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420;
+        const py = y != null ? Math.round(y) + (k % 5) * 14 : 320 + k * 24;
+        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: px, y: py };
       }),
+    tidyFlow: () => {
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const vi = p.flow.byLevel.findIndex(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      if (vi < 0) return;
+      p.flow.byLevel[vi] = tidyFlowView(p.core, p.details, p.flow.byLevel[vi]!);
+      history.push(p);
+      sync();
+    },
+    setLaneHeight: (laneId, height) => {
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const view = p.flow.byLevel.find(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      const lane = view?.lanes[laneId];
+      if (!view || !lane) return;
+      const clamped = Math.max(LANE_MIN_H, Math.round(height));
+      const delta = clamped - laneHeight(lane);
+      if (delta === 0) return;
+      // 変更前の「次レーン基準 y」より下のノードは、レーン拡縮ぶん連動シフト（絶対 y の整合）。
+      const threshold = laneTaskBaseY(view.lanes, lane.order + 1);
+      lane.height = clamped;
+      for (const n of Object.values(view.nodes)) {
+        if (n.y >= threshold) n.y += delta;
+      }
+      history.push(p);
+      sync();
+    },
+    moveLane: (laneId, dir) => {
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const view = p.flow.byLevel.find(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      const lane = view?.lanes[laneId];
+      if (!view || !lane) return;
+      const lanes = Object.values(view.lanes).sort(
+        (a, b) => a.order - b.order || a.id.localeCompare(b.id),
+      );
+      const idx = lanes.findIndex((l) => l.id === laneId);
+      const j = idx + dir;
+      if (j < 0 || j >= lanes.length) return;
+      // 入れ替える 2 レーンの上(U)/下(D)を特定
+      const U = dir === 1 ? lane : lanes[j]!;
+      const D = dir === 1 ? lanes[j]! : lane;
+      // 各レーンの上端 y（order 昇順の累積）
+      const tops = new Map<string, number>();
+      let acc = LANE_TOP_Y;
+      for (const l of lanes) {
+        tops.set(l.id, acc);
+        acc += laneHeight(l);
+      }
+      const yU = tops.get(U.id)!;
+      const hU = laneHeight(U);
+      const yD = tops.get(D.id)!;
+      const hD = laneHeight(D);
+      // U の帯のノードは下へ(+hD)、D の帯のノードは上へ(-hU)。帯外は不変。
+      for (const n of Object.values(view.nodes)) {
+        if (n.y >= yU && n.y < yU + hU) n.y += hD;
+        else if (n.y >= yD && n.y < yD + hD) n.y -= hU;
+      }
+      const tmp = U.order;
+      U.order = D.order;
+      D.order = tmp;
+      history.push(p);
+      sync();
+    },
     // 矢印接続。両端が工程ノードなら「依存（前後関係）」をコアに作る→工程表へ反映。
     // 制御ノード等を含む接続は従来どおり pinned な図固有エッジ（reconcile で消えない）。
     connect: (source, target) => {
@@ -415,8 +681,9 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (sNode?.kind === 'task' && tNode?.kind === 'task') {
         const from = get().project.core.tasks[sNode.taskId];
         const to = get().project.core.tasks[tNode.taskId];
-        // 同一スコープ（同じ親）の工程どうしのみ依存化（別スコープ依存は reconcile が描けない）。
-        if (from && to && (from.parentId ?? undefined) === (to.parentId ?? undefined)) {
+        // 同じ粒度の工程どうしは依存化（前後関係）。別の大工程を跨ぐ中工程の接続も可
+        // （全体スコープのビューで描画される）。粒度が違う接続は従来どおり pinned エッジ。
+        if (from && to && from.level === to.level) {
           commit(cAddDependency(get().project, sNode.taskId, tNode.taskId, uuid));
           return;
         }
@@ -427,6 +694,11 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         v.edges[id] = { id, source, target, pinned: true, role: 'flow' };
       });
     },
+    toggleNodePin: (nodeId) =>
+      editView((view) => {
+        const n = view.nodes[nodeId];
+        if (n && n.kind === 'task') n.pinned = !n.pinned;
+      }),
     setEdgeLabel: (edgeId, label) =>
       editView((view) => {
         const e = view.edges[edgeId];
@@ -441,10 +713,31 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           if (e.source === nodeId || e.target === nodeId) delete view.edges[e.id];
         }
       }),
-    deleteEdge: (edgeId) =>
+    deleteFlowNodes: (nodeIds) =>
       editView((view) => {
-        delete view.edges[edgeId];
+        const set = new Set(nodeIds);
+        for (const id of nodeIds) {
+          const n = view.nodes[id];
+          if (!n || (n.kind !== 'control' && n.kind !== 'comment')) continue;
+          delete view.nodes[id];
+        }
+        for (const e of Object.values(view.edges)) {
+          if (set.has(e.source) || set.has(e.target)) delete view.edges[e.id];
+        }
       }),
+    deleteEdge: (edgeId) => {
+      const view = findView(get().project, get().level, get().scopeParentId);
+      const edge = view?.edges[edgeId];
+      // 導出エッジは元の依存（前後関係）を消す＝表にも反映し再同期でも復活しない。
+      // 手動（pinned）エッジは図からのみ取り除く。
+      if (edge?.derivedFromDependencyId) {
+        commit(cRemoveDependency(get().project, edge.derivedFromDependencyId));
+        return;
+      }
+      editView((v) => {
+        delete v.edges[edgeId];
+      });
+    },
 
     select: (taskId) => set({ selectedTaskId: taskId }),
 
@@ -478,6 +771,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId);
     },
+    restoreProject: (project) => {
+      const first = project.flow.byLevel[0];
+      adopt(project, first?.level ?? 'medium', first?.scopeParentId, true); // 未保存扱い
+    },
     importCsvText: (text) => {
       const { project, report } = importCsv(text, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
@@ -491,6 +788,24 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       return report;
     },
     newProject: () => adopt(initialProject(), 'medium', undefined),
+    loadTemplate: (key) => {
+      const tpl = TEMPLATES.find((t) => t.key === key);
+      if (!tpl) return;
+      const p = tpl.create(uuid, new Date().toISOString());
+      // 最初の大工程配下の中ビューを既定で開く（サンプルと同じ体験）。
+      const firstLarge = Object.values(p.core.tasks)
+        .filter((t) => t.level === 'large')
+        .sort((a, b) => a.order - b.order)[0];
+      adopt(p, 'medium', firstLarge?.id);
+    },
+    loadSample: () => {
+      const sample = createSampleProject(uuid, new Date().toISOString());
+      // 受注業務（最初の大工程）配下の中ビューを既定で開く（リッチなフローが見える）。
+      const firstLarge = Object.values(sample.core.tasks)
+        .filter((t) => t.level === 'large')
+        .sort((a, b) => a.order - b.order)[0];
+      adopt(sample, 'medium', firstLarge?.id);
+    },
   };
 };
 

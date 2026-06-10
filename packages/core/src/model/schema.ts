@@ -38,6 +38,7 @@ const IoItem = z.object({
   name: z.string(),
   kind: z.enum(['doc', 'info']),
   formInfo: z.string().optional(),
+  source: z.string().optional(),
 });
 
 const IssueTarget = z.discriminatedUnion('kind', [
@@ -67,12 +68,19 @@ const TaskDetail = z.object({
   dataLink: z.string().optional(),
   regulation: z.string().optional(),
   difficulty: z.enum(['H', 'M', 'L']).optional(),
+  status: z.enum(['todo', 'heard', 'review', 'done']).optional(),
 });
 
 const xy = { id: z.string(), x: z.number(), y: z.number() };
 
 const FlowNode = z.discriminatedUnion('kind', [
-  z.object({ ...xy, kind: z.literal('task'), taskId: z.string(), laneId: z.string().optional() }),
+  z.object({
+    ...xy,
+    kind: z.literal('task'),
+    taskId: z.string(),
+    laneId: z.string().optional(),
+    pinned: z.boolean().optional(),
+  }),
   z.object({
     ...xy,
     kind: z.literal('control'),
@@ -114,6 +122,7 @@ const Swimlane = z.object({
   assigneeId: z.string().optional(),
   title: z.string(),
   order: z.number(),
+  height: z.number().optional(),
 });
 
 const FlowLevelView = z.object({
