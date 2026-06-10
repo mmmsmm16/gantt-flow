@@ -59,6 +59,18 @@ interface Cmd {
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
 
+// 選択中の工程の I/O を引数候補にする(value=ioId)。入/出はラベル先頭の記号と detail で区別。
+function selectedIoOptions(): ArgOption[] {
+  const a = useApp.getState();
+  const tid = a.selectedTaskId;
+  if (!tid) return [];
+  const d = a.project.details[tid];
+  return [
+    ...(d?.inputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'インプット' })),
+    ...(d?.outputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'アウトプット' })),
+  ];
+}
+
 // 部分一致＋連続一致を軽く評価するファジー。query の全文字が順に現れれば一致。
 function fuzzyScore(query: string, text: string): number | null {
   if (!query) return 0;
@@ -360,6 +372,50 @@ export function CommandPalette(handlers: FileHandlers) {
         runWithArg: (v) => {
           const a = useApp.getState();
           if (a.selectedTaskId && v.trim()) a.addIo(a.selectedTaskId, 'outputs', v.trim());
+        },
+      },
+      {
+        id: 'arg-io-rename',
+        label: 'インプット/アウトプットの名前を変更…',
+        keywords: 'io rename 帳票 入出力 インプット アウトプット 名前 変更 修正',
+        available: hasSel,
+        arg: {
+          placeholder: '名前を変える帳票 / 情報を選択',
+          options: selectedIoOptions,
+        },
+        runWithArg: (ioId) => {
+          const a = useApp.getState();
+          const tid = a.selectedTaskId;
+          if (!tid) return;
+          const d = a.project.details[tid];
+          const item = [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((it) => it.id === ioId);
+          if (!item) return;
+          // 対象を選んだあと、新しい名前はプロンプトで尋ねる(パレットは1引数のため2段目はダイアログ)。
+          void useUI
+            .getState()
+            .promptText({
+              title: '帳票 / 情報の名前を変更',
+              defaultValue: item.name,
+              placeholder: '新しい名称',
+              confirmLabel: '変更',
+            })
+            .then((v) => {
+              if (v !== null && v.trim()) useApp.getState().updateIo(tid, ioId, { name: v.trim() });
+            });
+        },
+      },
+      {
+        id: 'arg-io-delete',
+        label: 'インプット/アウトプットを削除…',
+        keywords: 'io delete 帳票 入出力 インプット アウトプット 削除',
+        available: hasSel,
+        arg: {
+          placeholder: '削除する帳票 / 情報を選択',
+          options: selectedIoOptions,
+        },
+        runWithArg: (ioId) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.removeIo(a.selectedTaskId, ioId);
         },
       },
       {
@@ -691,10 +747,14 @@ export function CommandPalette(handlers: FileHandlers) {
       e.preventDefault();
       setActive((a) => Math.max(0, a - 1));
     } else if (e.key === 'Enter') {
+      // 実行でパレットが同期的に閉じるため、伝播させると window のグローバルキー処理が
+      // 同じ Enter を再解釈してしまう(フローの工程名編集が開く等)。ここで止める。
       e.preventDefault();
+      e.stopPropagation();
       runItem(active);
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       if (argCmd) exitArgMode(); // 引数モード → 一覧へ戻る（もう一度 Esc で閉じる）
       else close();
     } else if (e.key === 'Backspace' && argCmd && query === '') {

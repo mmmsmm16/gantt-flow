@@ -58,7 +58,14 @@ export function Modal() {
             placeholder={dialog.placeholder}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') ok();
+              if (e.key === 'Enter') {
+                // 確定でダイアログが同期的に消えるため、伝播させると window のグローバル
+                // キー処理が「ダイアログ無し」として同じ Enter を再解釈してしまう
+                // (例: フローで工程名の編集が開く)。ここで止める。
+                e.preventDefault();
+                e.stopPropagation();
+                ok();
+              }
             }}
           />
         )}
