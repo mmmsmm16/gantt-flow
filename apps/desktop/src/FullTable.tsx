@@ -107,6 +107,8 @@ export function FullTable() {
   const addRootTask = useApp((s) => s.addRootTask);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const removeTask = useApp((s) => s.removeTask);
+  const setAssigneeManyByName = useApp((s) => s.setAssigneeManyByName);
+  const removeManyTasks = useApp((s) => s.removeManyTasks);
   const ftColumns = useUI((s) => s.ftColumns);
   const toggleFtColumn = useUI((s) => s.toggleFtColumn);
   const ftColWidths = useUI((s) => s.ftColWidths);
@@ -115,6 +117,9 @@ export function FullTable() {
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
   const [resizing, setResizing] = useState<{ key: string; w: number } | null>(null);
   const [focusTask, setFocusTask] = useState<Id | null>(null);
+  // 一括操作のための行マーク（複数選択）。Ctrl/⌘+クリックでトグル、Shift+クリックで範囲。
+  const [marked, setMarked] = useState<Set<Id>>(new Set());
+  const [anchor, setAnchor] = useState<Id | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
 
   const byId = project.core.tasks;
@@ -169,6 +174,58 @@ export function FullTable() {
 
   const clickSort = (key: string) =>
     setSort((cur) => (cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
+
+  // 行クリック: 通常＝単一選択（インスペクタ）、Ctrl/⌘＝トグル、Shift＝アンカーからの範囲選択。
+  const onRowClick = (e: React.MouseEvent, t: ProcessTask) => {
+    if (e.shiftKey && anchor) {
+      const ids = rows.map((r) => r.id);
+      const a = ids.indexOf(anchor);
+      const b = ids.indexOf(t.id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        const next = new Set(marked);
+        for (let i = lo; i <= hi; i++) next.add(ids[i]!);
+        setMarked(next);
+      }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      const next = new Set(marked);
+      if (next.has(t.id)) next.delete(t.id);
+      else next.add(t.id);
+      setMarked(next);
+      setAnchor(t.id);
+      return;
+    }
+    setMarked(new Set()); // 通常クリックは一括選択を解除
+    setAnchor(t.id);
+    select(t.id);
+  };
+
+  const clearMarked = () => setMarked(new Set());
+  const bulkAssign = async () => {
+    const name = await useUI.getState().promptText({
+      title: '担当を一括設定',
+      message: `選択中の ${marked.size} 件の担当を変更します（空欄で未割当）。`,
+      placeholder: '担当（部門 / 個人）',
+      confirmLabel: '設定',
+    });
+    if (name === null) return;
+    setAssigneeManyByName([...marked], name);
+    clearMarked();
+  };
+  const bulkDelete = async () => {
+    const ok = await useUI.getState().confirm({
+      title: '工程を一括削除',
+      message: `選択中の ${marked.size} 件を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
+      confirmLabel: '削除',
+      danger: true,
+    });
+    if (ok) {
+      removeManyTasks([...marked]);
+      clearMarked();
+    }
+  };
 
   // 列幅のドラッグ調整。
   const startResize = (key: string, e: React.PointerEvent) => {
@@ -286,9 +343,18 @@ export function FullTable() {
             並べ替え解除
           </button>
         )}
-        <span className="ft-hint">
-          行クリックで選択 / Ctrl+Enter＝行追加・Ctrl+Delete＝削除 / Enter＝下のセルへ / 列はドラッグで幅調整。
-        </span>
+        {marked.size > 0 ? (
+          <span className="ft-bulk" role="group" aria-label="一括操作">
+            <strong>{marked.size}件選択中</strong>
+            <button onClick={bulkAssign}>担当を一括設定</button>
+            <button className="danger" onClick={bulkDelete}>まとめて削除</button>
+            <button className="ft-bulk-clear" onClick={clearMarked}>選択解除</button>
+          </span>
+        ) : (
+          <span className="ft-hint">
+            行クリックで選択 / Ctrl・Shift+クリックで複数選択 / Ctrl+Enter＝行追加・Ctrl+Delete＝削除 / 列はドラッグで幅調整。
+          </span>
+        )}
       </div>
       <datalist id="ft-assignees">
         {assigneeNames.map((n) => (
@@ -358,8 +424,8 @@ export function FullTable() {
               <tr
                 key={t.id}
                 data-taskid={t.id}
-                className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}`}
-                onClick={() => select(t.id)}
+                className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}${marked.has(t.id) ? ' marked' : ''}`}
+                onClick={(e) => onRowClick(e, t)}
               >
                 <td className="ft-c-no ft-sticky" style={{ left: 0 }} title={codes[t.id]}>
                   {codes[t.id]}

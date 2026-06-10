@@ -91,6 +91,10 @@ export interface AppState {
   setTaskCode: (taskId: Id, code: string | undefined) => void;
   renameTask: (taskId: Id, name: string) => void;
   setAssigneeByName: (taskId: Id, name: string) => void;
+  /** 複数工程の担当を一括設定（1 undo 単位）。空名は未割当に。 */
+  setAssigneeManyByName: (taskIds: Id[], name: string) => void;
+  /** 複数工程を一括削除（各々の配下は1つ上へ繰り上げ、1 undo 単位）。 */
+  removeManyTasks: (taskIds: Id[]) => void;
   addDependency: (from: Id, to: Id) => void;
   removeDependency: (depId: Id) => void;
   addSiblingOf: (taskId: Id) => Id | undefined;
@@ -109,6 +113,8 @@ export interface AppState {
   removeIssue: (taskId: Id, issueId: Id) => void;
   updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
+  /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
+  moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
   /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。 */
   addTaskAt: (x: number, y: number) => void;
   addControlNode: (control: ControlKind) => void;
@@ -124,6 +130,8 @@ export interface AppState {
   /** 工程ノードの固定をトグル（固定すると整列で動かない）。 */
   toggleNodePin: (nodeId: FlowNodeId) => void;
   deleteFlowNode: (nodeId: FlowNodeId) => void;
+  /** 複数のフロー固有ノード（制御/付箋）をまとめて削除（1 undo 単位）。工程/I/O/課題は無視。 */
+  deleteFlowNodes: (nodeIds: FlowNodeId[]) => void;
   deleteEdge: (edgeId: Id) => void;
   select: (taskId?: Id) => void;
   setLevel: (level: ProcessLevel) => void;
@@ -275,6 +283,40 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(cSetAssignee(p, taskId, assigneeId));
     },
 
+    setAssigneeManyByName: (taskIds, name) => {
+      let p = get().project;
+      const trimmed = name.trim();
+      let assigneeId: Id | undefined;
+      if (trimmed) {
+        const existing = Object.values(p.core.assignees).find((a) => a.name === trimmed);
+        if (existing) assigneeId = existing.id;
+        else {
+          p = cAddAssignee(p, { name: trimmed, kind: 'department' }, uuid);
+          assigneeId = Object.values(p.core.assignees).find((a) => a.name === trimmed)!.id;
+        }
+      }
+      let changed = false;
+      for (const id of taskIds) {
+        if (p.core.tasks[id]) {
+          p = cSetAssignee(p, id, assigneeId);
+          changed = true;
+        }
+      }
+      if (changed) commit(p);
+    },
+
+    removeManyTasks: (taskIds) => {
+      let p = get().project;
+      let changed = false;
+      for (const id of taskIds) {
+        if (p.core.tasks[id]) {
+          p = cDeleteTaskKeepChildren(p, id);
+          changed = true;
+        }
+      }
+      if (changed) commit(p);
+    },
+
     addDependency: (from, to) => {
       if (!from || !to || from === to) return;
       commit(cAddDependency(get().project, from, to, uuid));
@@ -389,6 +431,30 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           return;
         }
       }
+      history.push(p);
+      sync();
+    },
+
+    // 複数ノードをまとめて平行移動（範囲選択した要素を一括ドラッグ）。
+    // レーン再割当（逆同期）はしない＝選択をそのままずらす素直な挙動。1 undo 単位。
+    moveNodesBy: (nodeIds, dx, dy) => {
+      if ((dx === 0 && dy === 0) || nodeIds.length === 0) return;
+      const { level, scopeParentId } = get();
+      const p = structuredClone(get().project);
+      const view = p.flow.byLevel.find(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      if (!view) return;
+      let changed = false;
+      for (const id of nodeIds) {
+        const n = view.nodes[id];
+        if (n) {
+          n.x = Math.round(n.x + dx);
+          n.y = Math.round(n.y + dy);
+          changed = true;
+        }
+      }
+      if (!changed) return;
       history.push(p);
       sync();
     },
@@ -549,6 +615,18 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         delete view.nodes[nodeId];
         for (const e of Object.values(view.edges)) {
           if (e.source === nodeId || e.target === nodeId) delete view.edges[e.id];
+        }
+      }),
+    deleteFlowNodes: (nodeIds) =>
+      editView((view) => {
+        const set = new Set(nodeIds);
+        for (const id of nodeIds) {
+          const n = view.nodes[id];
+          if (!n || (n.kind !== 'control' && n.kind !== 'comment')) continue;
+          delete view.nodes[id];
+        }
+        for (const e of Object.values(view.edges)) {
+          if (set.has(e.source) || set.has(e.target)) delete view.edges[e.id];
         }
       }),
     deleteEdge: (edgeId) => {

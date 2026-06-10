@@ -58,6 +58,9 @@ export function FlowCanvas() {
   const moveLane = useApp((s) => s.moveLane);
   const toggleNodePin = useApp((s) => s.toggleNodePin);
   const addIo = useApp((s) => s.addIo);
+  const moveNodesBy = useApp((s) => s.moveNodesBy);
+  const deleteFlowNodes = useApp((s) => s.deleteFlowNodes);
+  const removeManyTasks = useApp((s) => s.removeManyTasks);
 
   // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
   const addIoPrompt = async (taskId: string, io: 'inputs' | 'outputs') => {
@@ -74,7 +77,13 @@ export function FlowCanvas() {
   // ノードを掴んだ画面座標と「実際に動かしたか」。ドラッグ移動後の click では選択（詳細パネル）を出さない。
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
-  const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; offX: number; offY: number } | null>(null);
+  const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; ox: number; oy: number; offX: number; offY: number } | null>(null);
+  // 複数選択（範囲ドラッグ / Shift+クリック）。まとめて移動・削除できる。
+  const [multiSel, setMultiSel] = useState<Set<FlowNodeId>>(new Set());
+  const multiSelRef = useRef(multiSel);
+  multiSelRef.current = multiSel;
+  // 範囲選択の矩形（キャンバス座標）。Shift+空白ドラッグで開く。
+  const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [panning, setPanning] = useState(false);
@@ -84,14 +93,40 @@ export function FlowCanvas() {
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
   const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
 
-  // 何も掴んでいない（ノード以外の）空白をドラッグ → 画面をパン（スクロール）する。
+  // 範囲選択中に計算した「枠内ノード」を pointerup で確定するための受け渡し。
+  const bandSelRef = useRef<FlowNodeId[]>([]);
+
+  // 空白でのポインタ操作:
+  //  Shift+ドラッグ … 範囲選択（矩形に触れたノードをまとめて選択）
+  //  通常ドラッグ  … 画面をパン（スクロール）。クリックで選択解除。
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     const el = e.target as HTMLElement;
     if (el.closest('.node, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
     const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller) return;
-    setSel(null); // 空白クリックで選択解除
+    setSel(null); // 空白クリックで単一選択解除
+
+    if (e.shiftKey) {
+      const p0 = relPoint(e);
+      bandSelRef.current = [];
+      setBand({ x0: p0.x, y0: p0.y, x1: p0.x, y1: p0.y });
+      const onMove = (ev: PointerEvent) => {
+        const p = relPoint(ev);
+        setBand((b) => (b ? { ...b, x1: p.x, y1: p.y } : b));
+      };
+      const onUp = () => {
+        setMultiSel(new Set(bandSelRef.current));
+        setBand(null);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      return;
+    }
+
+    setMultiSel(new Set()); // 通常の空白クリックは複数選択も解除
     const startX = e.clientX;
     const startY = e.clientY;
     const sl = scroller.scrollLeft;
@@ -146,7 +181,14 @@ export function FlowCanvas() {
     const onUp = () => {
       downPosRef.current = null;
       setDrag((d) => {
-        if (d) moveNode(d.id, Math.round(d.x), Math.round(d.y));
+        if (d && movedRef.current) {
+          const ms = multiSelRef.current;
+          if (ms.has(d.id) && ms.size > 1) {
+            moveNodesBy([...ms], Math.round(d.x) - d.ox, Math.round(d.y) - d.oy); // 選択をまとめて移動
+          } else {
+            moveNode(d.id, Math.round(d.x), Math.round(d.y));
+          }
+        }
         return null;
       });
     };
@@ -156,7 +198,7 @@ export function FlowCanvas() {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [drag, moveNode]);
+  }, [drag, moveNode, moveNodesBy]);
 
   // 担当ラベルのレール: 横スクロール量だけ右へずらして常に左端へ貼り付ける（縦は内容と一緒に動く）。
   useEffect(() => {
@@ -215,9 +257,37 @@ export function FlowCanvas() {
       if (editable) return;
       if (e.key === 'Escape') {
         setSel(null);
+        setMultiSel(new Set());
         return;
       }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      // 複数選択があればまとめて削除（フロー固有要素は即時、工程は確認あり）。
+      const ms = multiSelRef.current;
+      if (ms.size > 0 && view) {
+        e.preventDefault();
+        const flowSpecific: string[] = [];
+        const taskIds: string[] = [];
+        for (const id of ms) {
+          const n = view.nodes[id];
+          if (!n) continue;
+          if (n.kind === 'control' || n.kind === 'comment') flowSpecific.push(id);
+          else if (n.kind === 'task') taskIds.push(n.taskId);
+        }
+        if (flowSpecific.length) deleteFlowNodes(flowSpecific);
+        if (taskIds.length) {
+          void useUI
+            .getState()
+            .confirm({
+              title: '工程を一括削除',
+              message: `選択中の ${taskIds.length} 件の工程を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
+              confirmLabel: '削除',
+              danger: true,
+            })
+            .then((ok) => ok && removeManyTasks(taskIds));
+        }
+        setMultiSel(new Set());
+        return;
+      }
       if (sel?.kind === 'edge') {
         e.preventDefault();
         deleteEdge(sel.id);
@@ -257,7 +327,7 @@ export function FlowCanvas() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sel, view, deleteEdge, deleteFlowNode]);
+  }, [sel, view, deleteEdge, deleteFlowNode, deleteFlowNodes, removeManyTasks]);
 
   if (!view) return <p className="empty">ビューがありません。</p>;
 
@@ -322,7 +392,15 @@ export function FlowCanvas() {
     });
   };
 
-  const posOf = (n: FlowNode) => (drag && drag.id === n.id ? { x: drag.x, y: drag.y } : { x: n.x, y: n.y });
+  // 複数選択したノードを掴んでドラッグ中は、選択全体を同じ差分で動かして見せる。
+  const groupDrag = !!drag && multiSel.has(drag.id) && multiSel.size > 1;
+  const ddx = drag ? drag.x - drag.ox : 0;
+  const ddy = drag ? drag.y - drag.oy : 0;
+  const posOf = (n: FlowNode) => {
+    if (drag && drag.id === n.id) return { x: drag.x, y: drag.y };
+    if (groupDrag && multiSel.has(n.id)) return { x: n.x + ddx, y: n.y + ddy };
+    return { x: n.x, y: n.y };
+  };
   const center = (n: FlowNode) => {
     const p = posOf(n);
     const s = sizeOf(n);
@@ -430,6 +508,25 @@ export function FlowCanvas() {
   const issueTexts = (taskId: string): string[] =>
     (project.details[taskId]?.issues ?? []).map((i) => i.issue).filter((t) => t.trim().length > 0);
 
+  // 範囲選択の矩形に触れているノード（描画中のプレビュー＝確定前のハイライト）。
+  let bandSel: FlowNodeId[] = [];
+  if (band) {
+    const rx0 = Math.min(band.x0, band.x1);
+    const ry0 = Math.min(band.y0, band.y1);
+    const rx1 = Math.max(band.x0, band.x1);
+    const ry1 = Math.max(band.y0, band.y1);
+    bandSel = divNodes
+      .filter((n) => {
+        if (n.kind === 'issue' && !isPrimaryIssue(n)) return false;
+        const s = sizeOf(n);
+        return n.x < rx1 && n.x + s.w > rx0 && n.y < ry1 && n.y + s.h > ry0;
+      })
+      .map((n) => n.id);
+  }
+  bandSelRef.current = bandSel;
+  const bandSelSet = new Set(bandSel);
+  const isMultiSel = (n: FlowNode) => multiSel.has(n.id) || bandSelSet.has(n.id);
+
   return (
     <div className="flow-wrap">
       <div className="flow-palette">
@@ -480,7 +577,7 @@ export function FlowCanvas() {
             ＋
           </button>
         </span>
-        <span className="palette-hint">○ドラッグで矢印 / Delete で削除 / Ctrl+ホイールで拡大縮小</span>
+        <span className="palette-hint">○ドラッグで矢印 / Shift+ドラッグで範囲選択 / Delete で削除 / Ctrl+ホイールで拡大縮小</span>
       </div>
 
       <div
@@ -505,6 +602,18 @@ export function FlowCanvas() {
         ))}
 
         {/* 担当ラベルは .flow-scale の外（lane-rail）に置き、横スクロールでも左端に固定する。 */}
+
+        {band && (
+          <div
+            className="flow-band"
+            style={{
+              left: Math.min(band.x0, band.x1),
+              top: Math.min(band.y0, band.y1),
+              width: Math.abs(band.x1 - band.x0),
+              height: Math.abs(band.y1 - band.y0),
+            }}
+          />
+        )}
 
         <svg className="edges">
           <defs>
@@ -623,6 +732,7 @@ export function FlowCanvas() {
           const focusable = draggable; // task/control/comment はキーボードで選択可能
           const isSel = sel?.kind === 'node' && sel.id === n.id;
           const selCls = isSel ? ' sel' : '';
+          const multiCls = isMultiSel(n) ? ' multi-sel' : '';
           const cls =
             n.kind === 'task'
               ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}`
@@ -660,7 +770,7 @@ export function FlowCanvas() {
           return (
             <div
               key={n.id}
-              className={cls + connCls}
+              className={cls + connCls + multiCls}
               style={
                 n.kind === 'issue'
                   ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
@@ -675,7 +785,7 @@ export function FlowCanvas() {
                 downPosRef.current = { x: e.clientX, y: e.clientY };
                 movedRef.current = false;
                 const pt = relPoint(e);
-                setDrag({ id: n.id, x: n.x, y: n.y, offX: pt.x - n.x, offY: pt.y - n.y });
+                setDrag({ id: n.id, x: n.x, y: n.y, ox: n.x, oy: n.y, offX: pt.x - n.x, offY: pt.y - n.y });
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -683,6 +793,18 @@ export function FlowCanvas() {
                   movedRef.current = false; // ドラッグで動かした直後の click は選択しない
                   return;
                 }
+                if (e.shiftKey) {
+                  // Shift+クリック: 複数選択にトグル（単一選択・詳細パネルは出さない）。
+                  setMultiSel((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(n.id)) next.delete(n.id);
+                    else next.add(n.id);
+                    return next;
+                  });
+                  setSel(null);
+                  return;
+                }
+                setMultiSel(new Set()); // 通常クリックは複数選択を解除
                 activate();
               }}
               onKeyDown={(e) => {

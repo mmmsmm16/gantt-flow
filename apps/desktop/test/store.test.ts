@@ -274,6 +274,54 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.values(view0(s).edges).filter((e) => e.derivedFromDependencyId)).toHaveLength(0);
   });
 
+  it('一括操作: 複数工程の担当をまとめて設定／まとめて削除（各 1 undo）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    s.getState().addTask('C');
+    const ids = Object.values(s.getState().project.core.tasks).map((t) => t.id);
+    s.getState().setAssigneeManyByName(ids, '経理部');
+    const eigyo = Object.values(s.getState().project.core.assignees).find((a) => a.name === '経理部')!;
+    for (const id of ids) expect(s.getState().project.core.tasks[id]!.assigneeId).toBe(eigyo.id);
+    expect(s.getState().canUndo).toBe(true);
+    s.getState().undo(); // 1 操作で全件戻る
+    for (const id of ids) expect(s.getState().project.core.tasks[id]!.assigneeId).toBeUndefined();
+
+    s.getState().removeManyTasks(ids);
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(0);
+    s.getState().undo(); // 1 操作で全件復活
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(3);
+  });
+
+  it('一括操作: moveNodesBy で複数ノードをまとめて平行移動（1 undo）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    const ax = a.x;
+    const bx = b.x;
+    s.getState().moveNodesBy([a.id, b.id], 50, 30);
+    expect(taskNodes(s).find((n) => n.id === a.id)!.x).toBe(ax + 50);
+    expect(taskNodes(s).find((n) => n.id === b.id)!.x).toBe(bx + 50);
+    s.getState().undo();
+    expect(taskNodes(s).find((n) => n.id === a.id)!.x).toBe(ax);
+  });
+
+  it('一括操作: deleteFlowNodes で制御/付箋をまとめて削除（工程は無視）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const taskNode = taskNodes(s)[0]!;
+    s.getState().addControlNode('decision');
+    s.getState().addComment('メモ');
+    const ctrl = Object.values(view0(s).nodes).find((n) => n.kind === 'control')!;
+    const note = Object.values(view0(s).nodes).find((n) => n.kind === 'comment')!;
+    s.getState().deleteFlowNodes([ctrl.id, note.id, taskNode.id]); // 工程 id は無視される
+    expect(view0(s).nodes[ctrl.id]).toBeUndefined();
+    expect(view0(s).nodes[note.id]).toBeUndefined();
+    expect(Object.values(view0(s).nodes).some((n) => n.kind === 'task')).toBe(true); // 工程は残る
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');
