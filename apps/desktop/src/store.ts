@@ -121,8 +121,10 @@ export interface AppState {
   moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
   /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。 */
   addTaskAt: (x: number, y: number) => void;
-  addControlNode: (control: ControlKind) => void;
-  addComment: (text: string) => void;
+  /** 制御ノードを追加。x,y を渡せばその位置（例: 画面中央）に置く。省略時は左上に段積み。 */
+  addControlNode: (control: ControlKind, x?: number, y?: number) => void;
+  /** 付箋を追加。x,y を渡せばその位置に置く。省略時は既定位置に段積み。 */
+  addComment: (text: string, x?: number, y?: number) => void;
   /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
   tidyFlow: () => void;
   /** レーンの高さを変更（手動リサイズ）。下のレーンのノードを連動シフトして整合を保つ。 */
@@ -578,17 +580,22 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     // フロー固有要素（制御ノード/コメント/手動エッジ）の編集。view を直接いじって push。
-    addControlNode: (control) =>
+    addControlNode: (control, x, y) =>
       editView((view) => {
         const id = uuid();
         const k = Object.values(view.nodes).filter((n) => n.kind === 'control').length;
-        view.nodes[id] = { id, kind: 'control', control, x: 420 + k * 28, y: 44 + k * 18 };
+        // 位置指定あり（画面中央など）＝そこへ。同じ点への連続追加は少しずらして重なりを防ぐ。
+        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420 + k * 28;
+        const py = y != null ? Math.round(y) + (k % 5) * 14 : 44 + k * 18;
+        view.nodes[id] = { id, kind: 'control', control, x: px, y: py };
       }),
-    addComment: (text) =>
+    addComment: (text, x, y) =>
       editView((view) => {
         const id = uuid();
         const k = Object.values(view.nodes).filter((n) => n.kind === 'comment').length;
-        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: 420, y: 320 + k * 24 };
+        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420;
+        const py = y != null ? Math.round(y) + (k % 5) * 14 : 320 + k * 24;
+        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: px, y: py };
       }),
     tidyFlow: () => {
       const { level, scopeParentId } = get();

@@ -156,6 +156,21 @@ export function FlowCanvas() {
     window.addEventListener('pointerup', onUp);
   };
 
+  // いま見えているキャンバス中央（論理座標）。制御ノード/付箋を画面の真ん中へ置くために使う。
+  const viewportCenter = () => {
+    const el = canvasRef.current;
+    if (!el) return undefined;
+    return {
+      x: Math.round((el.scrollLeft + el.clientWidth / 2) / scale),
+      y: Math.round((el.scrollTop + el.clientHeight / 2) / scale),
+    };
+  };
+  // 指定種別のノードを画面中央に置くための top-left（中央 − サイズの半分）。
+  const spawnPos = (w: number, h: number) => {
+    const c = viewportCenter();
+    return c ? { x: c.x - w / 2, y: c.y - h / 2 } : { x: undefined, y: undefined };
+  };
+
   const relPoint = (e: { clientX: number; clientY: number }) => {
     const el = canvasRef.current;
     if (!el) return { x: 0, y: 0 };
@@ -547,15 +562,17 @@ export function FlowCanvas() {
           title="工程を追加"
           onClick={() => {
             const k = nodes.filter((n) => n.kind === 'task').length;
-            addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
+            const c = viewportCenter();
+            if (c) addTaskAt(c.x - SIZE.task.w / 2 + (k % 5) * 20, c.y - SIZE.task.h / 2 + (k % 5) * 16);
+            else addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
           }}
         >
           工程＋
         </button>
-        <button onClick={() => addControlNode('start')}>開始</button>
-        <button onClick={() => addControlNode('end')}>終了</button>
-        <button onClick={() => addControlNode('decision')}>判断◇</button>
-        <button onClick={() => addControlNode('merge')}>合流</button>
+        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}>開始</button>
+        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}>終了</button>
+        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}>判断◇</button>
+        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}>合流</button>
         <button
           onClick={async () => {
             const text = await useUI.getState().promptText({
@@ -563,7 +580,10 @@ export function FlowCanvas() {
               placeholder: 'コメント',
               confirmLabel: '追加',
             });
-            if (text !== null) addComment(text);
+            if (text !== null) {
+              const p = spawnPos(SIZE.comment.w, SIZE.comment.h);
+              addComment(text, p.x, p.y);
+            }
           }}
         >
           付箋
