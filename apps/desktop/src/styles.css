@@ -1177,6 +1177,42 @@ button.danger:hover {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  position: relative; /* ミニマップを右下に固定配置するため */
+}
+/* ミニマップ（全体俯瞰＋現在地。クリック/ドラッグで移動） */
+.flow-minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 7;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  overflow: hidden;
+  backdrop-filter: blur(2px);
+}
+.mm-node {
+  fill: var(--line-strong);
+}
+.mm-node.mm-task {
+  fill: var(--accent);
+  opacity: 0.75;
+}
+.mm-node.mm-control {
+  fill: var(--faint);
+}
+.mm-node.mm-comment {
+  fill: #d9b44a;
+}
+.mm-node.mm-issue {
+  fill: var(--danger);
+}
+.mm-viewport {
+  fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.2;
 }
 .flow-palette {
   flex: none;

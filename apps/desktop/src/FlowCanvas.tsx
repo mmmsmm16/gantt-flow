@@ -95,6 +95,8 @@ export function FlowCanvas() {
   multiSelRef.current = multiSel;
   // 範囲選択の矩形（キャンバス座標）。Shift+空白ドラッグで開く。
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  // ミニマップ用の可視領域（スクロール位置とビューサイズ。スクロール/リサイズで更新）。
+  const [vp, setVp] = useState({ left: 0, top: 0, w: 0, h: 0 });
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [panning, setPanning] = useState(false);
@@ -194,6 +196,29 @@ export function FlowCanvas() {
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // ミニマップの可視領域を、スクロール量とビューサイズから更新（rAF で間引き）。
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return undefined;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      setVp({ left: el.scrollLeft, top: el.scrollTop, w: el.clientWidth, h: el.clientHeight });
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   useEffect(() => {
@@ -1079,6 +1104,86 @@ export function FlowCanvas() {
           </div>
         )}
       </div>
+
+      {nodes.some((n) => n.kind === 'task') &&
+        (() => {
+          const MW = 170;
+          const MH = 116;
+          const PAD = 8;
+          let minX = Infinity;
+          let minY = Infinity;
+          let maxX = -Infinity;
+          let maxY = -Infinity;
+          const mmNodes = divNodes.filter((n) => !(n.kind === 'issue' && !isPrimaryIssue(n)));
+          for (const n of mmNodes) {
+            const s = sizeOf(n);
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x + s.w);
+            maxY = Math.max(maxY, n.y + s.h);
+          }
+          if (!isFinite(minX)) return null;
+          // レーン帯も含めて全体を捉える
+          minX = Math.min(minX, 0);
+          minY = Math.min(minY, BAND_TOP);
+          maxX = Math.max(maxX, LABEL_W + 200);
+          maxY = Math.max(maxY, lanesBottomY);
+          const cw = Math.max(1, maxX - minX);
+          const ch = Math.max(1, maxY - minY);
+          const mscale = Math.min((MW - PAD * 2) / cw, (MH - PAD * 2) / ch);
+          const toMM = (x: number, y: number) => ({ x: PAD + (x - minX) * mscale, y: PAD + (y - minY) * mscale });
+          const vr = {
+            x: PAD + (vp.left / scale - minX) * mscale,
+            y: PAD + (vp.top / scale - minY) * mscale,
+            w: (vp.w / scale) * mscale,
+            h: (vp.h / scale) * mscale,
+          };
+          const panTo = (clientX: number, clientY: number, rect: DOMRect) => {
+            const el = canvasRef.current;
+            if (!el) return;
+            const contentX = minX + (clientX - rect.left - PAD) / mscale;
+            const contentY = minY + (clientY - rect.top - PAD) / mscale;
+            el.scrollLeft = contentX * scale - el.clientWidth / 2;
+            el.scrollTop = contentY * scale - el.clientHeight / 2;
+          };
+          return (
+            <div
+              className="flow-minimap"
+              style={{ width: MW, height: MH }}
+              title="ミニマップ（クリック / ドラッグで移動）"
+              onPointerDown={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                panTo(e.clientX, e.clientY, rect);
+                const move = (ev: PointerEvent) => panTo(ev.clientX, ev.clientY, rect);
+                const up = () => {
+                  window.removeEventListener('pointermove', move);
+                  window.removeEventListener('pointerup', up);
+                };
+                window.addEventListener('pointermove', move);
+                window.addEventListener('pointerup', up);
+              }}
+            >
+              <svg width={MW} height={MH}>
+                {mmNodes.map((n) => {
+                  const s = sizeOf(n);
+                  const p = toMM(n.x, n.y);
+                  return (
+                    <rect
+                      key={n.id}
+                      x={p.x}
+                      y={p.y}
+                      width={Math.max(2, s.w * mscale)}
+                      height={Math.max(2, s.h * mscale)}
+                      rx={1}
+                      className={`mm-node mm-${n.kind}`}
+                    />
+                  );
+                })}
+                <rect className="mm-viewport" x={vr.x} y={vr.y} width={vr.w} height={vr.h} />
+              </svg>
+            </div>
+          );
+        })()}
     </div>
   );
 }
