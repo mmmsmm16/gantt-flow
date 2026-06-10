@@ -12,6 +12,7 @@ import {
   exportExcelFile,
   exportCsvFile,
   exportSvgFile,
+  exportPngFile,
   printProjectAndFlow,
   forgetFileHandle,
 } from './persistence';
@@ -150,6 +151,17 @@ export function App() {
     if (view) {
       const name = exportSvgFile(st.project, view);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
+    }
+  };
+  const onExportPng = async () => {
+    const st = useApp.getState();
+    const view = findView(st.project, st.level, st.scopeParentId);
+    if (!view) return;
+    try {
+      const name = await exportPngFile(st.project, view);
+      useUI.getState().toast(`出力しました（${name}）`, 'success');
+    } catch {
+      useUI.getState().toast('PNG の出力に失敗しました。', 'error');
     }
   };
   const onPrint = () => {
@@ -309,6 +321,7 @@ export function App() {
         >
           <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
           <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
+          <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
           <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
         </Menu>
 
@@ -427,6 +440,7 @@ export function App() {
         onExportExcel={onExportExcel}
         onExportCsv={onExportCsv}
         onExportSvg={onExportSvg}
+        onExportPng={onExportPng}
         onPrint={onPrint}
       />
       <HelpDialog />

@@ -11,7 +11,7 @@ import {
   type Project,
   type FlowLevelView,
 } from '@gantt-flow/core';
-import { buildFlowSvg } from './flowSvg';
+import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
 
 // File System Access API は一部ブラウザのみ。lib.dom に未収録のため使う範囲だけ最小宣言する
 //（既存の lib 型と衝突しないよう独自名で定義）。
@@ -125,9 +125,53 @@ export function exportExcelFile(project: Project): string {
   return name;
 }
 
+// 図に「タイトル・出力日・凡例」を載せた装飾版 SVG（共有/提出用）。
+function decoratedSvg(project: Project, view: FlowLevelView): string {
+  const date = new Date().toISOString().slice(0, 10);
+  return decorateFlowSvg(buildFlowSvg(project, view), {
+    title: project.meta.title || 'プロジェクト',
+    subtitle: `業務フロー図 / 出力日: ${date}`,
+  });
+}
+
 export function exportSvgFile(project: Project, view: FlowLevelView): string {
   const name = `${safeName(project.meta.title)}-flow.svg`;
-  download(name, buildFlowSvg(project, view), 'image/svg+xml');
+  download(name, decoratedSvg(project, view), 'image/svg+xml');
+  return name;
+}
+
+const loadImage = (url: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+
+// PNG 出力: 装飾版 SVG を 2倍解像度でラスタライズ（Word/PowerPoint へ貼りやすい）。
+export async function exportPngFile(project: Project, view: FlowLevelView): Promise<string> {
+  const name = `${safeName(project.meta.title)}-flow.png`;
+  const svg = decoratedSvg(project, view);
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    const img = await loadImage(url);
+    const w = img.naturalWidth || 1000;
+    const h = img.naturalHeight || 700;
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 2d context unavailable');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0, w, h);
+    const png = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+    if (png) download(name, png, 'image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
   return name;
 }
 

@@ -292,3 +292,47 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   parts.push('</svg>');
   return parts.join('');
 }
+
+// 画像出力用に、タイトル・出力日のヘッダーと凡例（ノードの形・色の意味）を上下に足した
+// 装飾版 SVG を作る。元の図は入れ子 <svg> として位置だけずらして埋め込む（座標系を保つ）。
+export function decorateFlowSvg(
+  inner: string,
+  opts: { title: string; subtitle?: string },
+): string {
+  const m = inner.match(/width="(\d+(?:\.\d+)?)" height="(\d+(?:\.\d+)?)"/);
+  const w = Math.max(560, m ? Number(m[1]) : 800);
+  const h = m ? Number(m[2]) : 600;
+  const headH = 56;
+  const legendH = 44;
+  const total = h + headH + legendH;
+  const nested = inner.replace('<svg ', `<svg x="0" y="${headH}" `);
+
+  const L = FLOW_LIGHT;
+  // 凡例の各項目（形＝意味、色＝向き）。横に並べる。
+  const items: { label: string; draw: (x: number) => string }[] = [
+    { label: '工程', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.task.fill}" stroke="${L.task.stroke}" stroke-width="1.3"/>` },
+    { label: '判断', draw: (x) => `<polygon points="${x + 11},-10 ${x + 22},0 ${x + 11},10 ${x},0" fill="${L.control.fill}" stroke="${L.control.stroke}" stroke-width="1.3"/>` },
+    { label: 'インプット', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioIn.fill}" stroke="${L.ioIn.stroke}" stroke-width="1.3"/>` },
+    { label: 'アウトプット', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioOut.fill}" stroke="${L.ioOut.stroke}" stroke-width="1.3"/>` },
+    { label: '課題', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="3" fill="${L.issue.fill}" stroke="${L.issue.stroke}" stroke-width="1.3"/>` },
+  ];
+  let lx = 16;
+  const legendParts: string[] = [];
+  for (const it of items) {
+    legendParts.push(it.draw(lx));
+    legendParts.push(`<text x="${lx + 28}" y="4" font-size="11" fill="${L.task.text}">${esc(it.label)}</text>`);
+    lx += 30 + it.label.length * 12 + 18;
+  }
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${total}" viewBox="0 0 ${w} ${total}" font-family="${FONT_STACK}">`,
+    `<rect width="100%" height="100%" fill="${L.bg}"/>`,
+    `<text x="16" y="26" font-size="18" font-weight="700" fill="${L.task.text}">${esc(opts.title)}</text>`,
+    opts.subtitle ? `<text x="16" y="44" font-size="11" fill="${L.bandLabel}">${esc(opts.subtitle)}</text>` : '',
+    `<line x1="0" y1="${headH - 1}" x2="${w}" y2="${headH - 1}" stroke="${L.laneLine}" stroke-width="1"/>`,
+    nested,
+    `<line x1="0" y1="${headH + h}" x2="${w}" y2="${headH + h}" stroke="${L.laneLine}" stroke-width="1"/>`,
+    `<g transform="translate(0, ${headH + h + 26})">${legendParts.join('')}</g>`,
+    '</svg>',
+  ].join('');
+}
