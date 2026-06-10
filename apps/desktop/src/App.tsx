@@ -30,6 +30,7 @@ import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
+import { Tour, tourDone } from './ui/Tour';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -141,7 +142,11 @@ export function App() {
   };
   const onSample = () => {
     useApp.getState().loadSample();
-    useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
+    if (!tourDone()) {
+      useUI.getState().setTourStep(0); // 初回だけ使い方ツアーを開始
+    } else {
+      useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
+    }
   };
   const onTemplate = (key: string) => {
     useApp.getState().loadTemplate(key);
@@ -489,6 +494,7 @@ export function App() {
       <IssueListDialog />
       <SummaryDialog />
       <BackupsDialog />
+      <Tour />
       <Modal />
       <Toaster />
     </div>

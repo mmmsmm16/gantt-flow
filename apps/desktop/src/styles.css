@@ -2097,6 +2097,84 @@ kbd {
   color: var(--faint);
 }
 
+/* 使い方ツアー（コーチマーク）。ページ操作を妨げない: レイヤは素通し、カードだけ操作可能 */
+.tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+.tour-highlight {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  transition: all 0.25s ease;
+}
+.tour-card {
+  position: fixed;
+  width: 340px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg, var(--shadow));
+  pointer-events: auto;
+}
+.tour-card h4 {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+}
+.tour-card p {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tour-dots {
+  display: flex;
+  gap: 5px;
+}
+.tour-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.tour-dot.on {
+  background: var(--accent);
+}
+.tour-actions {
+  display: flex;
+  gap: 8px;
+}
+.tour-skip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.tour-next {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 14px;
+  border: none;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.tour-next:hover {
+  filter: brightness(1.06);
+}
+
 /* バックアップ復元 */
 .backups-modal {
   width: min(560px, 100%);

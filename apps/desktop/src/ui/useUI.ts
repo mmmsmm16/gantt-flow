@@ -134,6 +134,10 @@ interface UIState {
   overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null;
   setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | null) => void;
 
+  /** 使い方ツアーの現在ステップ（null=非表示）。 */
+  tourStep: number | null;
+  setTourStep: (step: number | null) => void;
+
   dialog: Dialog | null;
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
   promptText: (opts: PromptOpts) => Promise<string | null>;
@@ -208,6 +212,9 @@ export const useUI = create<UIState>((set, get) => ({
     }
     set({ columnVisibility: next });
   },
+
+  tourStep: null,
+  setTourStep: (tourStep) => set({ tourStep }),
 
   dialog: null,
   confirm: (opts) =>
