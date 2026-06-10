@@ -123,6 +123,7 @@ export function TableView() {
     select(t.id);
     setFlowLevel(t.level);
     setScope(t.parentId);
+    useUI.getState().setInspectorOpen(true); // 表の行クリックは従来どおり詳細パネルを開く
   };
 
   // 行選択モード(編集外のキーボード操作)。j/k 移動・Enter 編集・n 追加などは
@@ -511,7 +512,10 @@ export function TableView() {
                           <span
                             className="chip chip-issue io-issue"
                             title="課題（クリックでインスペクタ）"
-                            onClick={() => select(t.id)}
+                            onClick={() => {
+                              select(t.id);
+                              useUI.getState().setInspectorOpen(true);
+                            }}
                           >
                             課題{issueCount}
                           </span>

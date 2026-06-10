@@ -651,6 +651,7 @@ export function CommandPalette(handlers: FileHandlers) {
     app.select(taskId);
     app.setLevel(t.level);
     app.setScope(t.parentId);
+    useUI.getState().setInspectorOpen(true); // ジャンプは「詳細を見たい」操作なので開く
   };
 
   // 引数モードへ入る（defaultValue をプリセットして全選択）。

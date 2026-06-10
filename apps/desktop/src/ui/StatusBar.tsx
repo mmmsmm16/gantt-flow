@@ -68,8 +68,8 @@ export function StatusBar() {
               ? 'j/k 移動・Enter 編集・n 追加・? 一覧'
               : '↑↓ 移動・Enter 編集・⌘K コマンド・? 一覧'
             : singleKey
-              ? '矢印で移動・c 接続・f フィット・? 一覧'
-              : '矢印で移動・Enter 編集・⌘K コマンド・? 一覧'}
+              ? '矢印で選択・Alt+矢印で移動・c 接続・? 一覧'
+              : '矢印で選択・Alt+矢印で移動・⌘K コマンド・? 一覧'}
         </span>
       )}
       <span className="st-sep" aria-hidden="true" />

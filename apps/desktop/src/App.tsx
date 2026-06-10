@@ -73,6 +73,7 @@ export function App() {
   const setTableMode = useUI((s) => s.setTableMode);
   const activePane = useUI((s) => s.activePane);
   const setActivePane = useUI((s) => s.setActivePane);
+  const inspectorOpen = useUI((s) => s.inspectorOpen);
   const fullMode = tableMode === 'full';
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
@@ -380,7 +381,7 @@ export function App() {
         <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} onOpenRecent={onOpenRecent} onTemplate={onTemplate} />
       ) : (
         <div
-          className={`panes${!fullMode && selectedTaskId ? ' with-inspector' : ''}${
+          className={`panes${!fullMode && selectedTaskId && inspectorOpen ? ' with-inspector' : ''}${
             tableWide || fullMode ? ' table-wide' : ''
           }${flowWide ? ' flow-wide' : ''}`}
         >
@@ -463,7 +464,7 @@ export function App() {
               <FlowCanvas />
             </section>
           )}
-          {!fullMode && selectedTaskId && (
+          {!fullMode && selectedTaskId && inspectorOpen && (
             <section className="pane inspector-pane">
               <Inspector />
             </section>

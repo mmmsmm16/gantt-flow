@@ -104,7 +104,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'row-collapse', action: 'table.collapse', context: 'table', chord: { key: ' ' }, help: { group: G.table, label: '折りたたみ(アウトライン)' } },
 
   // --- フロー ---
-  { id: 'node-left', action: 'flow.left', context: 'flow', chord: { key: 'arrowleft' }, help: { group: G.flow, label: 'ノードを移動(Shift で大きく)' } },
+  // 矢印=選択を隣のノードへ移す(表の ↑↓ と同じ操作体系)。未選択なら左上のノードを選択。
+  { id: 'node-left', action: 'flow.left', context: 'flow', chord: { key: 'arrowleft' }, help: { group: G.flow, label: '選択を隣のノードへ移す' } },
   { id: 'node-left-h', action: 'flow.left', context: 'flow', chord: { key: 'h' } },
   { id: 'node-right', action: 'flow.right', context: 'flow', chord: { key: 'arrowright' } },
   { id: 'node-right-l', action: 'flow.right', context: 'flow', chord: { key: 'l' } },
@@ -112,6 +113,11 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'node-up-k', action: 'flow.up', context: 'flow', chord: { key: 'k' } },
   { id: 'node-down', action: 'flow.down', context: 'flow', chord: { key: 'arrowdown' } },
   { id: 'node-down-j', action: 'flow.down', context: 'flow', chord: { key: 'j' } },
+  // Alt+矢印=選択ノードの位置を移動(表の Alt+↑↓=行移動 と同じ体系。Shift で大きく)。
+  { id: 'node-move-left', action: 'flow.moveLeft', context: 'flow', chord: { key: 'arrowleft', alt: true }, help: { group: G.flow, label: 'ノードを移動(Alt+矢印・Shift で大きく)' } },
+  { id: 'node-move-right', action: 'flow.moveRight', context: 'flow', chord: { key: 'arrowright', alt: true } },
+  { id: 'node-move-up', action: 'flow.moveUp', context: 'flow', chord: { key: 'arrowup', alt: true } },
+  { id: 'node-move-down', action: 'flow.moveDown', context: 'flow', chord: { key: 'arrowdown', alt: true } },
   { id: 'zoom-in', action: 'flow.zoomIn', context: 'flow', chord: { key: '+' }, help: { group: G.flow, label: 'ズームイン' } },
   { id: 'zoom-in-eq', action: 'flow.zoomIn', context: 'flow', chord: { key: '=' } },
   { id: 'zoom-out', action: 'flow.zoomOut', context: 'flow', chord: { key: '-' }, help: { group: G.flow, label: 'ズームアウト' } },

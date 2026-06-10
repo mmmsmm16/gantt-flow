@@ -3,6 +3,7 @@ import { useApp, findView } from './store';
 import { useUI } from './ui/useUI';
 import { registerContextHandler } from './ui/useGlobalHotkeys';
 import { TASK_COLORS } from './theme';
+import { nearestInDirection, firstVisual, type NavDir } from './spatialNav';
 import * as Icons from './ui/icons';
 import {
   SIZE,
@@ -523,6 +524,39 @@ export function FlowCanvas() {
     return [];
   };
 
+  // 矢印キーで選択を隣のノードへ移す(空間ナビ)。未選択なら左上のノードから開始。
+  const navBoxes = () =>
+    divNodes
+      .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+      .map((n) => ({ id: n.id, ...posOf(n), ...sizeOf(n) }));
+  const selectNodeById = (id: FlowNodeId) => {
+    const n = view.nodes[id];
+    if (!n) return;
+    setMultiSel(new Set());
+    if (n.kind === 'task') {
+      select(n.taskId); // インスペクタは開かない(選択のみ)
+      setSel(null);
+    } else {
+      setSel({ kind: 'node', id });
+      select(undefined);
+    }
+    // 選択先が画面外ならスクロールで追従
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-nodeid="${CSS.escape(id)}"]`)
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  };
+  const spatialSelect = (dir: NavDir): boolean => {
+    const boxes = navBoxes();
+    if (!boxes.length) return false;
+    const curId = keyTargets()[0];
+    const cur = curId ? boxes.find((b) => b.id === curId) : undefined;
+    const nextId = cur ? nearestInDirection(cur, boxes, dir) : firstVisual(boxes);
+    if (nextId) selectNodeById(nextId);
+    return true; // 方向の先に無くてもキーは消費(画面スクロールの暴発を防ぐ)
+  };
+
   // 'flow' コンテキストのアクション実行(キー照合・ガードは useGlobalHotkeys 済み)。
   flowActionsRef.current = (action, e) => {
     const step = e.shiftKey ? 32 : 8;
@@ -534,12 +568,20 @@ export function FlowCanvas() {
     };
     switch (action) {
       case 'flow.left':
-        return nudge(-step, 0);
+        return spatialSelect('left');
       case 'flow.right':
-        return nudge(step, 0);
+        return spatialSelect('right');
       case 'flow.up':
-        return nudge(0, -step);
+        return spatialSelect('up');
       case 'flow.down':
+        return spatialSelect('down');
+      case 'flow.moveLeft':
+        return nudge(-step, 0);
+      case 'flow.moveRight':
+        return nudge(step, 0);
+      case 'flow.moveUp':
+        return nudge(0, -step);
+      case 'flow.moveDown':
         return nudge(0, step);
       case 'flow.zoomIn':
         zoomBy(1.2);
@@ -1055,7 +1097,12 @@ export function FlowCanvas() {
               : '';
           const activate = () => {
             if (n.kind === 'task') {
-              select(n.taskId);
+              if (n.taskId === selectedTaskId) {
+                // 選択済みノードの再クリック/再 Enter = 詳細パネルを開く(1回目は選択のみ)
+                useUI.getState().setInspectorOpen(true);
+              } else {
+                select(n.taskId);
+              }
               setSel(null);
             } else {
               setSel({ kind: 'node', id: n.id });
@@ -1072,6 +1119,7 @@ export function FlowCanvas() {
           return (
             <div
               key={n.id}
+              data-nodeid={n.id}
               className={cls + connCls + multiCls}
               style={
                 n.kind === 'issue'

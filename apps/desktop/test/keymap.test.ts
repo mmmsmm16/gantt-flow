@@ -51,9 +51,16 @@ describe('keymap: findBinding', () => {
     expect(b?.action).toBe('table.next');
   });
 
-  it('flow コンテキストでは j がノード移動になる', () => {
-    const b = findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ['flow', 'global'], false);
-    expect(b?.action).toBe('flow.down');
+  it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動', () => {
+    expect(findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
+    expect(findBinding(ev({ key: 'arrowdown' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
+    expect(
+      findBinding(ev({ key: 'arrowdown', altKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action,
+    ).toBe('flow.moveDown');
+    expect(
+      findBinding(ev({ key: 'arrowleft', altKey: true, shiftKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)
+        ?.action,
+    ).toBe('flow.moveLeft'); // Shift 併用(大きく移動)も同じバインドに一致
   });
 
   it('リーダー有効時はリーダーバインドのみ一致する(g t)', () => {
@@ -186,6 +193,10 @@ describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
     expect(findBinding(ev({ key: 't' }), off, ['global'], true)).toBeUndefined(); // リーダーも消える
     const on = filterKeymapForSingleKey(DEFAULT_KEYMAP, true);
     expect(findBinding(ev({ key: 'j' }), on, ['table'], false)?.action).toBe('table.next');
+    // フロー: h(単キー)は消えるが、矢印の選択ナビと Alt+矢印の移動は残る
+    expect(findBinding(ev({ key: 'h' }), off, ['flow'], false)).toBeUndefined();
+    expect(findBinding(ev({ key: 'arrowleft' }), off, ['flow'], false)?.action).toBe('flow.left');
+    expect(findBinding(ev({ key: 'arrowleft', altKey: true }), off, ['flow'], false)?.action).toBe('flow.moveLeft');
   });
 
   it('カスタムで単キー化したバインドも OFF では消える(resolve → filter の順)', () => {

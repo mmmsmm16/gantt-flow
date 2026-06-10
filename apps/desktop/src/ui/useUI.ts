@@ -160,6 +160,10 @@ interface UIState {
   settingsTab: 'general' | 'keys' | 'data';
   setSettingsTab: (tab: 'general' | 'keys' | 'data') => void;
 
+  /** 詳細パネル(インスペクタ)を表示するか。「選択」とは独立(フローでは選択だけでは開かない)。 */
+  inspectorOpen: boolean;
+  setInspectorOpen: (open: boolean) => void;
+
   /** アウトライン表の折りたたみ状態（コマンド/非マウント時も保持するためここに置く。非永続）。 */
   outlineCollapsed: Set<Id>;
   toggleOutlineCollapsed: (id: Id) => void;
@@ -253,6 +257,9 @@ export const useUI = create<UIState>((set, get) => ({
 
   settingsTab: 'general',
   setSettingsTab: (tab) => set({ settingsTab: tab }),
+
+  inspectorOpen: false,
+  setInspectorOpen: (open) => set({ inspectorOpen: open }),
 
   outlineCollapsed: new Set<Id>(),
   toggleOutlineCollapsed: (id) => {

@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
+import { useUI } from './ui/useUI';
 import { collectIoNames } from './suggestions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
 
@@ -46,7 +47,6 @@ function ColorSwatchRow({
 export function Inspector() {
   const project = useApp((s) => s.project);
   const taskId = useApp((s) => s.selectedTaskId);
-  const select = useApp((s) => s.select);
   const updateDetail = useApp((s) => s.updateDetail);
   const addIo = useApp((s) => s.addIo);
   const updateIo = useApp((s) => s.updateIo);
@@ -94,7 +94,11 @@ export function Inspector() {
           </span>
           <strong>{task.name || '（無題）'}</strong>
         </div>
-        <button className="x" aria-label="インスペクタを閉じる" onClick={() => select(undefined)}>
+        <button
+          className="x"
+          aria-label="詳細パネルを閉じる（選択は維持）"
+          onClick={() => useUI.getState().setInspectorOpen(false)}
+        >
           ×
         </button>
       </div>
