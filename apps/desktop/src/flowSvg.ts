@@ -270,7 +270,9 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const mw = 88;
     const mh = 30;
     sourced.forEach((it, i) => {
-      const box = boxes.find((b) => b.lane.title === it.source);
+      // 出所とレーン名の照合は前後空白と全角/半角スペースのゆれを吸収（画面側と同じ規則）。
+      const norm = (s: string) => s.replace(/[\s　]+/g, '');
+      const box = boxes.find((b) => norm(b.lane.title) === norm(it.source ?? ''));
       const mx = n.x + i * (mw + 8);
       const my = box ? box.base : n.y - mh - 30;
       const cx = mx + mw / 2;

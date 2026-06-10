@@ -18,7 +18,7 @@ import {
   openRecentFile,
 } from './persistence';
 import { useUI } from './ui/useUI';
-import { Modal, Toaster } from './ui/Dialogs';
+import { Modal, Toaster, BusyOverlay } from './ui/Dialogs';
 import * as Icons from './ui/icons';
 import { Menu, MenuItem } from './ui/Menu';
 import { Welcome } from './ui/Welcome';
@@ -118,6 +118,9 @@ export function App() {
       const file = input.files?.[0];
       if (!file) return;
       try {
+        useUI.getState().setBusy('取り込んでいます…');
+        // スピナーを描画してから重い処理へ（同期処理で固まる前に 1 フレーム譲る）。
+        await new Promise((r) => requestAnimationFrame(() => r(undefined)));
         forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
         const report = useApp.getState().importRows(await readTableFile(file));
         const c = report.created;
@@ -136,6 +139,8 @@ export function App() {
         });
       } catch {
         useUI.getState().toast('取り込みに失敗しました（CSV / Excel を確認してください）。', 'error');
+      } finally {
+        useUI.getState().setBusy(null);
       }
     };
     input.click();
@@ -496,6 +501,7 @@ export function App() {
       <BackupsDialog />
       <Tour />
       <Modal />
+      <BusyOverlay />
       <Toaster />
     </div>
   );

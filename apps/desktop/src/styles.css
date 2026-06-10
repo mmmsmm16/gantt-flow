@@ -1477,6 +1477,10 @@ button.danger:hover {
   top: 96px;
   transform: translateX(-50%);
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
   color: var(--faint);
   font-size: 13px;
   background: var(--panel);
@@ -2095,6 +2099,46 @@ kbd {
 .issues-table .il-assignee {
   width: 12%;
   color: var(--faint);
+}
+
+/* 重い処理中の全画面スピナー */
+.busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.busy-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.busy-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: busy-spin 0.8s linear infinite;
+}
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .busy-spinner {
+    animation-duration: 2s;
+  }
 }
 
 /* 使い方ツアー（コーチマーク）。ページ操作を妨げない: レイヤは素通し、カードだけ操作可能 */

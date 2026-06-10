@@ -1071,7 +1071,9 @@ export function FlowCanvas() {
                 {renderIoIcon(p, 'output', d?.outputs ?? [])}
                 {/* 出所付きの入力帳票: 出所部署のレーンに置き、工程へ矢印を引く */}
                 {sourced.map((it, i) => {
-                  const box = boxes.find((b) => b.lane.title === it.source);
+                  // 出所とレーン名の照合は前後空白と全角/半角スペースのゆれを吸収する。
+                  const norm = (s: string) => s.replace(/[\s　]+/g, '');
+                  const box = boxes.find((b) => norm(b.lane.title) === norm(it.source ?? ''));
                   const mx = p.x + i * (mw + 8);
                   const my = box ? box.base : p.y - mh - 30; // 出所レーンの工程行 / 無ければ工程の真上
                   const cx = mx + mw / 2;
@@ -1101,7 +1103,10 @@ export function FlowCanvas() {
         </svg>
 
         {!nodes.some((n) => n.kind === 'task') && (
-          <div className="flow-empty">工程を追加すると、ここにフロー図が表示されます。</div>
+          <div className="flow-empty">
+            <strong>ここをダブルクリックすると工程を作成できます。</strong>
+            <span>表で追加した工程も自動でここに表示されます。</span>
+          </div>
         )}
         </div>
 

@@ -107,3 +107,17 @@ function ToastView({
     </div>
   );
 }
+
+// 重い処理中の全画面スピナー（取り込みなど）。useUI.setBusy(message) で表示する。
+export function BusyOverlay() {
+  const busy = useUI((s) => s.busy);
+  if (!busy) return null;
+  return (
+    <div className="busy-overlay" role="status" aria-live="polite">
+      <div className="busy-card">
+        <span className="busy-spinner" aria-hidden="true" />
+        <span>{busy}</span>
+      </div>
+    </div>
+  );
+}

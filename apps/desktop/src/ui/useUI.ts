@@ -138,6 +138,10 @@ interface UIState {
   tourStep: number | null;
   setTourStep: (step: number | null) => void;
 
+  /** 重い処理中の全画面スピナー（メッセージ＝表示中）。取り込みなどで無応答に見えるのを防ぐ。 */
+  busy: string | null;
+  setBusy: (message: string | null) => void;
+
   dialog: Dialog | null;
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
   promptText: (opts: PromptOpts) => Promise<string | null>;
@@ -215,6 +219,9 @@ export const useUI = create<UIState>((set, get) => ({
 
   tourStep: null,
   setTourStep: (tourStep) => set({ tourStep }),
+
+  busy: null,
+  setBusy: (busy) => set({ busy }),
 
   dialog: null,
   confirm: (opts) =>
