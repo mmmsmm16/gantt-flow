@@ -27,9 +27,6 @@ export function StatusBar() {
   const totalMin = roots.reduce((s, t) => s + effortRollupMinutes(project.core, project.details, t.id), 0);
   const assignees = Object.keys(project.core.assignees).length;
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
-  // ヒアリング進行（ステータスが 1 件でも入っていれば「確定 n / 全 m」を出す）
-  const statuses = tasks.map((t) => project.details[t.id]?.status).filter(Boolean);
-  const doneCount = tasks.filter((t) => project.details[t.id]?.status === 'done').length;
 
   return (
     <footer className="statusbar" aria-label="ステータス">
@@ -47,15 +44,6 @@ export function StatusBar() {
       <span className="st-item" title="末端工程の合計工数（自動集計）">
         合計工数 <strong>{formatHours(totalMin)}</strong>
       </span>
-      {statuses.length > 0 && (
-        <>
-          <span className="st-sep" aria-hidden="true" />
-          <span className="st-item" title="ステータスが「確定」の工程数 / 全工程">
-            確定 <strong>{doneCount}</strong>
-            <span className="st-sub">/ {tasks.length}</span>
-          </span>
-        </>
-      )}
       <span className="st-spacer" />
       {leaderPending ? (
         <span className="st-item st-leader" aria-live="polite" title="g に続けて t=表 / f=フロー / i=課題 / s=サマリ / 1〜4=粒度">

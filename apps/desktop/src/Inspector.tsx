@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor, TaskStatus } from '@gantt-flow/core';
+import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
@@ -110,17 +110,6 @@ export function Inspector() {
       <div className="insp-scroll">
         <section>
           <h3>基本</h3>
-          <label>ステータス（ヒアリング進行）</label>
-          <select
-            className={`insp-status st-${d?.status ?? 'todo'}`}
-            value={d?.status ?? ''}
-            onChange={(e) => updateDetail(taskId, { status: (e.target.value || undefined) as TaskStatus | undefined })}
-          >
-            <option value="">未着手</option>
-            <option value="heard">ヒアリング済</option>
-            <option value="review">確認待ち</option>
-            <option value="done">確定</option>
-          </select>
           <label>塗り色（フローのノード）</label>
           <ColorSwatchRow
             value={d?.fillColor}

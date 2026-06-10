@@ -3830,3 +3830,10 @@ input.colored-text {
   border-radius: 999px;
   padding: 1px 7px;
 }
+
+/* 表の列カーソル(h/l・←→で移動、Enterで編集)。選択行の現在セルを示す */
+.cell-cursor {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -1px;
+  border-radius: 5px;
+}

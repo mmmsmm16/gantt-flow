@@ -90,7 +90,11 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'row-prev-arrow', action: 'table.prev', context: 'table', chord: { key: 'arrowup' } },
   { id: 'row-first', action: 'table.first', context: 'table', chord: { key: 'g' }, leader: true, help: { group: G.table, label: '先頭の行へ(g g)' } },
   { id: 'row-last', action: 'table.last', context: 'table', chord: { key: 'g', shift: true }, help: { group: G.table, label: '末尾の行へ(G)' } },
-  { id: 'row-edit', action: 'table.edit', context: 'table', chord: { key: 'enter' }, fixed: true, help: { group: G.table, label: '名前を編集(Esc で戻る)' } },
+  { id: 'col-left', action: 'table.left', context: 'table', chord: { key: 'arrowleft' }, help: { group: G.table, label: '左右のセルへ移動' } },
+  { id: 'col-left-h', action: 'table.left', context: 'table', chord: { key: 'h' } },
+  { id: 'col-right', action: 'table.right', context: 'table', chord: { key: 'arrowright' } },
+  { id: 'col-right-l', action: 'table.right', context: 'table', chord: { key: 'l' } },
+  { id: 'row-edit', action: 'table.edit', context: 'table', chord: { key: 'enter' }, fixed: true, help: { group: G.table, label: '選択セルを編集(Esc で選択モードへ)' } },
   { id: 'row-edit-f2', action: 'table.edit', context: 'table', chord: { key: 'f2' }, fixed: true },
   { id: 'row-clear', action: 'table.clear', context: 'table', chord: { key: 'escape' }, fixed: true, help: { group: G.table, label: '選択を解除' } },
   { id: 'row-add', action: 'table.addSibling', context: 'table', chord: { key: 'n', shift: false }, help: { group: G.table, label: '次に工程を追加して編集' } },
@@ -125,7 +129,12 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'zoom-fit', action: 'flow.fit', context: 'flow', chord: { key: 'f' }, help: { group: G.flow, label: '全体表示(フィット)' } },
   { id: 'node-rename', action: 'flow.rename', context: 'flow', chord: { key: 'enter' }, fixed: true, help: { group: G.flow, label: '工程名をその場編集' } },
   { id: 'node-rename-f2', action: 'flow.rename', context: 'flow', chord: { key: 'f2' }, fixed: true },
-  { id: 'connect-mode', action: 'flow.connect', context: 'flow', chord: { key: 'c' }, help: { group: G.flow, label: '接続モード(Tab で候補 → Enter)' } },
+  { id: 'connect-mode', action: 'flow.connect', context: 'flow', chord: { key: 'c' }, help: { group: G.flow, label: '接続モード(矢印で候補 → Enter)' } },
+  // I/O の追加(選択中の工程)。i/o は単キー、Alt+I/O は常時有効の代替(Mac の Option 記号対策で code 判定)。
+  { id: 'add-input', action: 'flow.addInput', context: 'flow', chord: { key: 'i' }, help: { group: G.flow, label: 'インプットを追加(選択工程)' } },
+  { id: 'add-input-alt', action: 'flow.addInput', context: 'flow', chord: { code: 'KeyI', alt: true } },
+  { id: 'add-output', action: 'flow.addOutput', context: 'flow', chord: { key: 'o' }, help: { group: G.flow, label: 'アウトプットを追加(選択工程)' } },
+  { id: 'add-output-alt', action: 'flow.addOutput', context: 'flow', chord: { code: 'KeyO', alt: true } },
 ];
 
 // ---- 照合 ----

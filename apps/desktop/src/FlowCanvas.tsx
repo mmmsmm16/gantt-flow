@@ -47,6 +47,7 @@ export function FlowCanvas() {
   const level = useApp((s) => s.level);
   const scopeParentId = useApp((s) => s.scopeParentId);
   const showIssues = useApp((s) => s.showIssues);
+  const showMinimap = useUI((s) => s.minimap);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const moveNode = useApp((s) => s.moveNode);
@@ -633,6 +634,16 @@ export function FlowCanvas() {
           })();
         if (!tid) return false;
         setEditingTaskId(tid);
+        return true;
+      }
+      case 'flow.addInput':
+      case 'flow.addOutput': {
+        // 選択中の工程に I/O を追加(名前を尋ねてから登録。表/インスペクタにも反映)。
+        const targetId = keyTargets()[0];
+        const tn = targetId ? view.nodes[targetId] : undefined;
+        const taskId = tn?.kind === 'task' ? tn.taskId : selectedTaskId;
+        if (!taskId || !project.core.tasks[taskId]) return false;
+        void addIoPrompt(taskId, action === 'flow.addInput' ? 'inputs' : 'outputs');
         return true;
       }
       case 'flow.connect': {
@@ -1441,7 +1452,8 @@ export function FlowCanvas() {
         )}
       </div>
 
-      {nodes.some((n) => n.kind === 'task') &&
+      {showMinimap &&
+        nodes.some((n) => n.kind === 'task') &&
         (() => {
           const MW = 170;
           const MH = 116;

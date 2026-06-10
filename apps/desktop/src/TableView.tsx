@@ -131,12 +131,21 @@ export function TableView() {
     useUI.getState().setInspectorOpen(true); // 表の行クリックは従来どおり詳細パネルを開く
   };
 
-  // 行選択モード(編集外のキーボード操作)。j/k 移動・Enter 編集・n 追加などは
+  // 行選択モード(編集外のキーボード操作)。j/k=行移動・h/l=列カーソル・Enter=セル編集 などは
   // useGlobalHotkeys → 'table' コンテキスト経由でここに届く。
   const activePane = useUI((s) => s.activePane);
-  useRowSelectionKeys({
+  // 列カーソルの対象(表示順)。行内の data-cell 属性と対応。
+  const cursorColumns = [
+    'level',
+    'name',
+    'assignee',
+    ...(columnVisibility.prev ? ['prev'] : []),
+    ...(columnVisibility.effort ? ['effort'] : []),
+  ];
+  const { colIdx } = useRowSelectionKeys({
     enabled: activePane === 'table',
     orderedIds: rows.map((r) => r.task.id),
+    columns: cursorColumns,
     beginEdit: (id) => {
       const t = project.core.tasks[id];
       if (t) openRow(t); // 編集開始時のみフローの粒度/スコープを同期(j/k 中はしない)
@@ -146,6 +155,10 @@ export function TableView() {
       if (parentsWithChildren.has(id)) toggleCollapse(id);
     },
   });
+  const cursorCol = cursorColumns[colIdx];
+  // 選択行のカーソル列のセルを強調する(キーボードで「いまどのセルか」を示す)。
+  const cellCursorCls = (taskId: Id, key: string) =>
+    taskId === selectedTaskId && activePane === 'table' && cursorCol === key ? ' cell-cursor' : '';
 
   const commitName = (t: ProcessTask, value: string) => {
     if (value !== t.name) renameTask(t.id, value);
@@ -314,7 +327,8 @@ export function TableView() {
                     </td>
                     <td className="c-level" onClick={(e) => e.stopPropagation()}>
                       <select
-                        className={`lvl lvl-${t.level}`}
+                        className={`lvl lvl-${t.level}${cellCursorCls(t.id, 'level')}`}
+                        data-cell="level"
                         value={t.level}
                         aria-label="粒度"
                         onChange={(e) => setTaskLevel(t.id, e.target.value as ProcessLevel)}
@@ -351,7 +365,8 @@ export function TableView() {
                           />
                         )}
                         <input
-                          className={`name-input${detail?.textColor ? ' colored-text' : ''}`}
+                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                          data-cell="name"
                           style={
                             detail?.textColor
                               ? ({ '--task-text': TASK_COLORS[detail.textColor].text } as React.CSSProperties)
@@ -367,11 +382,13 @@ export function TableView() {
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
+                              // 確定して選択モードへ(誤挿入防止のため行追加はしない。追加は n / Ctrl+Enter)。
                               e.preventDefault();
+                              e.stopPropagation(); // blur 後にグローバルの Enter(セル編集)が再発火しないように
                               commitName(t, e.currentTarget.value);
-                              const id = addSiblingOf(t.id);
-                              if (id) setFocusId(id);
+                              e.currentTarget.blur();
                             } else if (e.key === 'Escape') {
+                              e.stopPropagation(); // グローバルの Esc(選択解除)を発火させない
                               e.currentTarget.value = t.name;
                               e.currentTarget.blur();
                             } else if (e.key === 'Tab') {
@@ -394,7 +411,8 @@ export function TableView() {
                     </td>
                     <td className="c-assignee">
                       <input
-                        className="assignee"
+                        className={`assignee${cellCursorCls(t.id, 'assignee')}`}
+                        data-cell="assignee"
                         list="assignee-names"
                         defaultValue={assigneeName}
                         key={`asg-${assigneeName}`}
@@ -427,7 +445,8 @@ export function TableView() {
                       ))}
                       {candidates.length > 0 && (
                         <select
-                          className="prev-add"
+                          className={`prev-add${cellCursorCls(t.id, 'prev')}`}
+                          data-cell="prev"
                           value=""
                           aria-label="前工程を追加"
                           onChange={(e) => {
@@ -452,7 +471,8 @@ export function TableView() {
                         </span>
                       ) : (
                         <input
-                          className="effort-input"
+                          className={`effort-input${cellCursorCls(t.id, 'effort')}`}
+                          data-cell="effort"
                           type="number"
                           min={0}
                           step={0.5}

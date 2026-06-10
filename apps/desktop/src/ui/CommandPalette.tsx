@@ -2,7 +2,7 @@
 // 引数付きコマンド（2 段階方式: コマンド選択 → 入力欄が引数モードに変わり、候補選択 or 自由入力で確定）。
 // アプリ全体の発見性と速度を上げる単一の入口。ファイル系操作は App からハンドラを受け取る。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ProcessLevel, ProcessTask, TaskColor, TaskStatus } from '@gantt-flow/core';
+import type { ProcessLevel, ProcessTask, TaskColor } from '@gantt-flow/core';
 import { computeCodes } from '@gantt-flow/core';
 import { useApp, findView } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
@@ -212,26 +212,6 @@ export function CommandPalette(handlers: FileHandlers) {
           const a = useApp.getState();
           if (a.selectedTaskId)
             a.updateDetail(a.selectedTaskId, { textColor: (v || undefined) as TaskColor | undefined });
-        },
-      },
-      {
-        id: 'arg-status',
-        label: 'ステータスを設定…',
-        keywords: 'status joukyou ステータス 進行 ヒアリング 確定',
-        available: hasSel,
-        arg: {
-          placeholder: 'ヒアリングの進行状態を選択',
-          options: () => [
-            { value: '', label: '未着手' },
-            { value: 'heard', label: 'ヒアリング済' },
-            { value: 'review', label: '確認待ち' },
-            { value: 'done', label: '確定' },
-          ],
-        },
-        runWithArg: (v) => {
-          const a = useApp.getState();
-          if (a.selectedTaskId)
-            a.updateDetail(a.selectedTaskId, { status: (v || undefined) as TaskStatus | undefined });
         },
       },
       {
@@ -572,6 +552,7 @@ export function CommandPalette(handlers: FileHandlers) {
       { id: 'issues-layer', label: '課題レイヤの表示を切り替え', keywords: 'issue kadai 課題 レイヤ', run: app.toggleIssues },
       { id: 'wide', label: '表を広く / 分割に戻す', keywords: 'wide hyou table 表', run: ui.toggleTableWide },
       { id: 'flow-wide', label: 'フローを広く / 分割に戻す', keywords: 'wide flow フロー 全幅 広く', run: ui.toggleFlowWide },
+      { id: 'minimap', label: 'ミニマップの表示を切り替え', keywords: 'minimap map ミニマップ 地図 俯瞰', run: () => useUI.getState().toggleMinimap() },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
       { id: 'summary', label: 'サマリを開く（工数・自動化）', keywords: 'summary dashboard サマリ 集計 工数', run: () => ui.setOverlay('summary') },

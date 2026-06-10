@@ -22,19 +22,17 @@ interface Group {
 // keymap に載らない操作(編集中のキー・マウスジェスチャ)は固定で併記する。
 const STATIC_GROUPS: Group[] = [
   {
-    title: '工程表（作業名の編集中）',
+    title: '工程表（セルの編集中）',
     items: [
-      { keys: ['Enter'], label: '次の行を追加' },
-      { keys: ['Tab'], label: '字下げ（子にする）' },
-      { keys: ['Shift', 'Tab'], label: '字上げ（親に出す）' },
-      { keys: ['Alt', '↑ / ↓'], label: '行を上下に移動' },
-      { keys: ['Esc'], label: '編集を取り消す' },
+      { keys: ['Enter'], label: '確定して選択モードへ戻る' },
+      { keys: ['Esc'], label: '編集をやめて選択モードへ戻る' },
+      { keys: ['Tab'], label: '字下げ（作業名のみ・子にする）' },
+      { keys: ['Alt', '↑ / ↓'], label: '行を上下に移動（作業名のみ）' },
     ],
   },
   {
     title: '全項目表（フル表）',
     items: [
-      { keys: ['Enter'], label: '作業名で次の行を追加 / セルで下へ移動' },
       { keys: [MOD, 'Enter'], label: '現在の行の次に工程を追加' },
       { keys: [MOD, 'D'], label: '現在の行を複製' },
       { keys: [MOD, 'Delete'], label: '現在の行（工程）を削除' },

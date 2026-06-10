@@ -51,6 +51,27 @@ describe('keymap: findBinding', () => {
     expect(b?.action).toBe('table.next');
   });
 
+  it('table コンテキストの h/l・←→ は列カーソル移動', () => {
+    expect(findBinding(ev({ key: 'h' }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action).toBe('table.left');
+    expect(findBinding(ev({ key: 'arrowright' }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action).toBe(
+      'table.right',
+    );
+    // シングルキーOFFでも矢印の列移動は残る
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'arrowleft' }), off, ['table'], false)?.action).toBe('table.left');
+    expect(findBinding(ev({ key: 'l' }), off, ['table'], false)).toBeUndefined();
+  });
+
+  it('フローの i/o で I/O 追加(Alt+KeyI/KeyO は常時有効の代替)', () => {
+    expect(findBinding(ev({ key: 'i' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.addInput');
+    expect(findBinding(ev({ key: 'o' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.addOutput');
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'i' }), off, ['flow'], false)).toBeUndefined(); // 単キーは OFF で消える
+    expect(
+      findBinding(ev({ key: 'ˆ', code: 'KeyI', altKey: true }), off, ['flow'], false)?.action,
+    ).toBe('flow.addInput'); // Alt 代替は残る
+  });
+
   it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動', () => {
     expect(findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
     expect(findBinding(ev({ key: 'arrowdown' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');

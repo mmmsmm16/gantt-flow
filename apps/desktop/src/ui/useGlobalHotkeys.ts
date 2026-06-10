@@ -153,6 +153,15 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
         return;
       }
 
+      // 編集中(input 等)の Esc = 編集を終了して選択モードへ戻る(表・フロー共通)。
+      // blur だけ行い選択は維持する(選択解除はもう一度 Esc)。独自 Esc 処理を持つ入力は
+      // stopPropagation でここに来ない(パレット等はオーバーレイガードで先に止まる)。
+      if (editable && e.key === 'Escape') {
+        (document.activeElement as HTMLElement).blur();
+        e.preventDefault();
+        return;
+      }
+
       const keymap = getActiveKeymap();
       const mod = e.ctrlKey || e.metaKey;
       const leaderActive = leader.isPending();

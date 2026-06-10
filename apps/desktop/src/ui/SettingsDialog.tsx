@@ -57,6 +57,8 @@ export function SettingsDialog() {
   const setTheme = useUI((s) => s.setTheme);
   const singleKey = useUI((s) => s.singleKey);
   const setSingleKey = useUI((s) => s.setSingleKey);
+  const minimap = useUI((s) => s.minimap);
+  const toggleMinimap = useUI((s) => s.toggleMinimap);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -146,6 +148,17 @@ export function SettingsDialog() {
                     j/k で行移動、n で工程追加、c で接続、g t/g f で画面移動などの
                     修飾キーなしの操作を有効化します。OFF でも矢印キー・Enter・Ctrl/⌘ 系の操作は使えます。
                   </small>
+                </span>
+              </label>
+            </section>
+
+            <section className="settings-section">
+              <h4>フロー図</h4>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={minimap} onChange={toggleMinimap} />
+                <span>
+                  <strong>ミニマップを表示する</strong>
+                  <small>フロー右下の全体俯瞰マップ。大きな図で現在地を確認しながら移動できます。</small>
                 </span>
               </label>
             </section>

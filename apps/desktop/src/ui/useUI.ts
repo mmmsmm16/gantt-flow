@@ -7,6 +7,7 @@ type Id = string;
 
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
+const MINIMAP_KEY = 'gf-minimap';
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
 const FT_W_KEY = 'gf-ft-widths';
@@ -160,6 +161,10 @@ interface UIState {
   settingsTab: 'general' | 'keys' | 'data';
   setSettingsTab: (tab: 'general' | 'keys' | 'data') => void;
 
+  /** フロー右下のミニマップを表示するか。localStorage 永続(既定 ON)。 */
+  minimap: boolean;
+  toggleMinimap: () => void;
+
   /** 詳細パネル(インスペクタ)を表示するか。「選択」とは独立(フローでは選択だけでは開かない)。 */
   inspectorOpen: boolean;
   setInspectorOpen: (open: boolean) => void;
@@ -257,6 +262,24 @@ export const useUI = create<UIState>((set, get) => ({
 
   settingsTab: 'general',
   setSettingsTab: (tab) => set({ settingsTab: tab }),
+
+  minimap: (() => {
+    try {
+      return localStorage.getItem(MINIMAP_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  })(),
+  toggleMinimap: () => {
+    const next = !get().minimap;
+    try {
+      if (next) localStorage.removeItem(MINIMAP_KEY);
+      else localStorage.setItem(MINIMAP_KEY, '0');
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ minimap: next });
+  },
 
   inspectorOpen: false,
   setInspectorOpen: (open) => set({ inspectorOpen: open }),
