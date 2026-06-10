@@ -129,6 +129,16 @@ export function FlowCanvas() {
     [],
   );
 
+  // 接続モードの現候補へ視点を追従(候補が画面外だと何を選んでいるか分からないため)。
+  // 'nearest' なので見えている間はスクロールせず、枠外のときだけ最小限寄せる。
+  useEffect(() => {
+    const id = kbConnect ? kbConnect.candidates[kbConnect.idx] : undefined;
+    if (!id) return;
+    document
+      .querySelector(`[data-nodeid="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [kbConnect]);
+
   // 接続モード中はモーダルにキーを横取りする(capture)。矢印/hjkl=方向で接続先を選ぶ、
   // Tab=距離順の循環、Enter=確定、Esc/c=取消。
   // stopPropagation で useGlobalHotkeys・既存 Delete/Esc ハンドラへは流さない。
