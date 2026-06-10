@@ -313,6 +313,8 @@ export function FlowCanvas() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || useUI.getState().overlay) return;
+      // Delete/Esc の所有者は常に 1 ペイン: 表がアクティブな間は表側(行選択モード)が担当する。
+      if (useUI.getState().activePane !== 'flow') return;
       const el = document.activeElement;
       const editable =
         el instanceof HTMLElement &&

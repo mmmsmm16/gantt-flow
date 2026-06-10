@@ -4,6 +4,7 @@ import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
+import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
 import * as Icons from './ui/icons';
 
 const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
@@ -126,6 +127,22 @@ export function TableView() {
     setScope(t.parentId);
   };
 
+  // 行選択モード(編集外のキーボード操作)。j/k 移動・Enter 編集・n 追加などは
+  // useGlobalHotkeys → 'table' コンテキスト経由でここに届く。
+  const activePane = useUI((s) => s.activePane);
+  useRowSelectionKeys({
+    enabled: activePane === 'table',
+    orderedIds: rows.map((r) => r.task.id),
+    beginEdit: (id) => {
+      const t = project.core.tasks[id];
+      if (t) openRow(t); // 編集開始時のみフローの粒度/スコープを同期(j/k 中はしない)
+      setFocusId(id); // 再レンダ後に名前入力へフォーカス
+    },
+    toggleCollapse: (id) => {
+      if (parentsWithChildren.has(id)) toggleCollapse(id);
+    },
+  });
+
   const commitName = (t: ProcessTask, value: string) => {
     if (value !== t.name) renameTask(t.id, value);
   };
@@ -247,6 +264,7 @@ export function TableView() {
                 return (
                   <tr
                     key={t.id}
+                    data-taskid={t.id}
                     className={[
                       t.id === selectedTaskId ? 'selected' : '',
                       dragId === t.id ? 'dragging' : '',
