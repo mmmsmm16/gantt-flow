@@ -2893,6 +2893,13 @@ kbd {
   text-align: center;
   color: var(--faint);
 }
+/* 逐次レンダリングのセンチネル（ここが見えたら次のチャンクを描画） */
+.ft-more {
+  padding: 14px;
+  text-align: center;
+  color: var(--faint);
+  font-size: 12px;
+}
 /* 一括選択でマークされた行（単一選択 .sel とは別の淡い強調） */
 .ft tbody tr.marked > td {
   background: var(--accent-soft);

@@ -58,6 +58,9 @@ const TOGGLE_COLS: { key: string; label: string }[] = [
   { key: 'difficulty', label: '難易度' },
 ];
 const SORTABLE = new Set(['large', 'medium', 'small', 'detail', 'assignee', 'effort', 'difficulty', 'automation']);
+// 大規模案件での描画負荷対策: まず CHUNK 行だけ描画し、末尾に近づいたら追加で描画する
+// （行の編集状態を壊さない逐次レンダリング。仮想化と違い描画済み行は外さない）。
+const ROW_CHUNK = 150;
 
 function flatten(tasks: ProcessTask[]): ProcessTask[] {
   const byParent = new Map<Id | undefined, ProcessTask[]>();
@@ -130,6 +133,9 @@ export function FullTable() {
   // 一括操作のための行マーク（複数選択）。Ctrl/⌘+クリックでトグル、Shift+クリックで範囲。
   const [marked, setMarked] = useState<Set<Id>>(new Set());
   const [anchor, setAnchor] = useState<Id | null>(null);
+  // 逐次レンダリング: 現在描画している行数（センチネルが見えたら増やす）。
+  const [renderCount, setRenderCount] = useState(ROW_CHUNK);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
 
   const byId = project.core.tasks;
@@ -154,13 +160,28 @@ export function FullTable() {
   };
   const lastStickyKey = visLevels.length ? visLevels[visLevels.length - 1]!.key : null;
 
-  // 新規追加した工程の作業名にフォーカス（連続入力）。
+  // 新規追加した工程の作業名にフォーカス（連続入力）。行がまだ描画されていなければ描画数を広げて待つ。
   useEffect(() => {
     if (!focusTask) return;
     const el = tableRef.current?.querySelector<HTMLInputElement>(`input[data-task="${focusTask}"]`);
-    el?.focus();
-    setFocusTask(null);
-  }, [focusTask, tasks.length]);
+    if (el) {
+      el.focus();
+      setFocusTask(null);
+    } else {
+      setRenderCount((c) => c + ROW_CHUNK); // 末尾付近に追加された行が未描画のケース
+    }
+  }, [focusTask, tasks.length, renderCount]);
+
+  // センチネル（表の末尾）が見えたら次のチャンクを描画。
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return undefined;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setRenderCount((c) => c + ROW_CHUNK);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  });
 
   const sortValue = (key: string, t: ProcessTask): number | string => {
     if (key === 'effort') return effortRollupMinutes(project.core, project.details, t.id);
@@ -202,6 +223,10 @@ export function FullTable() {
     });
   }
   const clearFilters = () => setFilters({ assignee: '', issues: false, noEffort: false, automation: '' });
+
+  // 逐次レンダリング: 描画するのは先頭 renderCount 行。末尾センチネルが見えたら拡張。
+  const renderRows = rows.length > renderCount ? rows.slice(0, renderCount) : rows;
+  const hasMore = rows.length > renderCount;
 
   const clickSort = (key: string) =>
     setSort((cur) => (cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
@@ -526,7 +551,7 @@ export function FullTable() {
           </tr>
         </thead>
         <tbody>
-          {rows.map((t, ri) => {
+          {renderRows.map((t, ri) => {
             const d = project.details[t.id];
             const hasChildren = parentsWithChildren.has(t.id);
             const assigneeName = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
@@ -770,6 +795,11 @@ export function FullTable() {
       </table>
       {filterActive && rows.length === 0 && (
         <div className="ft-empty-filter">条件に一致する工程がありません。</div>
+      )}
+      {hasMore && (
+        <div className="ft-more" ref={sentinelRef}>
+          {renderRows.length} / {rows.length} 行を表示中…（スクロールで続きを表示）
+        </div>
       )}
       </div>
     </div>
