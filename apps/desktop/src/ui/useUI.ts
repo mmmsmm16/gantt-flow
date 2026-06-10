@@ -118,6 +118,14 @@ interface UIState {
   tableMode: 'outline' | 'full';
   setTableMode: (mode: 'outline' | 'full') => void;
 
+  /** いまキーボード操作の対象になっているペイン（単キーのルーティングに使う）。 */
+  activePane: 'table' | 'flow';
+  setActivePane: (pane: 'table' | 'flow') => void;
+
+  /** g リーダーキー待機中（ステータスバーの表示用）。 */
+  leaderPending: boolean;
+  setLeaderPending: (pending: boolean) => void;
+
   /** 全項目表の列表示（true=表示。未指定キーは表示）。localStorage 永続。 */
   ftColumns: Record<string, boolean>;
   toggleFtColumn: (key: string) => void;
@@ -172,13 +180,21 @@ export const useUI = create<UIState>((set, get) => ({
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
 
   tableWide: false,
-  toggleTableWide: () => set({ tableWide: !get().tableWide, flowWide: false }),
+  toggleTableWide: () =>
+    set({ tableWide: !get().tableWide, flowWide: false, ...(get().tableWide ? {} : { activePane: 'table' as const }) }),
 
   flowWide: false,
-  toggleFlowWide: () => set({ flowWide: !get().flowWide, tableWide: false }),
+  toggleFlowWide: () =>
+    set({ flowWide: !get().flowWide, tableWide: false, ...(get().flowWide ? {} : { activePane: 'flow' as const }) }),
 
   tableMode: 'outline',
-  setTableMode: (mode) => set({ tableMode: mode }),
+  setTableMode: (mode) => set({ tableMode: mode, ...(mode === 'full' ? { activePane: 'table' as const } : {}) }),
+
+  activePane: 'table',
+  setActivePane: (pane) => set({ activePane: pane }),
+
+  leaderPending: false,
+  setLeaderPending: (pending) => set({ leaderPending: pending }),
 
   ftColumns: readFtColumns(),
   toggleFtColumn: (key) => {

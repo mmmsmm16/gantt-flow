@@ -323,6 +323,13 @@ button.danger:hover {
   box-shadow: var(--shadow);
   padding: 14px 16px;
 }
+/* キーボード操作の対象ペイン(activePane)。控えめな枠で「いまどちらに居るか」を示す。 */
+.pane.pane-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.pane:focus {
+  outline: none; /* ペイン自体のフォーカスリングは出さない(pane-active が代替) */
+}
 .pane h2 {
   font-size: 13px;
   font-weight: 700;

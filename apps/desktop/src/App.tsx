@@ -28,6 +28,7 @@ import { SummaryDialog } from './ui/SummaryDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
+import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
 import { Tour, tourDone } from './ui/Tour';
@@ -69,6 +70,8 @@ export function App() {
   const toggleFlowWide = useUI((s) => s.toggleFlowWide);
   const tableMode = useUI((s) => s.tableMode);
   const setTableMode = useUI((s) => s.setTableMode);
+  const activePane = useUI((s) => s.activePane);
+  const setActivePane = useUI((s) => s.setActivePane);
   const fullMode = tableMode === 'full';
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
@@ -202,53 +205,9 @@ export function App() {
     printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
   };
 
-  // グローバルショートカット: Ctrl/⌘+K=パレット, Ctrl/⌘+S=保存, Ctrl/⌘+Z=戻す,
-  // Ctrl+Y / Ctrl+Shift+Z=やり直し, ?=ヘルプ。IME 変換中は無視。テキスト編集中の
-  // undo/redo はネイティブ優先（保存・パレットは常に握る）。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing) return;
-      const el = document.activeElement;
-      const editable =
-        el instanceof HTMLElement &&
-        (el.tagName === 'INPUT' ||
-          el.tagName === 'TEXTAREA' ||
-          el.tagName === 'SELECT' ||
-          el.isContentEditable);
-
-      // 修飾なし: ? でショートカット一覧（編集中は無視）。
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (e.key === '?' && !editable) {
-          e.preventDefault();
-          useUI.getState().setOverlay(useUI.getState().overlay === 'help' ? null : 'help');
-        }
-        return;
-      }
-      if (!(e.ctrlKey || e.metaKey)) return;
-
-      const k = e.key.toLowerCase();
-      if (k === 'k') {
-        e.preventDefault();
-        useUI.getState().setOverlay(useUI.getState().overlay === 'palette' ? null : 'palette');
-        return;
-      }
-      if (k === 's') {
-        e.preventDefault();
-        onSave();
-        return;
-      }
-      if (editable) return;
-      if (k === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        useApp.getState().undo();
-      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
-        e.preventDefault();
-        useApp.getState().redo();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // グローバルショートカット(キーマップ駆動)。keymap.ts が単一の真実、
+  // ディスパッチは useGlobalHotkeys に一元化(IME・編集中・オーバーレイのガード込み)。
+  useGlobalHotkeys({ onSave: () => void onSave(), onPrint });
 
   // 未保存のまま閉じようとしたら確認（データ消失の防止）。
   useEffect(() => {
@@ -407,7 +366,13 @@ export function App() {
           }${flowWide ? ' flow-wide' : ''}`}
         >
           {!flowWide && (
-          <section className={`pane table-pane${fullMode ? ' full' : ''}`} id="main-table" tabIndex={-1} aria-label="工程表（手順一覧表）">
+          <section
+            className={`pane table-pane${fullMode ? ' full' : ''}${activePane === 'table' ? ' pane-active' : ''}`}
+            id="main-table"
+            tabIndex={-1}
+            aria-label="工程表（手順一覧表）"
+            onPointerDownCapture={() => setActivePane('table')}
+          >
             <div className="table-head">
               <h2>工程表（手順一覧表）</h2>
               <span className="seg table-mode-seg" role="group" aria-label="表示モード">
@@ -423,7 +388,12 @@ export function App() {
           </section>
           )}
           {!tableWide && !fullMode && (
-            <section className="pane flow-pane" aria-label="工程フロー図">
+            <section
+              className={`pane flow-pane${activePane === 'flow' ? ' pane-active' : ''}`}
+              tabIndex={-1}
+              aria-label="工程フロー図"
+              onPointerDownCapture={() => setActivePane('flow')}
+            >
               <div className="flow-head">
                 <h2>工程フロー</h2>
                 <span className="seg" role="group" aria-label="粒度">
