@@ -72,6 +72,17 @@ export function FlowCanvas() {
     if (name !== null) addIo(taskId, io, name);
   };
 
+  // 矢印の分岐ラベルを編集（ダブルクリック / ミニツールバー共通）。
+  const editEdgeLabel = async (edgeId: string, current: string) => {
+    const l = await useUI.getState().promptText({
+      title: '分岐ラベル',
+      placeholder: '空で消去',
+      defaultValue: current,
+      confirmLabel: '設定',
+    });
+    if (l !== null) setEdgeLabel(edgeId, l);
+  };
+
   const canvasRef = useRef<HTMLDivElement>(null);
   const laneRailRef = useRef<HTMLDivElement>(null); // 担当ラベルの固定レール（横スクロールで左端に貼り付く）
   // ノードを掴んだ画面座標と「実際に動かしたか」。ドラッグ移動後の click では選択（詳細パネル）を出さない。
@@ -671,15 +682,7 @@ export function FlowCanvas() {
                   className="edge-hit"
                   style={{ pointerEvents: 'stroke' }}
                   onClick={() => setSel({ kind: 'edge', id: e.id })}
-                  onDoubleClick={async () => {
-                    const l = await useUI.getState().promptText({
-                      title: '分岐ラベル',
-                      placeholder: '空で消去',
-                      defaultValue: e.label ?? '',
-                      confirmLabel: '設定',
-                    });
-                    if (l !== null) setEdgeLabel(e.id, l);
-                  }}
+                  onDoubleClick={() => void editEdgeLabel(e.id, e.label ?? '')}
                   onContextMenu={(ev) => {
                     ev.preventDefault();
                     deleteEdge(e.id);
@@ -722,6 +725,40 @@ export function FlowCanvas() {
             })}
 
         </svg>
+
+        {/* 選択中の矢印に小さなツールバー（ラベル編集 / 削除）を浮かべて、操作を見えるようにする。 */}
+        {sel?.kind === 'edge' &&
+          (() => {
+            const e = view.edges[sel.id];
+            if (!e) return null;
+            const s = view.nodes[e.source];
+            const t = view.nodes[e.target];
+            if (!s || !t) return null;
+            const sp = posOf(s);
+            const ss = sizeOf(s);
+            const tp = posOf(t);
+            const x1 = sp.x + ss.w;
+            const y1 = sp.y + ss.h / 2;
+            const x2 = tp.x;
+            const y2 = tp.y + sizeOf(t).h / 2;
+            return (
+              <div className="edge-toolbar" style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2 }}>
+                <button title="分岐ラベルを編集" onClick={() => void editEdgeLabel(e.id, e.label ?? '')}>
+                  ✎ ラベル
+                </button>
+                <button
+                  className="danger"
+                  title="この矢印を削除"
+                  onClick={() => {
+                    deleteEdge(e.id);
+                    setSel(null);
+                  }}
+                >
+                  🗑 削除
+                </button>
+              </div>
+            );
+          })()}
 
         {divNodes.map((n) => {
           if (n.kind === 'issue' && !isPrimaryIssue(n)) return null; // 集約: 代表ノードのみ描画

@@ -2003,6 +2003,36 @@ kbd {
   outline: 2px dashed var(--accent);
   outline-offset: 2px;
 }
+/* 選択中の矢印に浮かぶミニツールバー（ラベル編集 / 削除） */
+.edge-toolbar {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  transform: translate(-50%, -130%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.edge-toolbar button {
+  font-size: 11px;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink);
+}
+.edge-toolbar button:hover {
+  background: var(--hover);
+}
+.edge-toolbar button.danger:hover {
+  background: var(--danger-soft, var(--accent-soft));
+  color: var(--danger);
+}
 /* 範囲選択の矩形（ラバーバンド） */
 .flow-band {
   position: absolute;
@@ -2051,12 +2081,14 @@ kbd {
   transform: translateX(-50%);
   border-radius: 2px;
   background: var(--line-strong);
-  opacity: 0;
-  transition: opacity 0.12s;
+  opacity: 0.35; /* 常に薄く見せて「ここで高さを変えられる」ことを示す */
+  transition: opacity 0.12s, width 0.12s, height 0.12s;
 }
 .lane-label:hover .lane-resize::after,
 .lane-resize:hover::after {
   opacity: 1;
+  width: 34px;
+  height: 4px;
 }
 .lane-resize:hover::after {
   background: var(--accent);
