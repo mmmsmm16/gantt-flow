@@ -61,6 +61,7 @@ export function FlowCanvas() {
   const moveNodesBy = useApp((s) => s.moveNodesBy);
   const deleteFlowNodes = useApp((s) => s.deleteFlowNodes);
   const removeManyTasks = useApp((s) => s.removeManyTasks);
+  const renameTask = useApp((s) => s.renameTask);
 
   // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
   const addIoPrompt = async (taskId: string, io: 'inputs' | 'outputs') => {
@@ -97,6 +98,8 @@ export function FlowCanvas() {
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   // ミニマップ用の可視領域（スクロール位置とビューサイズ。スクロール/リサイズで更新）。
   const [vp, setVp] = useState({ left: 0, top: 0, w: 0, h: 0 });
+  // フロー上で工程名をその場編集している対象（ダブルクリック / F2）。
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [panning, setPanning] = useState(false);
@@ -171,6 +174,18 @@ export function FlowCanvas() {
   const spawnPos = (w: number, h: number) => {
     const c = viewportCenter();
     return c ? { x: c.x - w / 2, y: c.y - h / 2 } : { x: undefined, y: undefined };
+  };
+
+  // 空白をダブルクリック → その位置に工程を新規作成（ノード上は各自の編集に委ねる）。
+  const onCanvasDoubleClick = (e: React.MouseEvent) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('.node, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar')) return;
+    if ((e.target as Element).closest('svg.edges')) {
+      // 矢印（edge-hit）上のダブルクリックはラベル編集に委ねるため、線以外の余白だけで作成。
+      if ((e.target as HTMLElement).classList.contains('edge-hit')) return;
+    }
+    const p = relPoint(e);
+    addTaskAt(p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
   };
 
   const relPoint = (e: { clientX: number; clientY: number }) => {
@@ -640,6 +655,7 @@ export function FlowCanvas() {
         className={`flow-canvas${panning ? ' panning' : ''}${conn ? ' connecting' : ''}`}
         ref={canvasRef}
         onPointerDown={onCanvasPointerDown}
+        onDoubleClick={onCanvasDoubleClick}
       >
         <div
           className="flow-scale"
@@ -890,9 +906,20 @@ export function FlowCanvas() {
                 activate();
               }}
               onKeyDown={(e) => {
+                if (n.kind === 'task' && e.key === 'F2') {
+                  e.preventDefault();
+                  setEditingTaskId(n.taskId);
+                  return;
+                }
                 if (focusable && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault();
                   activate();
+                }
+              }}
+              onDoubleClick={(e) => {
+                if (n.kind === 'task') {
+                  e.stopPropagation();
+                  setEditingTaskId(n.taskId); // その場で名前を編集
                 }
               }}
             >
@@ -919,6 +946,31 @@ export function FlowCanvas() {
                     </ul>
                   );
                 })()
+              ) : n.kind === 'task' && editingTaskId === n.taskId ? (
+                <input
+                  className="node-edit"
+                  defaultValue={project.core.tasks[n.taskId]?.name ?? ''}
+                  aria-label="工程名"
+                  autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => {
+                    renameTask(n.taskId, e.target.value);
+                    setEditingTaskId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      renameTask(n.taskId, e.currentTarget.value);
+                      setEditingTaskId(null);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingTaskId(null);
+                    }
+                  }}
+                />
               ) : (
                 <span className="node-label">{labelOf(n)}</span>
               )}

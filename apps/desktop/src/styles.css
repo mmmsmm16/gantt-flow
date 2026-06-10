@@ -1006,6 +1006,23 @@ button.danger:hover {
   position: relative;
   z-index: 1;
 }
+/* フロー上で工程名をその場編集する入力 */
+.node-edit {
+  position: relative;
+  z-index: 2;
+  width: 92%;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font: inherit;
+  text-align: center;
+  background: var(--panel);
+  color: var(--ink);
+}
+.node-edit:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
 
 /* ---- Inspector ---- */
 .inspector {
