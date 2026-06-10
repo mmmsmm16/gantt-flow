@@ -2893,6 +2893,24 @@ kbd {
   text-align: center;
   color: var(--faint);
 }
+/* ステータス（ヒアリング進行）の色分け。文字色で状態を示す（select のまま軽量に） */
+.ft-status.st-heard,
+.insp-status.st-heard {
+  color: #b07a1e;
+}
+.ft-status.st-review,
+.insp-status.st-review {
+  color: #2f6fb0;
+}
+.ft-status.st-done,
+.insp-status.st-done {
+  color: #2f8f5b;
+  font-weight: 600;
+}
+.ft-status.st-todo,
+.insp-status.st-todo {
+  color: var(--faint);
+}
 /* 逐次レンダリングのセンチネル（ここが見えたら次のチャンクを描画） */
 .ft-more {
   padding: 14px;

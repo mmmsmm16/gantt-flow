@@ -334,6 +334,7 @@ export type TaskDetailPatch = Partial<
     | 'dataLink'
     | 'regulation'
     | 'difficulty'
+    | 'status'
   >
 >;
 

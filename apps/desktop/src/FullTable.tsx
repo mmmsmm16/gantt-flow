@@ -3,7 +3,7 @@
 // 課題/方策は独立列。列の表示切替・並べ替え・幅のドラッグ調整、テキスト列は折り返して全文表示。
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
 import { useEffect, useRef, useState } from 'react';
-import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind } from '@gantt-flow/core';
+import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames } from './suggestions';
@@ -25,21 +25,29 @@ const AUTOMATION: { key: Automation | ''; label: string }[] = [
 ];
 const DIFFICULTY: (Difficulty | '')[] = ['', 'H', 'M', 'L'];
 const DIFF_RANK: Record<string, number> = { H: 3, M: 2, L: 1, '': 0 };
+export const STATUS: { key: TaskStatus | ''; label: string }[] = [
+  { key: '', label: '未着手' },
+  { key: 'heard', label: 'ヒアリング済' },
+  { key: 'review', label: '確認待ち' },
+  { key: 'done', label: '確定' },
+];
+const STATUS_RANK: Record<string, number> = { '': 0, todo: 0, heard: 1, review: 2, done: 3 };
 
 // 列の定義順（No. と act は常時表示）。
 const COL_ORDER = [
-  'no', 'large', 'medium', 'small', 'detail', 'assignee', 'prev', 'effort',
+  'no', 'large', 'medium', 'small', 'detail', 'status', 'assignee', 'prev', 'effort',
   'how', 'system', 'inputs', 'outputs', 'issue', 'measure', 'note', 'volume',
   'exception', 'automation', 'dataLink', 'regulation', 'difficulty', 'act',
 ] as const;
 const DEFAULT_W: Record<string, number> = {
-  no: 48, large: 110, medium: 110, small: 110, detail: 110, assignee: 110, prev: 150,
+  no: 48, large: 110, medium: 110, small: 110, detail: 110, status: 116, assignee: 110, prev: 150,
   effort: 64, how: 200, system: 170, inputs: 168, outputs: 168, issue: 200, measure: 200,
   note: 200, volume: 130, exception: 180, automation: 108, dataLink: 140, regulation: 140,
   difficulty: 62, act: 96,
 };
 const TOGGLE_COLS: { key: string; label: string }[] = [
   ...LEVELS,
+  { key: 'status', label: 'ステータス' },
   { key: 'assignee', label: '担当' },
   { key: 'prev', label: '前工程' },
   { key: 'effort', label: '工数' },
@@ -57,7 +65,7 @@ const TOGGLE_COLS: { key: string; label: string }[] = [
   { key: 'regulation', label: '関連規程' },
   { key: 'difficulty', label: '難易度' },
 ];
-const SORTABLE = new Set(['large', 'medium', 'small', 'detail', 'assignee', 'effort', 'difficulty', 'automation']);
+const SORTABLE = new Set(['large', 'medium', 'small', 'detail', 'status', 'assignee', 'effort', 'difficulty', 'automation']);
 // 大規模案件での描画負荷対策: まず CHUNK 行だけ描画し、末尾に近づいたら追加で描画する
 // （行の編集状態を壊さない逐次レンダリング。仮想化と違い描画済み行は外さない）。
 const ROW_CHUNK = 150;
@@ -121,13 +129,14 @@ export function FullTable() {
   const setFtColWidth = useUI((s) => s.setFtColWidth);
 
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
-  // 絞り込み（AND 条件）。担当・課題あり・工数未入力・自動化区分。
-  const [filters, setFilters] = useState<{ assignee: string; issues: boolean; noEffort: boolean; automation: Automation | '' }>({
-    assignee: '',
-    issues: false,
-    noEffort: false,
-    automation: '',
-  });
+  // 絞り込み（AND 条件）。担当・課題あり・工数未入力・自動化区分・ステータス。
+  const [filters, setFilters] = useState<{
+    assignee: string;
+    issues: boolean;
+    noEffort: boolean;
+    automation: Automation | '';
+    status: TaskStatus | '' | 'any';
+  }>({ assignee: '', issues: false, noEffort: false, automation: '', status: 'any' });
   const [resizing, setResizing] = useState<{ key: string; w: number } | null>(null);
   const [focusTask, setFocusTask] = useState<Id | null>(null);
   // 一括操作のための行マーク（複数選択）。Ctrl/⌘+クリックでトグル、Shift+クリックで範囲。
@@ -187,6 +196,7 @@ export function FullTable() {
     if (key === 'effort') return effortRollupMinutes(project.core, project.details, t.id);
     if (key === 'assignee') return t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
     if (key === 'difficulty') return DIFF_RANK[project.details[t.id]?.difficulty ?? ''] ?? 0;
+    if (key === 'status') return STATUS_RANK[project.details[t.id]?.status ?? ''] ?? 0;
     if (key === 'automation') return project.details[t.id]?.automation ?? '';
     if (key === 'large' || key === 'medium' || key === 'small' || key === 'detail')
       return ancestryNames(t, byId)[key] ?? '';
@@ -205,7 +215,8 @@ export function FullTable() {
   }
 
   // 絞り込みを適用（表示行を減らすだけ。階層の文脈列は各行が祖先名を出すので破綻しない）。
-  const filterActive = !!filters.assignee || filters.issues || filters.noEffort || !!filters.automation;
+  const filterActive =
+    !!filters.assignee || filters.issues || filters.noEffort || !!filters.automation || filters.status !== 'any';
   if (filterActive) {
     rows = rows.filter((t) => {
       const d = project.details[t.id];
@@ -219,10 +230,12 @@ export function FullTable() {
         if (parentsWithChildren.has(t.id) || d?.effortMinutes != null) return false;
       }
       if (filters.automation && d?.automation !== filters.automation) return false;
+      if (filters.status !== 'any' && (d?.status ?? '') !== filters.status) return false;
       return true;
     });
   }
-  const clearFilters = () => setFilters({ assignee: '', issues: false, noEffort: false, automation: '' });
+  const clearFilters = () =>
+    setFilters({ assignee: '', issues: false, noEffort: false, automation: '', status: 'any' });
 
   // 逐次レンダリング: 描画するのは先頭 renderCount 行。末尾センチネルが見えたら拡張。
   const renderRows = rows.length > renderCount ? rows.slice(0, renderCount) : rows;
@@ -484,6 +497,19 @@ export function FullTable() {
             </option>
           ))}
         </select>
+        <select
+          className="ft-filter-sel"
+          value={filters.status}
+          aria-label="ステータスで絞り込み"
+          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value as TaskStatus | '' | 'any' }))}
+        >
+          <option value="any">状態: すべて</option>
+          {STATUS.map((s) => (
+            <option key={s.key} value={s.key}>
+              状態: {s.label}
+            </option>
+          ))}
+        </select>
         {filterActive && (
           <>
             <button className="ft-filter-clear" onClick={clearFilters}>
@@ -531,6 +557,7 @@ export function FullTable() {
                   />
                 ),
             )}
+            {vis('status') && <Th k="status" label="ステータス" cls="ft-c-status" />}
             {vis('assignee') && <Th k="assignee" label="担当" cls="ft-c-assignee" />}
             {vis('prev') && <Th k="prev" label="前工程" cls="ft-c-prev" />}
             {vis('effort') && <Th k="effort" label="工数" cls="ft-c-effort" />}
@@ -611,6 +638,24 @@ export function FullTable() {
                     </td>
                   );
                 })}
+                {vis('status') && (
+                  <td className="ft-c-status" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      className={`ft-in ft-status st-${d?.status ?? 'todo'}`}
+                      value={d?.status ?? ''}
+                      aria-label="ステータス"
+                      onChange={(e) =>
+                        updateDetail(t.id, { status: (e.target.value || undefined) as TaskStatus | undefined })
+                      }
+                    >
+                      {STATUS.map((s) => (
+                        <option key={s.key} value={s.key}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                )}
                 {vis('assignee') && (
                   <td className="ft-c-assignee" onClick={(e) => e.stopPropagation()}>
                     <input

@@ -41,6 +41,8 @@ export interface Core {
 
 export type Automation = 'manual' | 'system' | 'partial';
 export type Difficulty = 'H' | 'M' | 'L';
+/** ヒアリングの進行状態。未着手 / ヒアリング済 / 確認待ち / 確定。 */
+export type TaskStatus = 'todo' | 'heard' | 'review' | 'done';
 export type IoKind = 'doc' | 'info'; // 帳票 / 情報
 
 export interface IoItem {
@@ -75,6 +77,7 @@ export interface TaskDetail {
   dataLink?: string;
   regulation?: string;
   difficulty?: Difficulty;
+  status?: TaskStatus; // ヒアリング進行管理（任意・未指定は未着手扱い）
 }
 
 // ---- フロー詳細（図にだけある情報・同期で保持） ----

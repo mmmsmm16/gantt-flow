@@ -1,4 +1,4 @@
-import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem } from '@gantt-flow/core';
+import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames } from './suggestions';
@@ -62,6 +62,17 @@ export function Inspector() {
       <div className="insp-scroll">
         <section>
           <h3>基本</h3>
+          <label>ステータス（ヒアリング進行）</label>
+          <select
+            className={`insp-status st-${d?.status ?? 'todo'}`}
+            value={d?.status ?? ''}
+            onChange={(e) => updateDetail(taskId, { status: (e.target.value || undefined) as TaskStatus | undefined })}
+          >
+            <option value="">未着手</option>
+            <option value="heard">ヒアリング済</option>
+            <option value="review">確認待ち</option>
+            <option value="done">確定</option>
+          </select>
           <label>工程No（空欄で自動採番）</label>
           <input
             defaultValue={task.code ?? ''}

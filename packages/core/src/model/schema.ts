@@ -68,6 +68,7 @@ const TaskDetail = z.object({
   dataLink: z.string().optional(),
   regulation: z.string().optional(),
   difficulty: z.enum(['H', 'M', 'L']).optional(),
+  status: z.enum(['todo', 'heard', 'review', 'done']).optional(),
 });
 
 const xy = { id: z.string(), x: z.number(), y: z.number() };
