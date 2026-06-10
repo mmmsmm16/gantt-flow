@@ -8,6 +8,7 @@ import {
   deserializeProject,
   projectToRows,
   projectToCsv,
+  computeCodes,
   type Project,
   type FlowLevelView,
 } from '@gantt-flow/core';
@@ -112,6 +113,29 @@ export async function saveProjectToFile(
 export function exportCsvFile(project: Project): string {
   const name = `${safeName(project.meta.title)}.csv`;
   download(name, '﻿' + projectToCsv(project), 'text/csv;charset=utf-8');
+  return name;
+}
+
+// 課題一覧を Excel に書き出す（コンサル定番の納品物「課題一覧表」）。
+export function exportIssuesExcel(project: Project): string {
+  const codes = computeCodes(project.core);
+  const rows: string[][] = [['工程No', '工程', '担当', '課題', '方策']];
+  const ordered = Object.values(project.core.tasks).sort((a, b) =>
+    (codes[a.id] ?? '').localeCompare(codes[b.id] ?? '', undefined, { numeric: true }),
+  );
+  for (const t of ordered) {
+    const assignee = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
+    for (const iss of project.details[t.id]?.issues ?? []) {
+      if (!iss.issue.trim() && !iss.measure?.trim()) continue;
+      rows.push([codes[t.id] ?? '', t.name, assignee, iss.issue, iss.measure ?? '']);
+    }
+  }
+  const name = `${safeName(project.meta.title)}-課題一覧.xlsx`;
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '課題一覧');
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   return name;
 }
 

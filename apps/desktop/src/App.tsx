@@ -22,6 +22,8 @@ import * as Icons from './ui/icons';
 import { Menu, MenuItem } from './ui/Menu';
 import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
+import { IssueListDialog } from './ui/IssueListDialog';
+import { SummaryDialog } from './ui/SummaryDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
@@ -329,6 +331,25 @@ export function App() {
           <Icons.Printer />
         </button>
 
+        <span className="tool-group" role="group" aria-label="ビュー">
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('issues')}
+            aria-label="課題一覧"
+            title="課題一覧（工程横断）"
+          >
+            <Icons.ListChecks />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('summary')}
+            aria-label="サマリ"
+            title="サマリ（担当別工数・自動化など）"
+          >
+            <Icons.ChartBar />
+          </button>
+        </span>
+
         <button
           className="icon-btn"
           onClick={toggleTheme}
@@ -444,6 +465,8 @@ export function App() {
         onPrint={onPrint}
       />
       <HelpDialog />
+      <IssueListDialog />
+      <SummaryDialog />
       <Modal />
       <Toaster />
     </div>
