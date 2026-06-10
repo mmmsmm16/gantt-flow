@@ -234,6 +234,49 @@ export function findConflict(
   );
 }
 
+// ---- シングルキー操作(Vim 風)のフィルタ ----
+// 修飾なしの単キー(j/k/n/c/f/v/u///+/-/0/Space/gリーダー等)は誤爆しやすく学習コストが高いため、
+// 既定では無効。設定で ON にすると使えるようになる。矢印・Ctrl/⌘系・F2/F6・fixed(Enter/Esc/
+// Delete/Tab/?)は常時有効。判定はユーザー上書き適用後の chord に対して行う。
+
+export function isSingleKeyChord(c: Chord): boolean {
+  if (c.mod || c.alt) return false;
+  if (c.key && c.key.length === 1) return true;
+  // 防御: code ベース(KeyJ/Digit1 等)で単キーを割り当てた場合も拾う
+  if (!c.key && !!c.code && /^(Key|Digit)/.test(c.code)) return true;
+  return false;
+}
+
+export function isSingleKeyBinding(b: KeyBinding): boolean {
+  return !b.fixed && (!!b.leader || isSingleKeyChord(b.chord));
+}
+
+/** シングルキー操作が OFF のとき、該当バインドを取り除いた実効キーマップを返す。 */
+export function filterKeymapForSingleKey(keymap: KeyBinding[], enabled: boolean): KeyBinding[] {
+  return enabled ? keymap : keymap.filter((b) => !isSingleKeyBinding(b));
+}
+
+const SINGLE_KEY_KEY = 'gf-single-key';
+
+/** シングルキー操作(Vim 風)が有効か。既定は false(OFF)。 */
+export function loadSingleKeyEnabled(): boolean {
+  try {
+    return localStorage.getItem(SINGLE_KEY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveSingleKeyEnabled(enabled: boolean): void {
+  try {
+    if (enabled) localStorage.setItem(SINGLE_KEY_KEY, '1');
+    else localStorage.removeItem(SINGLE_KEY_KEY);
+  } catch {
+    /* 永続化失敗は無視 */
+  }
+  invalidateKeymapCache();
+}
+
 // ---- 実効キーマップ(既定 + ユーザー上書き) ----
 
 const OVERRIDES_KEY = 'gf-keybindings-v1';
@@ -257,12 +300,24 @@ export function saveOverrides(overrides: KeymapOverrides): void {
   } catch {
     /* 永続化失敗は無視(メモリ上は反映済み) */
   }
-  cachedKeymap = null; // 次回 getActiveKeymap で再計算
+  invalidateKeymapCache();
 }
 
-/** いま有効なキーマップ(既定 + ユーザー上書き)。表示(ヘルプ)と動作の両方がこれを参照する。 */
+/** 設定変更(上書き/シングルキー)時にキャッシュを破棄して次回再計算させる。 */
+export function invalidateKeymapCache(): void {
+  cachedKeymap = null;
+}
+
+/** いま有効なキーマップ(既定 + ユーザー上書き + シングルキーOFFのフィルタ)。
+    表示(ヘルプ)と動作の両方がこれを参照する=見えるものと効くものが常に一致。 */
 export function getActiveKeymap(): KeyBinding[] {
-  if (!cachedKeymap) cachedKeymap = resolveKeymap(DEFAULT_KEYMAP, loadOverrides());
+  if (!cachedKeymap) {
+    // 上書き適用 → フィルタの順(カスタムで単キー化したバインドも OFF 時は消える)
+    cachedKeymap = filterKeymapForSingleKey(
+      resolveKeymap(DEFAULT_KEYMAP, loadOverrides()),
+      loadSingleKeyEnabled(),
+    );
+  }
   return cachedKeymap;
 }
 

@@ -7,6 +7,8 @@ import {
   resolveKeymap,
   findConflict,
   chordKeys,
+  isSingleKeyBinding,
+  filterKeymapForSingleKey,
   type KeyLike,
 } from '../src/keymap';
 
@@ -132,6 +134,68 @@ describe('keymap: findConflict(重複検出)', () => {
     const target = DEFAULT_KEYMAP.find((b) => b.id === 'row-add')!; // table
     const conflict = findConflict(DEFAULT_KEYMAP, target, { key: 'c' }); // flow の接続モード
     expect(conflict).toBeUndefined();
+  });
+});
+
+describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
+  const byId = (id: string) => DEFAULT_KEYMAP.find((b) => b.id === id)!;
+
+  it('修飾なし単キー(j/n/+/=/-/0/Space/G/N)とリーダー(gg/g t)はシングルキー判定', () => {
+    for (const id of [
+      'row-next', // j
+      'row-add', // n
+      'row-add-child', // Shift+N
+      'row-last', // G(Shift+g)
+      'row-collapse', // Space
+      'zoom-in', // +
+      'zoom-in-eq', // =
+      'zoom-out', // -
+      'zoom-reset', // 0
+      'undo-u', // u
+      'table-mode', // v
+      'palette-slash', // /
+      'connect-mode', // c
+      'row-first', // g g(leader)
+      'go-table', // g t(leader)
+    ]) {
+      expect(isSingleKeyBinding(byId(id)), id).toBe(true);
+    }
+  });
+
+  it('矢印・Alt+矢印・mod系・F2/F6・fixed(?/Enter/Delete/Tab)は対象外', () => {
+    for (const id of [
+      'row-next-arrow', // ↓
+      'row-move-up', // Alt+↑
+      'palette', // ⌘K
+      'row-duplicate', // ⌘D
+      'pane-toggle', // F6
+      'row-edit-f2', // F2
+      'help', // ?(fixed)
+      'row-edit', // Enter(fixed)
+      'row-delete', // Delete(fixed)
+      'row-indent', // Tab(fixed)
+    ]) {
+      expect(isSingleKeyBinding(byId(id)), id).toBe(false);
+    }
+  });
+
+  it('OFF では単キーが実効キーマップから消え、ON ではそのまま', () => {
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'j' }), off, ['table'], false)).toBeUndefined();
+    expect(findBinding(ev({ key: 'arrowdown' }), off, ['table'], false)?.action).toBe('table.next'); // 矢印は残る
+    expect(findBinding(ev({ key: 't' }), off, ['global'], true)).toBeUndefined(); // リーダーも消える
+    const on = filterKeymapForSingleKey(DEFAULT_KEYMAP, true);
+    expect(findBinding(ev({ key: 'j' }), on, ['table'], false)?.action).toBe('table.next');
+  });
+
+  it('カスタムで単キー化したバインドも OFF では消える(resolve → filter の順)', () => {
+    const resolved = resolveKeymap(DEFAULT_KEYMAP, { save: { key: 's' } }); // ⌘S → s に変更
+    const off = filterKeymapForSingleKey(resolved, false);
+    expect(findBinding(ev({ key: 's' }), off, ['global'], false)).toBeUndefined();
+    // code ベースの単キー(KeyJ)も防御的に拾う
+    const resolved2 = resolveKeymap(DEFAULT_KEYMAP, { save: { code: 'KeyS' } });
+    const off2 = filterKeymapForSingleKey(resolved2, false);
+    expect(off2.find((b) => b.id === 'save')).toBeUndefined();
   });
 });
 
