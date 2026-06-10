@@ -2475,6 +2475,34 @@ kbd {
 .palette-esc {
   color: var(--faint);
 }
+/* 引数モード: 選択中コマンドのチップ（Esc で一覧へ戻る） */
+.palette-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.palette-error {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--danger);
+  border-bottom: 1px solid var(--line);
+}
+.palette-item.free .pi-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+.pi-arg-mark {
+  color: var(--faint);
+  font-weight: 700;
+  margin-left: -4px;
+}
 .palette-list {
   max-height: 52vh;
   overflow: auto;

@@ -1,7 +1,8 @@
-// コマンドパレット（Ctrl/⌘+K）。アクション実行 ＋ 工程名/工程No での検索ジャンプ。
+// コマンドパレット（Ctrl/⌘+K）。アクション実行 ＋ 工程名/工程No での検索ジャンプ ＋
+// 引数付きコマンド（2 段階方式: コマンド選択 → 入力欄が引数モードに変わり、候補選択 or 自由入力で確定）。
 // アプリ全体の発見性と速度を上げる単一の入口。ファイル系操作は App からハンドラを受け取る。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ProcessLevel } from '@gantt-flow/core';
+import type { ProcessLevel, ProcessTask } from '@gantt-flow/core';
 import { computeCodes } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
@@ -22,13 +23,34 @@ interface FileHandlers {
   onPrint: () => void;
 }
 
+/** 引数モードの候補。value が確定値（runWithArg に渡る）。 */
+export interface ArgOption {
+  value: string;
+  label: string;
+  detail?: string;
+}
+
+/** 引数付きコマンドの仕様。候補は実行時に評価（プロジェクトの最新状態を見る）。 */
+export interface ArgSpec {
+  placeholder: string;
+  /** 候補に無い自由入力で確定できるか。 */
+  freeText?: boolean;
+  options?: () => ArgOption[];
+  defaultValue?: () => string;
+  /** null=OK / 文字列=エラーメッセージ（確定を中止して表示）。 */
+  validate?: (value: string) => string | null;
+}
+
 interface Cmd {
   id: string;
   label: string;
   keywords: string;
   hint?: string;
-  run: () => void;
   available?: boolean;
+  run?: () => void;
+  /** 指定すると「選択 → 引数入力」の 2 段階コマンドになる。 */
+  arg?: ArgSpec;
+  runWithArg?: (value: string, opt?: ArgOption) => void;
 }
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
@@ -60,6 +82,9 @@ export function CommandPalette(handlers: FileHandlers) {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  // 引数モード: 選択中のコマンド（null=コマンド一覧）。Esc / 空欄 Backspace で一覧へ戻る。
+  const [argCmd, setArgCmd] = useState<Cmd | null>(null);
+  const [argError, setArgError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -75,6 +100,8 @@ export function CommandPalette(handlers: FileHandlers) {
     if (open) {
       setQuery('');
       setActive(0);
+      setArgCmd(null);
+      setArgError(null);
       const t = setTimeout(() => inputRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
@@ -84,6 +111,7 @@ export function CommandPalette(handlers: FileHandlers) {
   const commands: Cmd[] = useMemo(() => {
     const ui = useUI.getState();
     const app = useApp.getState();
+    const hasSel = !!selectedTaskId;
     return [
       {
         id: 'add-task',
@@ -100,11 +128,49 @@ export function CommandPalette(handlers: FileHandlers) {
           }
         },
       },
+      // ---- 引数付きコマンド（選択中の工程に対する編集） ----
+      {
+        id: 'arg-assignee',
+        label: '担当を設定…',
+        keywords: 'assignee tantou 担当 部署 設定 set',
+        available: hasSel,
+        arg: {
+          placeholder: '担当（部門 / 個人）。空欄で未割当',
+          freeText: true,
+          options: () =>
+            Object.values(useApp.getState().project.core.assignees).map((a) => ({
+              value: a.name,
+              label: a.name,
+            })),
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.setAssigneeByName(a.selectedTaskId, v);
+        },
+      },
+      {
+        id: 'arg-level',
+        label: '粒度を変更…',
+        keywords: 'level ryuudo 粒度 大 中 小 詳細 granularity',
+        available: hasSel,
+        arg: {
+          placeholder: '粒度を選択（大 / 中 / 小 / 詳細）',
+          options: () =>
+            (['large', 'medium', 'small', 'detail'] as const).map((l) => ({
+              value: l,
+              label: `${LEVEL_LABEL[l]}工程`,
+            })),
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.setTaskLevel(a.selectedTaskId, v as ProcessLevel);
+        },
+      },
       {
         id: 'duplicate-task',
         label: '選択中の工程を複製',
         keywords: 'duplicate fukusei 複製 コピー copy',
-        available: !!selectedTaskId,
+        available: hasSel,
         run: () => {
           const a = useApp.getState();
           if (a.selectedTaskId) a.duplicateTask(a.selectedTaskId);
@@ -114,7 +180,7 @@ export function CommandPalette(handlers: FileHandlers) {
         id: 'delete-task',
         label: '選択中の工程を削除',
         keywords: 'delete remove sakujo 削除 行 ぎょう',
-        available: !!selectedTaskId,
+        available: hasSel,
         run: () => {
           const a = useApp.getState();
           const id = a.selectedTaskId;
@@ -165,7 +231,7 @@ export function CommandPalette(handlers: FileHandlers) {
             .then((ok) => ok && useApp.getState().tidyFlow());
         },
       },
-      { id: 'issues', label: '課題レイヤの表示を切り替え', keywords: 'issue kadai 課題', run: app.toggleIssues },
+      { id: 'issues-layer', label: '課題レイヤの表示を切り替え', keywords: 'issue kadai 課題 レイヤ', run: app.toggleIssues },
       { id: 'wide', label: '表を広く / 分割に戻す', keywords: 'wide hyou table 表', run: ui.toggleTableWide },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
@@ -177,7 +243,9 @@ export function CommandPalette(handlers: FileHandlers) {
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 
+  // ---- コマンド一覧モードの候補 ----
   const { cmdHits, taskHits } = useMemo(() => {
+    if (argCmd) return { cmdHits: [] as Cmd[], taskHits: [] as ProcessTask[] };
     const cmds = commands.filter((c) => c.available !== false);
     const scoredCmds = cmds
       .map((c) => ({ c, s: fuzzyScore(query, `${c.label} ${c.keywords}`) }))
@@ -194,14 +262,34 @@ export function CommandPalette(handlers: FileHandlers) {
           .map((x) => x.t)
       : [];
     return { cmdHits: scoredCmds.slice(0, query ? 6 : 14), taskHits: tasks };
-  }, [commands, project.core, codes, query]);
+  }, [commands, project.core, codes, query, argCmd]);
+
+  // ---- 引数モードの候補（自由入力の確定行 ＋ 絞り込んだ候補） ----
+  const argFlat = useMemo(() => {
+    if (!argCmd?.arg) return [] as { kind: 'free' | 'opt'; opt: ArgOption }[];
+    const all = argCmd.arg.options?.() ?? [];
+    const hits = all
+      .map((o) => ({ o, s: fuzzyScore(query, `${o.label} ${o.value} ${o.detail ?? ''}`) }))
+      .filter((x) => x.s !== null)
+      .sort((a, b) => (b.s ?? 0) - (a.s ?? 0))
+      .slice(0, 12)
+      .map((x) => ({ kind: 'opt' as const, opt: x.o }));
+    // 自由入力可: 入力が候補と完全一致しないとき、先頭に「"◯◯" として確定」を出す。
+    if (argCmd.arg.freeText && query.trim() && !all.some((o) => o.value === query.trim())) {
+      return [{ kind: 'free' as const, opt: { value: query.trim(), label: `「${query.trim()}」として確定` } }, ...hits];
+    }
+    return hits;
+  }, [argCmd, query]);
 
   const flat = useMemo(
-    () => [
-      ...cmdHits.map((c) => ({ kind: 'cmd' as const, c })),
-      ...taskHits.map((t) => ({ kind: 'task' as const, t })),
-    ],
-    [cmdHits, taskHits],
+    () =>
+      argCmd
+        ? argFlat.map((a) => ({ kind: 'arg' as const, a }))
+        : [
+            ...cmdHits.map((c) => ({ kind: 'cmd' as const, c })),
+            ...taskHits.map((t) => ({ kind: 'task' as const, t })),
+          ],
+    [argCmd, argFlat, cmdHits, taskHits],
   );
 
   useEffect(() => {
@@ -223,11 +311,50 @@ export function CommandPalette(handlers: FileHandlers) {
     app.setScope(t.parentId);
   };
 
+  // 引数モードへ入る（defaultValue をプリセットして全選択）。
+  const enterArgMode = (c: Cmd) => {
+    setArgCmd(c);
+    setArgError(null);
+    setQuery(c.arg?.defaultValue?.() ?? '');
+    setActive(0);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  };
+
+  const exitArgMode = () => {
+    setArgCmd(null);
+    setArgError(null);
+    setQuery('');
+    setActive(0);
+  };
+
+  // 引数を確定して実行（validate → runWithArg → 閉じる）。
+  const commitArg = (value: string, opt?: ArgOption) => {
+    if (!argCmd) return;
+    const err = argCmd.arg?.validate?.(value) ?? null;
+    if (err) {
+      setArgError(err);
+      return;
+    }
+    const fn = argCmd.runWithArg;
+    close();
+    fn?.(value, opt);
+  };
+
   const runItem = (i: number) => {
     const item = flat[i];
-    if (!item) return;
-    if (item.kind === 'cmd') runAndClose(item.c.run);
-    else runAndClose(() => openTask(item.t.id));
+    if (!item) {
+      // 引数モードで候補が無い: 自由入力可なら入力値で確定（空欄の確定も許す＝担当解除など）。
+      if (argCmd?.arg?.freeText) commitArg(query.trim());
+      return;
+    }
+    if (item.kind === 'arg') commitArg(item.a.opt.value, item.a.kind === 'opt' ? item.a.opt : undefined);
+    else if (item.kind === 'cmd') {
+      if (item.c.arg) enterArgMode(item.c);
+      else if (item.c.run) runAndClose(item.c.run);
+    } else runAndClose(() => openTask(item.t.id));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -242,7 +369,11 @@ export function CommandPalette(handlers: FileHandlers) {
       runItem(active);
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      close();
+      if (argCmd) exitArgMode(); // 引数モード → 一覧へ戻る（もう一度 Esc で閉じる）
+      else close();
+    } else if (e.key === 'Backspace' && argCmd && query === '') {
+      e.preventDefault();
+      exitArgMode();
     }
   };
 
@@ -258,46 +389,61 @@ export function CommandPalette(handlers: FileHandlers) {
       >
         <div className="palette-search">
           <Icons.Search />
+          {argCmd && (
+            <span className="palette-chip" title="Esc で一覧に戻る">
+              {argCmd.label.replace(/…$/, '')}
+            </span>
+          )}
           <input
             ref={inputRef}
             value={query}
-            placeholder="コマンドを実行、または工程を検索…"
-            aria-label="コマンドまたは工程を検索"
+            placeholder={argCmd?.arg ? argCmd.arg.placeholder : 'コマンドを実行、または工程を検索…'}
+            aria-label={argCmd?.arg ? argCmd.arg.placeholder : 'コマンドまたは工程を検索'}
             onChange={(e) => {
               setQuery(e.target.value);
               setActive(0);
+              setArgError(null);
             }}
             onKeyDown={onKeyDown}
           />
           <kbd className="palette-esc">Esc</kbd>
         </div>
+        {argError && <div className="palette-error">{argError}</div>}
 
         <div className="palette-list" ref={listRef} role="listbox" aria-label="候補">
-          {flat.length === 0 && <div className="palette-empty">一致する候補がありません</div>}
+          {flat.length === 0 && (
+            <div className="palette-empty">
+              {argCmd?.arg?.freeText
+                ? 'Enter で入力値を確定します'
+                : '一致する候補がありません'}
+            </div>
+          )}
 
-          {cmdHits.length > 0 && <div className="palette-section">操作</div>}
-          {cmdHits.map((c, i) => (
-            <button
-              key={c.id}
-              role="option"
-              aria-selected={active === i}
-              data-active={active === i}
-              className={`palette-item${active === i ? ' active' : ''}`}
-              onMouseMove={() => setActive(i)}
-              onClick={() => runItem(i)}
-            >
-              <span className="pi-label">{c.label}</span>
-              {c.hint && <kbd className="pi-hint">{c.hint}</kbd>}
-            </button>
-          ))}
+          {argCmd &&
+            flat.map((item, i) => {
+              if (item.kind !== 'arg') return null;
+              const { a } = item;
+              return (
+                <button
+                  key={`${a.kind}-${a.opt.value}`}
+                  role="option"
+                  aria-selected={active === i}
+                  data-active={active === i}
+                  className={`palette-item${active === i ? ' active' : ''}${a.kind === 'free' ? ' free' : ''}`}
+                  onMouseMove={() => setActive(i)}
+                  onClick={() => runItem(i)}
+                >
+                  <span className="pi-label">{a.opt.label}</span>
+                  {a.opt.detail && <span className="pi-assignee">{a.opt.detail}</span>}
+                </button>
+              );
+            })}
 
-          {taskHits.length > 0 && <div className="palette-section">工程へジャンプ</div>}
-          {taskHits.map((t, j) => {
-            const i = cmdHits.length + j;
-            const assignee = t.assigneeId ? project.core.assignees[t.assigneeId]?.name : '';
-            return (
+          {!argCmd && cmdHits.length > 0 && <div className="palette-section">操作</div>}
+          {!argCmd &&
+            cmdHits.map((c, i) => (
               <button
-                key={t.id}
+                key={c.id}
                 role="option"
                 aria-selected={active === i}
                 data-active={active === i}
@@ -305,13 +451,34 @@ export function CommandPalette(handlers: FileHandlers) {
                 onMouseMove={() => setActive(i)}
                 onClick={() => runItem(i)}
               >
-                <span className={`pi-code lvl-${t.level}`}>{codes[t.id]}</span>
-                <span className="pi-badge">{LEVEL_LABEL[t.level]}</span>
-                <span className="pi-label">{t.name}</span>
-                {assignee && <span className="pi-assignee">{assignee}</span>}
+                <span className="pi-label">{c.label}</span>
+                {c.arg && <span className="pi-arg-mark" aria-hidden="true">›</span>}
+                {c.hint && <kbd className="pi-hint">{c.hint}</kbd>}
               </button>
-            );
-          })}
+            ))}
+
+          {!argCmd && taskHits.length > 0 && <div className="palette-section">工程へジャンプ</div>}
+          {!argCmd &&
+            taskHits.map((t, j) => {
+              const i = cmdHits.length + j;
+              const assignee = t.assigneeId ? project.core.assignees[t.assigneeId]?.name : '';
+              return (
+                <button
+                  key={t.id}
+                  role="option"
+                  aria-selected={active === i}
+                  data-active={active === i}
+                  className={`palette-item${active === i ? ' active' : ''}`}
+                  onMouseMove={() => setActive(i)}
+                  onClick={() => runItem(i)}
+                >
+                  <span className={`pi-code lvl-${t.level}`}>{codes[t.id]}</span>
+                  <span className="pi-badge">{LEVEL_LABEL[t.level]}</span>
+                  <span className="pi-label">{t.name}</span>
+                  {assignee && <span className="pi-assignee">{assignee}</span>}
+                </button>
+              );
+            })}
         </div>
       </div>
     </div>
