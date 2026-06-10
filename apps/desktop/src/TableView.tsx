@@ -141,6 +141,7 @@ export function TableView() {
     'assignee',
     ...(columnVisibility.prev ? ['prev'] : []),
     ...(columnVisibility.effort ? ['effort'] : []),
+    ...(columnVisibility.io ? ['io'] : []),
   ];
   const { colIdx } = useRowSelectionKeys({
     enabled: activePane === 'table',
@@ -495,7 +496,11 @@ export function TableView() {
                     </td>
                     )}
                     {columnVisibility.io && (
-                    <td className="c-io" onClick={(e) => e.stopPropagation()}>
+                    <td
+                      className={`c-io${cellCursorCls(t.id, 'io')}`}
+                      data-cell="io"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="io-chips">
                         {(detail?.inputs ?? []).map((item) => (
                           <span className="io-chip in" key={item.id}>

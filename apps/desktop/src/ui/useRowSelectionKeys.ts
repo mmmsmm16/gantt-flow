@@ -65,11 +65,20 @@ function cellOf(taskId: Id, colKey: string | undefined): HTMLElement | null {
 }
 
 // 選択行の指定セル(data-cell)の入力へフォーカスして編集を開始する。
+// data-cell が入力要素そのものなら直接、複合セル(I/O・課題・方策・前工程などの
+// チップ+ボタン構成)は td 側に付け、中の最初の入力(無ければ追加ボタン)へフォーカスする。
 function focusCell(taskId: Id, colKey: string | undefined): boolean {
   const el = cellOf(taskId, colKey);
   if (!el) return false;
-  el.focus();
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.select();
+  // 入力系を優先し、無ければ追加ボタン等へ(×削除ボタンに最初のフォーカスが
+  // 当たって Enter 連打で誤削除…を避けるため、button は最後の手段)。
+  const target = el.matches('input, textarea, select, button')
+    ? el
+    : (el.querySelector<HTMLElement>('input, textarea, select') ??
+      el.querySelector<HTMLElement>('button'));
+  if (!target) return false;
+  target.focus();
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) target.select();
   scrollCellVisible(el);
   return true;
 }

@@ -239,10 +239,11 @@ export function FullTable() {
 
   // 行選択モード(編集外のキーボード操作)。アウトラインと同じ操作系を共有フックで。
   const activePane = useUI((s) => s.activePane);
-  // 列カーソルの対象(表示中のスカラ列。data-cell 属性と対応)。
+  // 列カーソルの対象(表示中の列を COL_ORDER の表示順で。data-cell 属性と対応)。
+  // I/O・課題・方策・前工程は複合セル(td に data-cell を付け、Enter で中の最初の入力へ)。
   const cursorColumns = [
     'name',
-    ...(['assignee', 'effort', 'how', 'system', 'note', 'volume', 'exception', 'automation', 'dataLink', 'regulation', 'difficulty'] as const).filter((k) => vis(k)),
+    ...((['assignee', 'prev', 'effort', 'how', 'system', 'inputs', 'outputs', 'issue', 'measure', 'note', 'volume', 'exception', 'automation', 'dataLink', 'regulation', 'difficulty'] as const).filter((k) => vis(k))),
   ];
   const { colIdx } = useRowSelectionKeys({
     enabled: activePane === 'table',
@@ -665,7 +666,7 @@ export function FullTable() {
                   </td>
                 )}
                 {vis('prev') && (
-                  <td className="ft-c-prev" onClick={(e) => e.stopPropagation()}>
+                  <td className={`ft-c-prev${cellCursorCls(t.id, 'prev')}`} data-cell="prev" onClick={(e) => e.stopPropagation()}>
                     <div className="ft-prev">
                       {preds.map((dep) => (
                         <span className="ft-pill" key={dep.id}>
@@ -733,10 +734,10 @@ export function FullTable() {
                 )}
                 {vis('how') && <WrapCell value={d?.how} onCommit={(v) => updateDetail(t.id, { how: v })} k={t.id} cell="how" cursor={cellCursorCls(t.id, 'how') !== ''} />}
                 {vis('system') && <WrapCell value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} cell="system" cursor={cellCursorCls(t.id, 'system') !== ''} />}
-                {vis('inputs') && <IoCell items={d?.inputs ?? []} direction="in" onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
-                {vis('outputs') && <IoCell items={d?.outputs ?? []} direction="out" onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
+                {vis('inputs') && <IoCell items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
+                {vis('outputs') && <IoCell items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
                 {vis('issue') && (
-                  <td className="ft-c-issue" onClick={(e) => e.stopPropagation()}>
+                  <td className={`ft-c-issue${cellCursorCls(t.id, 'issue')}`} data-cell="issue" onClick={(e) => e.stopPropagation()}>
                     <div className="ft-issues">
                       {issues.map((iss) => (
                         <div className="ft-issue-row" key={iss.id}>
@@ -753,7 +754,7 @@ export function FullTable() {
                   </td>
                 )}
                 {vis('measure') && (
-                  <td className="ft-c-issue" onClick={(e) => e.stopPropagation()}>
+                  <td className={`ft-c-issue${cellCursorCls(t.id, 'measure')}`} data-cell="measure" onClick={(e) => e.stopPropagation()}>
                     <div className="ft-issues">
                       {issues.map((iss) => (
                         <div className="ft-issue-row" key={iss.id}>
@@ -914,6 +915,8 @@ function IoCell({
   onRename,
   onKind,
   onRemove,
+  cell,
+  cursor,
 }: {
   items: { id: Id; name: string; kind: IoKind }[];
   direction: 'in' | 'out';
@@ -921,9 +924,11 @@ function IoCell({
   onRename: (id: Id, name: string) => void;
   onKind: (id: Id, kind: IoKind) => void;
   onRemove: (id: Id) => void;
+  cell?: string;
+  cursor?: boolean;
 }) {
   return (
-    <td className="ft-c-io" onClick={(e) => e.stopPropagation()}>
+    <td className={`ft-c-io${cursor ? ' cell-cursor' : ''}`} data-cell={cell} onClick={(e) => e.stopPropagation()}>
       <div className="ft-io">
         {items.map((it) => (
           // 色は入出力の向き（フローと統一）。種別(帳票/情報)はセレクトの値で区別。

@@ -153,11 +153,13 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
         return;
       }
 
-      // 編集中(input 等)の Esc = 編集を終了して選択モードへ戻る(表・フロー共通)。
-      // blur だけ行い選択は維持する(選択解除はもう一度 Esc)。独自 Esc 処理を持つ入力は
-      // stopPropagation でここに来ない(パレット等はオーバーレイガードで先に止まる)。
-      if (editable && e.key === 'Escape') {
-        (document.activeElement as HTMLElement).blur();
+      // フォーカス中の Esc = そのコントロールを離れて選択モードへ戻る(表・フロー共通)。
+      // 入力欄だけでなくボタン(セル内の＋追加など)も対象。blur だけ行い選択は維持する
+      // (選択解除はもう一度 Esc)。独自 Esc 処理を持つ入力は stopPropagation でここに
+      // 来ない(パレット等はオーバーレイガードで先に止まる)。
+      const ae = document.activeElement;
+      if (e.key === 'Escape' && ae instanceof HTMLElement && ae !== document.body && ae.tagName !== 'SECTION') {
+        ae.blur();
         e.preventDefault();
         return;
       }
