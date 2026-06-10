@@ -629,7 +629,18 @@ export function FlowCanvas() {
           付箋
         </button>
         <span className="palette-sep" aria-hidden="true" />
-        <button className="palette-act" onClick={tidyFlow} title="自動整列（依存で段組み・レーンで縦配置）">
+        <button
+          className="palette-act"
+          onClick={async () => {
+            const ok = await useUI.getState().confirm({
+              title: 'フローを整列',
+              message: '依存とレーンに基づいて配置を作り直します。手で整えた配置は失われます（Ctrl+Z で戻せます）。',
+              confirmLabel: '整列する',
+            });
+            if (ok) tidyFlow();
+          }}
+          title="自動整列（依存で段組み・レーンで縦配置）"
+        >
           <Icons.Wand />
           整列
         </button>

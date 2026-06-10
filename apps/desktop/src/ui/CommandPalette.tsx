@@ -150,7 +150,21 @@ export function CommandPalette(handlers: FileHandlers) {
       { id: 'add-decision', label: 'フロー: 判断ノードを追加', keywords: 'control decision 判断 分岐 制御 ノード', run: () => useApp.getState().addControlNode('decision') },
       { id: 'add-merge', label: 'フロー: 合流ノードを追加', keywords: 'control merge 合流 制御 ノード', run: () => useApp.getState().addControlNode('merge') },
       { id: 'add-comment', label: 'フロー: 付箋を追加', keywords: 'comment fusen 付箋 メモ note', run: () => useApp.getState().addComment('メモ') },
-      { id: 'tidy', label: 'フローを整列（自動配置）', keywords: 'tidy seiretsu 整列 layout 配置', run: app.tidyFlow },
+      {
+        id: 'tidy',
+        label: 'フローを整列（自動配置）',
+        keywords: 'tidy seiretsu 整列 layout 配置',
+        run: () => {
+          void useUI
+            .getState()
+            .confirm({
+              title: 'フローを整列',
+              message: '依存とレーンに基づいて配置を作り直します。手で整えた配置は失われます（Ctrl+Z で戻せます）。',
+              confirmLabel: '整列する',
+            })
+            .then((ok) => ok && useApp.getState().tidyFlow());
+        },
+      },
       { id: 'issues', label: '課題レイヤの表示を切り替え', keywords: 'issue kadai 課題', run: app.toggleIssues },
       { id: 'wide', label: '表を広く / 分割に戻す', keywords: 'wide hyou table 表', run: ui.toggleTableWide },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
