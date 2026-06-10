@@ -23,6 +23,7 @@ import {
   importCsv,
   rowsToProject,
   createSampleProject,
+  TEMPLATES,
   tidyFlowView,
   nearestLaneOrder,
   laneTaskBaseY,
@@ -151,6 +152,8 @@ export interface AppState {
   importRows: (rows: string[][]) => ImportReport;
   newProject: () => void;
   loadSample: () => void;
+  /** テンプレート（templates.ts の key）から新規プロジェクトを開始する。 */
+  loadTemplate: (key: string) => void;
   /** 自動退避データから復元（未保存＝dirty 扱い。ファイル保存を促す）。 */
   restoreProject: (project: Project) => void;
 }
@@ -785,6 +788,16 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       return report;
     },
     newProject: () => adopt(initialProject(), 'medium', undefined),
+    loadTemplate: (key) => {
+      const tpl = TEMPLATES.find((t) => t.key === key);
+      if (!tpl) return;
+      const p = tpl.create(uuid, new Date().toISOString());
+      // 最初の大工程配下の中ビューを既定で開く（サンプルと同じ体験）。
+      const firstLarge = Object.values(p.core.tasks)
+        .filter((t) => t.level === 'large')
+        .sort((a, b) => a.order - b.order)[0];
+      adopt(p, 'medium', firstLarge?.id);
+    },
     loadSample: () => {
       const sample = createSampleProject(uuid, new Date().toISOString());
       // 受注業務（最初の大工程）配下の中ビューを既定で開く（リッチなフローが見える）。

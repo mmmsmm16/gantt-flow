@@ -1714,6 +1714,50 @@ button.danger:hover {
 .welcome-primary:hover {
   filter: brightness(1.05);
 }
+/* 業務テンプレート */
+.welcome-templates {
+  margin: 22px 0 4px;
+  text-align: left;
+}
+.welcome-templates ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.welcome-template-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  cursor: pointer;
+  text-align: left;
+}
+.welcome-template-item:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+.welcome-template-item strong {
+  font-size: 13px;
+}
+.welcome-template-item span {
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.5;
+}
+@media (max-width: 560px) {
+  .welcome-templates ul {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 最近開いたファイル */
 .welcome-recent {
   margin: 22px 0 4px;

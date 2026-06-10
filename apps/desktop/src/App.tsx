@@ -143,6 +143,10 @@ export function App() {
     useApp.getState().loadSample();
     useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
   };
+  const onTemplate = (key: string) => {
+    useApp.getState().loadTemplate(key);
+    useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
+  };
   const onOpenRecent = async (name: string) => {
     try {
       const p = await openRecentFile(name);
@@ -385,7 +389,7 @@ export function App() {
         </button>
       </header>
       {isEmpty ? (
-        <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} onOpenRecent={onOpenRecent} />
+        <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} onOpenRecent={onOpenRecent} onTemplate={onTemplate} />
       ) : (
         <div
           className={`panes${!fullMode && selectedTaskId ? ' with-inspector' : ''}${

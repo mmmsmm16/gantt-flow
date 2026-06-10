@@ -1,6 +1,7 @@
 // 初回体験。工程が 0 件のときにペイン全体の代わりに表示するオンボーディング。
 // 「サンプルで試す」を主導線に、空作成 / 取り込み / 開く を並べる。
 import { useEffect, useState } from 'react';
+import { TEMPLATES } from '@gantt-flow/core';
 import * as Icons from './icons';
 import { listRecentFiles } from '../persistence';
 
@@ -9,9 +10,10 @@ interface Props {
   onImport: () => void;
   onOpen: () => void;
   onOpenRecent: (name: string) => void;
+  onTemplate: (key: string) => void;
 }
 
-export function Welcome({ onSample, onImport, onOpen, onOpenRecent }: Props) {
+export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate }: Props) {
   const [recent, setRecent] = useState<{ name: string; at: number }[]>([]);
   useEffect(() => {
     void listRecentFiles().then(setRecent);
@@ -53,6 +55,23 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent }: Props) {
             <Icons.FolderOpen />
             保存ファイルを開く
           </button>
+        </div>
+
+        <div className="welcome-templates">
+          <h2 className="welcome-recent-title">
+            <Icons.Sparkles />
+            業務テンプレートから始める
+          </h2>
+          <ul>
+            {TEMPLATES.map((t) => (
+              <li key={t.key}>
+                <button className="welcome-template-item" onClick={() => onTemplate(t.key)}>
+                  <strong>{t.title}</strong>
+                  <span>{t.description}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
 
         {recent.length > 0 && (
