@@ -128,10 +128,21 @@ export function FlowCanvas() {
     [],
   );
 
-  // 接続モード中はモーダルにキーを横取りする(capture)。Tab/矢印=候補循環、Enter=確定、Esc/c=取消。
+  // 接続モード中はモーダルにキーを横取りする(capture)。矢印/hjkl=方向で接続先を選ぶ、
+  // Tab=距離順の循環、Enter=確定、Esc/c=取消。
   // stopPropagation で useGlobalHotkeys・既存 Delete/Esc ハンドラへは流さない。
   useEffect(() => {
     if (!kbConnect) return undefined;
+    const DIR_KEYS: Record<string, NavDir> = {
+      arrowright: 'right',
+      l: 'right',
+      arrowleft: 'left',
+      h: 'left',
+      arrowup: 'up',
+      k: 'up',
+      arrowdown: 'down',
+      j: 'down',
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing) return;
       const cycle = (d: number) => {
@@ -141,9 +152,25 @@ export function FlowCanvas() {
           c ? { ...c, idx: (c.idx + d + c.candidates.length) % c.candidates.length } : c,
         );
       };
+      // 方向選択: 現候補から見て押した方向の最近傍の候補へ(空間ナビと同じ感覚)。
+      const dir = DIR_KEYS[e.key.toLowerCase()];
+      const pickDir = (d2: NavDir) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setKbConnect((c) => {
+          if (!c || !view) return c;
+          const boxes = c.candidates.flatMap((id) => {
+            const n = view.nodes[id];
+            return n ? [{ id, x: n.x, y: n.y, w: sizeOf(n).w, h: sizeOf(n).h }] : [];
+          });
+          const cur = boxes.find((b) => b.id === c.candidates[c.idx]);
+          if (!cur) return c;
+          const next = nearestInDirection(cur, boxes, d2);
+          return next ? { ...c, idx: c.candidates.indexOf(next as FlowNodeId) } : c;
+        });
+      };
       if (e.key === 'Tab') cycle(e.shiftKey ? -1 : 1);
-      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') cycle(1);
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') cycle(-1);
+      else if (dir && !e.ctrlKey && !e.metaKey && !e.altKey) pickDir(dir);
       else if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
@@ -844,7 +871,7 @@ export function FlowCanvas() {
         </span>
         {kbConnect ? (
           <span className="palette-hint connect-hint">
-            接続モード: Tab / 矢印で候補を選び Enter で接続（Esc で取消）
+            接続モード: 矢印（hjkl）で接続先を選び Enter で接続（Tab=順送り / Esc で取消）
           </span>
         ) : (
           <span className="palette-hint">○ドラッグで矢印 / c で接続モード / Shift+ドラッグで範囲選択 / Delete で削除</span>
