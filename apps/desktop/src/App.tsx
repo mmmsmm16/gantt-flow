@@ -88,6 +88,8 @@ export function App() {
   const tableWide = useUI((s) => s.tableWide);
   const flowWide = useUI((s) => s.flowWide);
   const toggleFlowWide = useUI((s) => s.toggleFlowWide);
+  const chromeHidden = useUI((s) => s.chromeHidden);
+  const toggleChrome = useUI((s) => s.toggleChrome);
   const tableMode = useUI((s) => s.tableMode);
   const setTableMode = useUI((s) => s.setTableMode);
   const activePane = useUI((s) => s.activePane);
@@ -408,7 +410,17 @@ export function App() {
       <a className="skip-link" href="#main-table">
         工程表へスキップ
       </a>
-      <header className="toolbar" role="banner">
+      {chromeHidden && (
+        <button
+          className="chrome-reveal"
+          onClick={toggleChrome}
+          aria-label="ツールバーを表示"
+          title="ツールバーを表示（Ctrl/⌘+\）"
+        >
+          <Icons.ChevronDown />
+        </button>
+      )}
+      <header className="toolbar" role="banner" hidden={chromeHidden}>
         <span className="brand">
           <svg className="brand-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
             <rect className="bg" width="18" height="18" rx="5" />
@@ -558,6 +570,14 @@ export function App() {
           title="キーボードショートカット (?)"
         >
           <Icons.Keyboard />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={toggleChrome}
+          aria-label="ツールバーを隠して作業エリアを最大化"
+          title="作業エリアを最大化（ツールバーを隠す）Ctrl/⌘+\"
+        >
+          <Icons.Maximize />
         </button>
       </header>
       {showWelcome ? (

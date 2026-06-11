@@ -155,6 +155,9 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           return true;
         case 'global.repeatLast':
           return repeatLastCommand(); // 未記録は false=preventDefault しない
+        case 'global.toggleChrome':
+          ui.toggleChrome();
+          return true;
         case 'pane.table':
           activatePane('table');
           return true;
@@ -283,6 +286,7 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           (binding.action === 'global.palette' ||
             binding.action === 'global.save' ||
             binding.action === 'global.print' ||
+            binding.action === 'global.toggleChrome' ||
             binding.action === 'table.find');
         if (!allowWhileEditing) return;
       }

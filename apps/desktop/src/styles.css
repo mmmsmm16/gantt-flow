@@ -171,6 +171,45 @@ body {
   border-bottom: 1px solid var(--line);
   z-index: 10;
 }
+/* 集中モード: .toolbar の display:flex が UA の [hidden] を上書きするため明示的に隠す。 */
+.toolbar[hidden] {
+  display: none;
+}
+/* 集中モード（ツールバーを隠す）時に上端中央へ出す復帰ハンドル（引き出しタブ）。
+   作業エリアを塞がない最小の的。右上はインスペクタの×と近接するため中央に置く。 */
+.chrome-reveal {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(8px);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.12s ease, color 0.12s ease, height 0.12s ease;
+}
+.chrome-reveal:hover {
+  opacity: 1;
+  height: 24px;
+  color: var(--ink);
+  background: var(--hover);
+}
+.chrome-reveal:focus-visible {
+  opacity: 1;
+  outline: none;
+  box-shadow: var(--ring);
+}
 .toolbar .brand {
   display: inline-flex;
   align-items: center;

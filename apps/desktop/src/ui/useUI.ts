@@ -8,6 +8,7 @@ type Id = string;
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
 const MINIMAP_KEY = 'gf-minimap';
+const CHROME_KEY = 'gf-chrome-hidden';
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
 const FT_W_KEY = 'gf-ft-widths';
@@ -135,6 +136,10 @@ interface UIState {
   flowWide: boolean;
   toggleFlowWide: () => void;
 
+  /** 作業エリアを最大化するため上部ツールバーを隠す（集中モード）。localStorage 永続(既定 OFF=表示)。 */
+  chromeHidden: boolean;
+  toggleChrome: () => void;
+
   /** 工程表の表示モード: アウトライン（階層＋インスペクタ） / 全項目フル表（全列1グリッド）。 */
   tableMode: 'outline' | 'full';
   setTableMode: (mode: 'outline' | 'full') => void;
@@ -261,6 +266,24 @@ export const useUI = create<UIState>((set, get) => ({
   flowWide: false,
   toggleFlowWide: () =>
     set({ flowWide: !get().flowWide, tableWide: false, ...(get().flowWide ? {} : { activePane: 'flow' as const }) }),
+
+  chromeHidden: (() => {
+    try {
+      return localStorage.getItem(CHROME_KEY) === '1';
+    } catch {
+      return false;
+    }
+  })(),
+  toggleChrome: () => {
+    const next = !get().chromeHidden;
+    try {
+      if (next) localStorage.setItem(CHROME_KEY, '1');
+      else localStorage.removeItem(CHROME_KEY);
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ chromeHidden: next });
+  },
 
   tableMode: 'outline',
   setTableMode: (mode) => set({ tableMode: mode, ...(mode === 'full' ? { activePane: 'table' as const } : {}) }),

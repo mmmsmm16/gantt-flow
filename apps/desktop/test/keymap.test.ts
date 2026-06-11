@@ -125,6 +125,17 @@ describe('keymap: findBinding', () => {
     expect(findConflict(DEFAULT_KEYMAP, target, target.chord)).toBeUndefined();
   });
 
+  it('mod+\\ はツールバー表示トグル(集中モード)で、シングルキーOFFでも効き衝突しない', () => {
+    expect(
+      findBinding(ev({ key: '\\', ctrlKey: true }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action,
+    ).toBe('global.toggleChrome');
+    expect(
+      findBinding(ev({ key: '\\', metaKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action,
+    ).toBe('global.toggleChrome');
+    const target = DEFAULT_KEYMAP.find((b) => b.id === 'toggle-chrome')!;
+    expect(findConflict(DEFAULT_KEYMAP, target, target.chord)).toBeUndefined();
+  });
+
   it('table コンテキストの Ctrl/⌘+F はクイックフィルタ(既存キーと衝突しない)', () => {
     expect(
       findBinding(ev({ key: 'f', ctrlKey: true }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action,

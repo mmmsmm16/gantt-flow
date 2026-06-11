@@ -694,6 +694,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'issues-layer', label: '課題レイヤの表示を切り替え', keywords: 'issue kadai 課題 レイヤ', run: app.toggleIssues },
       { id: 'wide', label: '表を広く / 分割に戻す', keywords: 'wide hyou table 表', run: ui.toggleTableWide },
       { id: 'flow-wide', label: 'フローを広く / 分割に戻す', keywords: 'wide flow フロー 全幅 広く', run: ui.toggleFlowWide },
+      { id: 'toggle-chrome', label: 'ツールバーを隠す / 表示（集中モード）', keywords: 'chrome toolbar shuchu 集中 ツールバー 隠す 非表示 最大化 全画面 focus', hint: '⌘\\', run: ui.toggleChrome },
       { id: 'minimap', label: 'ミニマップの表示を切り替え', keywords: 'minimap map ミニマップ 地図 俯瞰', run: () => useUI.getState().toggleMinimap() },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
