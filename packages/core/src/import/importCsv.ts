@@ -13,6 +13,13 @@ import type {
 } from '../model/types';
 import type { IdGen } from '../ids';
 import { CURRENT_SCHEMA_VERSION } from '../persistence/migrate';
+import { CSV_FORMULA_TRIGGER } from '../export/exportRows';
+
+// エクスポート側（exportRows の neutralizeFormula）が数式インジェクション対策で先頭に付けた
+// ' を剥がし、元の値へ戻す（ラウンドトリップ維持）。'=… のように ' の直後が数式トリガ文字の
+// ときだけ剥がすので、ユーザーが意図して付けた通常の ' は保持される。
+const stripCsvFormulaGuard = (s: string): string =>
+  s.length > 1 && s[0] === "'" && CSV_FORMULA_TRIGGER.test(s.slice(1)) ? s.slice(1) : s;
 
 export interface ImportReport {
   created: { tasks: number; ios: number; issues: number; dependencies: number };
@@ -136,7 +143,8 @@ export function rowsToProject(
     return id;
   };
 
-  const get = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
+  const get = (r: string[], i: number) =>
+    i >= 0 ? stripCsvFormulaGuard((r[i] ?? '').trim()) : '';
   // レベル別の最後のタスク（親の解決用）
   const lastByRank: (Id | undefined)[] = [undefined, undefined, undefined, undefined];
   const nameToId = new Map<string, Id>();

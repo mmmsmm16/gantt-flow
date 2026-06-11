@@ -83,8 +83,19 @@ export function projectToRows(project: Project, opts: ProjectToRowsOptions = {})
   return rows;
 }
 
+// CSV 数式インジェクション（Formula/CSV Injection）対策。Excel/Sheets はセルが
+// = + - @ TAB CR で始まると「数式」として解釈し、=HYPERLINK(...) での情報送信や
+// DDE 経由のコマンド起動（=cmd|'...'）に悪用され得る。納品物として CSV を配る前提のため、
+// 該当セルの先頭に ' を足して文字列として扱わせる（OWASP 推奨）。取り込み側（importCsv の
+// stripCsvFormulaGuard）が対称的に ' を剥がすので CSV ラウンドトリップは保たれる。
+export const CSV_FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+function neutralizeFormula(s: string): string {
+  return CSV_FORMULA_TRIGGER.test(s) ? `'${s}` : s;
+}
+
 function csvCell(s: string): string {
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const v = neutralizeFormula(s);
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
 export function rowsToCsv(rows: string[][]): string {
