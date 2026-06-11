@@ -115,9 +115,11 @@ describe('saveProjectToFile（Tauri: アトミック保存＋競合検知）', (
     expect(saveCalls).toBe(3);
   });
 
-  it('保存ダイアログの戻りに拡張子が無ければ .json を付与する（Linux ポータル等）', async () => {
+  it('保存先は pick_save_path の戻りを改変せず save_project へ渡す（拡張子付与と許可登録は Rust 側）', async () => {
+    // .json 付与と保存先の許可リスト登録は Rust 側 pick_save_path が行う。フロントがパスを
+    // 書き換えると、Rust の許可リストに載ったパスと一致せず save_project が弾かれてしまう。
     const calls = installTauri({
-      pick_save_path: () => '/tmp/レポート',
+      pick_save_path: () => '/tmp/レポート.json',
       save_project: () => null,
       stat_updated_at: () => '1',
       acquire_lock: () => ({ ok: true }),

@@ -296,9 +296,8 @@ async function saveTauri(
   if (!path || opts.saveAs) {
     path = await invoke<string | null>('pick_save_path', { suggestedName: suggested });
     if (path === null) return { kind: 'cancelled' };
-    // Linux（GTK ポータル等）では保存ダイアログが拡張子を自動付与しない（rfd の付与は
-    // macOS/Windows のみ）。拡張子なしのファイルを作らないようここで補う。
-    if (!path.toLowerCase().endsWith('.json')) path = `${path}.json`;
+    // 拡張子（.json）の補完と保存先の許可登録は Rust 側 pick_save_path が行う。ここで
+    // 別の文字列へ書き換えると、許可リストに載ったパスと一致せず save_project が弾かれる。
     picked = true;
   }
   // 競合検知: 覚えているファイルへの上書きで、開く/前回保存の後に他者が変更していないか。

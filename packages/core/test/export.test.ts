@@ -62,6 +62,23 @@ describe('export: Project → 行列 / CSV', () => {
     expect(d.issues![0]).toMatchObject({ issue: '基準が属人的', measure: 'チェックリストを標準化' });
   });
 
+  it('CSV 数式インジェクション: = + - @ で始まるセルを無害化し、再取込で元へ戻す', () => {
+    const g = counter('x');
+    let p = emptyProject();
+    p = addTask(p, { name: '=HYPERLINK("http://evil","x")', level: 'large' }, g);
+    p = addTask(p, { name: '+1234', level: 'medium', parentId: taskIdByName(p, '=HYPERLINK("http://evil","x")') }, g);
+
+    const csv = projectToCsv(p);
+    // 出力 CSV では数式トリガで始まるセルの先頭に ' が付く（Excel が文字列として扱う）
+    expect(csv).toContain(`"'=HYPERLINK`);
+    expect(csv).toContain(`'+1234`);
+
+    // 再取込すると ' は剥がれ、元の作業名へ戻る（ラウンドトリップ維持）
+    const { project: p2 } = importCsv(csv, counter('y'));
+    const names = Object.values(p2.core.tasks).map((t) => t.name).sort();
+    expect(names).toEqual(['+1234', '=HYPERLINK("http://evil","x")'].sort());
+  });
+
   it('前工程は工程No で出力され、同名工程があっても再取込で正しく繋がる', () => {
     const g = counter('t');
     let p = emptyProject();
