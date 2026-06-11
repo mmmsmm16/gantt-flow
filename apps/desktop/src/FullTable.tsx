@@ -4,9 +4,10 @@
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours, bridgePredMap } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
-import { collectIoNames, prevCandidates } from './suggestions';
+import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
+import { parseEffortHoursToMinutes } from './parseEffort';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
@@ -212,17 +213,15 @@ export function FullTable() {
     }
     return m;
   }, [project.core.dependencies]);
-  // 前工程セルの候補はアウトライン・パレットと共用のヘルパに一本化（order 順も揃う）。
-  // 結果はコミットまで使い回し、描画した行の分だけ遅延で埋める。
-  const prevCandCache = useMemo(() => new Map<Id, ProcessTask[]>(), [project]);
-  const prevCandidatesOf = (id: Id): ProcessTask[] => {
-    let v = prevCandCache.get(id);
-    if (!v) {
-      v = prevCandidates(project, id);
-      prevCandCache.set(id, v);
-    }
-    return v;
-  };
+  // 前工程セルの候補はアウトライン・パレットと共用のインデックス(prevCandidates と同結果)に一本化。
+  // コミット時に 1 回だけ構築し、行ごとに全工程・全依存をなめ直さない(O(行×全件) の再計算を防ぐ)。
+  const prevCandidatesOf = useMemo(() => buildPrevCandidateIndex(project), [project]);
+  // 集計工数(親=子孫の合計)。ソート比較器・行表示から effortRollupMinutes を呼ぶと毎回
+  // 全マップを再構築して O(n²) になるため、コミット時に 1 回だけ計算して Map 参照にする。
+  const effortRollups = useMemo(
+    () => computeEffortRollups(project.core, project.details),
+    [project.core, project.details],
+  );
 
   const vis = (k: string) => ftColumns[k] !== false;
   const width = (k: string) => (resizing?.key === k ? resizing.w : ftColWidths[k] ?? DEFAULT_W[k]!);
@@ -250,7 +249,7 @@ export function FullTable() {
   });
 
   const sortValue = (key: string, t: ProcessTask): number | string => {
-    if (key === 'effort') return effortRollupMinutes(project.core, project.details, t.id);
+    if (key === 'effort') return effortRollups.get(t.id) ?? 0;
     if (key === 'assignee') return t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
     if (key === 'difficulty') return DIFF_RANK[project.details[t.id]?.difficulty ?? ''] ?? 0;
     if (key === 'automation') return project.details[t.id]?.automation ?? '';
@@ -739,7 +738,7 @@ export function FullTable() {
                     <td key={c.key} className="ft-c-effort" onClick={(e) => e.stopPropagation()}>
                       {hasChildren ? (
                         <span className="ft-roll" title="子の合計（自動）">
-                          {formatHours(effortRollupMinutes(project.core, project.details, t.id))}
+                          {formatHours(effortRollups.get(t.id) ?? 0)}
                         </span>
                       ) : (
                         <input
@@ -754,11 +753,16 @@ export function FullTable() {
                           data-r={ri}
                           data-c="effort"
                           key={`eff-${d?.effortMinutes ?? ''}`}
-                          onBlur={(e) =>
-                            updateDetail(t.id, {
-                              effortMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : undefined,
-                            })
-                          }
+                          onBlur={(e) => {
+                            const minutes = parseEffortHoursToMinutes(e.target.value);
+                            if (minutes === null) {
+                              // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す（インスペクタと同じ規約）。
+                              e.target.value = d?.effortMinutes != null ? String(d.effortMinutes / 60) : '';
+                              useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                              return;
+                            }
+                            if (minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: minutes });
+                          }}
                         />
                       )}
                     </td>
@@ -984,7 +988,8 @@ function IoCell({
         {items.map((it) => (
           // 色は入出力の向き（フローと統一）。種別(帳票/情報)はセレクトの値で区別。
           <span className={`ft-iochip ${direction}`} key={it.id}>
-            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => onRename(it.id, e.target.value)} />
+            {/* 触れただけの blur で履歴と未保存フラグを汚さない（変化があるときだけコミット）。 */}
+            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => e.target.value !== it.name && onRename(it.id, e.target.value)} />
             <select className="ft-io-kind" value={it.kind} aria-label="種別" onChange={(e) => onKind(it.id, e.target.value as IoKind)}>
               <option value="doc">帳票</option>
               <option value="info">情報</option>

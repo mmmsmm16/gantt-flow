@@ -85,6 +85,70 @@ describe('saveProjectToFile（Tauri: アトミック保存＋競合検知）', (
     expect(saved).toHaveLength(3);
   });
 
+  it('保存中の保存は直列化され、自分のリネームで変わった mtime を競合と誤検出しない', async () => {
+    let mtime = '1';
+    let saveCalls = 0;
+    let openGate!: (v: null) => void;
+    const gate = new Promise<null>((res) => (openGate = res));
+    installTauri({
+      pick_save_path: () => '/tmp/serial.json',
+      save_project: () => {
+        saveCalls += 1;
+        mtime = String(Number(mtime) + 1); // アトミック保存のリネームで mtime が変わる
+        return saveCalls === 2 ? gate : null; // 2 回目の書き込みを途中で待たせる
+      },
+      stat_updated_at: () => mtime,
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+    const p = createSampleProject(gen('s4'));
+    await saveProjectToFile(p); // 1 回目: 保存先と mtime を記憶
+
+    const second = saveProjectToFile(p); // 書き込み中…
+    await new Promise((r) => setTimeout(r, 0)); // …save_project に到達（リネームで mtime は変化済み）
+    const third = saveProjectToFile(p); // 完了前に重ねて保存（Ctrl+S 連打相当）
+    openGate(null);
+    expect((await second).kind).toBe('saved');
+    // 直列化されていないと、2 回目のリネームで変わった mtime を 3 回目が競合と誤検出する
+    expect((await third).kind).toBe('saved');
+    expect(saveCalls).toBe(3);
+  });
+
+  it('保存ダイアログの戻りに拡張子が無ければ .json を付与する（Linux ポータル等）', async () => {
+    const calls = installTauri({
+      pick_save_path: () => '/tmp/レポート',
+      save_project: () => null,
+      stat_updated_at: () => '1',
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+    const r = await saveProjectToFile(createSampleProject(gen('s5')));
+    expect(r).toEqual({ kind: 'saved', name: 'レポート.json' });
+    expect(calls.find((c) => c.cmd === 'save_project')!.args['path']).toBe('/tmp/レポート.json');
+  });
+
+  it('保存後のロック取得が解決する前に保存先が変わったら、取得したロックは保持せず返す', async () => {
+    let resolveAcquire!: (v: unknown) => void;
+    const calls = installTauri({
+      pick_save_path: () => '/tmp/late-lock.json',
+      save_project: () => null,
+      stat_updated_at: () => '1',
+      acquire_lock: () => new Promise((res) => (resolveAcquire = res)),
+      release_lock: () => null,
+    });
+    const r = await saveProjectToFile(createSampleProject(gen('s6')));
+    expect(r.kind).toBe('saved'); // ロック取得は保存をブロックしない
+    forgetFileHandle(); // 取得待ちの間に保存先が変わった（新規作成相当）
+    resolveAcquire({ ok: true });
+    await new Promise((res) => setTimeout(res, 0));
+    // 古い対象のロックは beginHolding せず、そのまま返却される
+    expect(
+      calls.filter((c) => c.cmd === 'release_lock' && c.args['path'] === '/tmp/late-lock.json'),
+    ).toHaveLength(1);
+  });
+
   it('保存ダイアログのキャンセルは cancelled（書き込まない）', async () => {
     const calls = installTauri({ pick_save_path: () => null });
     const r = await saveProjectToFile(createSampleProject(gen('s2')));
@@ -153,13 +217,34 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     const seen: { stale: boolean }[] = [];
     const p = await openProjectFromFile({
       confirmLock: (held, stale) => {
-        expect(held.user).toBe('別のユーザー');
+        expect(held?.user).toBe('別のユーザー');
         seen.push({ stale });
         return Promise.resolve('cancel');
       },
     });
     expect(p).toBeNull();
     expect(seen).toEqual([{ stale: false }]);
+    expect(calls.some((c) => c.cmd === 'steal_lock')).toBe(false);
+  });
+
+  it('保持者不明（held: null）のロックは null のまま confirmLock に渡り、奪取は試みない', async () => {
+    const sample = createSampleProject(gen('o2n'));
+    const calls = installTauri({
+      pick_open_path: () => '/tmp/locked.json',
+      stat_updated_at: () => '1',
+      open_project: () => serializeProject(sample),
+      acquire_lock: () => ({ ok: false, held: null, stale: false }),
+    });
+    const seen: { held: unknown; stale: boolean }[] = [];
+    const p = await openProjectFromFile({
+      confirmLock: (held, stale) => {
+        seen.push({ held, stale });
+        // 奪取(takeover)を返しても期待値が無いので steal_lock は呼ばれず、取り直しになる。
+        return Promise.resolve(seen.length < 2 ? 'takeover' : 'cancel');
+      },
+    });
+    expect(p).toBeNull();
+    expect(seen[0]).toEqual({ held: null, stale: false });
     expect(calls.some((c) => c.cmd === 'steal_lock')).toBe(false);
   });
 
@@ -173,6 +258,67 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     });
     const p = await openProjectFromFile({ confirmLock: () => Promise.resolve('proceed') });
     expect(p?.meta.id).toBe(sample.meta.id);
+  });
+
+  it('同じファイルの開き直しは保持中のロックをそのまま使う（手放さない・取り直さない）', async () => {
+    const sample = createSampleProject(gen('o5'));
+    const calls = installTauri({
+      pick_open_path: () => '/tmp/same.json',
+      stat_updated_at: () => '1',
+      open_project: () => serializeProject(sample),
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+    await openProjectFromFile(); // 1 回目: ロック取得
+    expect(calls.filter((c) => c.cmd === 'acquire_lock')).toHaveLength(1);
+
+    const p2 = await openProjectFromFile(); // 同じパスを開き直す
+    expect(p2?.meta.id).toBe(sample.meta.id);
+    expect(calls.filter((c) => c.cmd === 'acquire_lock')).toHaveLength(1); // 再取得しない
+    expect(calls.filter((c) => c.cmd === 'release_lock')).toHaveLength(0); // 手放さない
+  });
+
+  it('別パスを開いてキャンセルしたら、前のファイルのロックは保持したまま', async () => {
+    const sample = createSampleProject(gen('o6'));
+    let pickPath = '/tmp/first.json';
+    const calls = installTauri({
+      pick_open_path: () => pickPath,
+      stat_updated_at: () => '1',
+      open_project: () => serializeProject(sample),
+      acquire_lock: (a) =>
+        a['path'] === '/tmp/first.json' ? { ok: true } : { ok: false, held: heldByOther, stale: false },
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+    await openProjectFromFile(); // first.json のロックを保持
+    pickPath = '/tmp/second.json';
+    const p2 = await openProjectFromFile({ confirmLock: () => Promise.resolve('cancel') });
+    expect(p2).toBeNull(); // 開くのをやめる
+    expect(calls.filter((c) => c.cmd === 'release_lock')).toHaveLength(0); // 旧ロックは失わない
+  });
+
+  it('別パスを開けたときは、新ロックの取得が確定してから旧ロックを返す（順序）', async () => {
+    const sample = createSampleProject(gen('o7'));
+    let pickPath = '/tmp/a.json';
+    const calls = installTauri({
+      pick_open_path: () => pickPath,
+      stat_updated_at: () => '1',
+      open_project: () => serializeProject(sample),
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+    await openProjectFromFile();
+    pickPath = '/tmp/b.json';
+    await openProjectFromFile();
+    const releaseIdx = calls.findIndex((c) => c.cmd === 'release_lock');
+    const acquireBIdx = calls.findIndex(
+      (c) => c.cmd === 'acquire_lock' && c.args['path'] === '/tmp/b.json',
+    );
+    expect(acquireBIdx).toBeGreaterThanOrEqual(0);
+    expect(releaseIdx).toBeGreaterThan(acquireBIdx); // 新ロック確定 → 旧ロック返却の順
+    expect(calls[releaseIdx]!.args['path']).toBe('/tmp/a.json');
   });
 
   it('stale ロックは takeover で引き継いで開ける（expected には held を渡す）', async () => {

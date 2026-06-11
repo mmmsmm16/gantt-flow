@@ -133,7 +133,10 @@ function beginHolding(path: string, owner: LockInfo): void {
   heartbeatTimer = setInterval(() => {
     if (!lockPath || !lockOwner) return;
     lockOwner = { ...lockOwner, heartbeatAt: Date.now() };
-    void invoke('refresh_lock', { path: lockPath, owner: lockOwner }).catch(() => undefined);
+    // Rust 側は保持者(sessionId)が一致しない限り上書きを拒否して Err を返す。
+    // 失敗＝ロックを失った（奪取された等）か IO 不調なので、ハートビートを止めて
+    // 他セッションの正当なロックを乱さない（助言ロックの安全側）。
+    void invoke('refresh_lock', { path: lockPath, owner: lockOwner }).catch(() => stopHeartbeat());
   }, LOCK_REFRESH_MS);
 }
 
@@ -154,8 +157,9 @@ async function releaseHeldLock(): Promise<void> {
 /** 他セッションのロックを検出したときの判断。stale=true は放置されたロック（引き継ぎ候補）。 */
 export type LockDecision = 'takeover' | 'proceed' | 'cancel';
 export interface OpenOptions {
-  /** 省略時はロック無しで続行（呼び出し側が確認 UI を持たない場合のベストエフォート）。 */
-  confirmLock?: (held: LockInfo, stale: boolean) => Promise<LockDecision>;
+  /** 省略時はロック無しで続行（呼び出し側が確認 UI を持たない場合のベストエフォート）。
+   *  held: null は保持者不明（.lock が読めない）— 表示は「保持者不明」、奪取は提示しない。 */
+  confirmLock?: (held: LockInfo | null, stale: boolean) => Promise<LockDecision>;
 }
 
 type LockAttempt = { status: 'locked'; owner: LockInfo } | { status: 'unlocked' | 'cancelled' };
@@ -181,6 +185,8 @@ async function acquireLockFor(
     const decision = confirmLock ? await confirmLock(res.held, res.stale) : 'proceed';
     if (decision === 'cancel') return { status: 'cancelled' };
     if (decision === 'proceed') return { status: 'unlocked' };
+    // 保持者不明（held: null）のロックは奪取の期待値が無いので、取り直して再判断する。
+    if (!res.held) continue;
     // takeover: 確認時に見たロック(held)からの引き継ぎ。内容が変わっていたら（先を越された等）
     // false が返るので、取り直して再判断する。
     try {
@@ -236,9 +242,23 @@ export type SaveOutcome =
 // 保存。Tauri ではアトミック保存＋mtime 競合検知、ブラウザでは File System Access で上書き。
 // 書き込みの失敗は throw する（黙ってダウンロードに逃げない: 成功扱いになると dirty が消え、
 // 復旧データも消えてしまうため）。
-export async function saveProjectToFile(
+// 保存はモジュール内で直列化する: 実行中の保存があれば、その完了（lastKnownMtime の更新まで）
+// を待ってから次を実行する。アトミック保存のリネームで変わる自分の mtime を、並行した
+// 2 回目の保存が「他者の変更」と誤検出するのを防ぐ。
+let saveQueue: Promise<unknown> = Promise.resolve();
+
+export function saveProjectToFile(
   project: Project,
   opts: { saveAs?: boolean; force?: boolean } = {},
+): Promise<SaveOutcome> {
+  const run = saveQueue.then(() => doSaveProjectToFile(project, opts));
+  saveQueue = run.catch(() => undefined); // 失敗は呼び出し側へ伝播しつつ、次の保存は塞がない
+  return run;
+}
+
+async function doSaveProjectToFile(
+  project: Project,
+  opts: { saveAs?: boolean; force?: boolean },
 ): Promise<SaveOutcome> {
   const json = serializeProject(project);
   const suggested = `${safeName(project.meta.title)}.json`;
@@ -276,6 +296,9 @@ async function saveTauri(
   if (!path || opts.saveAs) {
     path = await invoke<string | null>('pick_save_path', { suggestedName: suggested });
     if (path === null) return { kind: 'cancelled' };
+    // Linux（GTK ポータル等）では保存ダイアログが拡張子を自動付与しない（rfd の付与は
+    // macOS/Windows のみ）。拡張子なしのファイルを作らないようここで補う。
+    if (!path.toLowerCase().endsWith('.json')) path = `${path}.json`;
     picked = true;
   }
   // 競合検知: 覚えているファイルへの上書きで、開く/前回保存の後に他者が変更していないか。
@@ -291,11 +314,30 @@ async function saveTauri(
     filePath = path;
     // 保存先が変わったらロックも移す（ベストエフォート: 取れなくても保存自体は完了している）。
     await releaseHeldLock();
-    void acquireLockFor(path).then((r) => {
-      if (r.status === 'locked') beginHolding(path!, r.owner);
+    const savedPath = path; // 閉包用に固定（この保存が対象としたパス）
+    void acquireLockFor(savedPath).then(async (r) => {
+      if (r.status !== 'locked') return;
+      // 取得待ちの間にさらに保存先が変わっていたら、このロックは古い対象 → 保持せず返す
+      //（無条件に beginHolding すると現在の保存先のロック/ハートビートを上書きしてしまう）。
+      if (filePath !== savedPath) {
+        try {
+          await invoke('release_lock', { path: savedPath, owner: r.owner });
+        } catch {
+          /* 解放失敗は放置（残ったロックは stale 引き継ぎで回収される） */
+        }
+        return;
+      }
+      beginHolding(savedPath, r.owner);
     });
   }
   return { kind: 'saved', name: basename(path) };
+}
+
+/** プロジェクトを JSON ファイルとしてダウンロード保存する（クラッシュ時の退避など最終手段）。 */
+export function downloadProjectJson(project: Project): string {
+  const name = `${safeName(project.meta.title)}.json`;
+  download(name, serializeProject(project), 'application/json');
+  return name;
 }
 
 // ---- 出力（Phase4） ----
@@ -337,7 +379,8 @@ export function exportIssuesExcel(project: Project): string {
 
 export function exportExcelFile(project: Project): string {
   const name = `${safeName(project.meta.title)}.xlsx`;
-  const ws = XLSX.utils.aoa_to_sheet(projectToRows(project));
+  // 人間が読む納品物なので前工程は作業名で出す（工程No は CSV ラウンドトリップ用）。
+  const ws = XLSX.utils.aoa_to_sheet(projectToRows(project, { depRef: 'name' }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '工程表');
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
@@ -404,7 +447,8 @@ const escapeHtml = (s: string) =>
 // ポップアップブロックを避けるため window.open ではなく iframe を使う。
 export function printProjectAndFlow(project: Project, view: FlowLevelView | undefined): void {
   const title = project.meta.title || 'プロジェクト';
-  const rows = projectToRows(project);
+  // 印刷も人間が読む出力なので前工程は作業名（XLSX 出力と同じ方針）。
+  const rows = projectToRows(project, { depRef: 'name' });
   const header = rows[0] ?? [];
   const body = rows.slice(1);
   const thead = `<tr>${header.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
@@ -479,11 +523,15 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
     const mtime = await statMtime(path);
     const text = await invoke<string>('open_project', { path });
     const project = deserializeProject(text); // 不正なら throw
-    if (lockPath === path) await releaseHeldLock(); // 同じファイルの開き直しは自分のロックと競合させない
-    const lock = await acquireLockFor(path, opts.confirmLock);
-    if (lock.status === 'cancelled') return null; // 開くのをやめる（今の状態は変えない）
-    await releaseHeldLock(); // 前に開いていたファイルのロックを返す
-    if (lock.status === 'locked') beginHolding(path, lock.owner);
+    // 助言ロックの付け替え。同じファイルの開き直しは保持中のロックをそのまま使う
+    //（一度手放すと、確認のキャンセルや取得失敗で「今の状態のまま」ロックだけ失ってしまう）。
+    if (lockPath !== path) {
+      // 別パス: 新しいロックの取得（or ユーザーの続行判断）が確定してから旧ロックを返す。
+      const lock = await acquireLockFor(path, opts.confirmLock);
+      if (lock.status === 'cancelled') return null; // 開くのをやめる（今の状態・旧ロックは変えない）
+      await releaseHeldLock(); // 前に開いていたファイルのロックを返す
+      if (lock.status === 'locked') beginHolding(path, lock.owner);
+    }
     fileHandle = null;
     filePath = path;
     lastKnownMtime = mtime;

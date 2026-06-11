@@ -29,6 +29,15 @@ describe('export: Project → 行列 / CSV', () => {
     expect(Object.keys(p2.core.dependencies)).toHaveLength(1);
   });
 
+  it('前工程列は既定で工程No、depRef:"name" なら作業名（XLSX/印刷など人間が読む出力用）', () => {
+    const { project } = importCsv(CSV, counter('d'));
+    const byCode = projectToRows(project); // 既定 'code'（CSV ラウンドトリップ維持）
+    expect(byCode.find((r) => r[1] === '出荷準備')![4]).toBe('1-1');
+    const byName = projectToRows(project, { depRef: 'name' });
+    expect(byName.find((r) => r[1] === '出荷準備')![4]).toBe('注文書受付');
+    expect(byName[0]).toEqual(EXPORT_HEADER); // ヘッダは共通
+  });
+
   it('rowsToCsv はカンマ/改行をクオートする', () => {
     expect(rowsToCsv([['a,b', 'c']])).toBe('"a,b",c');
     expect(typeof projectToCsv(importCsv(CSV, counter('c')).project)).toBe('string');

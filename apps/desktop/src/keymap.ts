@@ -6,6 +6,10 @@
 //    (例: j と ↓)。ユーザー上書きは「binding id → Chord | null(無効化)」で保存する。
 //  - context: 'global' は常に有効。'table' / 'flow' はアクティブペインに応じて有効。
 //    'connect' は接続モード中だけ(useGlobalHotkeys の pushKeyContext)最優先で有効。
+//  - Esc の優先順位(契約): レイヤを閉じる(closeTopLayer) → モーダルコンテキストのバインド
+//    ('connect' の connect.cancel 等) → 入力系のフォーカスは blur のみ → 非編集要素の
+//    フォーカスは blur しつつ同じ押下で row-clear / node-clear へ(キャンセル・選択解除に
+//    2 回押しを要求しない)。実装は useGlobalHotkeys の planEscFocus。
 //  - leader: true のエントリは「g を押した後の 2 打目」(1 秒以内)。
 //  - fixed: true は慣習として固定のキー(Delete/Esc 等)。ヘルプには出すが上書き対象にしない。
 

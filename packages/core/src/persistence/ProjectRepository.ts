@@ -19,9 +19,11 @@ export interface LockInfo {
 }
 
 // invoke('acquire_lock') の戻り値そのまま（{ ok: true } | { ok: false, held, stale }）。
+// held: null は「.lock は存在するが JSON として読めず保持者不明」（書き込み途中 or 壊れた
+// ロックで mtime が新しい）の場合。呼び出し側は保持者不明として表示し、奪取は試みない。
 export type AcquireResult =
   | { ok: true }
-  | { ok: false; held: LockInfo; stale: boolean };
+  | { ok: false; held: LockInfo | null; stale: boolean };
 
 export interface ProjectRepository {
   open(path: string): Promise<{ project: Project; report: LoadReport }>;

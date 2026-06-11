@@ -123,6 +123,23 @@ export function textArgCommand(spec: {
   };
 }
 
+// 工程名の変更コマンド。trim 後に空（空白のみの入力）なら何もしない — 旧実装は raw 値を
+// 渡していたため空白のみの確定で名前が '' になり得たが、誤って無名化しないよう no-op に
+// するのが意図した仕様（空欄の解除を意味する他フィールドと違い、工程名に「解除」は無い）。
+export function renameTaskCommand(available: boolean): Cmd {
+  return textArgCommand({
+    id: 'arg-rename',
+    label: '工程名を変更…',
+    keywords: 'rename namae 名前 工程名 リネーム',
+    placeholder: '新しい工程名',
+    available,
+    read: (tid) => useApp.getState().project.core.tasks[tid]?.name ?? '',
+    write: (tid, v) => {
+      if (v) useApp.getState().renameTask(tid, v);
+    },
+  });
+}
+
 // 詳細の文字列フィールド（備考/業務内容/使用システム）版: 空欄は「解除」(undefined) に統一。
 export function detailTextCommand(
   id: string,
@@ -305,15 +322,7 @@ function PaletteBody(handlers: FileHandlers) {
           });
         },
       },
-      textArgCommand({
-        id: 'arg-rename',
-        label: '工程名を変更…',
-        keywords: 'rename namae 名前 工程名 リネーム',
-        placeholder: '新しい工程名',
-        available: hasSel,
-        read: (tid) => useApp.getState().project.core.tasks[tid]?.name ?? '',
-        write: (tid, v) => useApp.getState().renameTask(tid, v),
-      }),
+      renameTaskCommand(hasSel),
       {
         id: 'arg-issue',
         label: '課題を追加…',

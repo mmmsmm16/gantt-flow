@@ -413,6 +413,21 @@ describe('app store（command → reconcile → history）', () => {
     expect(s.getState().dirty).toBe(false);
   });
 
+  it('保存 await 中の粒度切替（replaceTop）後でも、内容が等価なら markSaved で dirty が解消する', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().setLevel('large'); // 両ビューを先に作っておく（後の切替を内容等価にする）
+    s.getState().setLevel('medium');
+    const snapshot = s.getState().project; // 保存処理がファイルに書いた状態
+    // 保存 await 中のビュー切替を模擬: replaceTop でスナップショットが履歴の先頭から外れる
+    s.getState().setLevel('large');
+    expect(s.getState().project).not.toBe(snapshot); // 参照は別物（reconcile で作り直される）
+    s.getState().markSaved(snapshot);
+    expect(s.getState().dirty).toBe(false); // 内容等価なら保存済み扱いになる
+    s.getState().addTask('B');
+    expect(s.getState().dirty).toBe(true); // 以後の編集は通常どおり dirty
+  });
+
   it('既に依存がある工程どうしの再接続は no-op（履歴・dirty を汚さない）', () => {
     const s = createAppStore();
     s.getState().addTask('A');

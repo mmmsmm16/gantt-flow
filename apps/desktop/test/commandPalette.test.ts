@@ -2,7 +2,7 @@
 // trim と「空欄=解除」の規約が 1 箇所に集約されていることを検証する。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useApp } from '../src/store';
-import { textArgCommand, detailTextCommand } from '../src/ui/CommandPalette';
+import { textArgCommand, detailTextCommand, renameTaskCommand } from '../src/ui/CommandPalette';
 
 const selectFirstTask = (): string => {
   useApp.getState().addTask('受付');
@@ -53,6 +53,23 @@ describe('textArgCommand', () => {
     expect(cmd.arg?.defaultValue?.()).toBe('');
     cmd.runWithArg?.('値');
     expect(called).toBe(false);
+  });
+});
+
+describe('renameTaskCommand（工程名を変更…）', () => {
+  it('trim した値で改名し、現在の名前を defaultValue で読み出せる', () => {
+    const id = selectFirstTask();
+    const cmd = renameTaskCommand(true);
+    cmd.runWithArg?.('  受注登録  ');
+    expect(useApp.getState().project.core.tasks[id]?.name).toBe('受注登録');
+    expect(cmd.arg?.defaultValue?.()).toBe('受注登録');
+  });
+
+  it('空白のみの入力は no-op（名前を空にしない）', () => {
+    const id = selectFirstTask();
+    const cmd = renameTaskCommand(true);
+    cmd.runWithArg?.('   ');
+    expect(useApp.getState().project.core.tasks[id]?.name).toBe('受付');
   });
 });
 

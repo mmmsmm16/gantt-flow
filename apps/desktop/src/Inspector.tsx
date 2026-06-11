@@ -3,16 +3,9 @@ import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor }
 import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
+import { parseEffortHoursToMinutes } from './parseEffort';
 import { collectIoNames, prevCandidates } from './suggestions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
-
-// 工数欄（時間）の入力を分へ変換する。空欄=undefined（解除）、数値でない/負/無限大=null（不正・棄却）。
-// ×60 した後で有限性を見る（1e308 のような有限の入力も分換算で Infinity に溢れ、保存ファイルが壊れるため）。
-export function parseEffortHoursToMinutes(raw: string): number | undefined | null {
-  if (!raw.trim()) return undefined;
-  const minutes = Math.round(Number(raw) * 60);
-  return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
-}
 
 // 色スウォッチの 1 行(塗り/文字色で共用)。選択中は枠で強調、「なし」で解除。
 function ColorSwatchRow({

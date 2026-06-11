@@ -68,6 +68,12 @@ export function FlowCanvas() {
   const deleteFlowNodes = useApp((s) => s.deleteFlowNodes);
   const renameTask = useApp((s) => s.renameTask);
 
+  // その場リネームの確定。触れただけの blur(未変更)では履歴と未保存フラグを汚さない
+  // (表の commitName / インスペクタの commitText と同じ規約)。
+  const commitNodeRename = (taskId: string, value: string) => {
+    if (value !== (project.core.tasks[taskId]?.name ?? '')) renameTask(taskId, value);
+  };
+
   // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
   const addIoPrompt = async (taskId: string, io: 'inputs' | 'outputs') => {
     const name = await useUI.getState().promptText({
@@ -764,23 +770,68 @@ export function FlowCanvas() {
     .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
     .map((n) => ({ id: n.id, ...posOf(n), ...nodeSize(n) }));
 
-  // エッジ経路の参照。ドラッグ対象に接続するエッジだけ見かけの位置で再ルートし、
-  // それ以外はメモ済みの baseRoutes を返す(確定はドロップ時の store 更新で再計算される)。
+  // エッジ経路の参照。ドラッグ中に見かけの位置で再ルートするのは
+  //  (1) 端点がドラッグ対象のエッジ
+  //  (2) 確定済み経路の外接矩形がドラッグ中ノードの矩形に触れるエッジ
+  //     (現在位置=動かした先を避ける / 掴む前の位置=退いた後の迂回を解く)
+  // だけに絞り、それ以外はメモ済みの baseRoutes を使い回す＝毎フレームの全再ルートを
+  // 避けつつ、無関係なエッジがドラッグ中ノードに重なって見えるのを防ぐ。
+  // (確定経路はドロップ時の store 更新で再計算される)
   const draggingIds: ReadonlySet<FlowNodeId> | null = drag
     ? groupDrag
       ? multiSel
       : new Set([drag.id])
     : null;
+  const ROUTE_HIT_PAD = 16; // routeEdge が障害物の脇に取る余白(PAD*2=12)より広めに拾う
+  const dragRects: { x: number; y: number; w: number; h: number }[] = [];
+  if (draggingIds) {
+    for (const id of draggingIds) {
+      const n = view.nodes[id];
+      if (!n) continue;
+      const s = nodeSize(n);
+      dragRects.push({ ...posOf(n), ...s }); // 見かけの現在位置
+      dragRects.push({ x: n.x, y: n.y, ...s }); // 掴む前の確定位置
+    }
+  }
+  // 確定済み経路の外接矩形(AABB)がドラッグ矩形のどれかに触れるか(安価な近似判定。
+  // 多少の取りすぎは許容し、再ルート漏れを出さない側に倒す)。
+  const routeHitsDrag = (route: EdgeRoute): boolean => {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of route.points) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return dragRects.some(
+      (r) =>
+        maxX > r.x - ROUTE_HIT_PAD &&
+        minX < r.x + r.w + ROUTE_HIT_PAD &&
+        maxY > r.y - ROUTE_HIT_PAD &&
+        minY < r.y + r.h + ROUTE_HIT_PAD,
+    );
+  };
   const routeOf = (e: FlowEdge): EdgeRoute | undefined => {
-    if (draggingIds && (draggingIds.has(e.source) || draggingIds.has(e.target))) {
-      const s = view.nodes[e.source];
-      const t = view.nodes[e.target];
-      if (!s || !t) return undefined;
-      return routeEdge(
-        { ...posOf(s), ...nodeSize(s) },
-        { ...posOf(t), ...nodeSize(t) },
-        edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
-      );
+    if (draggingIds) {
+      const base = baseRoutes.get(e.id);
+      const needsReroute =
+        draggingIds.has(e.source) ||
+        draggingIds.has(e.target) ||
+        (base !== undefined && routeHitsDrag(base));
+      if (needsReroute) {
+        const s = view.nodes[e.source];
+        const t = view.nodes[e.target];
+        if (!s || !t) return undefined;
+        return routeEdge(
+          { ...posOf(s), ...nodeSize(s) },
+          { ...posOf(t), ...nodeSize(t) },
+          edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+        );
+      }
+      return base;
     }
     return baseRoutes.get(e.id);
   };
@@ -1148,6 +1199,9 @@ export function FlowCanvas() {
                 activate();
               }}
               onKeyDown={(e) => {
+                // 接続モード中の Enter/Space は中央ディスパッチ(connect.commit)に委ねる
+                // (ここで activate すると確定と二重に発火する)。preventDefault もしない。
+                if (kbConnect && (e.key === 'Enter' || e.key === ' ')) return;
                 if (n.kind === 'task' && e.key === 'F2') {
                   e.preventDefault();
                   setEditingTaskId(n.taskId);
@@ -1198,7 +1252,7 @@ export function FlowCanvas() {
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                   onBlur={(e) => {
-                    renameTask(n.taskId, e.target.value);
+                    commitNodeRename(n.taskId, e.target.value);
                     setEditingTaskId(null);
                   }}
                   onKeyDown={(e) => {
@@ -1206,7 +1260,7 @@ export function FlowCanvas() {
                     if (isImeKeyEvent(e)) return; // IME 変換確定の Enter/Esc では閉じない
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      renameTask(n.taskId, e.currentTarget.value);
+                      commitNodeRename(n.taskId, e.currentTarget.value);
                       setEditingTaskId(null);
                     } else if (e.key === 'Escape') {
                       e.preventDefault();

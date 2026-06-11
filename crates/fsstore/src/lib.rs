@@ -29,19 +29,10 @@ fn rand_suffix() -> String {
 
 /// rename をディスクへ確定させるため親ディレクトリを fsync する。
 /// POSIX ではディレクトリエントリの永続化に必要（fsync(2)）。
-/// ネットワーク FS 等でディレクトリ fsync 非対応の場合だけは黙認する。
+/// 呼び出し側（atomic_save）でベストエフォート扱いなので、エラーはそのまま返す。
 #[cfg(unix)]
 fn sync_dir(dir: &Path) -> io::Result<()> {
-    match fs::File::open(dir).and_then(|d| d.sync_all()) {
-        Err(e) if matches!(
-            e.kind(),
-            io::ErrorKind::Unsupported | io::ErrorKind::InvalidInput
-        ) =>
-        {
-            Ok(())
-        }
-        r => r,
-    }
+    fs::File::open(dir).and_then(|d| d.sync_all())
 }
 
 /// Windows ではディレクトリを File として開けないためベストエフォート（何もしない）。
@@ -67,7 +58,11 @@ pub fn atomic_save(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
-    sync_dir(dir)?;
+    // rename 後のディレクトリ fsync は「電源断で rename が巻き戻らない」ための保険であり、
+    // この時点で置換自体は完了している。ここで Err を返すと実際は保存済みなのに失敗扱いに
+    // なる（呼び出し側は dirty 維持・エラー表示）ため、完全にベストエフォートとして
+    // 全エラーを黙認する（SMB 等ではディレクトリ fsync が PermissionDenied になり得る）。
+    let _ = sync_dir(dir);
     Ok(())
 }
 
@@ -109,7 +104,9 @@ pub struct LockInfo {
 #[derive(Debug, PartialEq, Eq)]
 pub enum AcquireResult {
     Acquired,
-    Held { info: LockInfo, stale: bool },
+    /// info=None は「.lock は存在するが JSON として読めず、保持者不明」
+    /// （ワイヤ上は held: null, stale: false。TS 側 ProjectRepository.ts 参照）。
+    Held { info: Option<LockInfo>, stale: bool },
 }
 
 fn lock_path(path: &Path) -> PathBuf {
@@ -172,6 +169,7 @@ fn try_create_lock(path: &Path, owner: &LockInfo) -> io::Result<()> {
 ///   隙間で複数セッションが同時に Acquired を得る競合を防ぐ。
 /// - 自分のセッション → 内容を書き直して Acquired
 /// - 他者が保持 → Held{ stale }（新鮮なら stale=false、古ければ true=引き継ぎ候補）
+/// - 読めないロック → mtime で判断（古ければ残骸として引き継ぎ、新しければ保持者不明の Held）
 pub fn acquire_lock(
     path: &Path,
     owner: &LockInfo,
@@ -179,7 +177,6 @@ pub fn acquire_lock(
     now_ms: i64,
 ) -> io::Result<AcquireResult> {
     // 「作成失敗の直後に保持者が解放した」ケースに備えて数回やり直す。
-    let mut unreadable_seen = false;
     for _ in 0..3 {
         match try_create_lock(path, owner) {
             Ok(()) => return Ok(AcquireResult::Acquired),
@@ -194,20 +191,37 @@ pub fn acquire_lock(
                     return Ok(AcquireResult::Acquired);
                 }
                 let stale = now_ms - info.heartbeat_at > stale_after_ms;
-                return Ok(AcquireResult::Held { info, stale });
+                return Ok(AcquireResult::Held { info: Some(info), stale });
             }
             LockRead::Unreadable => {
-                // 壊れたロックはクラッシュ残骸の可能性が高いが、他セッションの
-                // 書き込み途中を読んだだけかもしれない。少し待って読み直し、
-                // それでも壊れていれば残骸とみなして引き継ぐ（rename 置換）。
-                // ※ この引き継ぎだけは原子的でなく、同時に引き継ぐ他セッションと
-                //    競合し得る僅かな窓が残る（共有フォルダでは CAS が使えないため）。
-                if unreadable_seen {
+                // 壊れた（JSON として読めない）ロック。クラッシュ残骸かもしれないし、
+                // 他セッションの try_create_lock（create→write の 2 段階）の書き込み
+                // 途中を読んだだけかもしれない。固定スリープでの再読は SMB では書き込みに
+                // 100ms 以上かかり得て不十分なので、ファイルの mtime で判断する:
+                // - stale_after_ms より古い → 残骸とみなして引き継ぐ（rename 置換）
+                // - それより新しい → 保持中とみなす（保持者不明: info=None, stale=false）
+                let meta = match fs::metadata(lock_path(path)) {
+                    Ok(m) => m,
+                    // 直後に解放された → 作り直し
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                    Err(e) => return Err(e),
+                };
+                // mtime が取れない FS では「新しい」扱い（健全なロックを奪わない安全側）。
+                // epoch 以前はあり得ないほど古い＝残骸扱い。
+                let mtime_ms = match meta.modified() {
+                    Ok(t) => t
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0),
+                    Err(_) => now_ms,
+                };
+                if now_ms - mtime_ms > stale_after_ms {
+                    // ※ この引き継ぎだけは原子的でなく、同時に引き継ぐ他セッションと
+                    //    競合し得る僅かな窓が残る（共有フォルダでは CAS が使えないため）。
                     write_lock(path, owner)?;
                     return Ok(AcquireResult::Acquired);
                 }
-                unreadable_seen = true;
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                return Ok(AcquireResult::Held { info: None, stale: false });
             }
         }
     }
@@ -234,8 +248,19 @@ pub fn steal_lock(path: &Path, owner: &LockInfo, expected: Option<&LockInfo>) ->
 }
 
 /// ハートビート（heartbeat_at を更新した owner を渡す）。
+/// 既存ロックを読み、自分のセッションが保持している場合のみ書き換える。
+/// 所有者チェック無しで上書きすると、引き継ぎ（steal）後も旧保持者の定期ハートビートが
+/// 新しいロックを黙って奪い返してしまうため。不在/他者保持/読めない場合は Err を返す
+/// （TS 側のハートビートは失敗したら更新を諦めるだけでよい。上書きはここで防がれている）。
+/// ※ 読み取り→書き込みの間に僅かな競合窓は残る（共有フォルダでは CAS が使えないため）。
 pub fn refresh_lock(path: &Path, owner: &LockInfo) -> io::Result<()> {
-    write_lock(path, owner)
+    match read_lock(path)? {
+        Some(info) if info.session_id == owner.session_id => write_lock(path, owner),
+        _ => Err(io::Error::new(
+            io::ErrorKind::Other,
+            "lock not held by this session",
+        )),
+    }
 }
 
 /// 自分が保持している場合のみロックを解放（削除）。
@@ -328,7 +353,7 @@ mod tests {
         match acquire_lock(&p, &me, 90_000, 2000).unwrap() {
             AcquireResult::Held { stale, info } => {
                 assert!(!stale);
-                assert_eq!(info.session_id, "s_other");
+                assert_eq!(info.expect("owner should be known").session_id, "s_other");
             }
             _ => panic!("should be held"),
         }
@@ -367,6 +392,37 @@ mod tests {
     }
 
     #[test]
+    fn refresh_updates_own_lock() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        let me = owner("s1", 1000);
+        assert!(steal_lock(&p, &me, None).unwrap());
+        refresh_lock(&p, &owner("s1", 2000)).unwrap();
+        assert_eq!(read_lock(&p).unwrap().unwrap().heartbeat_at, 2000);
+    }
+
+    #[test]
+    fn refresh_does_not_clobber_after_steal() {
+        // 引き継ぎ（steal）後、旧保持者のハートビートはロックを奪い返せない
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        let old_holder = owner("s_old", 1000);
+        assert!(steal_lock(&p, &old_holder, None).unwrap());
+        let new_holder = owner("s_new", 200_000);
+        assert!(steal_lock(&p, &new_holder, Some(&old_holder)).unwrap());
+
+        assert!(refresh_lock(&p, &owner("s_old", 300_000)).is_err());
+        assert_eq!(read_lock(&p).unwrap().unwrap().session_id, "s_new");
+    }
+
+    #[test]
+    fn refresh_fails_when_lock_missing() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        assert!(refresh_lock(&p, &owner("s1", 1000)).is_err());
+    }
+
+    #[test]
     fn steal_verifies_expected_content() {
         let d = TempDir::new();
         let p = d.file("p.json");
@@ -400,15 +456,44 @@ mod tests {
         assert_eq!(read_lock(&p).unwrap().unwrap().session_id, "s_other");
     }
 
+    /// テスト用: 実時間の epoch ms（壊れたロックの mtime 判定は実ファイルの mtime と比較するため）。
+    fn real_now_ms() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    }
+
     #[test]
-    fn acquire_takes_over_unreadable_lock() {
+    fn acquire_takes_over_unreadable_lock_with_stale_mtime() {
         let d = TempDir::new();
         let p = d.file("p.json");
-        // クラッシュ残骸（JSON として壊れたロックファイル）
+        // クラッシュ残骸（JSON として壊れたロックファイル）。mtime は「今」なので、
+        // しきい値を超えた未来の now を渡して「古い残骸」を再現する。
         fs::write(lock_path(&p), b"{broken").unwrap();
         let me = owner("s_me", 1000);
-        assert_eq!(acquire_lock(&p, &me, 90_000, 1000).unwrap(), AcquireResult::Acquired);
+        let now = real_now_ms() + 120_000; // mtime + 90s 超
+        assert_eq!(acquire_lock(&p, &me, 90_000, now).unwrap(), AcquireResult::Acquired);
         assert_eq!(read_lock(&p).unwrap(), Some(me));
+    }
+
+    #[test]
+    fn acquire_holds_off_unreadable_lock_with_fresh_mtime() {
+        let d = TempDir::new();
+        let p = d.file("p.json");
+        // 書き込み途中（create→write の 2 段階）を読んだ可能性があるケース。
+        // mtime が新しい間は奪わず、保持者不明（info=None）の Held を返す。
+        fs::write(lock_path(&p), b"{broken").unwrap();
+        let me = owner("s_me", 1000);
+        match acquire_lock(&p, &me, 90_000, real_now_ms()).unwrap() {
+            AcquireResult::Held { info, stale } => {
+                assert_eq!(info, None);
+                assert!(!stale);
+            }
+            _ => panic!("should be held"),
+        }
+        // 既存の（壊れた）ロックファイルは上書きされていない
+        assert_eq!(fs::read(lock_path(&p)).unwrap(), b"{broken");
     }
 
     #[test]

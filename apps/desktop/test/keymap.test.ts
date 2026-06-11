@@ -15,6 +15,7 @@ import {
   type KeyLike,
 } from '../src/keymap';
 import { useUI } from '../src/ui/useUI';
+import { planEscFocus } from '../src/ui/useGlobalHotkeys';
 
 const ev = (partial: Partial<KeyLike> & { key: string }): KeyLike => ({
   ctrlKey: false,
@@ -252,6 +253,35 @@ describe('keymap: flow の Delete/Esc と接続モード(connect)コンテキス
     const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
     expect(findBinding(ev({ key: 'h' }), off, ['connect', 'flow'], false)?.action).toBe('connect.left');
     expect(findBinding(ev({ key: 'c' }), off, ['connect', 'flow'], false)?.action).toBe('connect.cancel');
+  });
+});
+
+describe('useGlobalHotkeys: Esc のフォーカス規則(planEscFocus)', () => {
+  it('モーダルコンテキスト(接続モード等)の Esc が最優先(blur せず 1 押下でキャンセル)', () => {
+    // フロー上のノード(tabIndex=0)にフォーカスがあっても、blur で消費せずバインディングへ。
+    expect(planEscFocus({ blurrable: true, editable: false, hasModalBinding: true })).toBe('modal-binding');
+    expect(planEscFocus({ blurrable: false, editable: false, hasModalBinding: true })).toBe('modal-binding');
+    // 落ちた先の照合: connect が積まれていれば Esc は connect.cancel に解決する。
+    expect(
+      findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ['connect', 'flow', 'global'], false)?.action,
+    ).toBe('connect.cancel');
+  });
+
+  it('入力系(editable)の Esc は blur だけで完結する(選択は維持。解除はもう一度 Esc)', () => {
+    expect(planEscFocus({ blurrable: true, editable: true, hasModalBinding: false })).toBe('blur-only');
+    // モーダル中でも入力からの離脱が先(編集中は単キーを通さない editable ガードと整合)。
+    expect(planEscFocus({ blurrable: true, editable: true, hasModalBinding: true })).toBe('blur-only');
+  });
+
+  it('非編集要素(ノード div・ボタン等)の Esc は blur しつつ同じ押下でバインディングへ落ちる', () => {
+    expect(planEscFocus({ blurrable: true, editable: false, hasModalBinding: false })).toBe('blur-and-binding');
+    // 落ちた先: flow なら flow.clear、table なら table.clear が同じ押下で効く(2 回押し不要)。
+    expect(findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.clear');
+    expect(findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action).toBe('table.clear');
+  });
+
+  it('blur 対象が無ければ(body / ペイン自体)通常のバインディング照合へ', () => {
+    expect(planEscFocus({ blurrable: false, editable: false, hasModalBinding: false })).toBe('binding');
   });
 });
 

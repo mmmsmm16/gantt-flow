@@ -1,7 +1,7 @@
 // 工数欄の入力ガード。1e308 のような「有限だが ×60 で溢れる」値が Infinity として
 // 保存され、JSON では null になってファイルが開けなくなる事故を防ぐ。
 import { describe, it, expect } from 'vitest';
-import { parseEffortHoursToMinutes } from '../src/Inspector';
+import { parseEffortHoursToMinutes } from '../src/parseEffort';
 
 describe('parseEffortHoursToMinutes', () => {
   it('空欄（空白のみ含む）は undefined＝解除', () => {

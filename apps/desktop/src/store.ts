@@ -17,6 +17,7 @@ import {
   type ImportReport,
   CURRENT_SCHEMA_VERSION,
   uuid,
+  serializeProject,
   createHistory,
   reconcileProject,
   ensureLevelView,
@@ -720,7 +721,15 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (history.redo()) sync();
     },
     markSaved: (saved) => {
-      savedRef = saved ?? history.current();
+      const target = saved ?? history.current();
+      // 保存 await 中に setLevel/setScope（replaceTop）が走ると、保存したスナップショットが
+      // 履歴の先頭から外れ、参照比較では二度と dirty が false にならない。参照が違っても
+      // 内容が等価なら現在の先頭を保存済み扱いにする（保存完了時 1 回だけの stringify は許容）。
+      savedRef =
+        target !== history.current() &&
+        serializeProject(target) === serializeProject(history.current())
+          ? history.current()
+          : target;
       sync();
     },
 

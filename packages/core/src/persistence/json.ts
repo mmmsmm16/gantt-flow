@@ -11,6 +11,13 @@ export function serializeProject(project: Project): string {
 
 export interface DeserializeOptions {
   migrations?: Migration[];
+  /**
+   * 参照整合性エラーの扱い。'strict'（既定）は ProjectIntegrityError を投げて読込を拒否する。
+   * 'lenient' は Zod の構造検証は通すが参照破綻では投げない: autosave / バックアップなどの
+   * 復旧経路で「少し壊れているが救える」データを黙って捨てないため（循環は描画側でガード済み）。
+   * 明示的な「開く」は strict のまま使うこと。
+   */
+  integrity?: 'strict' | 'lenient';
 }
 
 // 対応版より新しいファイル。Zod は未知フィールドを黙って削ぎ落とすため、
@@ -69,8 +76,10 @@ export function deserializeProject(json: string, opts: DeserializeOptions = {}):
   }
   const migrated = migrate(raw, opts.migrations);
   const project = ProjectSchema.parse(migrated) as Project;
-  const fatal = validate(project).filter((i) => FATAL_ISSUE_KINDS.has(i.kind));
-  if (fatal.length > 0) throw new ProjectIntegrityError(fatal);
+  if ((opts.integrity ?? 'strict') === 'strict') {
+    const fatal = validate(project).filter((i) => FATAL_ISSUE_KINDS.has(i.kind));
+    if (fatal.length > 0) throw new ProjectIntegrityError(fatal);
+  }
   return project;
 }
 

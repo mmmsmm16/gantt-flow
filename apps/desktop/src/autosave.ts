@@ -48,7 +48,8 @@ function newestEntry(): { key: string; at: number; project: Project } | null {
     const e = readEntry(key);
     if (!e) continue;
     try {
-      const p = deserializeProject(e.json);
+      // 復旧経路は lenient: 参照整合性が少し壊れていても救出を優先する（読込拒否で黙って捨てない）。
+      const p = deserializeProject(e.json, { integrity: 'lenient' });
       // 工程が 1 件も無いものは復元対象にしない（実質空）。
       if (Object.keys(p.core.tasks).length === 0) continue;
       if (!best || e.at > best.at) best = { key, at: e.at, project: p };
@@ -114,17 +115,19 @@ function write(p: Project): void {
   }
 }
 
-// dirty な変更をデバウンス保存。dirty→clean（保存/開く/新規）になったら、
-// clean になったプロジェクトの復旧データを消す。
+// dirty な変更をデバウンス保存。dirty→clean（保存/開く/新規）になったら復旧データを消す。
+// 別プロジェクトを開いて clean になった場合、未保存が解消されたのは「前の」プロジェクト
+// なので prevState 側のエントリを消す（編集中だった方の残骸を残さない）。同一プロジェクト
+// のまま clean になった（保存した）場合は従来どおりそのプロジェクトの分を消す。
 export function initAutosave(): void {
-  let wasDirty = useApp.getState().dirty;
-  useApp.subscribe((state) => {
+  useApp.subscribe((state, prevState) => {
     if (state.dirty) {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => write(useApp.getState().project), DEBOUNCE_MS);
-    } else if (wasDirty) {
-      clearAutosave(state.project); // 未保存が解消されたのはこのプロジェクト → その分だけ消す
+    } else if (prevState.dirty) {
+      clearAutosave(
+        state.project.meta.id === prevState.project.meta.id ? state.project : prevState.project,
+      );
     }
-    wasDirty = state.dirty;
   });
 }

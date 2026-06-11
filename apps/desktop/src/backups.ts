@@ -60,7 +60,8 @@ export function restoreBackup(index: number): Project | null {
   const e = readAll()[index];
   if (!e) return null;
   try {
-    return deserializeProject(e.json);
+    // 復旧経路は lenient: 参照整合性が少し壊れていても救出を優先する（読込拒否で黙って捨てない）。
+    return deserializeProject(e.json, { integrity: 'lenient' });
   } catch {
     return null;
   }

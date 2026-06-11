@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { findView, useApp } from './store';
 import {
   isProjectIntegrityError,
@@ -85,7 +85,10 @@ export function App() {
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
     : [];
 
-  const onSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
+  // 保存の再入ガード: 保存中の Ctrl+S 連打やパレットからの多重起動を無視する
+  //（persistence 側でも直列化されるが、競合ダイアログ等の多重表示をここで防ぐ）。
+  const savingRef = useRef(false);
+  const doSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
     // 保存した内容そのものを markSaved に渡す（書き込み待ちの間の編集を保存済み扱いにしない）。
     const snapshot = useApp.getState().project;
     try {
@@ -99,7 +102,7 @@ export function App() {
           confirmLabel: '上書き保存',
           danger: true,
         });
-        if (ok) await onSave({ ...opts, force: true });
+        if (ok) await doSave({ ...opts, force: true });
         return;
       }
       useApp.getState().markSaved(snapshot);
@@ -125,21 +128,32 @@ export function App() {
       });
     }
   };
+  const onSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
+    if (savingRef.current) return; // 保存中の再実行は無視（完了後に改めて保存してもらう）
+    savingRef.current = true;
+    try {
+      await doSave(opts);
+    } finally {
+      savingRef.current = false;
+    }
+  };
   const onSaveAs = () => onSave({ saveAs: true });
   // 開く時に他セッションの編集ロックを見つけたときの判断（Tauri のみ呼ばれる）。
-  const confirmLock = async (held: LockInfo, stale: boolean): Promise<'takeover' | 'proceed' | 'cancel'> => {
-    const heartbeat = new Date(held.heartbeatAt).toLocaleString('ja-JP');
-    if (stale) {
+  const confirmLock = async (held: LockInfo | null, stale: boolean): Promise<'takeover' | 'proceed' | 'cancel'> => {
+    // held: null は .lock が読めない（書き込み途中 or 破損）= 保持者不明。奪取は提示しない。
+    const who = held ? `${held.user}（${held.host}）` : '別のセッション（保持者不明）';
+    const heartbeat = held ? new Date(held.heartbeatAt).toLocaleString('ja-JP') : '不明';
+    if (stale && held) {
       const ok = await useUI.getState().confirm({
         title: '前回のロックが残っています',
-        message: `このファイルは ${held.user}（${held.host}）が開いたまま終了した可能性があります（最終応答: ${heartbeat}）。\n編集ロックを引き継いで開きますか？`,
+        message: `このファイルは ${who}が開いたまま終了した可能性があります（最終応答: ${heartbeat}）。\n編集ロックを引き継いで開きますか？`,
         confirmLabel: '引き継いで開く',
       });
       return ok ? 'takeover' : 'cancel';
     }
     const ok = await useUI.getState().confirm({
       title: '他のセッションが編集中',
-      message: `このファイルは ${held.user}（${held.host}）が編集中です（最終応答: ${heartbeat}）。\nこのまま開くと、保存時にお互いの変更を上書きする危険があります。続行しますか？`,
+      message: `このファイルは ${who}が編集中です（最終応答: ${heartbeat}）。\nこのまま開くと、保存時にお互いの変更を上書きする危険があります。続行しますか？`,
       confirmLabel: '続行して開く',
       danger: true,
     });
@@ -253,8 +267,18 @@ export function App() {
       } else {
         useUI.getState().toast('このファイルを開けませんでした（権限が必要です）。', 'error');
       }
-    } catch {
-      useUI.getState().toast('ファイルを開けませんでした。', 'error');
+    } catch (err) {
+      // onOpen と同様、版違い・参照整合性のエラーは具体的なメッセージをダイアログで伝える。
+      if (isSchemaVersionTooNewError(err) || isProjectIntegrityError(err)) {
+        void useUI.getState().confirm({
+          title: 'ファイルを開けませんでした',
+          message: err.message,
+          confirmLabel: '閉じる',
+          hideCancel: true,
+        });
+      } else {
+        useUI.getState().toast('ファイルを開けませんでした。', 'error');
+      }
     }
   };
   const onExportExcel = () => {

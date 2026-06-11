@@ -143,6 +143,37 @@ describe('persistence: 参照整合性の検証（読込時）', () => {
   });
 });
 
+describe('persistence: integrity "lenient"（復旧経路向け）', () => {
+  it('参照破綻のあるデータも lenient なら読み込める（既定の strict は拒否）', () => {
+    const p = sampleProject();
+    const raw = JSON.parse(serializeProject(p));
+    raw.core.dependencies['d-bad'] = {
+      id: 'd-bad',
+      from: 'ghost-task',
+      to: taskIdByName(p, '受付'),
+      type: 'FS',
+    };
+    const json = JSON.stringify(raw);
+    const strict = tryDeserializeProject(json);
+    expect(strict.ok).toBe(false); // 既定（明示的な「開く」）は従来どおり拒否
+    if (!strict.ok) expect(isProjectIntegrityError(strict.error)).toBe(true);
+    const back = deserializeProject(json, { integrity: 'lenient' });
+    expect(back.core.dependencies['d-bad']).toBeDefined(); // 救出できる
+  });
+
+  it('lenient でも Zod の構造検証と版チェックは維持される', () => {
+    // 構造不正は lenient でも弾く
+    const bad = JSON.stringify({ meta: {}, core: {} });
+    expect(tryDeserializeProject(bad, { integrity: 'lenient' }).ok).toBe(false);
+    // 新しすぎる版も lenient でも弾く（未知フィールドの黙殺を防ぐ）
+    const raw = JSON.parse(serializeProject(sampleProject()));
+    raw.schemaVersion = CURRENT_SCHEMA_VERSION + 1;
+    const res = tryDeserializeProject(JSON.stringify(raw), { integrity: 'lenient' });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(isSchemaVersionTooNewError(res.error)).toBe(true);
+  });
+});
+
 describe('persistence: 数値フィールドの有限値検証', () => {
   // JSON は Infinity/NaN を表現できないので、メモリ上のオブジェクトを直接 parse して検証する
   it('effortMinutes の Infinity/NaN はスキーマで弾く', () => {

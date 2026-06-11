@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Project, ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours, bridgePredMap } from '@gantt-flow/core';
+import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
+import { buildPrevCandidateIndex } from './suggestions';
+import { parseEffortHoursToMinutes } from './parseEffort';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
@@ -46,35 +48,6 @@ function buildOutline(tasks: ProcessTask[], collapsed: Set<Id>): Row[] {
   };
   walk(undefined, 0, []);
   return rows;
-}
-
-// 「＋前工程」セレクトの候補を行別に引けるルックアップを 1 回の走査で作る。
-// prevCandidates(suggestions.ts) と同じ結果(順序含む)を返すが、行ごとに全工程・
-// 全依存をなめ直さない(全行分で O(n²) になり、選択移動のたびの再レンダーが重くなる)。
-export function buildPrevCandidateIndex(project: Project): (taskId: Id) => ProcessTask[] {
-  // 依存は両向きで登録し、「o↔taskId のどちら向きでも繋がり済みなら除外」を 1 回の参照で判定する。
-  const linked = new Set<string>();
-  for (const d of Object.values(project.core.dependencies)) {
-    linked.add(`${d.from}\u0000${d.to}`);
-    linked.add(`${d.to}\u0000${d.from}`);
-  }
-  // 同じ親・同じ粒度のグループに分け、prevCandidates と同じ順(order→id)に整列しておく。
-  const groups = new Map<string, ProcessTask[]>();
-  const groupKey = (t: ProcessTask) => `${t.parentId ?? ''}\u0000${t.level}`;
-  for (const t of Object.values(project.core.tasks)) {
-    const key = groupKey(t);
-    const arr = groups.get(key);
-    if (arr) arr.push(t);
-    else groups.set(key, [t]);
-  }
-  for (const arr of groups.values())
-    arr.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  return (taskId) => {
-    const t = project.core.tasks[taskId];
-    if (!t) return [];
-    const siblings = groups.get(groupKey(t)) ?? [];
-    return siblings.filter((o) => o.id !== taskId && !linked.has(`${o.id}\u0000${taskId}`));
-  };
 }
 
 // ツリーガイド（VS Code 風）の縦線・エルボーを名前セルに重ねる。
@@ -134,6 +107,12 @@ export function TableView() {
   const bridgePreds = bridgePredMap(project.core);
   // 前工程候補のインデックス。プロジェクトが変わったときだけ作り直す(選択移動だけの再レンダーでは再利用)。
   const prevCandidatesFor = useMemo(() => buildPrevCandidateIndex(project), [project]);
+  // 集計工数(親=子孫の合計)。行ごとに effortRollupMinutes を呼ぶと毎回全マップを再構築して
+  // O(n²) になるため、コミット時に 1 回だけ計算して各行は Map 参照にする。
+  const effortRollups = useMemo(
+    () => computeEffortRollups(project.core, project.details),
+    [project.core, project.details],
+  );
 
   // 新しく追加した行の作業名入力にフォーカスする（連続入力）。
   const [focusId, setFocusId] = useState<Id | null>(null);
@@ -478,7 +457,7 @@ export function TableView() {
                     <td className="c-effort" onClick={(e) => e.stopPropagation()}>
                       {hasChildren ? (
                         <span className="effort-roll" title="子の合計（自動）">
-                          {formatHours(effortRollupMinutes(project.core, project.details, t.id))}
+                          {formatHours(effortRollups.get(t.id) ?? 0)}
                         </span>
                       ) : (
                         <input
@@ -491,13 +470,17 @@ export function TableView() {
                           placeholder="h"
                           aria-label="工数（時間）"
                           onClick={(e) => e.stopPropagation()}
-                          onBlur={(e) =>
-                            updateDetail(t.id, {
-                              effortMinutes: e.target.value
-                                ? Math.round(Number(e.target.value) * 60)
-                                : undefined,
-                            })
-                          }
+                          onBlur={(e) => {
+                            const minutes = parseEffortHoursToMinutes(e.target.value);
+                            if (minutes === null) {
+                              // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す（インスペクタと同じ規約）。
+                              e.target.value =
+                                detail?.effortMinutes != null ? String(detail.effortMinutes / 60) : '';
+                              useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                              return;
+                            }
+                            if (minutes !== detail?.effortMinutes) updateDetail(t.id, { effortMinutes: minutes });
+                          }}
                         />
                       )}
                     </td>
@@ -521,7 +504,10 @@ export function TableView() {
                                 className="io-chip-name"
                                 defaultValue={item.name}
                                 aria-label={`${label}名`}
-                                onBlur={(e) => updateIo(t.id, item.id, { name: e.target.value })}
+                                // 触れただけの blur で履歴と未保存フラグを汚さない（変化があるときだけコミット）。
+                                onBlur={(e) => {
+                                  if (e.target.value !== item.name) updateIo(t.id, item.id, { name: e.target.value });
+                                }}
                               />
                               <button
                                 className="io-chip-x"
