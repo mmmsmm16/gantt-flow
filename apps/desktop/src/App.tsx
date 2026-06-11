@@ -56,6 +56,37 @@ const PARENT_LEVEL: Record<ProcessLevel, ProcessLevel | null> = {
   detail: 'small',
 };
 
+// 分割 / 工程表のみ / 工程フローのみ をタブで切り替えるセグメント。両ペインのヘッダに置き、
+// どのレイアウトでも（片方を全幅にしていても）常に切替先へ行けるようにする。
+function PaneLayoutTabs({ current }: { current: 'split' | 'table' | 'flow' }) {
+  const setPaneLayout = useUI((s) => s.setPaneLayout);
+  return (
+    <span className="seg pane-layout-seg" role="group" aria-label="表示するペイン">
+      <button
+        className={current === 'split' ? 'on' : ''}
+        onClick={() => setPaneLayout('split')}
+        title="工程表とフローを分割表示"
+      >
+        分割
+      </button>
+      <button
+        className={current === 'table' ? 'on' : ''}
+        onClick={() => setPaneLayout('table')}
+        title="工程表だけを全幅表示"
+      >
+        表
+      </button>
+      <button
+        className={current === 'flow' ? 'on' : ''}
+        onClick={() => setPaneLayout('flow')}
+        title="工程フローだけを全幅表示"
+      >
+        フロー
+      </button>
+    </span>
+  );
+}
+
 export function App() {
   const project = useApp((s) => s.project);
   const level = useApp((s) => s.level);
@@ -87,7 +118,6 @@ export function App() {
   const toggleTheme = useUI((s) => s.toggleTheme);
   const tableWide = useUI((s) => s.tableWide);
   const flowWide = useUI((s) => s.flowWide);
-  const toggleFlowWide = useUI((s) => s.toggleFlowWide);
   const chromeHidden = useUI((s) => s.chromeHidden);
   const toggleChrome = useUI((s) => s.toggleChrome);
   const tableMode = useUI((s) => s.tableMode);
@@ -96,6 +126,8 @@ export function App() {
   const setActivePane = useUI((s) => s.setActivePane);
   const inspectorOpen = useUI((s) => s.inspectorOpen);
   const fullMode = tableMode === 'full';
+  // 現在のレイアウト（タブのハイライト用）。full は常にフロー非表示なので「表のみ」扱い。
+  const paneLayout: 'split' | 'table' | 'flow' = flowWide ? 'flow' : tableWide || fullMode ? 'table' : 'split';
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
@@ -613,6 +645,7 @@ export function App() {
                   全項目表
                 </button>
               </span>
+              <PaneLayoutTabs current={paneLayout} />
             </div>
             {fullMode ? <FullTable /> : <TableView />}
           </section>
@@ -662,14 +695,7 @@ export function App() {
                 >
                   {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
                 </button>
-                <button
-                  className="wide-toggle flow-wide-toggle"
-                  onClick={toggleFlowWide}
-                  aria-pressed={flowWide}
-                  title={flowWide ? '表を表示して分割に戻す' : '表を畳んでフローを全幅にする'}
-                >
-                  {flowWide ? '↔ 分割に戻す' : '⤢ フローを広く'}
-                </button>
+                <PaneLayoutTabs current={paneLayout} />
               </div>
               <FlowCanvas />
             </section>

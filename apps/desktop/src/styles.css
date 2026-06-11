@@ -3746,7 +3746,8 @@ kbd {
 .panes.flow-wide.with-inspector {
   grid-template-columns: 1fr 360px;
 }
-.flow-head .flow-wide-toggle {
+/* 分割/表/フローの切替タブは各ヘッダの右端に寄せる。 */
+.pane-layout-seg {
   margin-left: auto;
 }
 

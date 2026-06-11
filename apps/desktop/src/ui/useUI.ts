@@ -136,6 +136,9 @@ interface UIState {
   flowWide: boolean;
   toggleFlowWide: () => void;
 
+  /** 分割 / 工程表のみ / 工程フローのみ をタブで直接切替（tableWide・flowWide を一括設定）。 */
+  setPaneLayout: (mode: 'split' | 'table' | 'flow') => void;
+
   /** 作業エリアを最大化するため上部ツールバーを隠す（集中モード）。localStorage 永続(既定 OFF=表示)。 */
   chromeHidden: boolean;
   toggleChrome: () => void;
@@ -266,6 +269,19 @@ export const useUI = create<UIState>((set, get) => ({
   flowWide: false,
   toggleFlowWide: () =>
     set({ flowWide: !get().flowWide, tableWide: false, ...(get().flowWide ? {} : { activePane: 'flow' as const }) }),
+
+  setPaneLayout: (mode) =>
+    set({
+      tableWide: mode === 'table',
+      flowWide: mode === 'flow',
+      // 全項目表(full)はフローと併存できないため、分割/フロー選択時はアウトラインへ戻す。
+      ...(mode !== 'table' && get().tableMode === 'full' ? { tableMode: 'outline' as const } : {}),
+      ...(mode === 'table'
+        ? { activePane: 'table' as const }
+        : mode === 'flow'
+          ? { activePane: 'flow' as const }
+          : {}),
+    }),
 
   chromeHidden: (() => {
     try {

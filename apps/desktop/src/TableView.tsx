@@ -92,8 +92,6 @@ export function TableView() {
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
-  const tableWide = useUI((s) => s.tableWide);
-  const toggleTableWide = useUI((s) => s.toggleTableWide);
   const columnVisibility = useUI((s) => s.columnVisibility);
   const toggleColumn = useUI((s) => s.toggleColumn);
 
@@ -258,14 +256,6 @@ export function TableView() {
             />
           ))}
         </Menu>
-        <button
-          className="wide-toggle"
-          onClick={toggleTableWide}
-          aria-pressed={tableWide}
-          title={tableWide ? 'フローを表示して分割に戻す' : 'フローを畳んで表を全幅にする'}
-        >
-          {tableWide ? '↔ 分割に戻す' : '⤢ 表を広く'}
-        </button>
       </div>
 
       {rows.length === 0 ? (
