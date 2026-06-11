@@ -53,14 +53,9 @@ export function SummaryDialog() {
     return { assignees, totalMin, autoCounts, leafCount: leaves.length, levelCounts, taskCount: tasks.length };
   }, [project]);
 
+  // Esc は useGlobalHotkeys の「最上位レイヤを閉じる」一元処理が担う(個別リスナー不要)。
   useEffect(() => {
-    if (!open) return undefined;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    if (open) closeRef.current?.focus();
   }, [open]);
 
   if (!open) return null;

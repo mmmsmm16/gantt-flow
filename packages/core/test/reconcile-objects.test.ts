@@ -6,6 +6,7 @@ import {
   addIssueItem,
   removeIssueItem,
   addDependency,
+  deleteTask,
 } from '../src/commands';
 import { reconcileFlow } from '../src/sync/reconcileFlow';
 import { nodeRect, ioIconRect, edgeRects, SIZE } from '../src/sync/autoPlace';
@@ -221,6 +222,48 @@ describe('reconcileFlow: I/O・課題オブジェクト', () => {
     const moved = r2.view.nodes[doc.id] as FlowDocNode;
     expect(moved.x).toBe(777);
     expect(moved.y).toBe(333);
+  });
+
+  it('作業削除 → その I/O・課題ノードも全ビューから撤去される（幽霊が残らない）', () => {
+    const n = counter('n');
+    let { p, g, id } = withTask();
+    p = addIoItem(p, id, 'inputs', { name: '注文書', kind: 'doc' }, g);
+    p = addIssueItem(p, id, { issue: '確認漏れ' }, g);
+    const r1 = reconcileFlow(p.core, p.details, emptyView(), n);
+    expect(docs(r1.view)).toHaveLength(1);
+    expect(notes(r1.view)).toHaveLength(1);
+
+    p = deleteTask(p, id);
+    const r2 = reconcileFlow(p.core, p.details, r1.view, n);
+    // タスクノードだけでなく doc / issue ノードも消える
+    expect(Object.values(r2.view.nodes)).toHaveLength(0);
+    expect(r2.report.removed).toHaveLength(3);
+    // 冪等: もう一度 reconcile しても何も起きない
+    const r3 = reconcileFlow(p.core, p.details, r2.view, n);
+    expect(r3.view).toEqual(r2.view);
+    expect(r3.report.removed).toHaveLength(0);
+  });
+
+  it('I/O 削除 → doc ノードに繋いだ pinned エッジも同じ reconcile で撤去される', () => {
+    const n = counter('n');
+    let { p, g, id } = withTask();
+    p = addIoItem(p, id, 'inputs', { name: '注文書', kind: 'doc' }, g);
+    const orderIoId = ioId(p, id, '注文書');
+    const r1 = reconcileFlow(p.core, p.details, emptyView(), n);
+    const doc = docs(r1.view)[0]!;
+    const t = taskNode(r1.view);
+    r1.view.edges['pin-doc'] = {
+      id: 'pin-doc',
+      source: doc.id,
+      target: t.id,
+      pinned: true,
+      role: 'flow',
+    };
+
+    p = removeIoItem(p, id, orderIoId);
+    const r2 = reconcileFlow(p.core, p.details, r1.view, n);
+    expect(docs(r2.view)).toHaveLength(0);
+    expect(r2.view.edges['pin-doc']).toBeUndefined(); // 端点消失 → pinned でも撤去
   });
 
   it('冪等性: I/O・課題込みでも reconcile(reconcile(x)) == reconcile(x)', () => {

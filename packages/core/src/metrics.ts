@@ -1,14 +1,45 @@
 // 工数の集計（`docs/02-data-model.md` §3）。末端のみが値を持ち、親は子孫の末端工数の合計を導出。
 import type { Core, TaskDetail, Id } from './model/types';
 
+// 全タスクの集計工数を 1 パス（O(n)）で計算する。表のソート・一覧描画・合計など、
+// 複数タスク分が必要な場面ではタスクごとに effortRollupMinutes を呼ばずこちらを使う。
+export function computeEffortRollups(
+  core: Core,
+  details: Record<Id, TaskDetail>,
+): Map<Id, number> {
+  const childrenByParent = new Map<Id, Id[]>();
+  for (const t of Object.values(core.tasks)) {
+    if (!t.parentId) continue;
+    const list = childrenByParent.get(t.parentId);
+    if (list) list.push(t.id);
+    else childrenByParent.set(t.parentId, [t.id]);
+  }
+  const rollups = new Map<Id, number>();
+  const visiting = new Set<Id>(); // 親参照に循環があっても無限再帰しない（循環の再訪は 0 扱い）
+  const calc = (id: Id): number => {
+    const memo = rollups.get(id);
+    if (memo !== undefined) return memo;
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    const children = childrenByParent.get(id);
+    const value = children
+      ? children.reduce((sum, c) => sum + calc(c), 0)
+      : details[id]?.effortMinutes ?? 0;
+    visiting.delete(id);
+    rollups.set(id, value);
+    return value;
+  };
+  for (const id of Object.keys(core.tasks)) calc(id);
+  return rollups;
+}
+
+// 単一タスク版（互換 API）。内部で全体を計算するため、ループ内では computeEffortRollups を使うこと。
 export function effortRollupMinutes(
   core: Core,
   details: Record<Id, TaskDetail>,
   taskId: Id,
 ): number {
-  const children = Object.values(core.tasks).filter((t) => t.parentId === taskId);
-  if (children.length === 0) return details[taskId]?.effortMinutes ?? 0;
-  return children.reduce((sum, c) => sum + effortRollupMinutes(core, details, c.id), 0);
+  return computeEffortRollups(core, details).get(taskId) ?? details[taskId]?.effortMinutes ?? 0;
 }
 
 // 「分」を表示用に整形（>=60 は時間併記）。

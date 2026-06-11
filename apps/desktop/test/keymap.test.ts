@@ -6,11 +6,16 @@ import {
   createLeaderTracker,
   resolveKeymap,
   findConflict,
+  chordFromEvent,
   chordKeys,
+  isImeKeyEvent,
   isSingleKeyBinding,
   filterKeymapForSingleKey,
+  type KeyContext,
   type KeyLike,
 } from '../src/keymap';
+import { useUI } from '../src/ui/useUI';
+import { planEscFocus } from '../src/ui/useGlobalHotkeys';
 
 const ev = (partial: Partial<KeyLike> & { key: string }): KeyLike => ({
   ctrlKey: false,
@@ -162,6 +167,213 @@ describe('keymap: findConflict(重複検出)', () => {
     const target = DEFAULT_KEYMAP.find((b) => b.id === 'row-add')!; // table
     const conflict = findConflict(DEFAULT_KEYMAP, target, { key: 'c' }); // flow の接続モード
     expect(conflict).toBeUndefined();
+  });
+
+  it('shift 不問(undefined)は Shift あり/なしの両方と衝突する(eventMatches と同じ意味論)', () => {
+    const redo = DEFAULT_KEYMAP.find((b) => b.id === 'redo')!;
+    // undo を Ctrl+U(shift 不問)へ変更済みの状態で redo に Ctrl+Shift+U → 実行時に undo が
+    // 先に一致して影になるため、衝突として報告されなければならない
+    const km = resolveKeymap(DEFAULT_KEYMAP, { undo: { key: 'u', mod: true } });
+    expect(findConflict(km, redo, { key: 'u', mod: true, shift: true })?.id).toBe('undo');
+    expect(findConflict(km, redo, { key: 'u', mod: true, shift: false })?.id).toBe('undo');
+  });
+
+  it('shift 明示同士は従来どおり区別され、同じ実効キーの再割り当ては衝突しない', () => {
+    const undo = DEFAULT_KEYMAP.find((b) => b.id === 'undo')!;
+    const redo = DEFAULT_KEYMAP.find((b) => b.id === 'redo')!;
+    // Ctrl+Z(shift:false) と Ctrl+Shift+Z(shift:true) は別キー
+    expect(findConflict(DEFAULT_KEYMAP, undo, { key: 'z', mod: true, shift: true })?.id).toBe('redo-shift-z');
+    expect(findConflict(DEFAULT_KEYMAP, redo, { key: 'y', mod: true, shift: false })).toBeUndefined();
+    // 自分自身のいまのキーを取り直しても衝突にならない(自分は除外)
+    expect(findConflict(DEFAULT_KEYMAP, undo, { key: 'z', mod: true, shift: false })).toBeUndefined();
+  });
+});
+
+describe('keymap: chordFromEvent(キーキャプチャ)', () => {
+  it('shift は必ず明示する(true/false。不問=undefined を作らない)', () => {
+    expect(chordFromEvent(ev({ key: 'u', ctrlKey: true }))).toEqual({ key: 'u', mod: true, shift: false });
+    expect(chordFromEvent(ev({ key: 'U', ctrlKey: true, shiftKey: true }))).toEqual({
+      key: 'u',
+      mod: true,
+      shift: true,
+    });
+    expect(chordFromEvent(ev({ key: 'x', altKey: true }))).toEqual({ key: 'x', alt: true, shift: false });
+  });
+
+  it('キャプチャした chord は打鍵した修飾の組み合わせだけに一致する', () => {
+    const chord = chordFromEvent(ev({ key: 'u', ctrlKey: true })); // Ctrl+U(Shift なし)
+    expect(eventMatches(ev({ key: 'u', ctrlKey: true }), chord)).toBe(true);
+    expect(eventMatches(ev({ key: 'U', ctrlKey: true, shiftKey: true }), chord)).toBe(false); // Shift 付きは別
+  });
+});
+
+describe('keymap: isImeKeyEvent(IME ガード)', () => {
+  it('isComposing / keyCode 229 / React 合成イベント(nativeEvent)のいずれでも IME とみなす', () => {
+    expect(isImeKeyEvent({ isComposing: true })).toBe(true);
+    expect(isImeKeyEvent({ keyCode: 229 })).toBe(true);
+    expect(isImeKeyEvent({ keyCode: 13, nativeEvent: { isComposing: true } })).toBe(true);
+    expect(isImeKeyEvent({ nativeEvent: { keyCode: 229 } })).toBe(true);
+  });
+
+  it('通常の打鍵は IME 扱いしない', () => {
+    expect(isImeKeyEvent({ isComposing: false, keyCode: 13 })).toBe(false);
+    expect(isImeKeyEvent({ keyCode: 27, nativeEvent: { isComposing: false, keyCode: 27 } })).toBe(false);
+    expect(isImeKeyEvent({})).toBe(false);
+  });
+});
+
+describe('keymap: flow の Delete/Esc と接続モード(connect)コンテキスト', () => {
+  it('flow コンテキストの Delete/Backspace=削除、Esc=選択解除(慣習キー=fixed)', () => {
+    expect(findBinding(ev({ key: 'Delete' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.delete');
+    expect(findBinding(ev({ key: 'Backspace' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.delete');
+    expect(findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.clear');
+    // 慣習キーなのでシングルキーOFFでも残る
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'Delete' }), off, ['flow'], false)?.action).toBe('flow.delete');
+    expect(findBinding(ev({ key: 'Escape' }), off, ['flow'], false)?.action).toBe('flow.clear');
+  });
+
+  it('connect コンテキストが先頭にあると flow/global より優先される', () => {
+    const ctxs: KeyContext[] = ['connect', 'flow', 'global'];
+    expect(findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ctxs, false)?.action).toBe('connect.cancel');
+    expect(findBinding(ev({ key: 'c' }), DEFAULT_KEYMAP, ctxs, false)?.action).toBe('connect.cancel');
+    expect(findBinding(ev({ key: 'Enter' }), DEFAULT_KEYMAP, ctxs, false)?.action).toBe('connect.commit');
+    expect(findBinding(ev({ key: 'Tab' }), DEFAULT_KEYMAP, ctxs, false)?.action).toBe('connect.next');
+    expect(findBinding(ev({ key: 'Tab', shiftKey: true }), DEFAULT_KEYMAP, ctxs, false)?.action).toBe('connect.prev');
+    expect(findBinding(ev({ key: 'arrowleft' }), DEFAULT_KEYMAP, ctxs, false)?.action).toBe('connect.left');
+    expect(findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ctxs, false)?.action).toBe('connect.down');
+  });
+
+  it('接続モードでなければ connect バインドは一致しない', () => {
+    expect(findBinding(ev({ key: 'Tab' }), DEFAULT_KEYMAP, ['flow', 'global'], false)).toBeUndefined();
+    expect(findBinding(ev({ key: 'Enter' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.rename');
+  });
+
+  it('シングルキーOFFでも接続モード中の h/j/k/l・c は有効(fixed)', () => {
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'h' }), off, ['connect', 'flow'], false)?.action).toBe('connect.left');
+    expect(findBinding(ev({ key: 'c' }), off, ['connect', 'flow'], false)?.action).toBe('connect.cancel');
+  });
+});
+
+describe('useGlobalHotkeys: Esc のフォーカス規則(planEscFocus)', () => {
+  it('モーダルコンテキスト(接続モード等)の Esc が最優先(blur せず 1 押下でキャンセル)', () => {
+    // フロー上のノード(tabIndex=0)にフォーカスがあっても、blur で消費せずバインディングへ。
+    expect(planEscFocus({ blurrable: true, editable: false, hasModalBinding: true })).toBe('modal-binding');
+    expect(planEscFocus({ blurrable: false, editable: false, hasModalBinding: true })).toBe('modal-binding');
+    // 落ちた先の照合: connect が積まれていれば Esc は connect.cancel に解決する。
+    expect(
+      findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ['connect', 'flow', 'global'], false)?.action,
+    ).toBe('connect.cancel');
+  });
+
+  it('入力系(editable)の Esc は blur だけで完結する(選択は維持。解除はもう一度 Esc)', () => {
+    expect(planEscFocus({ blurrable: true, editable: true, hasModalBinding: false })).toBe('blur-only');
+    // モーダル中でも入力からの離脱が先(編集中は単キーを通さない editable ガードと整合)。
+    expect(planEscFocus({ blurrable: true, editable: true, hasModalBinding: true })).toBe('blur-only');
+  });
+
+  it('非編集要素(ノード div・ボタン等)の Esc は blur しつつ同じ押下でバインディングへ落ちる', () => {
+    expect(planEscFocus({ blurrable: true, editable: false, hasModalBinding: false })).toBe('blur-and-binding');
+    // 落ちた先: flow なら flow.clear、table なら table.clear が同じ押下で効く(2 回押し不要)。
+    expect(findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.clear');
+    expect(findBinding(ev({ key: 'Escape' }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action).toBe('table.clear');
+  });
+
+  it('blur 対象が無ければ(body / ペイン自体)通常のバインディング照合へ', () => {
+    expect(planEscFocus({ blurrable: false, editable: false, hasModalBinding: false })).toBe('binding');
+  });
+});
+
+describe('useUI: ダイアログの FIFO 待ち行列(押し退けない)', () => {
+  it('表示中に confirm/promptText を重ねると順に表示され、すべて解決される', async () => {
+    const ui = useUI.getState();
+    const p1 = ui.confirm({ message: '1番目' });
+    const p2 = ui.confirm({ message: '2番目' });
+    const p3 = ui.promptText({ message: '3番目' });
+    // 先に開いたものが表示されたまま(置き換えられない)
+    expect(useUI.getState().dialog?.message).toBe('1番目');
+    expect(useUI.getState().dialogQueue.length).toBe(2);
+
+    useUI.getState().resolveDialog(true);
+    await expect(p1).resolves.toBe(true);
+    expect(useUI.getState().dialog?.message).toBe('2番目');
+
+    useUI.getState().resolveDialog(false);
+    await expect(p2).resolves.toBe(false);
+    expect(useUI.getState().dialog?.kind).toBe('prompt');
+
+    useUI.getState().resolveDialog('入力値');
+    await expect(p3).resolves.toBe('入力値');
+    expect(useUI.getState().dialog).toBeNull();
+    expect(useUI.getState().dialogQueue).toEqual([]);
+  });
+
+  it('解決直後に開いた次のダイアログは、待ち行列の後ろに正しく並ぶ', async () => {
+    const ui = useUI.getState();
+    const p1 = ui.confirm({ message: 'A' });
+    const chained = p1.then(() => useUI.getState().confirm({ message: 'C' }));
+    const p2 = ui.confirm({ message: 'B' });
+    useUI.getState().resolveDialog(true); // A を解決 → B が表示、C は B の後ろ
+    await p1;
+    // p1 の then(マイクロタスク)を消化してから確認
+    await Promise.resolve();
+    expect(useUI.getState().dialog?.message).toBe('B');
+    useUI.getState().resolveDialog(true);
+    await expect(p2).resolves.toBe(true);
+    expect(useUI.getState().dialog?.message).toBe('C');
+    useUI.getState().resolveDialog(false);
+    await expect(chained).resolves.toBe(false);
+    expect(useUI.getState().dialog).toBeNull();
+  });
+});
+
+describe('useUI: closeTopLayer(Esc の一元規則)', () => {
+  it('dialog > overlay の順で 1 回につき 1 レイヤだけ閉じる(バックアップ復元の confirm 重なり)', async () => {
+    const ui = useUI.getState();
+    ui.setOverlay('backups');
+    const p = ui.confirm({ message: '復元しますか' });
+    // 1 回目: 最上位の confirm だけが取消で閉じ、バックアップ一覧は残る
+    expect(useUI.getState().closeTopLayer()).toBe(true);
+    await expect(p).resolves.toBe(false);
+    expect(useUI.getState().overlay).toBe('backups');
+    // 2 回目: オーバーレイが閉じる
+    expect(useUI.getState().closeTopLayer()).toBe(true);
+    expect(useUI.getState().overlay).toBeNull();
+    // 3 回目: 閉じるものが無ければ false(通常のキー処理へ)
+    expect(useUI.getState().closeTopLayer()).toBe(false);
+  });
+
+  it('prompt は取消(null)として解決される', async () => {
+    const p = useUI.getState().promptText({ message: '名前' });
+    expect(useUI.getState().closeTopLayer()).toBe(true);
+    await expect(p).resolves.toBeNull();
+  });
+
+  it('一時 UI(メニュー等)は後から登録したものが最上位として閉じる', () => {
+    const closed: string[] = [];
+    const un1 = useUI.getState().registerTransientLayer(() => closed.push('a'));
+    const un2 = useUI.getState().registerTransientLayer(() => closed.push('b'));
+    expect(useUI.getState().closeTopLayer()).toBe(true);
+    expect(closed).toEqual(['b']);
+    un2();
+    expect(useUI.getState().closeTopLayer()).toBe(true);
+    expect(closed).toEqual(['b', 'a']);
+    un1();
+    expect(useUI.getState().closeTopLayer()).toBe(false);
+  });
+
+  it('overlay のカスタムクローザが true を返す間は overlay が閉じない(パレットの引数モード相当)', () => {
+    const ui = useUI.getState();
+    ui.setOverlay('palette');
+    let consume = true;
+    const unregister = ui.registerOverlayCloser(() => consume);
+    expect(useUI.getState().closeTopLayer()).toBe(true); // 消費(引数モード→一覧 など)
+    expect(useUI.getState().overlay).toBe('palette');
+    consume = false;
+    expect(useUI.getState().closeTopLayer()).toBe(true); // 既定どおり閉じる
+    expect(useUI.getState().overlay).toBeNull();
+    unregister();
   });
 });
 

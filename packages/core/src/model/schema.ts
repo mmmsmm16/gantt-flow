@@ -8,7 +8,7 @@ const ProcessTask = z.object({
   name: z.string(),
   parentId: z.string().optional(),
   level: ProcessLevel,
-  order: z.number(),
+  order: z.number().finite(),
   assigneeId: z.string().optional(),
   code: z.string().optional(),
 });
@@ -59,7 +59,7 @@ const TaskDetail = z.object({
   inputs: z.array(IoItem).optional(),
   outputs: z.array(IoItem).optional(),
   system: z.string().optional(),
-  effortMinutes: z.number().optional(),
+  effortMinutes: z.number().finite().optional(),
   note: z.string().optional(),
   volume: z.string().optional(),
   issues: z.array(IssueItem).optional(),
@@ -73,7 +73,8 @@ const TaskDetail = z.object({
   textColor: z.enum(['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray']).optional(),
 });
 
-const xy = { id: z.string(), x: z.number(), y: z.number() };
+// Infinity/NaN は JSON にできず座標計算も壊すため有限値に限る
+const xy = { id: z.string(), x: z.number().finite(), y: z.number().finite() };
 
 const FlowNode = z.discriminatedUnion('kind', [
   z.object({
@@ -123,8 +124,8 @@ const Swimlane = z.object({
   id: z.string(),
   assigneeId: z.string().optional(),
   title: z.string(),
-  order: z.number(),
-  height: z.number().optional(),
+  order: z.number().finite(),
+  height: z.number().finite().optional(),
 });
 
 const FlowLevelView = z.object({
@@ -147,7 +148,7 @@ const ProjectMeta = z.object({
 });
 
 export const ProjectSchema = z.object({
-  schemaVersion: z.number(),
+  schemaVersion: z.number().finite(),
   meta: ProjectMeta,
   core: Core,
   details: z.record(z.string(), TaskDetail),

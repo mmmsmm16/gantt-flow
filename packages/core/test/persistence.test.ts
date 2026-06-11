@@ -5,8 +5,12 @@ import {
   serializeProject,
   deserializeProject,
   tryDeserializeProject,
+  isSchemaVersionTooNewError,
+  isProjectIntegrityError,
+  ProjectIntegrityError,
 } from '../src/persistence/json';
 import { migrate, CURRENT_SCHEMA_VERSION, type Migration } from '../src/persistence/migrate';
+import { ProjectSchema } from '../src/model/schema';
 import type { Project } from '../src/model/types';
 import { counter, emptyProject, taskIdByName, assigneeIdByName } from './helpers';
 
@@ -65,6 +69,129 @@ describe('persistence: JSON ラウンドトリップ', () => {
     const firstTaskId = Object.keys(raw.core.tasks)[0]!;
     delete raw.core.tasks[firstTaskId].level;
     expect(tryDeserializeProject(JSON.stringify(raw)).ok).toBe(false);
+  });
+});
+
+describe('persistence: 新しすぎる schemaVersion の拒否', () => {
+  it('schemaVersion が対応版より大きいファイルは読み込まない（未知フィールドの黙殺を防ぐ）', () => {
+    const raw = JSON.parse(serializeProject(sampleProject()));
+    raw.schemaVersion = CURRENT_SCHEMA_VERSION + 1;
+    raw.futureField = { added: 'by-newer-app' }; // 新版が追加したフィールド（strip で消えてはいけない）
+    const res = tryDeserializeProject(JSON.stringify(raw));
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(isSchemaVersionTooNewError(res.error)).toBe(true);
+      expect((res.error as Error).message).toContain('新しいバージョンの gantt-flow');
+    }
+  });
+
+  it('現行版ちょうどのファイルは読み込める', () => {
+    const p = sampleProject();
+    expect(p.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(tryDeserializeProject(serializeProject(p)).ok).toBe(true);
+  });
+
+  it('注入したマイグレーションが対応する版までは新しい版でも読み込める', () => {
+    const raw = JSON.parse(serializeProject(sampleProject()));
+    raw.schemaVersion = CURRENT_SCHEMA_VERSION + 1;
+    const list: Migration[] = [{ to: CURRENT_SCHEMA_VERSION + 1, up: (r) => r }];
+    expect(tryDeserializeProject(JSON.stringify(raw), { migrations: list }).ok).toBe(true);
+  });
+});
+
+describe('persistence: 参照整合性の検証（読込時）', () => {
+  it('親子循環のあるファイルは ProjectIntegrityError で拒否する', () => {
+    const raw = JSON.parse(serializeProject(sampleProject()));
+    raw.core.tasks['x1'] = { id: 'x1', name: '循環A', parentId: 'x2', level: 'small', order: 0 };
+    raw.core.tasks['x2'] = { id: 'x2', name: '循環B', parentId: 'x1', level: 'medium', order: 1 };
+    const res = tryDeserializeProject(JSON.stringify(raw));
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(isProjectIntegrityError(res.error)).toBe(true);
+      const err = res.error as ProjectIntegrityError;
+      expect(err.message).toContain('参照整合性');
+      expect(err.issues.some((i) => i.kind === 'task.cycle')).toBe(true);
+    }
+  });
+
+  it('依存の端点が存在しないファイルは拒否する', () => {
+    const p = sampleProject();
+    const raw = JSON.parse(serializeProject(p));
+    raw.core.dependencies['d-bad'] = {
+      id: 'd-bad',
+      from: 'ghost-task',
+      to: taskIdByName(p, '受付'),
+      type: 'FS',
+    };
+    const res = tryDeserializeProject(JSON.stringify(raw));
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(isProjectIntegrityError(res.error)).toBe(true);
+      expect((res.error as ProjectIntegrityError).issues.some((i) => i.kind === 'dependency.from')).toBe(true);
+    }
+  });
+
+  it('parentId が存在しないファイルは拒否する', () => {
+    const raw = JSON.parse(serializeProject(sampleProject()));
+    raw.core.tasks['x1'] = { id: 'x1', name: '迷子', parentId: 'ghost-parent', level: 'small', order: 0 };
+    const res = tryDeserializeProject(JSON.stringify(raw));
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(isProjectIntegrityError(res.error)).toBe(true);
+      expect((res.error as ProjectIntegrityError).issues.some((i) => i.kind === 'task.parent')).toBe(true);
+    }
+  });
+});
+
+describe('persistence: integrity "lenient"（復旧経路向け）', () => {
+  it('参照破綻のあるデータも lenient なら読み込める（既定の strict は拒否）', () => {
+    const p = sampleProject();
+    const raw = JSON.parse(serializeProject(p));
+    raw.core.dependencies['d-bad'] = {
+      id: 'd-bad',
+      from: 'ghost-task',
+      to: taskIdByName(p, '受付'),
+      type: 'FS',
+    };
+    const json = JSON.stringify(raw);
+    const strict = tryDeserializeProject(json);
+    expect(strict.ok).toBe(false); // 既定（明示的な「開く」）は従来どおり拒否
+    if (!strict.ok) expect(isProjectIntegrityError(strict.error)).toBe(true);
+    const back = deserializeProject(json, { integrity: 'lenient' });
+    expect(back.core.dependencies['d-bad']).toBeDefined(); // 救出できる
+  });
+
+  it('lenient でも Zod の構造検証と版チェックは維持される', () => {
+    // 構造不正は lenient でも弾く
+    const bad = JSON.stringify({ meta: {}, core: {} });
+    expect(tryDeserializeProject(bad, { integrity: 'lenient' }).ok).toBe(false);
+    // 新しすぎる版も lenient でも弾く（未知フィールドの黙殺を防ぐ）
+    const raw = JSON.parse(serializeProject(sampleProject()));
+    raw.schemaVersion = CURRENT_SCHEMA_VERSION + 1;
+    const res = tryDeserializeProject(JSON.stringify(raw), { integrity: 'lenient' });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(isSchemaVersionTooNewError(res.error)).toBe(true);
+  });
+});
+
+describe('persistence: 数値フィールドの有限値検証', () => {
+  // JSON は Infinity/NaN を表現できないので、メモリ上のオブジェクトを直接 parse して検証する
+  it('effortMinutes の Infinity/NaN はスキーマで弾く', () => {
+    const p = sampleProject();
+    const id = taskIdByName(p, '受付');
+    const inf = { ...p, details: { ...p.details, [id]: { ...p.details[id]!, effortMinutes: Infinity } } };
+    expect(ProjectSchema.safeParse(inf).success).toBe(false);
+    const nan = { ...p, details: { ...p.details, [id]: { ...p.details[id]!, effortMinutes: NaN } } };
+    expect(ProjectSchema.safeParse(nan).success).toBe(false);
+  });
+
+  it('ノード座標の Infinity はスキーマで弾く', () => {
+    const p = sampleProject();
+    const raw = JSON.parse(serializeProject(p));
+    const view = raw.flow.byLevel[0];
+    const nodeId = Object.keys(view.nodes)[0]!;
+    view.nodes[nodeId].x = Infinity;
+    expect(ProjectSchema.safeParse(raw).success).toBe(false);
   });
 });
 

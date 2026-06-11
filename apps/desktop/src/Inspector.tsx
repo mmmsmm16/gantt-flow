@@ -3,7 +3,8 @@ import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor }
 import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
-import { collectIoNames } from './suggestions';
+import { parseEffortHoursToMinutes } from './parseEffort';
+import { collectIoNames, prevCandidates } from './suggestions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
 
 // 色スウォッチの 1 行(塗り/文字色で共用)。選択中は枠で強調、「なし」で解除。
@@ -74,16 +75,23 @@ export function Inspector() {
   const deps = Object.values(project.core.dependencies);
   const preds = deps.filter((dep) => dep.to === taskId);
   const succs = deps.filter((dep) => dep.from === taskId);
-  const predIds = new Set(preds.map((dep) => dep.from));
-  const succIds = new Set(succs.map((dep) => dep.to));
-  const siblings = Object.values(project.core.tasks).filter(
-    (o) =>
-      o.id !== taskId &&
-      (o.parentId ?? undefined) === (task.parentId ?? undefined) &&
-      o.level === task.level,
-  );
-  const depCandidates = siblings.filter((o) => !predIds.has(o.id) && !succIds.has(o.id));
+  // 表セレクト・パレットと同じ候補導出（order 順）を共用し、ビューごとのずれを防ぐ。
+  const depCandidates = prevCandidates(project, taskId);
   const nameOf = (id: Id) => project.core.tasks[id]?.name ?? '（不明）';
+
+  // 触れただけの blur で履歴と未保存フラグを汚さないため、変化があるときだけ書き込む。
+  const commitText = (current: string, next: string, write: (v: string) => void) => {
+    if (next !== current) write(next);
+  };
+  // 任意のテキスト項目用: 空欄は undefined（未設定）に正規化して比較・保存する。
+  const commitOptText = (
+    current: string | undefined,
+    next: string,
+    write: (v: string | undefined) => void,
+  ) => {
+    const v = next || undefined;
+    if (v !== (current || undefined)) write(v);
+  };
   // 親(大)同士の接続から導出される前/次工程(フローのブリッジと同じ)。読み取り専用で表示。
   const bridges = deriveParentBridges(project.core, task.level);
   const bridgePredsOf = bridges.filter((b) => b.to === taskId);
@@ -114,26 +122,36 @@ export function Inspector() {
           <ColorSwatchRow
             value={d?.fillColor}
             styleOf={(c) => ({ background: TASK_COLORS[c].fill, borderColor: TASK_COLORS[c].base })}
-            onChange={(c) => updateDetail(taskId, { fillColor: c })}
+            onChange={(c) => {
+              if (c !== d?.fillColor) updateDetail(taskId, { fillColor: c });
+            }}
             ariaLabel="塗り色"
           />
           <label>文字色（作業名）</label>
           <ColorSwatchRow
             value={d?.textColor}
             styleOf={(c) => ({ background: TASK_COLORS[c].text, borderColor: TASK_COLORS[c].text })}
-            onChange={(c) => updateDetail(taskId, { textColor: c })}
+            onChange={(c) => {
+              if (c !== d?.textColor) updateDetail(taskId, { textColor: c });
+            }}
             ariaLabel="文字色"
           />
           <label>工程No（空欄で自動採番）</label>
           <input
             defaultValue={task.code ?? ''}
             placeholder={computeCodes(project.core)[taskId] ?? ''}
-            onBlur={(e) => setTaskCode(taskId, e.target.value)}
+            onBlur={(e) => commitOptText(task.code, e.target.value.trim(), (v) => setTaskCode(taskId, v))}
           />
           <label>業務内容（どうやって）</label>
-          <textarea defaultValue={d?.how ?? ''} onBlur={(e) => updateDetail(taskId, { how: e.target.value })} />
+          <textarea
+            defaultValue={d?.how ?? ''}
+            onBlur={(e) => commitOptText(d?.how, e.target.value, (v) => updateDetail(taskId, { how: v }))}
+          />
           <label>使用システム</label>
-          <textarea defaultValue={d?.system ?? ''} onBlur={(e) => updateDetail(taskId, { system: e.target.value })} />
+          <textarea
+            defaultValue={d?.system ?? ''}
+            onBlur={(e) => commitOptText(d?.system, e.target.value, (v) => updateDetail(taskId, { system: v }))}
+          />
           <label>工数（時間・0.5刻み）</label>
           {hasChildren ? (
             <div className="readonly">{formatHours(rollup)}（子の合計・自動）</div>
@@ -144,15 +162,23 @@ export function Inspector() {
               step={0.5}
               placeholder="h"
               defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
-              onBlur={(e) =>
-                updateDetail(taskId, {
-                  effortMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : undefined,
-                })
-              }
+              onBlur={(e) => {
+                const minutes = parseEffortHoursToMinutes(e.target.value);
+                if (minutes === null) {
+                  // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す。
+                  e.target.value = d?.effortMinutes != null ? String(d.effortMinutes / 60) : '';
+                  useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                  return;
+                }
+                if (minutes !== d?.effortMinutes) updateDetail(taskId, { effortMinutes: minutes });
+              }}
             />
           )}
           <label>備考</label>
-          <textarea defaultValue={d?.note ?? ''} onBlur={(e) => updateDetail(taskId, { note: e.target.value })} />
+          <textarea
+            defaultValue={d?.note ?? ''}
+            onBlur={(e) => commitOptText(d?.note, e.target.value, (v) => updateDetail(taskId, { note: v }))}
+          />
         </section>
 
         <section>
@@ -253,7 +279,7 @@ export function Inspector() {
                 list="insp-io-names"
                 defaultValue={item.name}
                 key={`ion-${item.name}`}
-                onBlur={(e) => updateIo(taskId, item.id, { name: e.target.value })}
+                onBlur={(e) => commitText(item.name, e.target.value, (v) => updateIo(taskId, item.id, { name: v }))}
               />
               <select
                 value={item.kind}
@@ -266,7 +292,9 @@ export function Inspector() {
                 className="io-form"
                 placeholder="様式・保管"
                 defaultValue={item.formInfo ?? ''}
-                onBlur={(e) => updateIo(taskId, item.id, { formInfo: e.target.value || undefined })}
+                onBlur={(e) =>
+                  commitOptText(item.formInfo, e.target.value, (v) => updateIo(taskId, item.id, { formInfo: v }))
+                }
               />
               {io === 'inputs' && (
                 <input
@@ -276,7 +304,9 @@ export function Inspector() {
                   defaultValue={item.source ?? ''}
                   key={`src-${item.source ?? ''}`}
                   title="この帳票がどの部署から来るか（工程が無くてもフローに出所を描きます）"
-                  onBlur={(e) => updateIo(taskId, item.id, { source: e.target.value || undefined })}
+                  onBlur={(e) =>
+                    commitOptText(item.source, e.target.value, (v) => updateIo(taskId, item.id, { source: v }))
+                  }
                 />
               )}
               <button
@@ -305,13 +335,15 @@ export function Inspector() {
                   className="iss-text"
                   defaultValue={iss.issue}
                   placeholder="課題"
-                  onBlur={(e) => updateIssue(taskId, iss.id, { issue: e.target.value })}
+                  onBlur={(e) => commitText(iss.issue, e.target.value, (v) => updateIssue(taskId, iss.id, { issue: v }))}
                 />
                 <input
                   className="iss-measure"
                   defaultValue={iss.measure ?? ''}
                   placeholder="方策"
-                  onBlur={(e) => updateIssue(taskId, iss.id, { measure: e.target.value || undefined })}
+                  onBlur={(e) =>
+                    commitOptText(iss.measure, e.target.value, (v) => updateIssue(taskId, iss.id, { measure: v }))
+                  }
                 />
                 <select
                   value={targetValue}
@@ -343,9 +375,15 @@ export function Inspector() {
         <section>
           <h3>任意</h3>
           <label>処理件数・ボリューム</label>
-          <input defaultValue={d?.volume ?? ''} onBlur={(e) => updateDetail(taskId, { volume: e.target.value || undefined })} />
+          <input
+            defaultValue={d?.volume ?? ''}
+            onBlur={(e) => commitOptText(d?.volume, e.target.value, (v) => updateDetail(taskId, { volume: v }))}
+          />
           <label>例外・イレギュラー</label>
-          <textarea defaultValue={d?.exception ?? ''} onBlur={(e) => updateDetail(taskId, { exception: e.target.value || undefined })} />
+          <textarea
+            defaultValue={d?.exception ?? ''}
+            onBlur={(e) => commitOptText(d?.exception, e.target.value, (v) => updateDetail(taskId, { exception: v }))}
+          />
           <div className="two-col">
             <div>
               <label>自動化区分</label>
@@ -373,9 +411,15 @@ export function Inspector() {
             </div>
           </div>
           <label>データ連携先</label>
-          <input defaultValue={d?.dataLink ?? ''} onBlur={(e) => updateDetail(taskId, { dataLink: e.target.value || undefined })} />
+          <input
+            defaultValue={d?.dataLink ?? ''}
+            onBlur={(e) => commitOptText(d?.dataLink, e.target.value, (v) => updateDetail(taskId, { dataLink: v }))}
+          />
           <label>関連規程・統制</label>
-          <input defaultValue={d?.regulation ?? ''} onBlur={(e) => updateDetail(taskId, { regulation: e.target.value || undefined })} />
+          <input
+            defaultValue={d?.regulation ?? ''}
+            onBlur={(e) => commitOptText(d?.regulation, e.target.value, (v) => updateDetail(taskId, { regulation: v }))}
+          />
         </section>
       </div>
     </aside>

@@ -2,23 +2,20 @@
 // 粒度は 大/中/小/詳細工程の 4 列（各行は自分の粒度の列に作業名、上位列に親の工程名を再掲）。
 // 課題/方策は独立列。列の表示切替・並べ替え・幅のドラッグ調整、テキスト列は折り返して全文表示。
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
-import { useEffect, useRef, useState } from 'react';
-import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours, bridgePredMap } from '@gantt-flow/core';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
-import { collectIoNames } from './suggestions';
+import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
+import { parseEffortHoursToMinutes } from './parseEffort';
+import { isImeKeyEvent } from './keymap';
+import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
-const LEVELS: { key: ProcessLevel; label: string }[] = [
-  { key: 'large', label: '大工程' },
-  { key: 'medium', label: '中工程' },
-  { key: 'small', label: '小工程' },
-  { key: 'detail', label: '詳細工程' },
-];
 const AUTOMATION: { key: Automation | ''; label: string }[] = [
   { key: '', label: '—' },
   { key: 'manual', label: '手作業' },
@@ -28,38 +25,55 @@ const AUTOMATION: { key: Automation | ''; label: string }[] = [
 const DIFFICULTY: (Difficulty | '')[] = ['', 'H', 'M', 'L'];
 const DIFF_RANK: Record<string, number> = { H: 3, M: 2, L: 1, '': 0 };
 
-// 列の定義順（No. と act は常時表示）。
-const COL_ORDER = [
-  'no', 'large', 'medium', 'small', 'detail', 'assignee', 'prev', 'effort',
-  'how', 'system', 'inputs', 'outputs', 'issue', 'measure', 'note', 'volume',
-  'exception', 'automation', 'dataLink', 'regulation', 'difficulty', 'act',
-] as const;
-const DEFAULT_W: Record<string, number> = {
-  no: 48, large: 110, medium: 110, small: 110, detail: 110, assignee: 110, prev: 150,
-  effort: 64, how: 200, system: 170, inputs: 168, outputs: 168, issue: 200, measure: 200,
-  note: 200, volume: 130, exception: 180, automation: 108, dataLink: 140, regulation: 140,
-  difficulty: 62, act: 96,
-};
-const TOGGLE_COLS: { key: string; label: string }[] = [
-  ...LEVELS,
-  { key: 'assignee', label: '担当' },
-  { key: 'prev', label: '前工程' },
-  { key: 'effort', label: '工数' },
-  { key: 'how', label: '業務内容' },
-  { key: 'system', label: '使用システム' },
-  { key: 'inputs', label: 'インプット' },
-  { key: 'outputs', label: 'アウトプット' },
-  { key: 'issue', label: '課題' },
-  { key: 'measure', label: '方策' },
-  { key: 'note', label: '備考' },
-  { key: 'volume', label: 'ボリューム' },
-  { key: 'exception', label: '例外対応' },
-  { key: 'automation', label: '自動化' },
-  { key: 'dataLink', label: 'データ連携先' },
-  { key: 'regulation', label: '関連規程' },
-  { key: 'difficulty', label: '難易度' },
+// 列定義のシングルソース（この配列の並び＝表示順）。既定幅・表示切替メニュー・並べ替え可否・
+// h/l 列カーソルの対象はすべてここから導出するので、列の追加・並べ替えはこの配列だけを編集する。
+export interface FtCol {
+  key: string;
+  /** ヘッダと列メニューの表示名。 */
+  label: string;
+  /** 既定の列幅(px)。 */
+  width: number;
+  /** ヘッダ th の追加クラス（粒度列は sticky 系を動的に付けるので不要）。 */
+  cls?: string;
+  /** 列メニューで表示切替できる列（No. と操作列以外）。 */
+  optional?: boolean;
+  /** h/l 列カーソルの対象（data-cell キー。粒度列は data-cell="name" として先頭に別枠で入る）。 */
+  cursorable?: boolean;
+  /** ヘッダクリックで並べ替えできる列。 */
+  sortable?: boolean;
+  /** 粒度列（大/中/小/詳細）。 */
+  level?: ProcessLevel;
+}
+export const FT_COLUMNS: readonly FtCol[] = [
+  { key: 'no', label: 'No.', width: 48 },
+  { key: 'large', label: '大工程', width: 110, optional: true, sortable: true, level: 'large' },
+  { key: 'medium', label: '中工程', width: 110, optional: true, sortable: true, level: 'medium' },
+  { key: 'small', label: '小工程', width: 110, optional: true, sortable: true, level: 'small' },
+  { key: 'detail', label: '詳細工程', width: 110, optional: true, sortable: true, level: 'detail' },
+  { key: 'assignee', label: '担当', width: 110, cls: 'ft-c-assignee', optional: true, cursorable: true, sortable: true },
+  { key: 'prev', label: '前工程', width: 150, cls: 'ft-c-prev', optional: true, cursorable: true },
+  { key: 'effort', label: '工数', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
+  { key: 'how', label: '業務内容', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
+  { key: 'system', label: '使用システム', width: 170, cls: 'ft-c-text', optional: true, cursorable: true },
+  { key: 'inputs', label: 'インプット', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
+  { key: 'outputs', label: 'アウトプット', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
+  { key: 'issue', label: '課題', width: 200, cls: 'ft-c-issue', optional: true, cursorable: true },
+  { key: 'measure', label: '方策', width: 200, cls: 'ft-c-issue', optional: true, cursorable: true },
+  { key: 'note', label: '備考', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
+  { key: 'volume', label: 'ボリューム', width: 130, cls: 'ft-c-sm', optional: true, cursorable: true },
+  { key: 'exception', label: '例外対応', width: 180, cls: 'ft-c-text', optional: true, cursorable: true },
+  { key: 'automation', label: '自動化', width: 108, cls: 'ft-c-auto', optional: true, cursorable: true, sortable: true },
+  { key: 'dataLink', label: 'データ連携先', width: 140, cls: 'ft-c-sm', optional: true, cursorable: true },
+  { key: 'regulation', label: '関連規程', width: 140, cls: 'ft-c-sm', optional: true, cursorable: true },
+  { key: 'difficulty', label: '難易度', width: 62, cls: 'ft-c-diff', optional: true, cursorable: true, sortable: true },
+  { key: 'act', label: '', width: 96 },
 ];
-const SORTABLE = new Set(['large', 'medium', 'small', 'detail', 'assignee', 'effort', 'difficulty', 'automation']);
+const LEVELS: { key: ProcessLevel; label: string }[] = FT_COLUMNS.flatMap((c) =>
+  c.level ? [{ key: c.level, label: c.label }] : [],
+);
+const DEFAULT_W: Record<string, number> = Object.fromEntries(FT_COLUMNS.map((c) => [c.key, c.width]));
+const TOGGLE_COLS = FT_COLUMNS.filter((c) => c.optional);
+const SORTABLE = new Set(FT_COLUMNS.filter((c) => c.sortable).map((c) => c.key));
 // 大規模案件での描画負荷対策: まず CHUNK 行だけ描画し、末尾に近づいたら追加で描画する
 // （行の編集状態を壊さない逐次レンダリング。仮想化と違い描画済み行は外さない）。
 const ROW_CHUNK = 150;
@@ -94,6 +108,41 @@ function ancestryNames(t: ProcessTask, byId: Record<Id, ProcessTask>): Partial<R
   return out;
 }
 
+// ヘッダセル。FullTable の中で定義するとレンダーごとにコンポーネントの同一性が変わり
+// 全ヘッダが再マウントされてしまう（フォーカス喪失・無駄な描画）ため、モジュールスコープに置く。
+function Th({
+  k,
+  label,
+  cls,
+  style,
+  sort,
+  clickSort,
+  startResize,
+}: {
+  k: string;
+  label: string;
+  cls?: string;
+  style?: React.CSSProperties;
+  sort: { key: string; dir: 'asc' | 'desc' } | null;
+  clickSort: (key: string) => void;
+  startResize: (key: string, e: React.PointerEvent) => void;
+}) {
+  const active = sort?.key === k;
+  return (
+    <th className={`${cls ?? ''}${active ? ' sorted' : ''}`} style={style}>
+      {SORTABLE.has(k) ? (
+        <button className="ft-sort" onClick={() => clickSort(k)} title={`${label}で並べ替え`}>
+          {label}
+          <span className="ft-sortmark">{active ? (sort!.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+        </button>
+      ) : (
+        label
+      )}
+      <span className="ft-resize" onPointerDown={(e) => startResize(k, e)} title="ドラッグで列幅を調整" />
+    </th>
+  );
+}
+
 export function FullTable() {
   const project = useApp((s) => s.project);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
@@ -112,9 +161,7 @@ export function FullTable() {
   const removeDependency = useApp((s) => s.removeDependency);
   const addRootTask = useApp((s) => s.addRootTask);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
-  const removeTask = useApp((s) => s.removeTask);
   const setAssigneeManyByName = useApp((s) => s.setAssigneeManyByName);
-  const removeManyTasks = useApp((s) => s.removeManyTasks);
   const duplicateTask = useApp((s) => s.duplicateTask);
   const pasteRowsAsTasks = useApp((s) => s.pasteRowsAsTasks);
   const ftColumns = useUI((s) => s.ftColumns);
@@ -141,18 +188,44 @@ export function FullTable() {
   const tableRef = useRef<HTMLTableElement>(null);
 
   const byId = project.core.tasks;
-  const tasks = Object.values(byId);
-  const codes = computeCodes(project.core);
-  const deps = Object.values(project.core.dependencies);
+  // プロジェクト由来の導出はコミット時のみ変わる。選択移動や列カーソル移動の再レンダリングで
+  // 全体を再計算しないよう useMemo で固定する（特にブリッジ導出と工程番号は全件走査）。
+  const tasks = useMemo(() => Object.values(byId), [byId]);
+  const codes = useMemo(() => computeCodes(project.core), [project.core]);
   // 親(大)同士の接続から導出される前工程(フローのブリッジと同じ)。表でも見せて同期ずれを無くす。
-  const bridgePreds = bridgePredMap(project.core);
-  const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
-  const ioNames = collectIoNames(project);
-  const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
+  const bridgePreds = useMemo(() => bridgePredMap(project.core), [project.core]);
+  const assigneeNames = useMemo(
+    () => [...new Set(Object.values(project.core.assignees).map((a) => a.name))],
+    [project.core.assignees],
+  );
+  const ioNames = useMemo(() => collectIoNames(project), [project]);
+  const parentsWithChildren = useMemo(
+    () => new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]),
+    [tasks],
+  );
+  // 行ごとの deps.filter 走査を避けるため、前工程（to が自分）の依存を一度だけ束ねておく。
+  const predsByTo = useMemo(() => {
+    const m = new Map<Id, Dependency[]>();
+    for (const dep of Object.values(project.core.dependencies)) {
+      const arr = m.get(dep.to);
+      if (arr) arr.push(dep);
+      else m.set(dep.to, [dep]);
+    }
+    return m;
+  }, [project.core.dependencies]);
+  // 前工程セルの候補はアウトライン・パレットと共用のインデックス(prevCandidates と同結果)に一本化。
+  // コミット時に 1 回だけ構築し、行ごとに全工程・全依存をなめ直さない(O(行×全件) の再計算を防ぐ)。
+  const prevCandidatesOf = useMemo(() => buildPrevCandidateIndex(project), [project]);
+  // 集計工数(親=子孫の合計)。ソート比較器・行表示から effortRollupMinutes を呼ぶと毎回
+  // 全マップを再構築して O(n²) になるため、コミット時に 1 回だけ計算して Map 参照にする。
+  const effortRollups = useMemo(
+    () => computeEffortRollups(project.core, project.details),
+    [project.core, project.details],
+  );
 
   const vis = (k: string) => ftColumns[k] !== false;
   const width = (k: string) => (resizing?.key === k ? resizing.w : ftColWidths[k] ?? DEFAULT_W[k]!);
-  const visibleCols = COL_ORDER.filter((k) => k === 'no' || k === 'act' || vis(k));
+  const visibleCols = FT_COLUMNS.filter((c) => !c.optional || vis(c.key));
   const visLevels = LEVELS.filter((l) => vis(l.key));
   const levelLeft = (key: ProcessLevel) => {
     let x = width('no');
@@ -163,18 +236,6 @@ export function FullTable() {
     return x;
   };
   const lastStickyKey = visLevels.length ? visLevels[visLevels.length - 1]!.key : null;
-
-  // 新規追加した工程の作業名にフォーカス（連続入力）。行がまだ描画されていなければ描画数を広げて待つ。
-  useEffect(() => {
-    if (!focusTask) return;
-    const el = tableRef.current?.querySelector<HTMLInputElement>(`input[data-task="${focusTask}"]`);
-    if (el) {
-      el.focus();
-      setFocusTask(null);
-    } else {
-      setRenderCount((c) => c + ROW_CHUNK); // 末尾付近に追加された行が未描画のケース
-    }
-  }, [focusTask, tasks.length, renderCount]);
 
   // センチネル（表の末尾）が見えたら次のチャンクを描画。
   useEffect(() => {
@@ -188,7 +249,7 @@ export function FullTable() {
   });
 
   const sortValue = (key: string, t: ProcessTask): number | string => {
-    if (key === 'effort') return effortRollupMinutes(project.core, project.details, t.id);
+    if (key === 'effort') return effortRollups.get(t.id) ?? 0;
     if (key === 'assignee') return t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
     if (key === 'difficulty') return DIFF_RANK[project.details[t.id]?.difficulty ?? ''] ?? 0;
     if (key === 'automation') return project.details[t.id]?.automation ?? '';
@@ -197,7 +258,7 @@ export function FullTable() {
     return 0;
   };
 
-  const flat = flatten(tasks);
+  const flat = useMemo(() => flatten(tasks), [tasks]);
   let rows = flat;
   if (sort) {
     rows = [...flat].sort((x, y) => {
@@ -234,16 +295,33 @@ export function FullTable() {
   const renderRows = rows.length > renderCount ? rows.slice(0, renderCount) : rows;
   const hasMore = rows.length > renderCount;
 
+  // 新規追加した工程の作業名にフォーカス（連続入力）。行が未描画なら、その行まで一度だけ
+  // 描画数を広げる。絞り込みで行が出ない・名前列が非表示などで入力が現れない場合は諦める
+  // （renderCount を伸ばし続ける無限再レンダリングを防ぐ）。
+  useEffect(() => {
+    if (!focusTask) return;
+    const el = tableRef.current?.querySelector<HTMLInputElement>(`input[data-task="${CSS.escape(focusTask)}"]`);
+    if (el) {
+      el.focus();
+      setFocusTask(null);
+      return;
+    }
+    const idx = rows.findIndex((t) => t.id === focusTask);
+    if (idx >= renderCount) setRenderCount(Math.ceil((idx + 1) / ROW_CHUNK) * ROW_CHUNK);
+    else setFocusTask(null);
+  }, [focusTask, rows, renderCount]);
+
   const clickSort = (key: string) =>
     setSort((cur) => (cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
 
   // 行選択モード(編集外のキーボード操作)。アウトラインと同じ操作系を共有フックで。
   const activePane = useUI((s) => s.activePane);
-  // 列カーソルの対象(表示中の列を COL_ORDER の表示順で。data-cell 属性と対応)。
-  // I/O・課題・方策・前工程は複合セル(td に data-cell を付け、Enter で中の最初の入力へ)。
+  // 列カーソルの対象(表示中の列を定義順で。data-cell 属性と対応)。粒度列は自分の作業名
+  // セル(data-cell="name")としてまとめて先頭に置く。I/O・課題・方策・前工程は複合セル
+  // (td に data-cell を付け、Enter で中の最初の入力へ)。
   const cursorColumns = [
     'name',
-    ...((['assignee', 'prev', 'effort', 'how', 'system', 'inputs', 'outputs', 'issue', 'measure', 'note', 'volume', 'exception', 'automation', 'dataLink', 'regulation', 'difficulty'] as const).filter((k) => vis(k))),
+    ...FT_COLUMNS.filter((c) => c.cursorable && vis(c.key)).map((c) => c.key),
   ];
   const { colIdx } = useRowSelectionKeys({
     enabled: activePane === 'table',
@@ -302,16 +380,8 @@ export function FullTable() {
     clearMarked();
   };
   const bulkDelete = async () => {
-    const ok = await useUI.getState().confirm({
-      title: '工程を一括削除',
-      message: `選択中の ${marked.size} 件を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-      confirmLabel: '削除',
-      danger: true,
-    });
-    if (ok) {
-      removeManyTasks([...marked]);
-      clearMarked();
-    }
+    const ok = await confirmRemoveTasks([...marked]);
+    if (ok) clearMarked();
   };
 
   // クリップボード（Excel/表計算）の各行を工程として一括追加。タブ区切り [作業名, 担当?]。
@@ -355,6 +425,7 @@ export function FullTable() {
   //  Ctrl/⌘+Delete … 現在行を削除（確認あり）
   //  Enter（単一行の入力）… 同じ列の下のセルへ移動（textarea は改行優先）
   const onGridKeyDown = (e: React.KeyboardEvent) => {
+    if (isImeKeyEvent(e)) return; // IME 変換確定の Enter でセル移動しない
     const el = e.target as HTMLElement;
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
@@ -377,18 +448,7 @@ export function FullTable() {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') {
       e.preventDefault();
       const id = taskOfEvent(e);
-      const t = id ? byId[id] : undefined;
-      if (t) {
-        void useUI
-          .getState()
-          .confirm({
-            title: '工程を削除',
-            message: `「${t.name}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-            confirmLabel: '削除',
-            danger: true,
-          })
-          .then((ok) => ok && removeTask(t.id));
-      }
+      if (id) void confirmRemoveTasks([id]);
       return;
     }
     if (e.key !== 'Enter' || el.tagName !== 'INPUT') return;
@@ -411,23 +471,6 @@ export function FullTable() {
       </div>
     );
   }
-
-  const Th = ({ k, label, cls, style }: { k: string; label: string; cls?: string; style?: React.CSSProperties }) => {
-    const active = sort?.key === k;
-    return (
-      <th className={`${cls ?? ''}${active ? ' sorted' : ''}`} style={style}>
-        {SORTABLE.has(k) ? (
-          <button className="ft-sort" onClick={() => clickSort(k)} title={`${label}で並べ替え`}>
-            {label}
-            <span className="ft-sortmark">{active ? (sort!.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>
-          </button>
-        ) : (
-          label
-        )}
-        <span className="ft-resize" onPointerDown={(e) => startResize(k, e)} title="ドラッグで列幅を調整" />
-      </th>
-    );
-  };
 
   return (
     <div className={`ft-wrap${resizing ? ' resizing' : ''}`}>
@@ -539,46 +582,35 @@ export function FullTable() {
       <div className="ft-scroll">
       <table className="ft" ref={tableRef} onKeyDown={onGridKeyDown}>
         <colgroup>
-          {visibleCols.map((k) => (
-            <col key={k} style={{ width: width(k) }} />
+          {visibleCols.map((c) => (
+            <col key={c.key} style={{ width: width(c.key) }} />
           ))}
         </colgroup>
         <thead>
           <tr>
-            <th className="ft-c-no ft-sticky" style={{ left: 0 }} title="工程順に戻す">
-              <button className="ft-sort" onClick={() => setSort(null)}>
-                No.
-              </button>
-            </th>
-            {LEVELS.map(
-              (l) =>
-                vis(l.key) && (
-                  <Th
-                    key={l.key}
-                    k={l.key}
-                    label={l.label}
-                    cls={`ft-c-level ft-sticky${l.key === lastStickyKey ? ' ft-sticky-last' : ''}`}
-                    style={{ left: levelLeft(l.key) }}
-                  />
-                ),
-            )}
-            {vis('assignee') && <Th k="assignee" label="担当" cls="ft-c-assignee" />}
-            {vis('prev') && <Th k="prev" label="前工程" cls="ft-c-prev" />}
-            {vis('effort') && <Th k="effort" label="工数" cls="ft-c-effort" />}
-            {vis('how') && <Th k="how" label="業務内容" cls="ft-c-text" />}
-            {vis('system') && <Th k="system" label="使用システム" cls="ft-c-text" />}
-            {vis('inputs') && <Th k="inputs" label="インプット" cls="ft-c-io" />}
-            {vis('outputs') && <Th k="outputs" label="アウトプット" cls="ft-c-io" />}
-            {vis('issue') && <Th k="issue" label="課題" cls="ft-c-issue" />}
-            {vis('measure') && <Th k="measure" label="方策" cls="ft-c-issue" />}
-            {vis('note') && <Th k="note" label="備考" cls="ft-c-text" />}
-            {vis('volume') && <Th k="volume" label="ボリューム" cls="ft-c-sm" />}
-            {vis('exception') && <Th k="exception" label="例外対応" cls="ft-c-text" />}
-            {vis('automation') && <Th k="automation" label="自動化" cls="ft-c-auto" />}
-            {vis('dataLink') && <Th k="dataLink" label="データ連携先" cls="ft-c-sm" />}
-            {vis('regulation') && <Th k="regulation" label="関連規程" cls="ft-c-sm" />}
-            {vis('difficulty') && <Th k="difficulty" label="難易度" cls="ft-c-diff" />}
-            <th className="ft-c-act ft-sticky-r"></th>
+            {visibleCols.map((c) => {
+              if (c.key === 'no')
+                return (
+                  <th key="no" className="ft-c-no ft-sticky" style={{ left: 0 }} title="工程順に戻す">
+                    <button className="ft-sort" onClick={() => setSort(null)}>
+                      No.
+                    </button>
+                  </th>
+                );
+              if (c.key === 'act') return <th key="act" className="ft-c-act ft-sticky-r"></th>;
+              return (
+                <Th
+                  key={c.key}
+                  k={c.key}
+                  label={c.label}
+                  cls={c.level ? `ft-c-level ft-sticky${c.level === lastStickyKey ? ' ft-sticky-last' : ''}` : c.cls}
+                  style={c.level ? { left: levelLeft(c.level) } : undefined}
+                  sort={sort}
+                  clickSort={clickSort}
+                  startResize={startResize}
+                />
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -588,13 +620,270 @@ export function FullTable() {
             const assigneeName = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
             const anc = ancestryNames(t, byId);
             const issues = d?.issues ?? [];
-            const preds = deps.filter((dep) => dep.to === t.id);
-            const predIds = new Set(preds.map((dep) => dep.from));
-            const succIds = new Set(deps.filter((dep) => dep.from === t.id).map((dep) => dep.to));
-            const siblings = tasks.filter(
-              (o) => o.id !== t.id && (o.parentId ?? undefined) === (t.parentId ?? undefined) && o.level === t.level,
-            );
-            const prevCandidates = siblings.filter((o) => !predIds.has(o.id) && !succIds.has(o.id));
+            // 各セルも列定義の並びから描画する（ヘッダ・colgroup と確実に揃える）。
+            const cell = (c: FtCol): React.ReactNode => {
+              if (c.level) {
+                const own = c.level === t.level;
+                const name = anc[c.level];
+                return (
+                  <td
+                    key={c.key}
+                    className={`ft-c-level ft-sticky${c.level === lastStickyKey ? ' ft-sticky-last' : ''} ${own ? 'own' : name ? 'anc' : 'blank'}`}
+                    style={{ left: levelLeft(c.level) }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {own ? (
+                      <input
+                        className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                        data-cell="name"
+                        style={
+                          d?.textColor
+                            ? ({ '--task-text': TASK_COLORS[d.textColor].text } as React.CSSProperties)
+                            : undefined
+                        }
+                        defaultValue={t.name}
+                        placeholder={c.label}
+                        aria-label={c.label}
+                        data-task={t.id}
+                        key={`name-${t.name}`}
+                        onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (isImeKeyEvent(e)) return; // IME 変換確定の Enter では確定しない
+                          if (e.key === 'Enter') {
+                            // 確定して選択モードへ(誤挿入防止のため行追加はしない。追加は n / Ctrl+Enter)。
+                            e.preventDefault();
+                            e.stopPropagation(); // blur 後にグローバルの Enter(セル編集)が再発火しないように
+                            if (e.currentTarget.value !== t.name) renameTask(t.id, e.currentTarget.value);
+                            e.currentTarget.blur();
+                          }
+                        }}
+                      />
+                    ) : name !== undefined ? (
+                      <span className="ft-anc" title={name}>
+                        {name}
+                      </span>
+                    ) : null}
+                  </td>
+                );
+              }
+              switch (c.key) {
+                case 'no':
+                  return (
+                    <td key="no" className="ft-c-no ft-sticky" style={{ left: 0 }} title={codes[t.id]}>
+                      {codes[t.id]}
+                    </td>
+                  );
+                case 'assignee':
+                  return (
+                    <td key={c.key} className="ft-c-assignee" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        className={`ft-in${cellCursorCls(t.id, 'assignee')}`}
+                        data-cell="assignee"
+                        list="ft-assignees"
+                        defaultValue={assigneeName}
+                        placeholder="（未割当）"
+                        aria-label="担当"
+                        data-r={ri}
+                        data-c="assignee"
+                        key={`asg-${assigneeName}`}
+                        onBlur={(e) => e.target.value !== assigneeName && setAssigneeByName(t.id, e.target.value)}
+                      />
+                    </td>
+                  );
+                case 'prev': {
+                  const preds = predsByTo.get(t.id) ?? [];
+                  const prevCands = prevCandidatesOf(t.id);
+                  return (
+                    <td key={c.key} className={`ft-c-prev${cellCursorCls(t.id, 'prev')}`} data-cell="prev" onClick={(e) => e.stopPropagation()}>
+                      <div className="ft-prev">
+                        {preds.map((dep) => (
+                          <span className="ft-pill" key={dep.id}>
+                            {byId[dep.from]?.name ?? ''}
+                            <button className="ft-x" aria-label="前工程を解除" onClick={() => removeDependency(dep.id)}>
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        {(bridgePreds[t.id] ?? []).map((fromId) => (
+                          <span
+                            className="ft-pill derived"
+                            key={`br-${fromId}`}
+                            title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ）"
+                          >
+                            ⤷ {byId[fromId]?.name ?? ''}
+                          </span>
+                        ))}
+                        {prevCands.length > 0 && (
+                          <select
+                            className="ft-add ft-add-sel"
+                            value=""
+                            aria-label="前工程を追加"
+                            title="前工程を追加"
+                            onChange={(e) => e.target.value && addDependency(e.target.value, t.id)}
+                          >
+                            <option value="">＋</option>
+                            {prevCands.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </td>
+                  );
+                }
+                case 'effort':
+                  return (
+                    <td key={c.key} className="ft-c-effort" onClick={(e) => e.stopPropagation()}>
+                      {hasChildren ? (
+                        <span className="ft-roll" title="子の合計（自動）">
+                          {formatHours(effortRollups.get(t.id) ?? 0)}
+                        </span>
+                      ) : (
+                        <input
+                          className={`ft-in ft-num${cellCursorCls(t.id, 'effort')}`}
+                          data-cell="effort"
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
+                          placeholder="h"
+                          aria-label="工数（時間）"
+                          data-r={ri}
+                          data-c="effort"
+                          key={`eff-${d?.effortMinutes ?? ''}`}
+                          onBlur={(e) => {
+                            const minutes = parseEffortHoursToMinutes(e.target.value);
+                            if (minutes === null) {
+                              // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す（インスペクタと同じ規約）。
+                              e.target.value = d?.effortMinutes != null ? String(d.effortMinutes / 60) : '';
+                              useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                              return;
+                            }
+                            if (minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: minutes });
+                          }}
+                        />
+                      )}
+                    </td>
+                  );
+                case 'how':
+                  return <WrapCell key={c.key} value={d?.how} onCommit={(v) => updateDetail(t.id, { how: v })} k={t.id} cell="how" cursor={cellCursorCls(t.id, 'how') !== ''} />;
+                case 'system':
+                  return <WrapCell key={c.key} value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} cell="system" cursor={cellCursorCls(t.id, 'system') !== ''} />;
+                case 'inputs':
+                  return <IoCell key={c.key} items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                case 'outputs':
+                  return <IoCell key={c.key} items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                case 'issue':
+                  return (
+                    <td key={c.key} className={`ft-c-issue${cellCursorCls(t.id, 'issue')}`} data-cell="issue" onClick={(e) => e.stopPropagation()}>
+                      <div className="ft-issues">
+                        {issues.map((iss) => (
+                          <div className="ft-issue-row" key={iss.id}>
+                            <AutoTextarea value={iss.issue} placeholder="課題" onCommit={(v) => updateIssue(t.id, iss.id, { issue: v })} />
+                            <button className="ft-x" aria-label="課題を削除" onClick={() => removeIssue(t.id, iss.id)}>
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        <button className="ft-add" onClick={() => addIssue(t.id, '課題')}>
+                          ＋課題
+                        </button>
+                      </div>
+                    </td>
+                  );
+                case 'measure':
+                  return (
+                    <td key={c.key} className={`ft-c-issue${cellCursorCls(t.id, 'measure')}`} data-cell="measure" onClick={(e) => e.stopPropagation()}>
+                      <div className="ft-issues">
+                        {issues.map((iss) => (
+                          <div className="ft-issue-row" key={iss.id}>
+                            <AutoTextarea value={iss.measure ?? ''} placeholder="方策" onCommit={(v) => updateIssue(t.id, iss.id, { measure: v || undefined })} />
+                          </div>
+                        ))}
+                        {issues.length === 0 && (
+                          // 課題が無くても方策を直接入力できる（入力時に課題を起票）。
+                          <AutoTextarea value="" placeholder="方策" onCommit={(v) => v.trim() && addIssueWithMeasure(t.id, v)} />
+                        )}
+                      </div>
+                    </td>
+                  );
+                case 'note':
+                  return <WrapCell key={c.key} value={d?.note} onCommit={(v) => updateDetail(t.id, { note: v || undefined })} k={t.id} cell="note" cursor={cellCursorCls(t.id, 'note') !== ''} />;
+                case 'volume':
+                  return <WrapCell key={c.key} value={d?.volume} onCommit={(v) => updateDetail(t.id, { volume: v || undefined })} k={t.id} cell="volume" cursor={cellCursorCls(t.id, 'volume') !== ''} />;
+                case 'exception':
+                  return <WrapCell key={c.key} value={d?.exception} onCommit={(v) => updateDetail(t.id, { exception: v || undefined })} k={t.id} cell="exception" cursor={cellCursorCls(t.id, 'exception') !== ''} />;
+                case 'automation':
+                  return (
+                    <td key={c.key} className="ft-c-auto" onClick={(e) => e.stopPropagation()}>
+                      <select className={`ft-in${cellCursorCls(t.id, 'automation')}`} data-cell="automation" value={d?.automation ?? ''} aria-label="自動化区分" onChange={(e) => updateDetail(t.id, { automation: (e.target.value || undefined) as Automation | undefined })}>
+                        {AUTOMATION.map((a) => (
+                          <option key={a.key} value={a.key}>
+                            {a.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  );
+                case 'dataLink':
+                  return <WrapCell key={c.key} value={d?.dataLink} onCommit={(v) => updateDetail(t.id, { dataLink: v || undefined })} k={t.id} cell="dataLink" cursor={cellCursorCls(t.id, 'dataLink') !== ''} />;
+                case 'regulation':
+                  return <WrapCell key={c.key} value={d?.regulation} onCommit={(v) => updateDetail(t.id, { regulation: v || undefined })} k={t.id} cell="regulation" cursor={cellCursorCls(t.id, 'regulation') !== ''} />;
+                case 'difficulty':
+                  return (
+                    <td key={c.key} className="ft-c-diff" onClick={(e) => e.stopPropagation()}>
+                      <select className={`ft-in${cellCursorCls(t.id, 'difficulty')}`} data-cell="difficulty" value={d?.difficulty ?? ''} aria-label="難易度" onChange={(e) => updateDetail(t.id, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}>
+                        {DIFFICULTY.map((x) => (
+                          <option key={x} value={x}>
+                            {x || '—'}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  );
+                case 'act':
+                  return (
+                    <td key={c.key} className="ft-c-act ft-sticky-r" onClick={(e) => e.stopPropagation()}>
+                      <div className="ft-rowact">
+                        <button
+                          className="ft-rowbtn"
+                          aria-label="次の行を追加"
+                          title="次の行を追加（同じ粒度）"
+                          onClick={() => {
+                            const id = addSiblingOf(t.id);
+                            if (id) setFocusTask(id);
+                          }}
+                        >
+                          ＋
+                        </button>
+                        <button
+                          className="ft-rowbtn"
+                          aria-label={`「${t.name}」を複製`}
+                          title="この行を複製（Ctrl+D）"
+                          onClick={() => {
+                            const nid = duplicateTask(t.id);
+                            if (nid) setFocusTask(nid);
+                          }}
+                        >
+                          ⧉
+                        </button>
+                        <button
+                          className="ft-rowbtn danger"
+                          aria-label={`「${t.name}」を削除`}
+                          title="この行を削除"
+                          onClick={() => void confirmRemoveTasks([t.id])}
+                        >
+                          <Icons.Trash />
+                        </button>
+                      </div>
+                    </td>
+                  );
+                default:
+                  return null;
+              }
+            };
             return (
               <tr
                 key={t.id}
@@ -602,241 +891,7 @@ export function FullTable() {
                 className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}${marked.has(t.id) ? ' marked' : ''}`}
                 onClick={(e) => onRowClick(e, t)}
               >
-                <td className="ft-c-no ft-sticky" style={{ left: 0 }} title={codes[t.id]}>
-                  {codes[t.id]}
-                </td>
-                {LEVELS.map((l) => {
-                  if (!vis(l.key)) return null;
-                  const own = l.key === t.level;
-                  const name = anc[l.key];
-                  return (
-                    <td
-                      key={l.key}
-                      className={`ft-c-level ft-sticky${l.key === lastStickyKey ? ' ft-sticky-last' : ''} ${own ? 'own' : name ? 'anc' : 'blank'}`}
-                      style={{ left: levelLeft(l.key) }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {own ? (
-                        <input
-                          className={`ft-in ft-name lvl-${l.key}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
-                          data-cell="name"
-                          style={
-                            d?.textColor
-                              ? ({ '--task-text': TASK_COLORS[d.textColor].text } as React.CSSProperties)
-                              : undefined
-                          }
-                          defaultValue={t.name}
-                          placeholder={l.label}
-                          aria-label={l.label}
-                          data-task={t.id}
-                          key={`name-${t.name}`}
-                          onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              // 確定して選択モードへ(誤挿入防止のため行追加はしない。追加は n / Ctrl+Enter)。
-                              e.preventDefault();
-                              e.stopPropagation(); // blur 後にグローバルの Enter(セル編集)が再発火しないように
-                              if (e.currentTarget.value !== t.name) renameTask(t.id, e.currentTarget.value);
-                              e.currentTarget.blur();
-                            }
-                          }}
-                        />
-                      ) : name !== undefined ? (
-                        <span className="ft-anc" title={name}>
-                          {name}
-                        </span>
-                      ) : null}
-                    </td>
-                  );
-                })}
-                {vis('assignee') && (
-                  <td className="ft-c-assignee" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      className={`ft-in${cellCursorCls(t.id, 'assignee')}`}
-                      data-cell="assignee"
-                      list="ft-assignees"
-                      defaultValue={assigneeName}
-                      placeholder="（未割当）"
-                      aria-label="担当"
-                      data-r={ri}
-                      data-c="assignee"
-                      key={`asg-${assigneeName}`}
-                      onBlur={(e) => e.target.value !== assigneeName && setAssigneeByName(t.id, e.target.value)}
-                    />
-                  </td>
-                )}
-                {vis('prev') && (
-                  <td className={`ft-c-prev${cellCursorCls(t.id, 'prev')}`} data-cell="prev" onClick={(e) => e.stopPropagation()}>
-                    <div className="ft-prev">
-                      {preds.map((dep) => (
-                        <span className="ft-pill" key={dep.id}>
-                          {byId[dep.from]?.name ?? ''}
-                          <button className="ft-x" aria-label="前工程を解除" onClick={() => removeDependency(dep.id)}>
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                      {(bridgePreds[t.id] ?? []).map((fromId) => (
-                        <span
-                          className="ft-pill derived"
-                          key={`br-${fromId}`}
-                          title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ）"
-                        >
-                          ⤷ {byId[fromId]?.name ?? ''}
-                        </span>
-                      ))}
-                      {prevCandidates.length > 0 && (
-                        <select
-                          className="ft-add ft-add-sel"
-                          value=""
-                          aria-label="前工程を追加"
-                          title="前工程を追加"
-                          onChange={(e) => e.target.value && addDependency(e.target.value, t.id)}
-                        >
-                          <option value="">＋</option>
-                          {prevCandidates.map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  </td>
-                )}
-                {vis('effort') && (
-                  <td className="ft-c-effort" onClick={(e) => e.stopPropagation()}>
-                    {hasChildren ? (
-                      <span className="ft-roll" title="子の合計（自動）">
-                        {formatHours(effortRollupMinutes(project.core, project.details, t.id))}
-                      </span>
-                    ) : (
-                      <input
-                        className={`ft-in ft-num${cellCursorCls(t.id, 'effort')}`}
-                        data-cell="effort"
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
-                        placeholder="h"
-                        aria-label="工数（時間）"
-                        data-r={ri}
-                        data-c="effort"
-                        key={`eff-${d?.effortMinutes ?? ''}`}
-                        onBlur={(e) =>
-                          updateDetail(t.id, {
-                            effortMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : undefined,
-                          })
-                        }
-                      />
-                    )}
-                  </td>
-                )}
-                {vis('how') && <WrapCell value={d?.how} onCommit={(v) => updateDetail(t.id, { how: v })} k={t.id} cell="how" cursor={cellCursorCls(t.id, 'how') !== ''} />}
-                {vis('system') && <WrapCell value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} cell="system" cursor={cellCursorCls(t.id, 'system') !== ''} />}
-                {vis('inputs') && <IoCell items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
-                {vis('outputs') && <IoCell items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />}
-                {vis('issue') && (
-                  <td className={`ft-c-issue${cellCursorCls(t.id, 'issue')}`} data-cell="issue" onClick={(e) => e.stopPropagation()}>
-                    <div className="ft-issues">
-                      {issues.map((iss) => (
-                        <div className="ft-issue-row" key={iss.id}>
-                          <AutoTextarea value={iss.issue} placeholder="課題" onCommit={(v) => updateIssue(t.id, iss.id, { issue: v })} />
-                          <button className="ft-x" aria-label="課題を削除" onClick={() => removeIssue(t.id, iss.id)}>
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                      <button className="ft-add" onClick={() => addIssue(t.id, '課題')}>
-                        ＋課題
-                      </button>
-                    </div>
-                  </td>
-                )}
-                {vis('measure') && (
-                  <td className={`ft-c-issue${cellCursorCls(t.id, 'measure')}`} data-cell="measure" onClick={(e) => e.stopPropagation()}>
-                    <div className="ft-issues">
-                      {issues.map((iss) => (
-                        <div className="ft-issue-row" key={iss.id}>
-                          <AutoTextarea value={iss.measure ?? ''} placeholder="方策" onCommit={(v) => updateIssue(t.id, iss.id, { measure: v || undefined })} />
-                        </div>
-                      ))}
-                      {issues.length === 0 && (
-                        // 課題が無くても方策を直接入力できる（入力時に課題を起票）。
-                        <AutoTextarea value="" placeholder="方策" onCommit={(v) => v.trim() && addIssueWithMeasure(t.id, v)} />
-                      )}
-                    </div>
-                  </td>
-                )}
-                {vis('note') && <WrapCell value={d?.note} onCommit={(v) => updateDetail(t.id, { note: v || undefined })} k={t.id} cell="note" cursor={cellCursorCls(t.id, 'note') !== ''} />}
-                {vis('volume') && <WrapCell value={d?.volume} onCommit={(v) => updateDetail(t.id, { volume: v || undefined })} k={t.id} cell="volume" cursor={cellCursorCls(t.id, 'volume') !== ''} />}
-                {vis('exception') && <WrapCell value={d?.exception} onCommit={(v) => updateDetail(t.id, { exception: v || undefined })} k={t.id} cell="exception" cursor={cellCursorCls(t.id, 'exception') !== ''} />}
-                {vis('automation') && (
-                  <td className="ft-c-auto" onClick={(e) => e.stopPropagation()}>
-                    <select className={`ft-in${cellCursorCls(t.id, 'automation')}`} data-cell="automation" value={d?.automation ?? ''} aria-label="自動化区分" onChange={(e) => updateDetail(t.id, { automation: (e.target.value || undefined) as Automation | undefined })}>
-                      {AUTOMATION.map((a) => (
-                        <option key={a.key} value={a.key}>
-                          {a.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                )}
-                {vis('dataLink') && <WrapCell value={d?.dataLink} onCommit={(v) => updateDetail(t.id, { dataLink: v || undefined })} k={t.id} cell="dataLink" cursor={cellCursorCls(t.id, 'dataLink') !== ''} />}
-                {vis('regulation') && <WrapCell value={d?.regulation} onCommit={(v) => updateDetail(t.id, { regulation: v || undefined })} k={t.id} cell="regulation" cursor={cellCursorCls(t.id, 'regulation') !== ''} />}
-                {vis('difficulty') && (
-                  <td className="ft-c-diff" onClick={(e) => e.stopPropagation()}>
-                    <select className={`ft-in${cellCursorCls(t.id, 'difficulty')}`} data-cell="difficulty" value={d?.difficulty ?? ''} aria-label="難易度" onChange={(e) => updateDetail(t.id, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}>
-                      {DIFFICULTY.map((x) => (
-                        <option key={x} value={x}>
-                          {x || '—'}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                )}
-                <td className="ft-c-act ft-sticky-r" onClick={(e) => e.stopPropagation()}>
-                  <div className="ft-rowact">
-                    <button
-                      className="ft-rowbtn"
-                      aria-label="次の行を追加"
-                      title="次の行を追加（同じ粒度）"
-                      onClick={() => {
-                        const id = addSiblingOf(t.id);
-                        if (id) setFocusTask(id);
-                      }}
-                    >
-                      ＋
-                    </button>
-                    <button
-                      className="ft-rowbtn"
-                      aria-label={`「${t.name}」を複製`}
-                      title="この行を複製（Ctrl+D）"
-                      onClick={() => {
-                        const nid = duplicateTask(t.id);
-                        if (nid) setFocusTask(nid);
-                      }}
-                    >
-                      ⧉
-                    </button>
-                    <button
-                      className="ft-rowbtn danger"
-                      aria-label={`「${t.name}」を削除`}
-                      title="この行を削除"
-                      onClick={async () => {
-                        const ok = await useUI.getState().confirm({
-                          title: '工程を削除',
-                          message: `「${t.name}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-                          confirmLabel: '削除',
-                          danger: true,
-                        });
-                        if (ok) removeTask(t.id);
-                      }}
-                    >
-                      <Icons.Trash />
-                    </button>
-                  </div>
-                </td>
+                {visibleCols.map(cell)}
               </tr>
             );
           })}
@@ -933,7 +988,8 @@ function IoCell({
         {items.map((it) => (
           // 色は入出力の向き（フローと統一）。種別(帳票/情報)はセレクトの値で区別。
           <span className={`ft-iochip ${direction}`} key={it.id}>
-            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => onRename(it.id, e.target.value)} />
+            {/* 触れただけの blur で履歴と未保存フラグを汚さない（変化があるときだけコミット）。 */}
+            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => e.target.value !== it.name && onRename(it.id, e.target.value)} />
             <select className="ft-io-kind" value={it.kind} aria-label="種別" onChange={(e) => onKind(it.id, e.target.value as IoKind)}>
               <option value="doc">帳票</option>
               <option value="info">情報</option>

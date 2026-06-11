@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createAppStore } from '../src/store';
+import { createAppStore, useApp } from '../src/store';
+import { revealTask, confirmRemoveTasks } from '../src/taskOps';
+import { useUI } from '../src/ui/useUI';
 import { serializeProject, deserializeProject } from '@gantt-flow/core';
 import type { FlowTaskNode, FlowDocNode } from '@gantt-flow/core';
 
@@ -385,5 +387,205 @@ describe('app store（command → reconcile → history）', () => {
     s.getState().setAssigneeByName(b, '倉庫'); // 2 本目のレーン order 1
     s.getState().setAssigneeByName(a, '倉庫'); // A を倉庫レーンへ → y=80+156
     expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(236);
+  });
+
+  it('保存→粒度切替(replaceTop)→編集→undo で dirty が解消する', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().markSaved();
+    expect(s.getState().dirty).toBe(false);
+    s.getState().setLevel('large'); // ビュー切替は保存済み状態を壊さない
+    expect(s.getState().dirty).toBe(false);
+    s.getState().addTask('B');
+    expect(s.getState().dirty).toBe(true);
+    s.getState().undo(); // 保存時点と等価な状態へ戻る
+    expect(s.getState().dirty).toBe(false);
+  });
+
+  it('markSaved にスナップショットを渡すと、その時点を基準に dirty を再計算する', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const snapshot = s.getState().project; // 保存処理がファイルに書いた状態
+    s.getState().addTask('B'); // 保存中に入った編集
+    s.getState().markSaved(snapshot);
+    expect(s.getState().dirty).toBe(true); // 現在はスナップショットより進んでいる
+    s.getState().undo(); // B を取り消すと保存時点に一致
+    expect(s.getState().dirty).toBe(false);
+  });
+
+  it('保存 await 中の粒度切替（replaceTop）後でも、内容が等価なら markSaved で dirty が解消する', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().setLevel('large'); // 両ビューを先に作っておく（後の切替を内容等価にする）
+    s.getState().setLevel('medium');
+    const snapshot = s.getState().project; // 保存処理がファイルに書いた状態
+    // 保存 await 中のビュー切替を模擬: replaceTop でスナップショットが履歴の先頭から外れる
+    s.getState().setLevel('large');
+    expect(s.getState().project).not.toBe(snapshot); // 参照は別物（reconcile で作り直される）
+    s.getState().markSaved(snapshot);
+    expect(s.getState().dirty).toBe(false); // 内容等価なら保存済み扱いになる
+    s.getState().addTask('B');
+    expect(s.getState().dirty).toBe(true); // 以後の編集は通常どおり dirty
+  });
+
+  it('既に依存がある工程どうしの再接続は no-op（履歴・dirty を汚さない）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    s.getState().connect(a.id, b.id);
+    s.getState().markSaved();
+    const before = s.getState().project;
+    s.getState().connect(a.id, b.id); // フローからの再接続
+    expect(s.getState().project).toBe(before);
+    expect(s.getState().dirty).toBe(false);
+    s.getState().addDependency(a.taskId, b.taskId); // ストア API からの再追加
+    expect(s.getState().project).toBe(before);
+    expect(Object.keys(s.getState().project.core.dependencies)).toHaveLength(1);
+  });
+
+  it('同じ手動エッジを二重に張ろうとしても履歴は増えない', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const taskNode = taskNodes(s)[0]!;
+    s.getState().addControlNode('decision');
+    const ctrl = Object.values(view0(s).nodes).find((n) => n.kind === 'control')!;
+    s.getState().connect(taskNode.id, ctrl.id);
+    const before = s.getState().project;
+    s.getState().connect(taskNode.id, ctrl.id); // 既存と同じ pinned エッジ
+    expect(s.getState().project).toBe(before);
+    expect(Object.keys(view0(s).edges)).toHaveLength(1);
+  });
+
+  it('スコープ中の親を削除するとスコープが全体へ戻り、以後の作成が孤児にならない', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('large');
+    const large = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().addChildTask(large.id);
+    s.getState().setLevel('medium');
+    s.getState().setScope(large.id);
+    s.getState().removeTask(large.id); // スコープの親そのものを削除
+    expect(s.getState().scopeParentId).toBeUndefined();
+    s.getState().addTaskAt(300, 80); // フローのダブルクリック相当
+    const tasks = s.getState().project.core.tasks;
+    expect(Object.values(tasks).filter((t) => t.parentId && !tasks[t.parentId])).toHaveLength(0);
+  });
+
+  it('removeManyTasks でスコープ親が消えた場合も全体スコープへ戻る', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('large');
+    const large = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().addChildTask(large.id);
+    s.getState().setLevel('medium');
+    s.getState().setScope(large.id);
+    s.getState().removeManyTasks([large.id]);
+    expect(s.getState().scopeParentId).toBeUndefined();
+  });
+
+  it('複製で status / fillColor / textColor も写る', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const t = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().updateDetail(t.id, { status: 'done', fillColor: 'blue', textColor: 'red' });
+    const nid = s.getState().duplicateTask(t.id)!;
+    const dd = s.getState().project.details[nid]!;
+    expect(dd.status).toBe('done');
+    expect(dd.fillColor).toBe('blue');
+    expect(dd.textColor).toBe('red');
+  });
+
+  it('addChildTask / addSiblingOf は作成した工程の ID を返す（兄弟はクリック行の直下へ）', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('large');
+    const large = Object.values(s.getState().project.core.tasks)[0]!;
+    const childId = s.getState().addChildTask(large.id)!;
+    expect(s.getState().project.core.tasks[childId]!.parentId).toBe(large.id);
+    const sibId = s.getState().addSiblingOf(childId)!;
+    const ordered = Object.values(s.getState().project.core.tasks)
+      .filter((t) => t.parentId === large.id)
+      .sort((a, b) => a.order - b.order)
+      .map((t) => t.id);
+    expect(ordered).toEqual([childId, sibId]);
+  });
+
+  it('moveLane でレーンを入れ替えると、中のノードが帯ごと移動する', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = taskNodes(s)[0]!.taskId;
+    s.getState().setAssigneeByName(a, '営業'); // lane 0, y=80
+    s.getState().addTask('B');
+    const b = Object.values(s.getState().project.core.tasks).find((t) => t.name === 'B')!.id;
+    s.getState().setAssigneeByName(b, '倉庫'); // lane 1, y=236
+    const eigyo = Object.values(view0(s).lanes).find((l) => l.title === '営業')!;
+    s.getState().moveLane(eigyo.id, 1); // 営業を下へ（帯高さは既定 156）
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(236);
+    expect(taskNodes(s).find((n) => n.taskId === b)!.y).toBe(80);
+    expect(view0(s).lanes[eigyo.id]!.order).toBe(1);
+    s.getState().undo(); // 1 undo で戻る
+    expect(taskNodes(s).find((n) => n.taskId === a)!.y).toBe(80);
+  });
+});
+
+describe('taskOps（store と UI をまたぐ手続き）', () => {
+  it('confirmRemoveTasks: キャンセルで false（削除しない）、OK で削除して true', async () => {
+    useApp.getState().newProject();
+    useApp.getState().addTask('受付');
+    const id = Object.values(useApp.getState().project.core.tasks)[0]!.id;
+    // キャンセル
+    let pr = confirmRemoveTasks([id]);
+    expect(useUI.getState().dialog?.kind).toBe('confirm');
+    useUI.getState().resolveDialog(false);
+    expect(await pr).toBe(false);
+    expect(useApp.getState().project.core.tasks[id]).toBeDefined();
+    // OK（単数形のメッセージ）
+    pr = confirmRemoveTasks([id]);
+    expect(useUI.getState().dialog?.message).toContain('「受付」');
+    useUI.getState().resolveDialog(true);
+    expect(await pr).toBe(true);
+    expect(useApp.getState().project.core.tasks[id]).toBeUndefined();
+  });
+
+  it('confirmRemoveTasks: 複数件は一括削除（1 undo・件数表示）', async () => {
+    useApp.getState().newProject();
+    useApp.getState().addTask('A');
+    useApp.getState().addTask('B');
+    const ids = Object.values(useApp.getState().project.core.tasks).map((t) => t.id);
+    const pr = confirmRemoveTasks(ids);
+    expect(useUI.getState().dialog?.message).toContain('2 件');
+    useUI.getState().resolveDialog(true);
+    expect(await pr).toBe(true);
+    expect(Object.keys(useApp.getState().project.core.tasks)).toHaveLength(0);
+    useApp.getState().undo();
+    expect(Object.keys(useApp.getState().project.core.tasks)).toHaveLength(2);
+  });
+
+  it('revealTask: 選択して粒度を合わせ、詳細パネルを開く（全体俯瞰中はスコープ維持）', () => {
+    useApp.getState().newProject();
+    useApp.getState().addRootTask('large');
+    const large = Object.values(useApp.getState().project.core.tasks)[0]!;
+    useUI.getState().setInspectorOpen(false);
+    revealTask(large.id);
+    expect(useApp.getState().selectedTaskId).toBe(large.id);
+    expect(useApp.getState().level).toBe('large');
+    expect(useApp.getState().scopeParentId).toBeUndefined();
+    expect(useUI.getState().inspectorOpen).toBe(true);
+  });
+
+  it('revealTask: スコープ絞り込み中は対象工程の親へスコープを追従させる', () => {
+    useApp.getState().newProject();
+    useApp.getState().addRootTask('large');
+    const large = Object.values(useApp.getState().project.core.tasks)[0]!;
+    const childId = useApp.getState().addChildTask(large.id)!;
+    useApp.getState().addRootTask('large');
+    const other = Object.values(useApp.getState().project.core.tasks).find(
+      (t) => t.level === 'large' && t.id !== large.id,
+    )!;
+    useApp.getState().setLevel('medium');
+    useApp.getState().setScope(other.id); // 別の親に絞っている状態からジャンプ
+    revealTask(childId);
+    expect(useApp.getState().selectedTaskId).toBe(childId);
+    expect(useApp.getState().level).toBe('medium');
+    expect(useApp.getState().scopeParentId).toBe(large.id);
   });
 });

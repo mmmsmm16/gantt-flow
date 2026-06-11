@@ -6,6 +6,8 @@ import type { ProcessLevel, ProcessTask, TaskColor } from '@gantt-flow/core';
 import { computeCodes } from '@gantt-flow/core';
 import { useApp, findView } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
+import { revealTask, confirmRemoveTasks } from '../taskOps';
+import { isImeKeyEvent } from '../keymap';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from '../theme';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
@@ -45,7 +47,7 @@ export interface ArgSpec {
   validate?: (value: string) => string | null;
 }
 
-interface Cmd {
+export interface Cmd {
   id: string;
   label: string;
   keywords: string;
@@ -90,8 +92,83 @@ function fuzzyScore(query: string, text: string): number | null {
   return qi === q.length ? score : null;
 }
 
+// 「自由入力 1 件で選択中の工程の文字列を設定」する 2 段階コマンドの共通形。
+// 入力は必ず trim してから write に渡す（空欄の解釈＝解除や空名は write 側で決める）。
+export function textArgCommand(spec: {
+  id: string;
+  label: string;
+  keywords: string;
+  placeholder: string;
+  available: boolean;
+  read: (taskId: string) => string;
+  write: (taskId: string, value: string) => void;
+}): Cmd {
+  return {
+    id: spec.id,
+    label: spec.label,
+    keywords: spec.keywords,
+    available: spec.available,
+    arg: {
+      placeholder: spec.placeholder,
+      freeText: true,
+      defaultValue: () => {
+        const tid = useApp.getState().selectedTaskId;
+        return tid ? spec.read(tid) : '';
+      },
+    },
+    runWithArg: (v) => {
+      const tid = useApp.getState().selectedTaskId;
+      if (tid) spec.write(tid, v.trim());
+    },
+  };
+}
+
+// 工程名の変更コマンド。trim 後に空（空白のみの入力）なら何もしない — 旧実装は raw 値を
+// 渡していたため空白のみの確定で名前が '' になり得たが、誤って無名化しないよう no-op に
+// するのが意図した仕様（空欄の解除を意味する他フィールドと違い、工程名に「解除」は無い）。
+export function renameTaskCommand(available: boolean): Cmd {
+  return textArgCommand({
+    id: 'arg-rename',
+    label: '工程名を変更…',
+    keywords: 'rename namae 名前 工程名 リネーム',
+    placeholder: '新しい工程名',
+    available,
+    read: (tid) => useApp.getState().project.core.tasks[tid]?.name ?? '',
+    write: (tid, v) => {
+      if (v) useApp.getState().renameTask(tid, v);
+    },
+  });
+}
+
+// 詳細の文字列フィールド（備考/業務内容/使用システム）版: 空欄は「解除」(undefined) に統一。
+export function detailTextCommand(
+  id: string,
+  field: 'note' | 'how' | 'system',
+  label: string,
+  keywords: string,
+  placeholder: string,
+  available: boolean,
+): Cmd {
+  return textArgCommand({
+    id,
+    label,
+    keywords,
+    placeholder,
+    available,
+    read: (tid) => useApp.getState().project.details[tid]?.[field] ?? '',
+    write: (tid, v) => useApp.getState().updateDetail(tid, { [field]: v || undefined }),
+  });
+}
+
 export function CommandPalette(handlers: FileHandlers) {
+  // 閉じている間は本体をマウントしない（プロジェクト購読や computeCodes 等の
+  // 派生計算が編集のたびに走るのを防ぐ。開いたら初期状態から始まる）。
   const open = useUI((s) => s.overlay === 'palette');
+  if (!open) return null;
+  return <PaletteBody {...handlers} />;
+}
+
+function PaletteBody(handlers: FileHandlers) {
   const project = useApp((s) => s.project);
   const canUndo = useApp((s) => s.canUndo);
   const canRedo = useApp((s) => s.canRedo);
@@ -104,7 +181,7 @@ export function CommandPalette(handlers: FileHandlers) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(dialogRef, open);
+  useFocusTrap(dialogRef, true);
 
   const close = () => useUI.getState().setOverlay(null);
   const runAndClose = (fn: () => void) => {
@@ -113,16 +190,9 @@ export function CommandPalette(handlers: FileHandlers) {
   };
 
   useEffect(() => {
-    if (open) {
-      setQuery('');
-      setActive(0);
-      setArgCmd(null);
-      setArgError(null);
-      const t = setTimeout(() => inputRef.current?.focus(), 0);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [open]);
+    const t = setTimeout(() => inputRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, []);
 
   const commands: Cmd[] = useMemo(() => {
     const ui = useUI.getState();
@@ -226,60 +296,9 @@ export function CommandPalette(handlers: FileHandlers) {
             a.updateDetail(a.selectedTaskId, { textColor: (v || undefined) as TaskColor | undefined });
         },
       },
-      {
-        id: 'arg-note',
-        label: '備考を設定…',
-        keywords: 'note bikou 備考 メモ',
-        available: hasSel,
-        arg: {
-          placeholder: '備考（空欄で解除）',
-          freeText: true,
-          defaultValue: () => {
-            const a = useApp.getState();
-            return a.selectedTaskId ? a.project.details[a.selectedTaskId]?.note ?? '' : '';
-          },
-        },
-        runWithArg: (v) => {
-          const a = useApp.getState();
-          if (a.selectedTaskId) a.updateDetail(a.selectedTaskId, { note: v.trim() || undefined });
-        },
-      },
-      {
-        id: 'arg-how',
-        label: '業務内容を設定…',
-        keywords: 'how gyoumu 業務内容 どうやって 手順',
-        available: hasSel,
-        arg: {
-          placeholder: '業務内容（どうやって。空欄で解除）',
-          freeText: true,
-          defaultValue: () => {
-            const a = useApp.getState();
-            return a.selectedTaskId ? a.project.details[a.selectedTaskId]?.how ?? '' : '';
-          },
-        },
-        runWithArg: (v) => {
-          const a = useApp.getState();
-          if (a.selectedTaskId) a.updateDetail(a.selectedTaskId, { how: v.trim() || undefined });
-        },
-      },
-      {
-        id: 'arg-system',
-        label: '使用システムを設定…',
-        keywords: 'system shisutemu 使用システム ツール',
-        available: hasSel,
-        arg: {
-          placeholder: '使用システム（空欄で解除）',
-          freeText: true,
-          defaultValue: () => {
-            const a = useApp.getState();
-            return a.selectedTaskId ? a.project.details[a.selectedTaskId]?.system ?? '' : '';
-          },
-        },
-        runWithArg: (v) => {
-          const a = useApp.getState();
-          if (a.selectedTaskId) a.updateDetail(a.selectedTaskId, { system: v.trim() || undefined });
-        },
-      },
+      detailTextCommand('arg-note', 'note', '備考を設定…', 'note bikou 備考 メモ', '備考（空欄で解除）', hasSel),
+      detailTextCommand('arg-how', 'how', '業務内容を設定…', 'how gyoumu 業務内容 どうやって 手順', '業務内容（どうやって。空欄で解除）', hasSel),
+      detailTextCommand('arg-system', 'system', '使用システムを設定…', 'system shisutemu 使用システム ツール', '使用システム（空欄で解除）', hasSel),
       {
         id: 'arg-effort',
         label: '工数を設定…',
@@ -290,8 +309,9 @@ export function CommandPalette(handlers: FileHandlers) {
           freeText: true,
           validate: (v) => {
             if (!v.trim()) return null; // 空=解除
-            const n = Number(v);
-            return Number.isFinite(n) && n >= 0 ? null : '0 以上の数値（時間）を入力してください';
+            // 分換算後で判定する（1e308 のような有限値も ×60 で Infinity に溢れるため）。
+            const minutes = Math.round(Number(v) * 60);
+            return Number.isFinite(minutes) && minutes >= 0 ? null : '0 以上の数値（時間）を入力してください';
           },
         },
         runWithArg: (v) => {
@@ -302,24 +322,7 @@ export function CommandPalette(handlers: FileHandlers) {
           });
         },
       },
-      {
-        id: 'arg-rename',
-        label: '工程名を変更…',
-        keywords: 'rename namae 名前 工程名 リネーム',
-        available: hasSel,
-        arg: {
-          placeholder: '新しい工程名',
-          freeText: true,
-          defaultValue: () => {
-            const a = useApp.getState();
-            return a.selectedTaskId ? a.project.core.tasks[a.selectedTaskId]?.name ?? '' : '';
-          },
-        },
-        runWithArg: (v) => {
-          const a = useApp.getState();
-          if (a.selectedTaskId) a.renameTask(a.selectedTaskId, v);
-        },
-      },
+      renameTaskCommand(hasSel),
       {
         id: 'arg-issue',
         label: '課題を追加…',
@@ -524,19 +527,8 @@ export function CommandPalette(handlers: FileHandlers) {
         keywords: 'delete remove sakujo 削除 行 ぎょう',
         available: hasSel,
         run: () => {
-          const a = useApp.getState();
-          const id = a.selectedTaskId;
-          const t = id ? a.project.core.tasks[id] : undefined;
-          if (!t) return;
-          void useUI
-            .getState()
-            .confirm({
-              title: '工程を削除',
-              message: `「${t.name}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-              confirmLabel: '削除',
-              danger: true,
-            })
-            .then((ok) => ok && a.removeTask(t.id));
+          const id = useApp.getState().selectedTaskId;
+          if (id) void confirmRemoveTasks([id]);
         },
       },
       { id: 'save', label: '保存', keywords: 'save hozon ほぞん', hint: '⌘S', run: handlers.onSave },
@@ -679,20 +671,6 @@ export function CommandPalette(handlers: FileHandlers) {
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [active]);
 
-  if (!open) return null;
-
-  const openTask = (taskId: string) => {
-    const app = useApp.getState();
-    const t = app.project.core.tasks[taskId];
-    if (!t) return;
-    // 全体スコープで俯瞰中は維持。特定の親に絞っているときだけ文脈(親)へ追従。
-    const wasScoped = app.scopeParentId !== undefined;
-    app.select(taskId);
-    app.setLevel(t.level);
-    if (wasScoped) app.setScope(t.parentId);
-    useUI.getState().setInspectorOpen(true); // ジャンプは「詳細を見たい」操作なので開く
-  };
-
   // 引数モードへ入る（defaultValue をプリセットして全選択）。
   const enterArgMode = (c: Cmd) => {
     setArgCmd(c);
@@ -711,6 +689,19 @@ export function CommandPalette(handlers: FileHandlers) {
     setQuery('');
     setActive(0);
   };
+
+  // Esc は useGlobalHotkeys → closeTopLayer の一元処理。引数モード中だけ
+  // 「一覧へ戻る」を差し込む（true=消費。パレット自体は次の Esc で閉じる）。
+  const argCmdRef = useRef(argCmd);
+  argCmdRef.current = argCmd;
+  useEffect(() => {
+    return useUI.getState().registerOverlayCloser(() => {
+      if (!argCmdRef.current) return false;
+      exitArgMode();
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 引数を確定して実行（validate → runWithArg → 閉じる）。
   const commitArg = (value: string, opt?: ArgOption) => {
@@ -736,10 +727,11 @@ export function CommandPalette(handlers: FileHandlers) {
     else if (item.kind === 'cmd') {
       if (item.c.arg) enterArgMode(item.c);
       else if (item.c.run) runAndClose(item.c.run);
-    } else runAndClose(() => openTask(item.t.id));
+    } else runAndClose(() => revealTask(item.t.id));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (isImeKeyEvent(e)) return; // IME 変換確定の Enter/Esc/矢印で実行・移動・クローズしない
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActive((a) => Math.min(flat.length - 1, a + 1));
@@ -752,15 +744,11 @@ export function CommandPalette(handlers: FileHandlers) {
       e.preventDefault();
       e.stopPropagation();
       runItem(active);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      if (argCmd) exitArgMode(); // 引数モード → 一覧へ戻る（もう一度 Esc で閉じる）
-      else close();
     } else if (e.key === 'Backspace' && argCmd && query === '') {
       e.preventDefault();
       exitArgMode();
     }
+    // Esc はここでは扱わない（closeTopLayer の一元処理。引数モード→一覧は registerOverlayCloser で差し込み済み）。
   };
 
   return (

@@ -23,6 +23,15 @@ describe('commands', () => {
     expect(p.core.tasks[id]!.order).toBe(0);
   });
 
+  it('addTask は id 指定があればそれを使う（省略時は idGen 発番）', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium', id: 'fixed-id' }, g);
+    expect(p.core.tasks['fixed-id']).toBeDefined();
+    expect(p.core.tasks['fixed-id']!.name).toBe('A');
+    expect(p.details['fixed-id']).toEqual({ taskId: 'fixed-id' });
+  });
+
   it('兄弟の order は自動採番される', () => {
     const g = counter();
     let p = emptyProject();
@@ -94,6 +103,30 @@ describe('commands', () => {
     expect(p.core.tasks[S]!.level).toBe('medium'); // 小→中
     expect(p.core.tasks[D]!.level).toBe('small'); // 詳→小（サブツリーごと繰り上げ）
     expect(p.core.tasks[D]!.parentId).toBe(S); // 親子関係は維持
+    expect(validate(p)).toHaveLength(0);
+  });
+
+  it('deleteTaskKeepChildren は子同士の依存スコープを祖父へ付け替える', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: '大', level: 'large' }, g);
+    const L = taskIdByName(p, '大');
+    p = addTask(p, { name: '中', level: 'medium', parentId: L }, g);
+    const M = taskIdByName(p, '中');
+    p = addTask(p, { name: '小1', level: 'small', parentId: M }, g);
+    p = addTask(p, { name: '小2', level: 'small', parentId: M }, g);
+    const s1 = taskIdByName(p, '小1');
+    const s2 = taskIdByName(p, '小2');
+    p = addDependency(p, s1, s2, g); // scope = 中
+    p = deleteTaskKeepChildren(p, M);
+    // 小1/小2 は大の子になり、依存のスコープも大へ追従（スコープビューで矢印が消えない）
+    const dep = Object.values(p.core.dependencies).find((d) => d.from === s1 && d.to === s2);
+    expect(dep).toBeDefined();
+    expect(dep!.scopeParentId).toBe(L);
+    // さらに大を削除 → ルート昇格に合わせてスコープは未設定（ルート）になる
+    p = deleteTaskKeepChildren(p, L);
+    const dep2 = Object.values(p.core.dependencies).find((d) => d.from === s1 && d.to === s2);
+    expect(dep2!.scopeParentId).toBeUndefined();
     expect(validate(p)).toHaveLength(0);
   });
 

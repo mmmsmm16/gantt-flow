@@ -1,7 +1,8 @@
 // 画面下部のステータスバー。工程数・担当数・合計工数・現在ビュー・保存状態を一目で。
 // 右側にアクティブペイン別のキー操作ヒントと g リーダー待機チップ(発見性)。
+import { useMemo } from 'react';
 import type { ProcessLevel } from '@gantt-flow/core';
-import { effortRollupMinutes, formatHours } from '@gantt-flow/core';
+import { computeEffortRollups, formatHours } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 
@@ -24,7 +25,13 @@ export function StatusBar() {
   const tasks = Object.values(project.core.tasks);
   const byLevel = (l: ProcessLevel) => tasks.filter((t) => t.level === l).length;
   const roots = tasks.filter((t) => !t.parentId);
-  const totalMin = roots.reduce((s, t) => s + effortRollupMinutes(project.core, project.details, t.id), 0);
+  // 集計工数はコミット時に 1 回だけ計算（ルートごとに effortRollupMinutes を呼ぶと
+  // そのたび全マップを再構築して O(n²) になる）。
+  const effortRollups = useMemo(
+    () => computeEffortRollups(project.core, project.details),
+    [project.core, project.details],
+  );
+  const totalMin = roots.reduce((s, t) => s + (effortRollups.get(t.id) ?? 0), 0);
   const assignees = Object.keys(project.core.assignees).length;
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
 

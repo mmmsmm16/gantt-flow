@@ -3,10 +3,15 @@
 // 各コンポーネントが登録したハンドラへ委譲する(二重発火を構造的に防ぐ)。
 //
 // ガード順序(厳守):
-//  1. IME 変換中(isComposing / keyCode 229)は何もしない
-//  2. オーバーレイ/ダイアログ/ビジー/ツアー中は停止(パレットとヘルプのトグルだけ例外)
-//  3. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷)のみ。undo/redo はネイティブ優先
-//  4. g リーダー → findBinding → dispatch
+//  1. IME 変換中(isImeKeyEvent)は何もしない
+//  2. Esc は useUI.closeTopLayer で「最上位レイヤを 1 つだけ閉じる」(dialog > overlay > 一時 UI)。
+//     各ダイアログ/メニューは個別の window Esc リスナーを持たない(1 押下で多重に閉じない)
+//  3. オーバーレイ/ダイアログ/ビジー/ツアー中は停止(パレットとヘルプのトグルだけ例外)
+//  4. Esc のフォーカス規則(planEscFocus): モーダルコンテキスト(接続モード等)の Esc が最優先 →
+//     入力系(isEditableTarget)は blur のみ → 非編集のフォーカスは blur しつつ同じ押下で
+//     バインディング(flow.clear / table.clear 等)へ落とす
+//  5. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷)のみ。undo/redo はネイティブ優先
+//  6. g リーダー → findBinding(pushKeyContext した 'connect' 等が最優先) → dispatch
 import { useEffect } from 'react';
 import type { TaskColor } from '@gantt-flow/core';
 import { useApp } from '../store';
@@ -16,6 +21,7 @@ import {
   findBinding,
   getActiveKeymap,
   isEditableTarget,
+  isImeKeyEvent,
   type KeyBinding,
   type KeyContext,
 } from '../keymap';
@@ -31,6 +37,47 @@ export function registerContextHandler(ctx: KeyContext, handler: ContextActionHa
   return () => {
     if (contextHandlers.get(ctx) === handler) contextHandlers.delete(ctx);
   };
+}
+
+// モーダルに最優先となる追加コンテキスト(接続モード等)。後から push したものほど優先。
+const modalContexts: KeyContext[] = [];
+
+/** 'connect' のようなモーダルなキーコンテキストを有効化する。有効中は通常の
+    table/flow/global より優先して照合される(IME・ダイアログ・編集中ガードは共通のまま)。
+    モード終了時に戻り値で必ず解除すること。 */
+export function pushKeyContext(ctx: KeyContext): () => void {
+  modalContexts.unshift(ctx);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const i = modalContexts.indexOf(ctx);
+    if (i >= 0) modalContexts.splice(i, 1);
+  };
+}
+
+/** Esc 押下時のフォーカス周りの扱い(onKey から呼ぶ純粋関数。keymap.ts の Esc 規則と対応)。
+ *  - 'modal-binding'    : モーダルコンテキスト(接続モード等)の Esc バインドが最優先。
+ *                         blur せず照合へ＝ノードにフォーカスがあっても 1 押下でキャンセルが効く
+ *  - 'blur-only'        : 入力系(isEditableTarget)は blur だけで完結し選択は維持(解除はもう一度 Esc)
+ *  - 'blur-and-binding' : 非編集要素(ノード div・ボタン等)は blur しつつ、同じ押下で
+ *                         バインディング(flow.clear / table.clear 等)へも落とす
+ *  - 'binding'          : blur 対象なし(body / ペイン自体)。通常のバインディング照合へ */
+export type EscFocusPlan = 'modal-binding' | 'blur-only' | 'blur-and-binding' | 'binding';
+
+export function planEscFocus(opts: {
+  /** activeElement が body / SECTION(ペイン自体)以外＝blur で離れられる要素か。 */
+  blurrable: boolean;
+  /** isEditableTarget(activeElement)。入力系は blur 優先(編集中ガードとも整合)。 */
+  editable: boolean;
+  /** モーダルコンテキスト(接続モード等)に Esc のバインドが見つかったか。 */
+  hasModalBinding: boolean;
+}): EscFocusPlan {
+  // 入力系は常に blur が先(モーダル中でも入力からの離脱を優先。編集中は単キーの
+  // バインディングを通さない editable ガードとも一致させる)。
+  if (opts.editable) return opts.blurrable ? 'blur-only' : 'binding';
+  if (opts.hasModalBinding) return 'modal-binding';
+  return opts.blurrable ? 'blur-and-binding' : 'binding';
 }
 
 /** ペインをアクティブにし、必要ならレイアウトを直して見えるようにする(フォーカスも移す)。 */
@@ -132,10 +179,21 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || e.keyCode === 229) return; // IME 変換中
+      if (isImeKeyEvent(e)) return; // IME 変換中
 
       const ui = useUI.getState();
       const editable = isEditableTarget(document.activeElement);
+
+      // Esc は常に「最上位レイヤを 1 つだけ閉じる」(dialog > overlay > 一時 UI)。
+      // ここが唯一の Esc クローズ処理(各ダイアログは個別リスナーを持たない)。
+      // 独自の Esc を持つ UI(パレットの引数モード等)は stopPropagation か
+      // registerOverlayCloser で差し込む。busy/ツアーは Esc 対象外(下の blocked で停止)。
+      if (e.key === 'Escape' && ui.closeTopLayer()) {
+        e.preventDefault();
+        leader.cancel();
+        if (ui.leaderPending) ui.setLeaderPending(false);
+        return;
+      }
 
       // オーバーレイ等の表示中は停止(パレットの Ctrl+K トグルと、ヘルプ表示中の ? だけ例外)。
       const blocked =
@@ -153,18 +211,29 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
         return;
       }
 
+      const keymap = getActiveKeymap();
+
       // フォーカス中の Esc = そのコントロールを離れて選択モードへ戻る(表・フロー共通)。
-      // 入力欄だけでなくボタン(セル内の＋追加など)も対象。blur だけ行い選択は維持する
-      // (選択解除はもう一度 Esc)。独自 Esc 処理を持つ入力は stopPropagation でここに
-      // 来ない(パレット等はオーバーレイガードで先に止まる)。
+      // 優先順位は planEscFocus に集約: モーダルコンテキスト(接続モード等)の Esc が最優先
+      // (blur せず下の照合へ＝1 押下でキャンセル) → 入力系は blur だけで完結 → 非編集要素
+      // (ノード div・ボタン等)は blur しつつ同じ押下でバインディングへも落とす。
+      // 独自 Esc 処理を持つ入力は stopPropagation でここに来ない(ダイアログ/オーバーレイは
+      // 上の closeTopLayer が先に閉じている)。
       const ae = document.activeElement;
-      if (e.key === 'Escape' && ae instanceof HTMLElement && ae !== document.body && ae.tagName !== 'SECTION') {
-        ae.blur();
-        e.preventDefault();
-        return;
+      if (e.key === 'Escape' && ae instanceof HTMLElement) {
+        const plan = planEscFocus({
+          blurrable: ae !== document.body && ae.tagName !== 'SECTION',
+          editable,
+          hasModalBinding:
+            modalContexts.length > 0 && findBinding(e, keymap, modalContexts, false) !== undefined,
+        });
+        if (plan === 'blur-only' || plan === 'blur-and-binding') {
+          ae.blur();
+          e.preventDefault();
+          if (plan === 'blur-only') return;
+        }
       }
 
-      const keymap = getActiveKeymap();
       const mod = e.ctrlKey || e.metaKey;
       const leaderActive = leader.isPending();
 
@@ -177,8 +246,11 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
         return;
       }
 
-      const contexts: KeyContext[] =
-        ui.activePane === 'table' ? ['table', 'global'] : ['flow', 'global'];
+      // pushKeyContext で有効化されたモーダルコンテキスト(接続モード等)が最優先。
+      const contexts: KeyContext[] = [
+        ...modalContexts,
+        ...(ui.activePane === 'table' ? (['table', 'global'] as const) : (['flow', 'global'] as const)),
+      ];
       const binding = findBinding(e, keymap, contexts, leaderActive);
 
       if (leaderActive) {

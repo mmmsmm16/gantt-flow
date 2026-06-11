@@ -34,24 +34,30 @@ function readFtWidths(): Record<string, number> {
   return {};
 }
 
+// 工程表(アウトライン)の任意列の定義。この配列が唯一の定義元で、列カーソル・最小幅・
+// ヘッダ行・列メニュー(以上 TableView)と、ここでの表示トグルの永続化すべてを駆動する。
+// 列を増やすときはここに 1 エントリ追加し、TableView 側で本体の <td> を書くだけでよい。
+export const OUTLINE_OPTIONAL_COLUMNS = [
+  { key: 'prev', label: '前工程', width: 132 },
+  { key: 'effort', label: '工数', width: 78 },
+  { key: 'io', label: 'I/O・課題', width: 224 },
+] as const;
+export type OutlineColumnKey = (typeof OUTLINE_OPTIONAL_COLUMNS)[number]['key'];
+
 // 工程表の任意列（前工程 / 工数 / I/O・課題）の表示トグル。既定は全て表示。
-export interface ColumnVisibility {
-  prev: boolean;
-  effort: boolean;
-  io: boolean;
-}
-const DEFAULT_COLUMNS: ColumnVisibility = { prev: true, effort: true, io: true };
+export type ColumnVisibility = Record<OutlineColumnKey, boolean>;
+const DEFAULT_COLUMNS = Object.fromEntries(
+  OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, true]),
+) as ColumnVisibility;
 
 function readInitialColumns(): ColumnVisibility {
   try {
     const saved = localStorage.getItem(COLS_KEY);
     if (saved) {
       const parsed = JSON.parse(saved) as Partial<ColumnVisibility>;
-      return {
-        prev: parsed.prev ?? DEFAULT_COLUMNS.prev,
-        effort: parsed.effort ?? DEFAULT_COLUMNS.effort,
-        io: parsed.io ?? DEFAULT_COLUMNS.io,
-      };
+      return Object.fromEntries(
+        OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, parsed[c.key] ?? DEFAULT_COLUMNS[c.key]]),
+      ) as ColumnVisibility;
     }
   } catch {
     /* localStorage 不可/破損: 既定（全表示）にフォールバック */
@@ -183,10 +189,22 @@ interface UIState {
   setBusy: (message: string | null) => void;
 
   dialog: Dialog | null;
+  /** 表示待ちのダイアログ(FIFO)。表示中に confirm/promptText が呼ばれても押し退けず、
+      先のダイアログが解決してから順に表示する(resolve を放置して await を永遠に待たせない)。 */
+  dialogQueue: Dialog[];
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
   promptText: (opts: PromptOpts) => Promise<string | null>;
   /** Modal から確定/取消を返す。confirm は boolean、prompt は文字列(確定) or null(取消)。 */
   resolveDialog: (result: boolean | string | null) => void;
+
+  /** Esc の一元処理(useGlobalHotkeys)から呼ぶ: 最上位レイヤを 1 つだけ閉じる。
+      レイヤ順は dialog > overlay > 一時 UI(ドロップダウン等)。閉じたら true。 */
+  closeTopLayer: () => boolean;
+  /** overlay 自身の Esc 処理を差し込む(パレットの引数モード→一覧 など)。
+      closer が true を返すと消費扱いで overlay は閉じない。戻り値で解除。 */
+  registerOverlayCloser: (closer: () => boolean) => () => void;
+  /** Esc で閉じる一時 UI(メニュー等)を登録する(後から登録したものが最上位)。戻り値で解除。 */
+  registerTransientLayer: (close: () => void) => () => void;
 
   toasts: ToastItem[];
   toast: (message: string, tone?: ToastTone) => void;
@@ -197,6 +215,11 @@ const initialTheme = readInitialTheme();
 applyTheme(initialTheme); // モジュール読込時に即適用（描画前に反映）
 
 let toastSeq = 0;
+
+// overlay の Esc を横取りするクローザと、Esc で閉じる一時 UI のスタック。
+// ストア外に置く（関数の出し入れで再レンダリングを起こさないため）。
+const overlayClosers: (() => boolean)[] = [];
+const transientClosers: (() => void)[] = [];
 
 export const useUI = create<UIState>((set, get) => ({
   theme: initialTheme,
@@ -332,16 +355,62 @@ export const useUI = create<UIState>((set, get) => ({
   setBusy: (busy) => set({ busy }),
 
   dialog: null,
+  dialogQueue: [],
   confirm: (opts) =>
-    new Promise<boolean>((resolve) => set({ dialog: { kind: 'confirm', resolve, ...opts } })),
+    new Promise<boolean>((resolve) => {
+      const d: Dialog = { kind: 'confirm', resolve, ...opts };
+      if (get().dialog) set({ dialogQueue: [...get().dialogQueue, d] });
+      else set({ dialog: d });
+    }),
   promptText: (opts) =>
-    new Promise<string | null>((resolve) => set({ dialog: { kind: 'prompt', resolve, ...opts } })),
+    new Promise<string | null>((resolve) => {
+      const d: Dialog = { kind: 'prompt', resolve, ...opts };
+      if (get().dialog) set({ dialogQueue: [...get().dialogQueue, d] });
+      else set({ dialog: d });
+    }),
   resolveDialog: (result) => {
     const d = get().dialog;
     if (!d) return;
-    set({ dialog: null });
+    // 待ち行列の先頭を次に表示してから resolve する（解決後すぐ別ダイアログを
+    // 開くコードが、最新の表示状態を見て正しく並べるように）。
+    const [next, ...rest] = get().dialogQueue;
+    set({ dialog: next ?? null, dialogQueue: rest });
     if (d.kind === 'confirm') d.resolve(result === true);
     else d.resolve(typeof result === 'string' ? result : null);
+  },
+
+  closeTopLayer: () => {
+    const s = get();
+    if (s.dialog) {
+      s.resolveDialog(s.dialog.kind === 'confirm' ? false : null); // 取消として解決
+      return true;
+    }
+    if (s.overlay) {
+      const closer = overlayClosers[overlayClosers.length - 1];
+      if (closer && closer()) return true; // overlay 側で消費（閉じない）
+      set({ overlay: null });
+      return true;
+    }
+    const transient = transientClosers[transientClosers.length - 1];
+    if (transient) {
+      transient();
+      return true;
+    }
+    return false;
+  },
+  registerOverlayCloser: (closer) => {
+    overlayClosers.push(closer);
+    return () => {
+      const i = overlayClosers.lastIndexOf(closer);
+      if (i >= 0) overlayClosers.splice(i, 1);
+    };
+  },
+  registerTransientLayer: (close) => {
+    transientClosers.push(close);
+    return () => {
+      const i = transientClosers.lastIndexOf(close);
+      if (i >= 0) transientClosers.splice(i, 1);
+    };
   },
 
   toasts: [],

@@ -24,7 +24,17 @@ export const EXPORT_HEADER = [
   '備考',
 ];
 
-export function projectToRows(project: Project): string[][] {
+export interface ProjectToRowsOptions {
+  /**
+   * 前工程列の参照方法。
+   * - 'code'（既定）: 工程No。再取込時に一意解決できるため CSV ラウンドトリップ用。
+   * - 'name': 作業名。XLSX / 印刷など人間が読む出力用（旧来の表示）。
+   */
+  depRef?: 'code' | 'name';
+}
+
+export function projectToRows(project: Project, opts: ProjectToRowsOptions = {}): string[][] {
+  const depRef = opts.depRef ?? 'code';
   const { tasks, dependencies, assignees } = project.core;
   const byParent = new Map<Id | undefined, ProcessTask[]>();
   for (const t of Object.values(tasks)) {
@@ -42,9 +52,15 @@ export function projectToRows(project: Project): string[][] {
     arr.forEach((t) => {
       const no = codes[t.id]!;
       const d = project.details[t.id];
+      // 前工程の参照は depRef で切替（'code'=工程No / 'name'=作業名）。欠けている側は
+      // もう一方で補う（コード未計算・名前空の工程でも列を空にしない）。
       const prev = Object.values(dependencies)
         .filter((dep) => dep.to === t.id)
-        .map((dep) => nameOf(dep.from))
+        .map((dep) =>
+          depRef === 'name'
+            ? nameOf(dep.from) || (codes[dep.from] ?? '')
+            : codes[dep.from] ?? nameOf(dep.from),
+        )
         .join('；');
       rows.push([
         no,

@@ -113,6 +113,10 @@ export function rowsToProject(
     inputs: col('インプット'),
     outputs: col('アウトプット'),
     issue: col('課題'),
+    how: col('業務内容'),
+    system: col('使用システム'),
+    effort: col('工数(分)'),
+    note: col('備考'),
   };
   if (idx.name < 0) {
     report.warnings.push('「作業名」列が見つかりません');
@@ -136,6 +140,7 @@ export function rowsToProject(
   // レベル別の最後のタスク（親の解決用）
   const lastByRank: (Id | undefined)[] = [undefined, undefined, undefined, undefined];
   const nameToId = new Map<string, Id>();
+  const dupNames = new Set<string>(); // 同名が複数ある作業名（名前参照では特定不能）
   const codeToId = new Map<string, Id>();
   const pendingDeps: Array<{ row: number; toId: Id; ref: string; scope: Id | undefined }> = [];
 
@@ -169,7 +174,8 @@ export function rowsToProject(
     if (assigneeName) task.assigneeId = ensureAssignee(assigneeName);
     project.core.tasks[id] = task;
     report.created.tasks++;
-    nameToId.set(name, id);
+    if (nameToId.has(name)) dupNames.add(name);
+    else nameToId.set(name, id);
     if (code) codeToId.set(code, id);
     lastByRank[rank] = id;
     for (let below = rank + 1; below < lastByRank.length; below++) lastByRank[below] = undefined;
@@ -184,13 +190,32 @@ export function rowsToProject(
       report.created.ios++;
       return { id: idGen(), name: nm, kind: level === 'small' || level === 'detail' ? 'info' : 'doc' };
     });
-    const issues = splitMulti(get(r, idx.issue)).map<IssueItem>((iss) => {
+    const issues = splitMulti(get(r, idx.issue)).map<IssueItem>((raw) => {
       report.created.issues++;
-      return { id: idGen(), issue: iss };
+      // エクスポートの「課題→方策」形式を復元（最初の → で分割。両側が空なら 1 つの課題文として扱う）
+      const sep = raw.indexOf('→');
+      if (sep >= 0) {
+        const iss = raw.slice(0, sep).trim();
+        const measure = raw.slice(sep + 1).trim();
+        if (iss && measure) return { id: idGen(), issue: iss, measure };
+      }
+      return { id: idGen(), issue: raw };
     });
     if (inputs.length) detail.inputs = inputs;
     if (outputs.length) detail.outputs = outputs;
     if (issues.length) detail.issues = issues;
+    const how = get(r, idx.how);
+    if (how) detail.how = how;
+    const system = get(r, idx.system);
+    if (system) detail.system = system;
+    const effortRaw = get(r, idx.effort);
+    if (effortRaw) {
+      const effort = Number(effortRaw);
+      if (Number.isFinite(effort)) detail.effortMinutes = effort;
+      else report.warnings.push(`${rowNo} 行目: 工数(分)「${effortRaw}」を数値として読めないため無視`);
+    }
+    const note = get(r, idx.note);
+    if (note) detail.note = note;
     project.details[id] = detail;
 
     // 前工程（後で解決）
@@ -199,9 +224,17 @@ export function rowsToProject(
     }
   });
 
-  // 前工程参照の解決（工程No 優先 → 作業名）
+  // 前工程参照の解決（工程No 優先 → 作業名。同名複数は誤接続を避けて未解決扱い）
   for (const dep of pendingDeps) {
-    const fromId = codeToId.get(dep.ref) ?? nameToId.get(dep.ref);
+    const byCode = codeToId.get(dep.ref);
+    if (!byCode && dupNames.has(dep.ref)) {
+      report.unresolvedDeps.push({ row: dep.row, ref: dep.ref });
+      report.warnings.push(
+        `${dep.row} 行目: 前工程「${dep.ref}」は同名の工程が複数あり特定できません（工程No で指定してください）`,
+      );
+      continue;
+    }
+    const fromId = byCode ?? nameToId.get(dep.ref);
     if (!fromId || fromId === dep.toId) {
       report.unresolvedDeps.push({ row: dep.row, ref: dep.ref });
       continue;

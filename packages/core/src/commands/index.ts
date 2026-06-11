@@ -35,11 +35,12 @@ export interface AddTaskArgs {
   parentId?: Id;
   assigneeId?: Id;
   order?: number;
+  id?: Id; // 呼び出し側で発番済みの ID を使う（省略時は idGen で発番）。作成 ID をキー差分で探さなくて済む。
 }
 
 export function addTask(p: Project, args: AddTaskArgs, idGen: IdGen): Project {
   const next = clone(p);
-  const id = idGen();
+  const id = args.id ?? idGen();
   const siblings = Object.values(next.core.tasks).filter(
     (t) => (t.parentId ?? undefined) === (args.parentId ?? undefined),
   );
@@ -202,6 +203,10 @@ export function deleteTaskKeepChildren(p: Project, taskId: Id): Project {
   // 対象が端点の依存だけ撤去（子の依存は残す）。
   for (const d of Object.values(next.core.dependencies)) {
     if (d.from === taskId || d.to === taskId) delete next.core.dependencies[d.id];
+  }
+  // 子同士の依存（スコープ＝対象）は、子の昇格に合わせてスコープも祖父へ付け替える。
+  for (const d of Object.values(next.core.dependencies)) {
+    if (d.scopeParentId === taskId) d.scopeParentId = grandparentId;
   }
 
   // 対象の子孫（対象自身は除く）の粒度を 1 段上げる（対象が消えて 1 階層浅くなるため）。

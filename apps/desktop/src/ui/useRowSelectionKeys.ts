@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Id } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
+import { confirmRemoveTasks } from '../taskOps';
 import { registerContextHandler } from './useGlobalHotkeys';
 
 export interface RowSelectionOpts {
@@ -83,6 +84,133 @@ function focusCell(taskId: Id, colKey: string | undefined): boolean {
   return true;
 }
 
+// 'table' コンテキストのアクション実行本体。hook の閉包から切り離し、テストから直接呼べる形にする。
+// col は列カーソルの読み書き(クランプ済みの現在値と setter)。
+export function runTableAction(
+  action: string,
+  o: RowSelectionOpts,
+  col: { get: () => number; set: (idx: number) => void },
+): boolean {
+  if (!o.enabled) return false;
+  const app = useApp.getState();
+  const ids = o.orderedIds;
+  if (ids.length === 0) return false;
+  const sel = app.selectedTaskId;
+  const idx = sel ? ids.indexOf(sel) : -1;
+
+  const moveTo = (i: number) => {
+    const id = ids[Math.max(0, Math.min(ids.length - 1, i))];
+    if (id) {
+      app.select(id);
+      scrollRowIntoView(id);
+    }
+  };
+
+  switch (action) {
+    case 'table.next':
+      moveTo(idx < 0 ? 0 : idx + 1);
+      return true;
+    case 'table.prev':
+      moveTo(idx < 0 ? 0 : idx - 1);
+      return true;
+    case 'table.first':
+      moveTo(0);
+      return true;
+    case 'table.last':
+      moveTo(ids.length - 1);
+      return true;
+    case 'table.left':
+    case 'table.right': {
+      if (!sel || idx < 0 || o.columns.length === 0) return false;
+      const cur = Math.min(col.get(), o.columns.length - 1);
+      const next =
+        action === 'table.left'
+          ? Math.max(0, cur - 1)
+          : Math.min(o.columns.length - 1, cur + 1);
+      col.set(next);
+      // 移動先のセルが見切れないように画面も追従(固定列の影も考慮)。
+      const cell = cellOf(sel, o.columns[next]);
+      if (cell) scrollCellVisible(cell);
+      return true;
+    }
+    case 'table.edit': {
+      if (!sel || idx < 0) return false;
+      // 列カーソルのセルへフォーカス(無ければ名前編集にフォールバック)。
+      const colKey = o.columns[Math.min(col.get(), Math.max(0, o.columns.length - 1))];
+      if (focusCell(sel, colKey)) return true;
+      o.beginEdit(sel);
+      return true;
+    }
+    case 'table.clear':
+      if (!sel) return false; // 未選択の Esc は奪わない
+      app.select(undefined);
+      return true;
+    case 'table.addSibling': {
+      if (!sel || idx < 0) return false;
+      const nid = app.addSiblingOf(sel);
+      if (nid) {
+        useApp.getState().select(nid);
+        o.beginEdit(nid);
+      }
+      return true;
+    }
+    case 'table.addChild': {
+      if (!sel || idx < 0) return false;
+      const nid = app.addChildTask(sel);
+      if (nid) {
+        // 折りたたまれた親の下に作ると行が描画されず編集フォーカスも空振りするため、先に展開する。
+        const ui = useUI.getState();
+        if (ui.outlineCollapsed.has(sel)) ui.toggleOutlineCollapsed(sel);
+        useApp.getState().select(nid);
+        o.beginEdit(nid);
+      }
+      return true;
+    }
+    case 'table.moveUp':
+      if (!sel) return false;
+      app.moveTaskUp(sel);
+      scrollRowIntoView(sel);
+      return true;
+    case 'table.moveDown':
+      if (!sel) return false;
+      app.moveTaskDown(sel);
+      scrollRowIntoView(sel);
+      return true;
+    case 'table.indent':
+      if (!sel || idx < 0) return false; // 行選択中のみ Tab を奪う
+      app.indentTask(sel);
+      return true;
+    case 'table.outdent':
+      if (!sel || idx < 0) return false;
+      app.outdentTask(sel);
+      return true;
+    case 'table.duplicate': {
+      if (!sel || idx < 0) return false;
+      const nid = app.duplicateTask(sel);
+      if (nid) scrollRowIntoView(nid);
+      return true;
+    }
+    case 'table.delete': {
+      if (!sel || idx < 0) return false;
+      if (!app.project.core.tasks[sel]) return false;
+      void confirmRemoveTasks([sel]).then((ok) => {
+        if (ok) {
+          // 削除後は近い行へ選択を移す(連続削除しやすく)。
+          const next = ids[Math.min(idx + 1, ids.length - 1)];
+          useApp.getState().select(next && next !== sel ? next : undefined);
+        }
+      });
+      return true;
+    }
+    case 'table.collapse':
+      if (!sel || idx < 0 || !o.toggleCollapse) return false;
+      o.toggleCollapse(sel);
+      return true;
+    default:
+      return false;
+  }
+}
+
 export function useRowSelectionKeys(opts: RowSelectionOpts): { colIdx: number } {
   // ハンドラは初回登録のみ・中身は ref 経由で常に最新を見る(再登録の揺れを避ける)。
   const optsRef = useRef(opts);
@@ -93,135 +221,9 @@ export function useRowSelectionKeys(opts: RowSelectionOpts): { colIdx: number } 
   colIdxRef.current = Math.min(colIdx, Math.max(0, opts.columns.length - 1));
 
   useEffect(() => {
-    return registerContextHandler('table', (action) => {
-      const o = optsRef.current;
-      if (!o.enabled) return false;
-      const app = useApp.getState();
-      const ids = o.orderedIds;
-      if (ids.length === 0) return false;
-      const sel = app.selectedTaskId;
-      const idx = sel ? ids.indexOf(sel) : -1;
-
-      const moveTo = (i: number) => {
-        const id = ids[Math.max(0, Math.min(ids.length - 1, i))];
-        if (id) {
-          app.select(id);
-          scrollRowIntoView(id);
-        }
-      };
-
-      switch (action) {
-        case 'table.next':
-          moveTo(idx < 0 ? 0 : idx + 1);
-          return true;
-        case 'table.prev':
-          moveTo(idx < 0 ? 0 : idx - 1);
-          return true;
-        case 'table.first':
-          moveTo(0);
-          return true;
-        case 'table.last':
-          moveTo(ids.length - 1);
-          return true;
-        case 'table.left':
-        case 'table.right': {
-          if (!sel || idx < 0 || o.columns.length === 0) return false;
-          const cur = Math.min(colIdxRef.current, o.columns.length - 1);
-          const next =
-            action === 'table.left'
-              ? Math.max(0, cur - 1)
-              : Math.min(o.columns.length - 1, cur + 1);
-          setColIdx(next);
-          // 移動先のセルが見切れないように画面も追従(固定列の影も考慮)。
-          const cell = cellOf(sel, o.columns[next]);
-          if (cell) scrollCellVisible(cell);
-          return true;
-        }
-        case 'table.edit': {
-          if (!sel || idx < 0) return false;
-          // 列カーソルのセルへフォーカス(無ければ名前編集にフォールバック)。
-          const colKey = o.columns[Math.min(colIdxRef.current, Math.max(0, o.columns.length - 1))];
-          if (focusCell(sel, colKey)) return true;
-          o.beginEdit(sel);
-          return true;
-        }
-        case 'table.clear':
-          if (!sel) return false; // 未選択の Esc は奪わない
-          app.select(undefined);
-          return true;
-        case 'table.addSibling': {
-          if (!sel || idx < 0) return false;
-          const nid = app.addSiblingOf(sel);
-          if (nid) {
-            useApp.getState().select(nid);
-            o.beginEdit(nid);
-          }
-          return true;
-        }
-        case 'table.addChild': {
-          if (!sel || idx < 0) return false;
-          const nid = app.addChildTask(sel);
-          if (nid) {
-            useApp.getState().select(nid);
-            o.beginEdit(nid);
-          }
-          return true;
-        }
-        case 'table.moveUp':
-          if (!sel) return false;
-          app.moveTaskUp(sel);
-          scrollRowIntoView(sel);
-          return true;
-        case 'table.moveDown':
-          if (!sel) return false;
-          app.moveTaskDown(sel);
-          scrollRowIntoView(sel);
-          return true;
-        case 'table.indent':
-          if (!sel || idx < 0) return false; // 行選択中のみ Tab を奪う
-          app.indentTask(sel);
-          return true;
-        case 'table.outdent':
-          if (!sel || idx < 0) return false;
-          app.outdentTask(sel);
-          return true;
-        case 'table.duplicate': {
-          if (!sel || idx < 0) return false;
-          const nid = app.duplicateTask(sel);
-          if (nid) scrollRowIntoView(nid);
-          return true;
-        }
-        case 'table.delete': {
-          if (!sel || idx < 0) return false;
-          const t = app.project.core.tasks[sel];
-          if (!t) return false;
-          void useUI
-            .getState()
-            .confirm({
-              title: '工程を削除',
-              message: `「${t.name || '（無題）'}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-              confirmLabel: '削除',
-              danger: true,
-            })
-            .then((ok) => {
-              if (ok) {
-                const a = useApp.getState();
-                // 削除後は近い行へ選択を移す(連続削除しやすく)。
-                const next = ids[Math.min(idx + 1, ids.length - 1)];
-                a.removeTask(sel);
-                a.select(next && next !== sel ? next : undefined);
-              }
-            });
-          return true;
-        }
-        case 'table.collapse':
-          if (!sel || idx < 0 || !o.toggleCollapse) return false;
-          o.toggleCollapse(sel);
-          return true;
-        default:
-          return false;
-      }
-    });
+    return registerContextHandler('table', (action) =>
+      runTableAction(action, optsRef.current, { get: () => colIdxRef.current, set: setColIdx }),
+    );
   }, []);
 
   return { colIdx: Math.min(colIdx, Math.max(0, opts.columns.length - 1)) };

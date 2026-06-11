@@ -5,10 +5,15 @@
 //  - 1 バインディング = 1 エントリ(id で識別)。同じ action に複数のキーを割り当てられる
 //    (例: j と ↓)。ユーザー上書きは「binding id → Chord | null(無効化)」で保存する。
 //  - context: 'global' は常に有効。'table' / 'flow' はアクティブペインに応じて有効。
+//    'connect' は接続モード中だけ(useGlobalHotkeys の pushKeyContext)最優先で有効。
+//  - Esc の優先順位(契約): レイヤを閉じる(closeTopLayer) → モーダルコンテキストのバインド
+//    ('connect' の connect.cancel 等) → 入力系のフォーカスは blur のみ → 非編集要素の
+//    フォーカスは blur しつつ同じ押下で row-clear / node-clear へ(キャンセル・選択解除に
+//    2 回押しを要求しない)。実装は useGlobalHotkeys の planEscFocus。
 //  - leader: true のエントリは「g を押した後の 2 打目」(1 秒以内)。
 //  - fixed: true は慣習として固定のキー(Delete/Esc 等)。ヘルプには出すが上書き対象にしない。
 
-export type KeyContext = 'global' | 'table' | 'flow';
+export type KeyContext = 'global' | 'table' | 'flow' | 'connect';
 
 export interface Chord {
   /** e.key の小文字('arrowdown' / 'f6' / '?' など)。code 指定時は省略可。 */
@@ -135,9 +140,44 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'add-input-alt', action: 'flow.addInput', context: 'flow', chord: { code: 'KeyI', alt: true } },
   { id: 'add-output', action: 'flow.addOutput', context: 'flow', chord: { key: 'o' }, help: { group: G.flow, label: 'アウトプットを追加(選択工程)' } },
   { id: 'add-output-alt', action: 'flow.addOutput', context: 'flow', chord: { code: 'KeyO', alt: true } },
+  // Delete/Backspace=選択要素の削除、Esc=選択解除(表の row-delete / row-clear と同じ体系)。
+  { id: 'node-delete', action: 'flow.delete', context: 'flow', chord: { key: 'delete' }, fixed: true, help: { group: G.flow, label: '選択中の要素を削除' } },
+  { id: 'node-delete-bs', action: 'flow.delete', context: 'flow', chord: { key: 'backspace' }, fixed: true },
+  { id: 'node-clear', action: 'flow.clear', context: 'flow', chord: { key: 'escape' }, fixed: true, help: { group: G.flow, label: '選択を解除' } },
+
+  // --- 接続モード(c の 2 打目以降。FlowCanvas が pushKeyContext('connect') した間だけ有効) ---
+  // 慣習キーのみで構成(fixed)なので、シングルキーOFFやカスタマイズの影響を受けない。
+  { id: 'connect-next', action: 'connect.next', context: 'connect', chord: { key: 'tab', shift: false }, fixed: true },
+  { id: 'connect-prev', action: 'connect.prev', context: 'connect', chord: { key: 'tab', shift: true }, fixed: true },
+  { id: 'connect-left', action: 'connect.left', context: 'connect', chord: { key: 'arrowleft' }, fixed: true },
+  { id: 'connect-left-h', action: 'connect.left', context: 'connect', chord: { key: 'h' }, fixed: true },
+  { id: 'connect-right', action: 'connect.right', context: 'connect', chord: { key: 'arrowright' }, fixed: true },
+  { id: 'connect-right-l', action: 'connect.right', context: 'connect', chord: { key: 'l' }, fixed: true },
+  { id: 'connect-up', action: 'connect.up', context: 'connect', chord: { key: 'arrowup' }, fixed: true },
+  { id: 'connect-up-k', action: 'connect.up', context: 'connect', chord: { key: 'k' }, fixed: true },
+  { id: 'connect-down', action: 'connect.down', context: 'connect', chord: { key: 'arrowdown' }, fixed: true },
+  { id: 'connect-down-j', action: 'connect.down', context: 'connect', chord: { key: 'j' }, fixed: true },
+  { id: 'connect-commit', action: 'connect.commit', context: 'connect', chord: { key: 'enter' }, fixed: true },
+  { id: 'connect-cancel', action: 'connect.cancel', context: 'connect', chord: { key: 'escape' }, fixed: true },
+  { id: 'connect-cancel-c', action: 'connect.cancel', context: 'connect', chord: { key: 'c' }, fixed: true },
 ];
 
 // ---- 照合 ----
+
+/** IME 変換中のキー入力か(Enter で誤確定・Esc で誤キャンセルしないためのガード)。
+    ネイティブ KeyboardEvent と React 合成イベント(isComposing は nativeEvent 側)の両方を受ける。 */
+export function isImeKeyEvent(e: {
+  isComposing?: boolean;
+  keyCode?: number;
+  nativeEvent?: { isComposing?: boolean; keyCode?: number };
+}): boolean {
+  return (
+    e.isComposing === true ||
+    e.keyCode === 229 ||
+    e.nativeEvent?.isComposing === true ||
+    e.nativeEvent?.keyCode === 229
+  );
+}
 
 /** 編集中(テキスト入力中)の要素か。単キー系のバインドはこの間すべて無効。 */
 export function isEditableTarget(el: Element | null): boolean {
@@ -155,6 +195,17 @@ export interface KeyLike {
   metaKey: boolean;
   shiftKey: boolean;
   altKey: boolean;
+}
+
+/** キーキャプチャ(ショートカット編集)の打鍵を Chord にする。shift は必ず明示する
+    (undefined=不問にすると Shift 有無で区別している既存バインドまで実行時に一致してしまう)。 */
+export function chordFromEvent(e: KeyLike): Chord {
+  return {
+    key: e.key.toLowerCase(),
+    ...(e.ctrlKey || e.metaKey ? { mod: true } : {}),
+    ...(e.altKey ? { alt: true } : {}),
+    shift: e.shiftKey,
+  };
 }
 
 export function eventMatches(e: KeyLike, c: Chord): boolean {
@@ -251,7 +302,9 @@ export function findConflict(
     (a.key ?? '') === (b.key ?? '') &&
     (a.mod ?? false) === (b.mod ?? false) &&
     (a.alt ?? false) === (b.alt ?? false) &&
-    (a.shift === undefined ? '*' : String(a.shift)) === (b.shift === undefined ? '*' : String(b.shift));
+    // shift 不問(undefined)は実行時(eventMatches)に Shift あり/なし両方へ一致するため、
+    // 衝突判定でもワイルドカードとして両方に当てる(影に隠れるバインドを見逃さない)。
+    (a.shift === undefined || b.shift === undefined || a.shift === b.shift);
   return keymap.find(
     (b) =>
       b.id !== target.id &&

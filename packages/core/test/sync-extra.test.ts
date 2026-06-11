@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addTask, addDependency } from '../src/commands';
+import { addTask, addDependency, removeDependency } from '../src/commands';
 import { reconcileFlow } from '../src/sync/reconcileFlow';
 import { deriveBands } from '../src/sync/bands';
 import type { FlowTaskNode, FlowControlNode } from '../src/model/types';
@@ -113,5 +113,75 @@ describe('全体スコープ（中・scope未指定）= 全ての大を横断', 
     const r2 = reconcileFlow(p.core, p.details, r.view, n);
     expect(r2.report.added).toHaveLength(0);
     expect(r2.report.removed).toHaveLength(0);
+  });
+});
+
+describe('大またぎブリッジと直接依存の重複防止（同じ端点対に矢印は 1 本）', () => {
+  // L1(m1→m2) → L2(m3→m4): ブリッジは m2→m3 に解決される
+  function build() {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'L1', level: 'large' }, g);
+    p = addTask(p, { name: 'L2', level: 'large' }, g);
+    const l1 = taskIdByName(p, 'L1');
+    const l2 = taskIdByName(p, 'L2');
+    p = addTask(p, { name: 'm1', level: 'medium', parentId: l1 }, g);
+    p = addTask(p, { name: 'm2', level: 'medium', parentId: l1 }, g);
+    p = addTask(p, { name: 'm3', level: 'medium', parentId: l2 }, g);
+    p = addTask(p, { name: 'm4', level: 'medium', parentId: l2 }, g);
+    p = addDependency(p, taskIdByName(p, 'm1'), taskIdByName(p, 'm2'), g);
+    p = addDependency(p, taskIdByName(p, 'm3'), taskIdByName(p, 'm4'), g);
+    p = addDependency(p, l1, l2, g);
+    return { p, g };
+  }
+  const edgesBetween = (
+    v: ReturnType<typeof reconcileFlow>['view'],
+    p: ReturnType<typeof emptyProject>,
+    from: string,
+    to: string,
+  ) => {
+    const idOf = (name: string) =>
+      taskNodes(v).find((t) => t.taskId === taskIdByName(p, name))!.id;
+    return Object.values(v.edges).filter((e) => e.source === idOf(from) && e.target === idOf(to));
+  };
+  const directDepId = (p: ReturnType<typeof emptyProject>) =>
+    Object.values(p.core.dependencies).find(
+      (d) => d.from === taskIdByName(p, 'm2') && d.to === taskIdByName(p, 'm3'),
+    )!.id;
+
+  it('直接依存 m2→m3 とブリッジが同じ端点対 → 直接依存のエッジ 1 本だけ描く', () => {
+    const n = counter('n');
+    let { p, g } = build();
+    p = addDependency(p, taskIdByName(p, 'm2'), taskIdByName(p, 'm3'), g); // 大を跨ぐ直接依存
+
+    const r = reconcileFlow(p.core, p.details, emptyView('medium', undefined), n);
+    const dup = edgesBetween(r.view, p, 'm2', 'm3');
+    expect(dup).toHaveLength(1);
+    expect(dup[0]!.derivedFromDependencyId).toBe(directDepId(p)); // 直接依存が勝つ
+
+    const r2 = reconcileFlow(p.core, p.details, r.view, n);
+    expect(r2.view).toEqual(r.view); // 冪等
+  });
+
+  it('ブリッジが先に存在 → 後から直接依存を足しても 1 本に収束する', () => {
+    const n = counter('n');
+    let { p, g } = build();
+    const r1 = reconcileFlow(p.core, p.details, emptyView('medium', undefined), n);
+    expect(edgesBetween(r1.view, p, 'm2', 'm3')).toHaveLength(1); // ブリッジのみ
+
+    p = addDependency(p, taskIdByName(p, 'm2'), taskIdByName(p, 'm3'), g);
+    const r2 = reconcileFlow(p.core, p.details, r1.view, n);
+    const dup = edgesBetween(r2.view, p, 'm2', 'm3');
+    expect(dup).toHaveLength(1);
+    expect(dup[0]!.derivedFromDependencyId).toBe(directDepId(p));
+
+    // 直接依存を消せばブリッジが戻る
+    const restored = reconcileFlow(
+      removeDependency(p, directDepId(p)).core,
+      p.details,
+      r2.view,
+      n,
+    );
+    expect(edgesBetween(restored.view, p, 'm2', 'm3')).toHaveLength(1);
   });
 });

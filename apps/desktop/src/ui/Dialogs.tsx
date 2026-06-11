@@ -3,34 +3,31 @@
 import { useEffect, useRef, useState } from 'react';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
+import { isImeKeyEvent } from '../keymap';
 
 export function Modal() {
   const dialog = useUI((s) => s.dialog);
   const resolveDialog = useUI((s) => s.resolveDialog);
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const okRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, !!dialog);
 
-  // prompt を開いたら初期値を流し込み、入力にフォーカス。
+  // 開いたら prompt は入力(初期値を選択)、confirm は OK ボタンへフォーカス。
+  // autoFocus 属性ではなく effect で行う = useFocusTrap がフォーカス元を覚えた後に移す。
   useEffect(() => {
-    if (dialog?.kind === 'prompt') {
+    if (!dialog) return undefined;
+    if (dialog.kind === 'prompt') {
       setValue(dialog.defaultValue ?? '');
       const t = setTimeout(() => inputRef.current?.select(), 0);
       return () => clearTimeout(t);
     }
+    okRef.current?.focus();
     return undefined;
   }, [dialog]);
 
-  // Esc で取消。
-  useEffect(() => {
-    if (!dialog) return undefined;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') resolveDialog(dialog.kind === 'confirm' ? false : null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [dialog, resolveDialog]);
+  // Esc の取消は useGlobalHotkeys の「最上位レイヤを閉じる」一元処理(closeTopLayer)が担う。
 
   if (!dialog) return null;
 
@@ -58,6 +55,7 @@ export function Modal() {
             placeholder={dialog.placeholder}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
+              if (isImeKeyEvent(e)) return; // IME 変換の確定 Enter をダイアログの確定にしない
               if (e.key === 'Enter') {
                 // 確定でダイアログが同期的に消えるため、伝播させると window のグローバル
                 // キー処理が「ダイアログ無し」として同じ Enter を再解釈してしまう
@@ -73,7 +71,7 @@ export function Modal() {
           {!(dialog.kind === 'confirm' && dialog.hideCancel) && (
             <button onClick={cancel}>{dialog.cancelLabel ?? 'キャンセル'}</button>
           )}
-          <button className={okClass} onClick={ok} autoFocus={dialog.kind === 'confirm'}>
+          <button ref={okRef} className={okClass} onClick={ok}>
             {dialog.confirmLabel ?? (dialog.kind === 'confirm' ? 'OK' : '追加')}
           </button>
         </div>

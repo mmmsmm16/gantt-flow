@@ -5,11 +5,16 @@ import {
   deriveBands,
   ioIconRect,
   IO_ICON,
+  issueLineTarget,
+  issuePrimaryIds,
   laneLayout,
+  nodeSize,
   routeEdge,
+  sourceChipLayout,
   type Project,
   type FlowLevelView,
   type FlowNode,
+  type Rect,
 } from '@gantt-flow/core';
 import { FLOW_LIGHT, TASK_COLORS } from './theme';
 
@@ -20,32 +25,8 @@ const FONT_STACK =
 const esc = (s: string) =>
   s.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
 
-function sizeOf(n: FlowNode) {
-  if (n.kind === 'task') return SIZE.task;
-  if (n.kind === 'doc') return SIZE.doc;
-  if (n.kind === 'issue') return SIZE.issue;
-  if (n.kind === 'comment') return SIZE.comment;
-  return SIZE.control;
-}
-
 export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   const nodes = Object.values(view.nodes);
-  let maxX = 600;
-  let maxY = 300;
-  for (const n of nodes) {
-    if (n.kind === 'doc') continue; // I/O はタスクへ集約表示（下で算入）
-    const s = sizeOf(n);
-    maxX = Math.max(maxX, n.x + s.w + 60);
-    maxY = Math.max(maxY, n.y + s.h + 60);
-    if (n.kind === 'task') {
-      const outs = project.details[n.taskId]?.outputs?.length ?? 0;
-      if (outs) {
-        const r = ioIconRect(n, 'output', outs);
-        maxX = Math.max(maxX, r.x + r.w + 60);
-        maxY = Math.max(maxY, r.y + r.h + 60);
-      }
-    }
-  }
 
   // レーン幾何（可変高さ）。担当レーンが無いビューはスイムレーンを描かない。
   const BAND_TOP = 24;
@@ -53,30 +34,46 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   const boxes = laneLayout(view.lanes);
   const hasLanes = boxes.length > 0;
   const laneBottom = hasLanes ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP;
-  if (hasLanes) maxY = Math.max(maxY, laneBottom + 40);
 
-  const taskNodeFor = (taskId: string): FlowNode | undefined =>
-    nodes.find((nn) => nn.kind === 'task' && nn.taskId === taskId);
-  // 課題線の終点。対象が I/O(doc) なら集約アイコンの中心へ寄せる（個別ノードは非表示のため）。
-  const targetCenter = (t: FlowNode): { x: number; y: number } => {
-    if (t.kind === 'doc') {
-      const owner = taskNodeFor(t.taskId);
-      if (owner) {
-        const d = project.details[t.taskId];
-        const items = t.io === 'input' ? (d?.inputs ?? []) : (d?.outputs ?? []);
-        const r = ioIconRect(owner, t.io, items.length || 1);
-        return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
-      }
-    }
-    const ts = sizeOf(t);
-    return { x: t.x + ts.w / 2, y: t.y + ts.h / 2 };
+  // 図の範囲。入力 I/O アイコンや出所チップは工程の左上・真上へはみ出すため、
+  // 正方向(max)だけでなく負方向(min)へも広げる（viewBox を 0,0 に固定すると切れる）。
+  let minX = 0;
+  let minY = 0;
+  let maxX = 600;
+  let maxY = 300;
+  const grow = (r: Rect) => {
+    minX = Math.min(minX, r.x);
+    minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.w + 60);
+    maxY = Math.max(maxY, r.y + r.h + 60);
   };
+  for (const n of nodes) {
+    if (n.kind === 'doc') continue; // I/O はタスクへ集約表示（下で算入）
+    grow({ x: n.x, y: n.y, ...nodeSize(n) });
+    if (n.kind === 'task') {
+      const d = project.details[n.taskId];
+      const inputs = d?.inputs ?? [];
+      const plain = inputs.filter((it) => !it.source?.trim()).length;
+      if (plain) grow(ioIconRect(n, 'input', plain));
+      const outs = d?.outputs?.length ?? 0;
+      if (outs) grow(ioIconRect(n, 'output', outs));
+      inputs
+        .filter((it) => it.source?.trim())
+        .forEach((it, i) => grow(sourceChipLayout(n, it.source ?? '', i, boxes)));
+    }
+  }
+  if (hasLanes) maxY = Math.max(maxY, laneBottom + 40);
+  // 負側にはみ出した分は少し余白を足す（はみ出しが無ければ従来どおり原点 0,0）。
+  if (minX < 0) minX -= 12;
+  if (minY < 0) minY -= 12;
+  const width = maxX - minX;
+  const height = maxY - minY;
 
   const parts: string[] = [];
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" viewBox="0 0 ${maxX} ${maxY}" font-family="${FONT_STACK}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${minX} ${minY} ${width} ${height}" font-family="${FONT_STACK}">`,
   );
-  parts.push(`<rect width="100%" height="100%" fill="${FLOW_LIGHT.bg}"/>`);
+  parts.push(`<rect x="${minX}" y="${minY}" width="100%" height="100%" fill="${FLOW_LIGHT.bg}"/>`);
   parts.push(
     `<defs><marker id="a" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="${FLOW_LIGHT.arrow}"/></marker></defs>`,
   );
@@ -126,13 +123,13 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   // edges: 直角コネクタ。他ノードと重ならない通り道を routeEdge が選ぶ(画面と同一ロジック)。
   const edgeObstacles = nodes
     .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
-    .map((n) => ({ id: n.id, x: n.x, y: n.y, w: sizeOf(n).w, h: sizeOf(n).h }));
+    .map((n) => ({ id: n.id, x: n.x, y: n.y, w: nodeSize(n).w, h: nodeSize(n).h }));
   for (const e of Object.values(view.edges)) {
     const s = view.nodes[e.source];
     const t = view.nodes[e.target];
     if (!s || !t) continue;
-    const ss = sizeOf(s);
-    const ts = sizeOf(t);
+    const ss = nodeSize(s);
+    const ts = nodeSize(t);
     const route = routeEdge(
       { x: s.x, y: s.y, w: ss.w, h: ss.h },
       { x: t.x, y: t.y, w: ts.w, h: ts.h },
@@ -148,32 +145,19 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
-  // 課題は工程ごとに1枚へ集約（代表ノードのみ描画。画面 FlowCanvas と一致）。
-  const issuePrimaryId = new Map<string, string>();
-  {
-    const groups = new Map<string, FlowNode[]>();
-    for (const n of nodes) {
-      if (n.kind === 'issue') (groups.get(n.taskId) ?? groups.set(n.taskId, []).get(n.taskId)!).push(n);
-    }
-    for (const [taskId, arr] of groups) {
-      const order = project.details[taskId]?.issues ?? [];
-      const rank = (n: FlowNode) =>
-        n.kind === 'issue' ? order.findIndex((i) => i.id === n.issueId) + 1 || 1e9 : 1e9;
-      arr.sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
-      issuePrimaryId.set(taskId, arr[0]!.id);
-    }
-  }
+  // 課題は工程ごとに1枚へ集約（代表ノードのみ描画。選定規則は画面 FlowCanvas と共有）。
+  const issuePrimaryId = issuePrimaryIds(nodes, project.details);
   const isPrimaryIssue = (n: FlowNode) => n.kind === 'issue' && issuePrimaryId.get(n.taskId) === n.id;
   const issueTextsOf = (taskId: string): string[] =>
     (project.details[taskId]?.issues ?? []).map((i) => i.issue).filter((t) => t.trim().length > 0);
   const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
-  // issue lines（代表のみ）
+  // issue lines（代表のみ。終点の規則は画面と共有: issueLineTarget）
   for (const n of nodes) {
     if (n.kind !== 'issue' || !isPrimaryIssue(n)) continue;
     const t = view.nodes[n.targetNodeId];
     if (!t) continue;
-    const c = targetCenter(t);
+    const c = issueLineTarget(t, nodes, project.details);
     parts.push(
       `<line x1="${n.x + SIZE.issue.w / 2}" y1="${n.y + SIZE.issue.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"/>`,
     );
@@ -181,7 +165,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
 
   // nodes
   for (const n of nodes) {
-    const s = sizeOf(n);
+    const s = nodeSize(n);
     const cx = n.x + s.w / 2;
     if (n.kind === 'task') {
       const name = project.core.tasks[n.taskId]?.name ?? '';
@@ -273,28 +257,23 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const sourced = inputs.filter((it) => it.source?.trim());
     drawIoIcon(n, 'input', plain);
     drawIoIcon(n, 'output', d?.outputs ?? []);
-    // 出所付き入力帳票: 出所部署のレーンに帳票を置き、工程へ点線で結ぶ（画面と統一）。
+    // 出所付き入力帳票: 出所部署のレーンに帳票を置き、工程へ点線で結ぶ
+    // （レーン照合・チップ矩形・「外部:」表示の規則は画面と共有: sourceChipLayout）。
     const pal = FLOW_LIGHT.ioIn;
-    const mw = 88;
-    const mh = 30;
     sourced.forEach((it, i) => {
-      // 出所とレーン名の照合は前後空白と全角/半角スペースのゆれを吸収（画面側と同じ規則）。
-      const norm = (s: string) => s.replace(/[\s　]+/g, '');
-      const box = boxes.find((b) => norm(b.lane.title) === norm(it.source ?? ''));
-      const mx = n.x + i * (mw + 8);
-      const my = box ? box.base : n.y - mh - 30;
-      const cx = mx + mw / 2;
+      const chip = sourceChipLayout(n, it.source ?? '', i, boxes);
+      const cx = chip.x + chip.w / 2;
       parts.push(
-        `<line x1="${cx}" y1="${my + mh / 2}" x2="${n.x}" y2="${n.y + SIZE.task.h / 2}" stroke="${pal.stroke}" stroke-width="1.4" stroke-dasharray="4 3"/>`,
+        `<line x1="${chip.line.x1}" y1="${chip.line.y1}" x2="${chip.line.x2}" y2="${chip.line.y2}" stroke="${pal.stroke}" stroke-width="1.4" stroke-dasharray="4 3"/>`,
       );
       parts.push(
-        `<rect x="${mx}" y="${my}" width="${mw}" height="${mh}" rx="6" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.2"/>`,
+        `<rect x="${chip.x}" y="${chip.y}" width="${chip.w}" height="${chip.h}" rx="6" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.2"/>`,
       );
       parts.push(
-        `<text x="${cx}" y="${my + 13}" font-size="11" font-weight="600" fill="${pal.stroke}" text-anchor="middle">${esc(it.name || '帳票')}</text>`,
+        `<text x="${cx}" y="${chip.y + 13}" font-size="11" font-weight="600" fill="${pal.stroke}" text-anchor="middle">${esc(it.name || '帳票')}</text>`,
       );
       parts.push(
-        `<text x="${cx}" y="${my + 24}" font-size="8.5" fill="${FLOW_LIGHT.bandLabel}" text-anchor="middle">${esc(box ? it.source ?? '' : `外部: ${it.source ?? ''}`)}</text>`,
+        `<text x="${cx}" y="${chip.y + 24}" font-size="8.5" fill="${FLOW_LIGHT.bandLabel}" text-anchor="middle">${esc(chip.label)}</text>`,
       );
     });
   }

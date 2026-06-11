@@ -8,7 +8,7 @@ import {
   deleteTask,
 } from '../src/commands';
 import { reconcileFlow } from '../src/sync/reconcileFlow';
-import type { FlowTaskNode } from '../src/model/types';
+import type { FlowTaskNode, FlowControlNode } from '../src/model/types';
 import { counter, emptyProject, emptyView, taskIdByName, assigneeIdByName } from './helpers';
 
 const taskNodes = (v: ReturnType<typeof reconcileFlow>['view']) =>
@@ -145,6 +145,27 @@ describe('reconcileFlow v1', () => {
     };
     const r2 = reconcileFlow(p.core, p.details, r1.view, n);
     expect(r2.view.edges['pinned-1']).toBeDefined();
+  });
+
+  it('pinned エッジでも端点ノードが消えたら撤去される（幽霊エッジを残さない）', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'B', level: 'medium' }, g);
+    const r1 = reconcileFlow(p.core, p.details, emptyView(), n);
+    const aNode = taskNodes(r1.view).find((t) => t.taskId === taskIdByName(p, 'A'))!;
+    const bNode = taskNodes(r1.view).find((t) => t.taskId === taskIdByName(p, 'B'))!;
+    // ユーザーが A→判断、判断→B を手で接続（pinned）
+    const ctrl: FlowControlNode = { id: 'ctrl', kind: 'control', control: 'decision', x: 300, y: 40 };
+    r1.view.nodes['ctrl'] = ctrl;
+    r1.view.edges['pin-a'] = { id: 'pin-a', source: aNode.id, target: 'ctrl', pinned: true, role: 'flow' };
+    r1.view.edges['pin-b'] = { id: 'pin-b', source: 'ctrl', target: bNode.id, pinned: true, role: 'flow' };
+
+    p = deleteTask(p, taskIdByName(p, 'A'));
+    const r2 = reconcileFlow(p.core, p.details, r1.view, n);
+    expect(r2.view.edges['pin-a']).toBeUndefined(); // 端点(A)消失 → pinned でも撤去
+    expect(r2.view.edges['pin-b']).toBeDefined(); // 両端が生きていれば保持
   });
 
   it('別スコープ/別粒度のタスクは対象に含めない', () => {

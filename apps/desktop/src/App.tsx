@@ -1,6 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { findView, useApp } from './store';
-import { type ProcessLevel } from '@gantt-flow/core';
+import {
+  isProjectIntegrityError,
+  isSchemaVersionTooNewError,
+  type LockInfo,
+  type ProcessLevel,
+} from '@gantt-flow/core';
 import { TableView } from './TableView';
 import { FullTable } from './FullTable';
 import { FlowCanvas } from './FlowCanvas';
@@ -80,28 +85,99 @@ export function App() {
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
     : [];
 
-  const onSave = async (opts: { saveAs?: boolean } = {}) => {
+  // 保存の再入ガード: 保存中の Ctrl+S 連打やパレットからの多重起動を無視する
+  //（persistence 側でも直列化されるが、競合ダイアログ等の多重表示をここで防ぐ）。
+  const savingRef = useRef(false);
+  const doSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
+    // 保存した内容そのものを markSaved に渡す（書き込み待ちの間の編集を保存済み扱いにしない）。
+    const snapshot = useApp.getState().project;
     try {
-      const name = await saveProjectToFile(useApp.getState().project, opts);
-      if (name === null) return; // ピッカーをキャンセル
-      useApp.getState().markSaved();
-      pushBackup(useApp.getState().project); // 直近世代をこの端末に残す（復元用）
-      useUI.getState().toast(`保存しました（${name}）`, 'success');
-    } catch {
-      useUI.getState().toast('保存できませんでした。', 'error');
+      const result = await saveProjectToFile(snapshot, opts);
+      if (result.kind === 'cancelled') return; // ピッカーをキャンセル
+      if (result.kind === 'conflict') {
+        const ok = await useUI.getState().confirm({
+          title: '保存の競合',
+          message:
+            'ファイルが他で変更されています。上書きしますか？\n（他のセッションが保存した内容は失われます）',
+          confirmLabel: '上書き保存',
+          danger: true,
+        });
+        if (ok) await doSave({ ...opts, force: true });
+        return;
+      }
+      useApp.getState().markSaved(snapshot);
+      pushBackup(snapshot); // 直近世代をこの端末に残す（復元用）
+      useUI
+        .getState()
+        .toast(
+          result.kind === 'downloaded'
+            ? `ダウンロードに保存しました（${result.name}）` // 上書き不可の環境（成功と区別して伝える）
+            : `保存しました（${result.name}）`,
+          'success',
+        );
+    } catch (err) {
+      // 書き込み失敗は成功と紛れさせない: dirty と復旧データはそのまま残る。
+      const detail = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+      void useUI.getState().confirm({
+        title: '保存できませんでした',
+        message: `ファイルへの保存に失敗しました。未保存の変更はこのまま残っています。\n「名前を付けて保存」で別の場所への保存をお試しください。${
+          detail ? `\n\n詳細: ${detail}` : ''
+        }`,
+        confirmLabel: '閉じる',
+        hideCancel: true,
+      });
+    }
+  };
+  const onSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
+    if (savingRef.current) return; // 保存中の再実行は無視（完了後に改めて保存してもらう）
+    savingRef.current = true;
+    try {
+      await doSave(opts);
+    } finally {
+      savingRef.current = false;
     }
   };
   const onSaveAs = () => onSave({ saveAs: true });
+  // 開く時に他セッションの編集ロックを見つけたときの判断（Tauri のみ呼ばれる）。
+  const confirmLock = async (held: LockInfo | null, stale: boolean): Promise<'takeover' | 'proceed' | 'cancel'> => {
+    // held: null は .lock が読めない（書き込み途中 or 破損）= 保持者不明。奪取は提示しない。
+    const who = held ? `${held.user}（${held.host}）` : '別のセッション（保持者不明）';
+    const heartbeat = held ? new Date(held.heartbeatAt).toLocaleString('ja-JP') : '不明';
+    if (stale && held) {
+      const ok = await useUI.getState().confirm({
+        title: '前回のロックが残っています',
+        message: `このファイルは ${who}が開いたまま終了した可能性があります（最終応答: ${heartbeat}）。\n編集ロックを引き継いで開きますか？`,
+        confirmLabel: '引き継いで開く',
+      });
+      return ok ? 'takeover' : 'cancel';
+    }
+    const ok = await useUI.getState().confirm({
+      title: '他のセッションが編集中',
+      message: `このファイルは ${who}が編集中です（最終応答: ${heartbeat}）。\nこのまま開くと、保存時にお互いの変更を上書きする危険があります。続行しますか？`,
+      confirmLabel: '続行して開く',
+      danger: true,
+    });
+    return ok ? 'proceed' : 'cancel';
+  };
   const onOpen = async () => {
     try {
-      const p = await openProjectFromFile();
+      const p = await openProjectFromFile({ confirmLock });
       if (p) {
         useApp.getState().loadProject(p);
         useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('開きました。', 'success');
       }
-    } catch {
-      useUI.getState().toast('ファイルを開けませんでした（形式が不正です）。', 'error');
+    } catch (err) {
+      if (isSchemaVersionTooNewError(err) || isProjectIntegrityError(err)) {
+        void useUI.getState().confirm({
+          title: 'ファイルを開けませんでした',
+          message: err.message,
+          confirmLabel: '閉じる',
+          hideCancel: true,
+        });
+      } else {
+        useUI.getState().toast('ファイルを開けませんでした（形式が不正です）。', 'error');
+      }
     }
   };
   const onNew = async () => {
@@ -153,7 +229,19 @@ export function App() {
     };
     input.click();
   };
-  const onSample = () => {
+  // サンプル/テンプレートで現在のプロジェクトを置き換える前の確認（未保存があるときだけ）。
+  const confirmReplace = async (title: string): Promise<boolean> => {
+    if (!useApp.getState().dirty) return true;
+    return useUI.getState().confirm({
+      title,
+      message: '未保存の変更があります。続行すると失われます。よろしいですか？',
+      confirmLabel: '続行',
+      danger: true,
+    });
+  };
+  const onSample = async () => {
+    if (!(await confirmReplace('サンプルを開く'))) return;
+    forgetFileHandle(); // サンプルに保存先を引き継がない（元ファイルへの誤上書き防止）
     useApp.getState().loadSample();
     useUI.getState().setOutlineCollapsed(new Set());
     if (!tourDone()) {
@@ -162,7 +250,9 @@ export function App() {
       useUI.getState().toast('サンプルを開きました。表を編集するとフローに反映されます。', 'success');
     }
   };
-  const onTemplate = (key: string) => {
+  const onTemplate = async (key: string) => {
+    if (!(await confirmReplace('テンプレートを開く'))) return;
+    forgetFileHandle(); // テンプレートに保存先を引き継がない（元ファイルへの誤上書き防止）
     useApp.getState().loadTemplate(key);
     useUI.getState().setOutlineCollapsed(new Set());
     useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
@@ -177,8 +267,18 @@ export function App() {
       } else {
         useUI.getState().toast('このファイルを開けませんでした（権限が必要です）。', 'error');
       }
-    } catch {
-      useUI.getState().toast('ファイルを開けませんでした。', 'error');
+    } catch (err) {
+      // onOpen と同様、版違い・参照整合性のエラーは具体的なメッセージをダイアログで伝える。
+      if (isSchemaVersionTooNewError(err) || isProjectIntegrityError(err)) {
+        void useUI.getState().confirm({
+          title: 'ファイルを開けませんでした',
+          message: err.message,
+          confirmLabel: '閉じる',
+          hideCancel: true,
+        });
+      } else {
+        useUI.getState().toast('ファイルを開けませんでした。', 'error');
+      }
     }
   };
   const onExportExcel = () => {
@@ -242,6 +342,7 @@ export function App() {
         cancelLabel: '破棄',
       });
       if (ok) {
+        clearAutosave(); // 提案したエントリは消費（復元後は dirty になり改めて退避される）
         useApp.getState().restoreProject(saved);
         useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().toast('前回の未保存データを復元しました。保存をお忘れなく。', 'success');

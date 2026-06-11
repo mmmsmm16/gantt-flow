@@ -11,9 +11,9 @@ import {
   saveOverrides,
   resolveKeymap,
   findConflict,
+  chordFromEvent,
   chordKeys,
   isSingleKeyBinding,
-  type Chord,
   type KeyBinding,
   type KeymapOverrides,
 } from '../keymap';
@@ -54,6 +54,8 @@ export function KeybindingsEditor() {
   };
 
   // キャプチャ: 次の打鍵を Chord 化して割り当てる(修飾キー単押しは待つ・Esc は取消)。
+  // 任意のキーを記録するモーダルな横取りなので、ここだけは window capture で全キーを
+  // stopPropagation で止める(Esc も「キャプチャ取消」として消費し、一元 Esc 処理へ流さない)。
   useEffect(() => {
     if (!capturing) return undefined;
     const target = DEFAULT_KEYMAP.find((b) => b.id === capturing);
@@ -69,12 +71,9 @@ export function KeybindingsEditor() {
         return;
       }
       if (['Shift', 'Control', 'Meta', 'Alt'].includes(e.key)) return; // 修飾キー単押しは待つ
-      const chord: Chord = {
-        key: e.key.toLowerCase(),
-        ...(e.ctrlKey || e.metaKey ? { mod: true } : {}),
-        ...(e.altKey ? { alt: true } : {}),
-        ...(e.shiftKey ? { shift: true } : {}),
-      };
+      // shift は必ず明示(true/false)で記録する。不問(undefined)にすると Shift 有無で
+      // 区別している既存バインド(Ctrl+Z / Ctrl+Shift+Z 等)を実行時に影で覆ってしまう。
+      const chord = chordFromEvent(e);
       const conflict = findConflict(effective, target, chord);
       const doAssign = (extra: KeymapOverrides = {}) =>
         apply({ ...overrides, ...extra, [target.id]: chord });
