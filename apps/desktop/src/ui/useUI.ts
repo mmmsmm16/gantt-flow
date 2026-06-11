@@ -116,6 +116,17 @@ interface UIState {
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 
+  /** いま開いている/保存先のファイル名（null=未割当: 新規/サンプル/テンプレート/取り込み）。
+      正本は persistence のモジュール変数（React から購読できない）なので、
+      保存/開く等の完了時に App がここへ写す。チップとウィンドウタイトルの購読元。 */
+  fileName: string | null;
+  setFileName: (name: string | null) => void;
+
+  /** Welcome（工程 0 件のオンボーディング）をこのセッションで離れたか（非永続）。
+      空の編集画面に到達した後、全工程を削除しても突然 Welcome へ戻さないためのフラグ。 */
+  welcomeDismissed: boolean;
+  setWelcomeDismissed: (dismissed: boolean) => void;
+
   /** 工程表に集中するため、フローを畳んで表を全幅にする。 */
   tableWide: boolean;
   toggleTableWide: () => void;
@@ -205,6 +216,9 @@ interface UIState {
   registerOverlayCloser: (closer: () => boolean) => () => void;
   /** Esc で閉じる一時 UI(メニュー等)を登録する(後から登録したものが最上位)。戻り値で解除。 */
   registerTransientLayer: (close: () => void) => () => void;
+  /** 一時 UI(コンテキストメニュー/ドロップダウン)が開いているか。
+      useGlobalHotkeys の停止判定用(メニュー操作中のグローバルキー暴発を防ぐ)。 */
+  hasTransientLayer: () => boolean;
 
   toasts: ToastItem[];
   toast: (message: string, tone?: ToastTone) => void;
@@ -233,6 +247,12 @@ export const useUI = create<UIState>((set, get) => ({
     set({ theme });
   },
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
+
+  fileName: null,
+  setFileName: (fileName) => set({ fileName }),
+
+  welcomeDismissed: false,
+  setWelcomeDismissed: (welcomeDismissed) => set({ welcomeDismissed }),
 
   tableWide: false,
   toggleTableWide: () =>
@@ -412,6 +432,7 @@ export const useUI = create<UIState>((set, get) => ({
       if (i >= 0) transientClosers.splice(i, 1);
     };
   },
+  hasTransientLayer: () => transientClosers.length > 0,
 
   toasts: [],
   toast: (message, tone = 'info') => {

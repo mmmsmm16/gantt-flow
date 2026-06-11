@@ -5,8 +5,10 @@ import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
 import { parseEffortHoursToMinutes } from './parseEffort';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
+import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
-import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
+import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
+import { filterOutlineRows } from './outlineFilter';
 import { revealTask, confirmRemoveTasks } from './taskOps';
 import { isImeKeyEvent } from './keymap';
 import { TASK_COLORS } from './theme';
@@ -82,13 +84,14 @@ export function TableView() {
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const moveTaskUp = useApp((s) => s.moveTaskUp);
   const moveTaskDown = useApp((s) => s.moveTaskDown);
-  const indentTask = useApp((s) => s.indentTask);
-  const outdentTask = useApp((s) => s.outdentTask);
   const dropTask = useApp((s) => s.dropTask);
   const addDependency = useApp((s) => s.addDependency);
   const addIo = useApp((s) => s.addIo);
   const updateIo = useApp((s) => s.updateIo);
   const removeIo = useApp((s) => s.removeIo);
+  // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
+  const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
+  const assigneeFlash = useFlashIds(lastAssigneeSync);
   const tableWide = useUI((s) => s.tableWide);
   const toggleTableWide = useUI((s) => s.toggleTableWide);
   const columnVisibility = useUI((s) => s.columnVisibility);
@@ -98,7 +101,18 @@ export function TableView() {
   // 折りたたみ状態は useUI に置く(コマンドパレットの全折りたたみ/全展開と共有・非マウント時も保持)。
   const collapsed = useUI((s) => s.outlineCollapsed);
   const setCollapsed = useUI((s) => s.setOutlineCollapsed);
-  const rows = buildOutline(tasks, collapsed);
+  // クイックフィルタ(Ctrl/⌘+F)。表示のみの絞り込みで、行追加・移動などのデータ操作には触れない。
+  // フィルタ中は折りたたみを無視して全展開で探す(畳まれた配下の一致を取りこぼさない)。
+  const [findQuery, setFindQuery] = useState('');
+  const findRef = useRef<HTMLInputElement>(null);
+  const findActive = findQuery.trim() !== '';
+  const { rows, matched } = filterOutlineRows(
+    buildOutline(tasks, findActive ? new Set<Id>() : collapsed),
+    findQuery,
+    (t) => (t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : ''),
+  );
+  // 一致行(表示順)。検索ボックスの Enter で次の一致へ循環ジャンプする。
+  const matchedIds = findActive ? rows.filter((r) => matched.has(r.task.id)).map((r) => r.task.id) : [];
   const codes = computeCodes(project.core);
   const parentsWithChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as Id[]);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
@@ -139,7 +153,7 @@ export function TableView() {
   // 列カーソルの対象(表示順)。行内の data-cell 属性と対応。
   const visibleOptionalColumns = OUTLINE_OPTIONAL_COLUMNS.filter((c) => columnVisibility[c.key]);
   const cursorColumns = ['level', 'name', 'assignee', ...visibleOptionalColumns.map((c) => c.key)];
-  const { colIdx } = useRowSelectionKeys({
+  const { colIdx, editNavKeyDown } = useRowSelectionKeys({
     enabled: activePane === 'table',
     orderedIds: rows.map((r) => r.task.id),
     columns: cursorColumns,
@@ -150,6 +164,13 @@ export function TableView() {
     toggleCollapse: (id) => {
       if (parentsWithChildren.has(id)) toggleCollapse(id);
     },
+    openFind: () => {
+      const el = findRef.current;
+      if (!el) return false;
+      el.focus();
+      el.select();
+      return true;
+    },
   });
   const cursorCol = cursorColumns[colIdx];
   // 選択行のカーソル列のセルを強調する(キーボードで「いまどのセルか」を示す)。
@@ -158,6 +179,26 @@ export function TableView() {
 
   const commitName = (t: ProcessTask, value: string) => {
     if (value !== t.name) renameTask(t.id, value);
+  };
+
+  // 検索ボックス内のキー操作。Enter=次の一致行へ選択ジャンプ(循環)・Esc=クリアして表へフォーカスを返す。
+  // stopPropagation でグローバルの Enter(table.edit)/Esc(blur→選択解除)へ流さない。
+  const onFindKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isImeKeyEvent(e)) return; // IME 変換確定の Enter でジャンプしない
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (matchedIds.length === 0) return;
+      const cur = selectedTaskId ? matchedIds.indexOf(selectedTaskId) : -1;
+      const next = matchedIds[(cur + 1) % matchedIds.length]!;
+      select(next);
+      scrollRowIntoView(next);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setFindQuery('');
+      document.querySelector<HTMLElement>('#main-table')?.focus();
+    }
   };
 
   return (
@@ -180,6 +221,24 @@ export function TableView() {
             </button>
           </span>
         )}
+        <span className="outline-find" title="作業名・担当で絞り込み（Ctrl/⌘+F・Enter で次の一致へ・Esc で解除）">
+          <Icons.Search />
+          <input
+            ref={findRef}
+            className="outline-find-input"
+            type="search"
+            value={findQuery}
+            placeholder="絞り込み"
+            aria-label="クイックフィルタ（作業名・担当に部分一致）"
+            onChange={(e) => setFindQuery(e.target.value)}
+            onKeyDown={onFindKeyDown}
+          />
+          {findActive && (
+            <span className="outline-find-count" role="status">
+              {matchedIds.length}件一致
+            </span>
+          )}
+        </span>
         <Menu
           className="icon-btn menu-trigger col-menu"
           title="表示する列"
@@ -210,7 +269,11 @@ export function TableView() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="empty">「＋ 大工程」または「＋ 中工程」から作業を追加してください。</p>
+        findActive ? (
+          <p className="empty">「{findQuery}」に一致する工程がありません。</p>
+        ) : (
+          <p className="empty">「＋ 大工程」または「＋ 中工程」から作業を追加してください。</p>
+        )
       ) : (
         <>
           <datalist id="assignee-names">
@@ -221,6 +284,7 @@ export function TableView() {
           <div className="outline-scroll">
           <table
             className="grid"
+            onKeyDown={editNavKeyDown}
             style={{
               // 固定列の合計 + 作業名の最小幅 + 表示中の任意列。狭いペインではペインが横スクロールする。
               minWidth: 354 + 160 + visibleOptionalColumns.reduce((sum, c) => sum + c.width, 0),
@@ -351,7 +415,7 @@ export function TableView() {
                           />
                         )}
                         <input
-                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${matched.has(t.id) ? ' name-match' : ''}${cellCursorCls(t.id, 'name')}`}
                           data-cell="name"
                           style={
                             detail?.textColor
@@ -371,22 +435,12 @@ export function TableView() {
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => {
                             if (isImeKeyEvent(e)) return; // IME 変換の確定 Enter/Tab/Esc を編集操作にしない
-                            if (e.key === 'Enter') {
-                              // 確定して選択モードへ(誤挿入防止のため行追加はしない。追加は n / Ctrl+Enter)。
-                              e.preventDefault();
-                              e.stopPropagation(); // blur 後にグローバルの Enter(セル編集)が再発火しないように
-                              commitName(t, e.currentTarget.value);
-                              e.currentTarget.blur();
-                            } else if (e.key === 'Escape') {
+                            // Enter/Tab は表全体の editNavKeyDown(両ビュー共通のセル移動規約)に任せる。
+                            // インデントは行選択モードの Tab(table.indent)に一本化した。
+                            if (e.key === 'Escape') {
                               e.stopPropagation(); // グローバルの Esc(選択解除)を発火させない
                               e.currentTarget.value = t.name;
                               e.currentTarget.blur();
-                            } else if (e.key === 'Tab') {
-                              e.preventDefault();
-                              commitName(t, e.currentTarget.value);
-                              if (e.shiftKey) outdentTask(t.id);
-                              else indentTask(t.id);
-                              setFocusId(t.id);
                             } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
                               e.preventDefault();
                               commitName(t, e.currentTarget.value);
@@ -399,7 +453,7 @@ export function TableView() {
                         />
                       </div>
                     </td>
-                    <td className="c-assignee">
+                    <td className={`c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`}>
                       <input
                         className={`assignee${cellCursorCls(t.id, 'assignee')}`}
                         data-cell="assignee"

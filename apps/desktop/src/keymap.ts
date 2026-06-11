@@ -67,6 +67,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'pane-flow', action: 'pane.flow', context: 'global', chord: { key: '2', mod: true }, help: { group: G.global, label: 'フローペインへ' } },
   { id: 'pane-toggle', action: 'pane.toggle', context: 'global', chord: { key: 'f6' }, help: { group: G.global, label: 'ペインを切り替え' } },
   { id: 'settings', action: 'global.settings', context: 'global', chord: { key: ',', mod: true }, help: { group: G.global, label: '設定を開く' } },
+  // パレットで最後に実行した repeatable なコマンドを、いま選択中の工程へ再適用(Vim の . 相当)。
+  { id: 'repeat-last', action: 'global.repeatLast', context: 'global', chord: { key: '.', mod: true }, help: { group: G.global, label: '直前のコマンドを再実行(パレット)' } },
 
   // --- 工程カラーのクイック変更(よく使う 既定/青/赤 のみ。他の色はパレットから) ---
   // Mac の Option+数字は記号入力になるため e.code(Digit*)で物理キー判定する。
@@ -111,6 +113,9 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'row-duplicate', action: 'table.duplicate', context: 'table', chord: { key: 'd', mod: true }, help: { group: G.table, label: '行を複製' } },
   { id: 'row-delete', action: 'table.delete', context: 'table', chord: { key: 'delete' }, fixed: true, help: { group: G.table, label: '行を削除(確認あり)' } },
   { id: 'row-collapse', action: 'table.collapse', context: 'table', chord: { key: ' ' }, help: { group: G.table, label: '折りたたみ(アウトライン)' } },
+  // アウトラインのクイックフィルタ。ブラウザ既定の検索と重なるため preventDefault 前提で奪う
+  // (「/」は global.palette 済みなので使わない)。
+  { id: 'table-find', action: 'table.find', context: 'table', chord: { key: 'f', mod: true }, help: { group: G.table, label: 'クイックフィルタ(作業名・担当)' } },
 
   // --- フロー ---
   // 矢印=選択を隣のノードへ移す(表の ↑↓ と同じ操作体系)。未選択なら左上のノードを選択。
@@ -135,6 +140,10 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'node-rename', action: 'flow.rename', context: 'flow', chord: { key: 'enter' }, fixed: true, help: { group: G.flow, label: '工程名をその場編集' } },
   { id: 'node-rename-f2', action: 'flow.rename', context: 'flow', chord: { key: 'f2' }, fixed: true },
   { id: 'connect-mode', action: 'flow.connect', context: 'flow', chord: { key: 'c' }, help: { group: G.flow, label: '接続モード(矢印で候補 → Enter)' } },
+  // 次工程の追加(表の n / Shift+N=行追加と同じ体系)。n=右隣へ作成して依存を接続し名前編集まで、
+  // Shift+N=接続なしで追加。未選択時はビューポート中央へ(接続なし)。
+  { id: 'node-add-next', action: 'flow.addNext', context: 'flow', chord: { key: 'n', shift: false }, help: { group: G.flow, label: '次工程を追加して接続(名前を編集)' } },
+  { id: 'node-add-next-plain', action: 'flow.addNextNoConnect', context: 'flow', chord: { key: 'n', shift: true }, help: { group: G.flow, label: '工程を追加(接続なし)' } },
   // I/O の追加(選択中の工程)。i/o は単キー、Alt+I/O は常時有効の代替(Mac の Option 記号対策で code 判定)。
   { id: 'add-input', action: 'flow.addInput', context: 'flow', chord: { key: 'i' }, help: { group: G.flow, label: 'インプットを追加(選択工程)' } },
   { id: 'add-input-alt', action: 'flow.addInput', context: 'flow', chord: { code: 'KeyI', alt: true } },

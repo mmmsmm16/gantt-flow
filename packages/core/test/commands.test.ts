@@ -61,6 +61,17 @@ describe('commands', () => {
     expect(Object.keys(p.core.dependencies)).toHaveLength(1);
   });
 
+  it('addDependency は実在しない工程への依存を作らない（strict 検証で開けないファイルを防ぐ）', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    const a = taskIdByName(p, 'A');
+    p = addDependency(p, a, 'ghost', g); // to が不在
+    p = addDependency(p, 'ghost', a, g); // from が不在
+    expect(Object.keys(p.core.dependencies)).toHaveLength(0);
+    expect(validate(p)).toHaveLength(0);
+  });
+
   it('removeDependency で削除できる', () => {
     const g = counter();
     let p = emptyProject();

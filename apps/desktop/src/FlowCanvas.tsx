@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { useApp, findView } from './store';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useApp, findView, isBridgeEdge } from './store';
 import { useUI } from './ui/useUI';
+import { useFlashIds } from './ui/useFlash';
 import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
-import { isImeKeyEvent } from './keymap';
-import { confirmRemoveTasks } from './taskOps';
+import { chordKeys, getActiveKeymap, isImeKeyEvent } from './keymap';
+import { clampScale, zoomScroll } from './flowZoom';
+import { confirmRemoveTasks, revealTask } from './taskOps';
 import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, type NavDir } from './spatialNav';
 import * as Icons from './ui/icons';
@@ -35,7 +37,6 @@ const BAND_TOP = MARGIN - 16;
 const FULL_W = 3000;
 const CANVAS_W = 1600; // フロー配置の論理サイズ（はみ出しはスクロール）
 const CANVAS_H = 1400;
-const clampScale = (s: number) => Math.min(2.5, Math.max(0.4, +s.toFixed(3)));
 const CONTROL_LABEL: Record<ControlKind, string> = {
   start: '開始',
   end: '終了',
@@ -53,6 +54,7 @@ export function FlowCanvas() {
   const select = useApp((s) => s.select);
   const moveNode = useApp((s) => s.moveNode);
   const addTaskAt = useApp((s) => s.addTaskAt);
+  const addTaskNextTo = useApp((s) => s.addTaskNextTo);
   const connect = useApp((s) => s.connect);
   const addControlNode = useApp((s) => s.addControlNode);
   const addComment = useApp((s) => s.addComment);
@@ -67,6 +69,12 @@ export function FlowCanvas() {
   const moveNodesBy = useApp((s) => s.moveNodesBy);
   const deleteFlowNodes = useApp((s) => s.deleteFlowNodes);
   const renameTask = useApp((s) => s.renameTask);
+  const duplicateTask = useApp((s) => s.duplicateTask);
+  const insertTaskOnEdge = useApp((s) => s.insertTaskOnEdge);
+  const updateComment = useApp((s) => s.updateComment);
+  // 表側編集の同期で追加されたノードを一時ハイライト（どこが変わったかを示すフラッシュ）。
+  const lastSyncAdded = useApp((s) => s.lastSyncAdded);
+  const flashIds = useFlashIds(lastSyncAdded);
 
   // その場リネームの確定。触れただけの blur(未変更)では履歴と未保存フラグを汚さない
   // (表の commitName / インスペクタの commitText と同じ規約)。
@@ -95,6 +103,17 @@ export function FlowCanvas() {
     if (l !== null) setEdgeLabel(edgeId, l);
   };
 
+  // 付箋のテキストを編集（右クリックメニュー）。
+  const editCommentText = async (nodeId: FlowNodeId, current: string) => {
+    const text = await useUI.getState().promptText({
+      title: '付箋を編集',
+      placeholder: 'コメント',
+      defaultValue: current,
+      confirmLabel: '設定',
+    });
+    if (text !== null) updateComment(nodeId, text);
+  };
+
   const canvasRef = useRef<HTMLDivElement>(null);
   const laneRailRef = useRef<HTMLDivElement>(null); // 担当ラベルの固定レール（横スクロールで左端に貼り付く）
   // ノードを掴んだ画面座標と「実際に動かしたか」。ドラッグ移動後の click では選択（詳細パネル）を出さない。
@@ -120,9 +139,47 @@ export function FlowCanvas() {
   const [panning, setPanning] = useState(false);
   // フロー固有要素（制御ノード/付箋/矢印）の選択。Delete で削除・Esc で解除。
   const [sel, setSel] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null);
+  // 右クリックメニュー（ノード/矢印）。位置はカーソルの画面座標（fixed 配置）。
+  const [ctxMenu, setCtxMenu] = useState<{ kind: 'node' | 'edge'; id: string; x: number; y: number } | null>(null);
   // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
-  const zoomBy = (f: number) => setScale((s) => clampScale(s * f));
+
+  // アンカー付きズーム。setScale は非同期なので新 scale をここで確定し、同じ値でスクロールを補正する
+  // （fitView と同じ「scale 設定 → rAF でスクロール」パターン）。scaleRef は再レンダ前の連続ホイール
+  // でも複利で効くよう zoomAt 内で即時更新し、外部の setScale（リセット/フィット）とは描画で同期する。
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  // 直前のズームで予約したスクロール位置。連続ズーム時、el.scrollLeft はまだ古い scale の値の
+  // ままなので、予約値を基準に次の補正を計算する（適用した rAF でクリア）。
+  const pendingZoomScroll = useRef<{ left: number; top: number } | null>(null);
+  const zoomAt = (factor: number, anchor?: { x: number; y: number }) => {
+    const el = canvasRef.current;
+    const prev = scaleRef.current;
+    const next = clampScale(prev * factor);
+    if (next === prev || !el) return; // clamp で scale が変わらないときは補正もしない
+    scaleRef.current = next;
+    setScale(next);
+    const rect = el.getBoundingClientRect();
+    // アンカー＝カーソル位置（ホイール）。省略時はビューポート中央（±ボタン / +,- キー）。
+    const a = anchor
+      ? { x: anchor.x - rect.left, y: anchor.y - rect.top }
+      : { x: el.clientWidth / 2, y: el.clientHeight / 2 };
+    const target = zoomScroll(
+      pendingZoomScroll.current ?? { left: el.scrollLeft, top: el.scrollTop },
+      a,
+      prev,
+      next,
+    );
+    pendingZoomScroll.current = target;
+    requestAnimationFrame(() => {
+      const t = pendingZoomScroll.current;
+      if (!t) return; // 後続のズームが適用済み
+      el.scrollLeft = t.left;
+      el.scrollTop = t.top;
+      pendingZoomScroll.current = null;
+    });
+  };
+  const zoomBy = (f: number) => zoomAt(f);
 
   // 'flow' コンテキストのキーボードアクション(矢印移動・ズーム・リネーム・接続モード)。
   // ハンドラ本体は描画後半(fitView 等の定義後)で ref に流し込み、登録自体は初回のみ行う。
@@ -254,16 +311,19 @@ export function FlowCanvas() {
   };
 
   // Ctrl/⌘ + ホイールでズーム（通常ホイールはスクロールに委ねる）。passive:false で preventDefault。
+  // カーソル位置をアンカーに補正＝拡大してもカーソル直下の工程が画面外へ流れない。
+  // zoomAt は ref と安定な setter にしか触れないため、初回登録のままで stale にならない。
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return undefined;
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
-      setScale((s) => clampScale(s * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+      zoomAt(e.deltaY < 0 ? 1.1 : 1 / 1.1, { x: e.clientX, y: e.clientY });
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -533,24 +593,28 @@ export function FlowCanvas() {
         void addIoPrompt(taskId, action === 'flow.addInput' ? 'inputs' : 'outputs');
         return true;
       }
+      case 'flow.addNext':
+      case 'flow.addNextNoConnect': {
+        // n: 選択中の工程の右隣へ作成 → 依存を接続 → その場リネーム開始、まで一気通貫。
+        // Shift+N は接続なし。工程ノード未選択ならビューポート中央へ作成（接続なし）。
+        const targetId = keyTargets()[0];
+        const tn = targetId ? view.nodes[targetId] : undefined;
+        const baseTaskId = tn?.kind === 'task' ? tn.taskId : undefined;
+        if (baseTaskId) {
+          const newId = addTaskNextTo(baseTaskId, { connect: action === 'flow.addNext' });
+          if (newId) setEditingTaskId(newId); // リネーム入力の autoFocus が画面外なら追従スクロールも兼ねる
+          return true;
+        }
+        const c = viewportCenter();
+        if (!c) return false;
+        addTaskAt(c.x - SIZE.task.w / 2, c.y - SIZE.task.h / 2);
+        const newId = useApp.getState().selectedTaskId; // addTaskAt は ID を返さない代わりに作成工程を選択する
+        if (newId) setEditingTaskId(newId);
+        return true;
+      }
       case 'flow.connect': {
         const fromId = keyTargets()[0];
-        const from = fromId ? view.nodes[fromId] : undefined;
-        if (!from || (from.kind !== 'task' && from.kind !== 'control')) return false;
-        const fc = center(from);
-        const cands = Object.values(view.nodes)
-          .filter((n) => (n.kind === 'task' || n.kind === 'control') && n.id !== from.id)
-          .sort((a, b) => {
-            const ca = center(a);
-            const cb = center(b);
-            return (
-              Math.hypot(ca.cx - fc.cx, ca.cy - fc.cy) - Math.hypot(cb.cx - fc.cx, cb.cy - fc.cy)
-            );
-          })
-          .map((n) => n.id);
-        if (!cands.length) return false;
-        setKbConnect({ from: from.id, candidates: cands, idx: 0 });
-        return true;
+        return fromId ? startKbConnect(fromId) : false;
       }
       case 'flow.delete': {
         // Delete/Backspace=選択中の要素を削除（矢印/制御ノード/付箋＝図から、工程ノード＝確認のうえ工程ごと）。
@@ -668,6 +732,33 @@ export function FlowCanvas() {
     const s = nodeSize(n);
     return { cx: p.x + s.w / 2, cy: p.y + s.h / 2 };
   };
+  // キーボード接続モードを任意の起点から開始（c キーと右クリック「ここから接続」の共通処理）。
+  const startKbConnect = (fromId: FlowNodeId): boolean => {
+    const from = view.nodes[fromId];
+    if (!from || (from.kind !== 'task' && from.kind !== 'control')) return false;
+    const fc = center(from);
+    const cands = Object.values(view.nodes)
+      .filter((n) => (n.kind === 'task' || n.kind === 'control') && n.id !== from.id)
+      .sort((a, b) => {
+        const ca = center(a);
+        const cb = center(b);
+        return (
+          Math.hypot(ca.cx - fc.cx, ca.cy - fc.cy) - Math.hypot(cb.cx - fc.cx, cb.cy - fc.cy)
+        );
+      })
+      .map((n) => n.id);
+    if (!cands.length) return false;
+    setKbConnect({ from: from.id, candidates: cands, idx: 0 });
+    return true;
+  };
+  // 同期で追加された doc ノードは div ではなく I/O 集約アイコン（SVG）として描かれるため、
+  // フラッシュは ioId に引き直してアイコン側に印を付ける。
+  const flashIoIds = new Set<string>();
+  for (const id of flashIds) {
+    const fn = view.nodes[id];
+    if (fn?.kind === 'doc') flashIoIds.add(fn.ioId);
+  }
+
   // I/O 集約アイコン（入力=左上 / 出力=右下に重ね、複数は1枚に名前を縦列挙）。
   const renderIoIcon = (
     taskPos: { x: number; y: number },
@@ -679,7 +770,7 @@ export function FlowCanvas() {
     const wave = 6;
     const path = `M${r.x},${r.y} h${r.w} v${r.h - wave} q${-r.w / 4},${wave} ${-r.w / 2},0 q${-r.w / 4},${-wave} ${-r.w / 2},0 z`;
     return (
-      <g className={`io-icon io-${io}`}>
+      <g className={`io-icon io-${io}${items.some((it) => flashIoIds.has(it.id)) ? ' node-flash' : ''}`}>
         {items[0]?.kind === 'info' ? (
           <rect className="io-main" x={r.x} y={r.y} width={r.w} height={r.h} rx={8} />
         ) : (
@@ -996,8 +1087,10 @@ export function FlowCanvas() {
                   onClick={() => setSel({ kind: 'edge', id: e.id })}
                   onDoubleClick={() => void editEdgeLabel(e.id, e.label ?? '')}
                   onContextMenu={(ev) => {
+                    // 即削除はやめてメニューに（誤削除防止。削除はメニュー/Delete キーから）。
                     ev.preventDefault();
-                    deleteEdge(e.id);
+                    setSel({ kind: 'edge', id: e.id });
+                    setCtxMenu({ kind: 'edge', id: e.id, x: ev.clientX, y: ev.clientY });
                   }}
                 />
                 <path
@@ -1074,6 +1167,19 @@ export function FlowCanvas() {
                 <button title="分岐ラベルを編集" onClick={() => void editEdgeLabel(e.id, e.label ?? '')}>
                   ✎ ラベル
                 </button>
+                {/* 大またぎブリッジ（親依存の導出）は挿入不可のため出さない（store 側の判定と共有）。 */}
+                {!isBridgeEdge(project, view, e) && (
+                  <button
+                    title="この矢印の途中に工程を挿入（A→B を A→新規→B に）"
+                    onClick={() => {
+                      setSel(null); // 元エッジは分割で消えるため先に選択を解く
+                      const id = insertTaskOnEdge(e.id);
+                      if (id) setEditingTaskId(id); // 挿入直後にその場で名前を付ける
+                    }}
+                  >
+                    ＋ 工程を挿入
+                  </button>
+                )}
                 <button
                   className="danger"
                   title="この矢印を削除"
@@ -1157,11 +1263,12 @@ export function FlowCanvas() {
                 : n.kind === 'control'
                   ? `${labelOf(n)}（制御ノード）`
                   : labelOf(n);
+          const flashCls = flashIds.has(n.id) ? ' node-flash' : '';
           return (
             <div
               key={n.id}
               data-nodeid={n.id}
-              className={cls + connCls + multiCls}
+              className={cls + connCls + multiCls + flashCls}
               style={
                 n.kind === 'issue'
                   ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
@@ -1172,11 +1279,26 @@ export function FlowCanvas() {
               aria-label={focusable ? ariaLabel : undefined}
               aria-pressed={focusable ? isSel : undefined}
               onPointerDown={(e) => {
-                if (!draggable) return;
+                if (e.button !== 0 || !draggable) return; // 右クリック（メニュー）でドラッグを始めない
                 downPosRef.current = { x: e.clientX, y: e.clientY };
                 movedRef.current = false;
                 const pt = relPoint(e);
                 setDrag({ id: n.id, x: n.x, y: n.y, ox: n.x, oy: n.y, offX: pt.x - n.x, offY: pt.y - n.y });
+              }}
+              onContextMenu={(e) => {
+                if (n.kind === 'issue') return; // 課題は集約表示のみ（操作は表/インスペクタから）
+                e.preventDefault();
+                e.stopPropagation();
+                selectNodeById(n.id); // メニューの対象を選択で明示（Delete 等のキー操作とも揃う）
+                // キーボード起動(メニューキー/Shift+F10)は clientX/Y が (0,0) で届くため、
+                // ノード中央をアンカーにする(画面左上角にメニューが飛ばないように)。
+                let { clientX: x, clientY: y } = e;
+                if (x === 0 && y === 0) {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  x = r.left + r.width / 2;
+                  y = r.top + r.height / 2;
+                }
+                setCtxMenu({ kind: 'node', id: n.id, x, y });
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1251,6 +1373,7 @@ export function FlowCanvas() {
                   onFocus={(e) => e.currentTarget.select()}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
+                  onContextMenu={(e) => e.stopPropagation()} // 編集中はネイティブの編集メニュー(貼り付け等)に委ねる
                   onBlur={(e) => {
                     commitNodeRename(n.taskId, e.target.value);
                     setEditingTaskId(null);
@@ -1462,7 +1585,224 @@ export function FlowCanvas() {
           lanesBottomY={lanesBottomY}
         />
       )}
+
+      {/* 右クリックメニュー: 分散していた操作（リネーム/接続/I/O/固定/複製/削除…）の一覧口。
+          対象の種別ごとに「いまできる操作」だけを出す。 */}
+      {ctxMenu &&
+        (() => {
+          const close = () => setCtxMenu(null);
+          if (ctxMenu.kind === 'edge') {
+            const e = view.edges[ctxMenu.id];
+            if (!e) return null;
+            return (
+              <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                <ContextItem label="ラベルを編集" onClick={() => void editEdgeLabel(e.id, e.label ?? '')} />
+                {/* 大またぎブリッジ（親依存の導出）は挿入不可のため出さない（store 側の判定と共有）。 */}
+                {!isBridgeEdge(project, view, e) && (
+                  <ContextItem
+                    label="工程を挿入"
+                    onClick={() => {
+                      setSel(null); // 元エッジは分割で消えるため先に選択を解く
+                      const id = insertTaskOnEdge(e.id);
+                      if (id) setEditingTaskId(id);
+                    }}
+                  />
+                )}
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label="削除"
+                  action="flow.delete"
+                  danger
+                  onClick={() => {
+                    deleteEdge(e.id);
+                    setSel(null);
+                  }}
+                />
+              </FlowContextMenu>
+            );
+          }
+          const n = view.nodes[ctxMenu.id];
+          if (!n) return null;
+          if (n.kind === 'task') {
+            const taskId = n.taskId;
+            return (
+              <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                <ContextItem label="名前を変更" action="flow.rename" onClick={() => setEditingTaskId(taskId)} />
+                <ContextItem label="ここから接続" action="flow.connect" onClick={() => startKbConnect(n.id)} />
+                <ContextItem label="インプットを追加" action="flow.addInput" onClick={() => void addIoPrompt(taskId, 'inputs')} />
+                <ContextItem label="アウトプットを追加" action="flow.addOutput" onClick={() => void addIoPrompt(taskId, 'outputs')} />
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label={n.pinned ? '固定を解除（整列で動くようにする）' : '固定（整列で動かさない）'}
+                  onClick={() => toggleNodePin(n.id)}
+                />
+                <ContextItem label="複製" onClick={() => duplicateTask(taskId)} />
+                <ContextItem label="表で表示" onClick={() => revealTask(taskId)} />
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label="工程を削除"
+                  action="flow.delete"
+                  danger
+                  onClick={() =>
+                    void confirmRemoveTasks([taskId]).then((ok) => {
+                      if (ok) select(undefined); // キーボード削除（flow.delete）と同じ後始末
+                    })
+                  }
+                />
+              </FlowContextMenu>
+            );
+          }
+          if (n.kind === 'control') {
+            return (
+              <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                <ContextItem label="ここから接続" action="flow.connect" onClick={() => startKbConnect(n.id)} />
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label="削除"
+                  action="flow.delete"
+                  danger
+                  onClick={() => {
+                    deleteFlowNode(n.id);
+                    setSel(null);
+                  }}
+                />
+              </FlowContextMenu>
+            );
+          }
+          if (n.kind === 'comment') {
+            return (
+              <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                <ContextItem label="テキストを編集" onClick={() => void editCommentText(n.id, n.text)} />
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label="削除"
+                  action="flow.delete"
+                  danger
+                  onClick={() => {
+                    deleteFlowNode(n.id);
+                    setSel(null);
+                  }}
+                />
+              </FlowContextMenu>
+            );
+          }
+          return null;
+        })()}
     </div>
+  );
+}
+
+// フロー用の右クリックメニュー。カーソル位置（画面座標）に fixed で出し、画面端では
+// はみ出す側に反転する（実寸を測ってから表示）。Esc は useUI の一時レイヤ（closeTopLayer）
+// 経由・外側クリックは pointerdown 監視で閉じる（Menu.tsx と同じ規約）。
+function FlowContextMenu({
+  x,
+  y,
+  onClose,
+  children,
+}: {
+  x: number;
+  y: number;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const margin = 8;
+    setPos({
+      x: x + r.width > window.innerWidth - margin ? Math.max(margin, x - r.width) : x,
+      y: y + r.height > window.innerHeight - margin ? Math.max(margin, y - r.height) : y,
+    });
+  }, [x, y]);
+  // onClose は親の再レンダで毎回作り直されるため ref で受け、登録は開いている間 1 回だけにする。
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) closeRef.current();
+    };
+    window.addEventListener('pointerdown', onDown);
+    const unregister = useUI.getState().registerTransientLayer(() => closeRef.current());
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      unregister();
+    };
+  }, []);
+  // キーボード起動(メニューキー/Shift+F10)でもそのまま操作できるよう、開いたら最初の
+  // 項目へフォーカスし、閉じたら開く前の位置(ノード等)へ戻す。項目選択で別の入力
+  // (リネーム等)へフォーカスが移った後は奪い返さない(body に落ちたときだけ戻す)。
+  useEffect(() => {
+    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    ref.current?.querySelector<HTMLElement>('.menu-item')?.focus();
+    return () => {
+      if (prev?.isConnected && (document.activeElement === document.body || !document.activeElement))
+        prev.focus();
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="menu ctx-menu"
+      role="menu"
+      style={pos ? { left: pos.x, top: pos.y } : { left: x, top: y, visibility: 'hidden' }}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={() => closeRef.current()}
+      onKeyDown={(e) => {
+        // ↑↓ で項目間を巡回(ロービングフォーカス)。フロー側のキー操作へは流さない。
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        e.preventDefault();
+        e.stopPropagation();
+        const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('.menu-item') ?? []);
+        if (items.length === 0) return;
+        const i = items.indexOf(document.activeElement as HTMLElement);
+        const next =
+          i < 0
+            ? e.key === 'ArrowDown'
+              ? 0
+              : items.length - 1
+            : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]!.focus();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// メニュー 1 項目。action を渡すと現在の実効キーマップから対応キーを引いて kbd 表記を併記する
+// （シングルキー OFF で効かないキーは表示もしない＝見えるものと効くものを一致させる）。
+function ContextItem({
+  label,
+  action,
+  danger,
+  onClick,
+}: {
+  label: string;
+  action?: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  const binding = action ? getActiveKeymap().find((b) => b.action === action) : undefined;
+  return (
+    <button
+      type="button"
+      className={`menu-item${danger ? ' danger' : ''}`}
+      role="menuitem"
+      onClick={onClick}
+    >
+      <span className="ctx-label">{label}</span>
+      {binding && (
+        <span className="ctx-keys" aria-hidden="true">
+          {chordKeys(binding.chord, binding.leader).map((k, i) => (
+            <kbd key={i}>{k}</kbd>
+          ))}
+        </span>
+      )}
+    </button>
   );
 }
 

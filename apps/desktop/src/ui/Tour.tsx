@@ -15,7 +15,7 @@ const STEPS: Step[] = [
   {
     selector: '.table-pane',
     title: '1. 表で編集する',
-    body: '工程表の作業名をクリックして書き換えてみてください。Enter で次の行、Tab で子工程にできます。',
+    body: '工程表の作業名をクリックして書き換えてみてください。Enter で下のセル、Tab で右のセルへ移動できます。',
   },
   {
     selector: '.flow-pane',

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { findView, useApp } from './store';
 import {
   isProjectIntegrityError,
@@ -21,7 +21,11 @@ import {
   printProjectAndFlow,
   forgetFileHandle,
   openRecentFile,
+  currentFileName,
+  listRecentFiles,
+  recentFilesSupported,
 } from './persistence';
+import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
 import { Modal, Toaster, BusyOverlay } from './ui/Dialogs';
 import * as Icons from './ui/icons';
@@ -69,6 +73,16 @@ export function App() {
 
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const isEmpty = Object.keys(project.core.tasks).length === 0;
+  const fileName = useUI((s) => s.fileName);
+  // Welcome は「工程 0 件」かつ「このセッションでまだ離れていない」ときだけ。
+  // 空の編集画面（新規プロジェクト）や、全工程を削除した直後に突然戻さない。
+  const welcomeDismissed = useUI((s) => s.welcomeDismissed);
+  const showWelcome = isEmpty && !welcomeDismissed;
+  // 工程が 1 件でもできたら離脱扱いにする(パレット等、Welcome のボタン以外の経路でも。
+  // 以後は全工程を削除しても Welcome へは戻らない)。
+  useEffect(() => {
+    if (!isEmpty) useUI.getState().setWelcomeDismissed(true);
+  }, [isEmpty]);
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
   const tableWide = useUI((s) => s.tableWide);
@@ -84,6 +98,19 @@ export function App() {
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
     : [];
+
+  // persistence が覚えている保存先はモジュール変数で React から購読できないため、
+  // 保存/開く等の「保存先が変わりうる操作」の完了時にここで useUI へ写す。
+  const syncFileName = () => useUI.getState().setFileName(currentFileName());
+
+  // 最近使ったファイル（▼メニュー用）。IndexedDB 読みは非同期のため、開く瞬間の取得
+  // だけだと一瞬空で描画される。マウント時に先読みし、開くたびに最新化する。
+  const recentSupported = recentFilesSupported();
+  const [recentFiles, setRecentFiles] = useState<{ name: string; at: number }[]>([]);
+  const refreshRecent = () => void listRecentFiles().then(setRecentFiles);
+  useEffect(() => {
+    if (recentFilesSupported()) refreshRecent();
+  }, []);
 
   // 保存の再入ガード: 保存中の Ctrl+S 連打やパレットからの多重起動を無視する
   //（persistence 側でも直列化されるが、競合ダイアログ等の多重表示をここで防ぐ）。
@@ -107,6 +134,7 @@ export function App() {
       }
       useApp.getState().markSaved(snapshot);
       pushBackup(snapshot); // 直近世代をこの端末に残す（復元用）
+      syncFileName(); // 名前を付けて保存で保存先が変わりうる
       useUI
         .getState()
         .toast(
@@ -165,6 +193,8 @@ export function App() {
       if (p) {
         useApp.getState().loadProject(p);
         useUI.getState().setOutlineCollapsed(new Set());
+        useUI.getState().setWelcomeDismissed(true);
+        syncFileName();
         useUI.getState().toast('開きました。', 'success');
       }
     } catch (err) {
@@ -191,6 +221,8 @@ export function App() {
       forgetFileHandle(); // 新規は保存先を引き継がない
       useApp.getState().newProject();
       useUI.getState().setOutlineCollapsed(new Set());
+      useUI.getState().setWelcomeDismissed(true); // Welcome に戻さず空の編集画面へ
+      syncFileName();
     }
   };
   const onImport = () => {
@@ -205,8 +237,10 @@ export function App() {
         // スピナーを描画してから重い処理へ（同期処理で固まる前に 1 フレーム譲る）。
         await new Promise((r) => requestAnimationFrame(() => r(undefined)));
         forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
+        syncFileName();
         const report = useApp.getState().importRows(await readTableFile(file));
         useUI.getState().setOutlineCollapsed(new Set());
+        useUI.getState().setWelcomeDismissed(true);
         const c = report.created;
         let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
         if (report.unresolvedDeps.length)
@@ -242,8 +276,10 @@ export function App() {
   const onSample = async () => {
     if (!(await confirmReplace('サンプルを開く'))) return;
     forgetFileHandle(); // サンプルに保存先を引き継がない（元ファイルへの誤上書き防止）
+    syncFileName();
     useApp.getState().loadSample();
     useUI.getState().setOutlineCollapsed(new Set());
+    useUI.getState().setWelcomeDismissed(true);
     if (!tourDone()) {
       useUI.getState().setTourStep(0); // 初回だけ使い方ツアーを開始
     } else {
@@ -253,16 +289,22 @@ export function App() {
   const onTemplate = async (key: string) => {
     if (!(await confirmReplace('テンプレートを開く'))) return;
     forgetFileHandle(); // テンプレートに保存先を引き継がない（元ファイルへの誤上書き防止）
+    syncFileName();
     useApp.getState().loadTemplate(key);
     useUI.getState().setOutlineCollapsed(new Set());
+    useUI.getState().setWelcomeDismissed(true);
     useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
   };
   const onOpenRecent = async (name: string) => {
+    // Welcome 経由は工程 0 件＝dirty でないので確認は実質ツールバー/パレット経由のみ。
+    if (!(await confirmReplace('最近のファイルを開く'))) return;
     try {
       const p = await openRecentFile(name);
       if (p) {
         useApp.getState().loadProject(p);
         useUI.getState().setOutlineCollapsed(new Set());
+        useUI.getState().setWelcomeDismissed(true);
+        syncFileName();
         useUI.getState().toast('開きました。', 'success');
       } else {
         useUI.getState().toast('このファイルを開けませんでした（権限が必要です）。', 'error');
@@ -313,9 +355,17 @@ export function App() {
     printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
   };
 
+  // Welcome から空の編集画面へ（プロジェクトは既に空＝作り直し不要。フラグだけ立てる）。
+  const onStartEmpty = () => useUI.getState().setWelcomeDismissed(true);
+
   // グローバルショートカット(キーマップ駆動)。keymap.ts が単一の真実、
   // ディスパッチは useGlobalHotkeys に一元化(IME・編集中・オーバーレイのガード込み)。
   useGlobalHotkeys({ onSave: () => void onSave(), onPrint });
+
+  // タブ/タスクバーでも「どのファイルを編集中か・未保存か」が分かるようにタイトルへ同期。
+  useEffect(() => {
+    document.title = formatWindowTitle(fileName, dirty);
+  }, [fileName, dirty]);
 
   // 未保存のまま閉じようとしたら確認（データ消失の防止）。
   useEffect(() => {
@@ -345,6 +395,7 @@ export function App() {
         clearAutosave(); // 提案したエントリは消費（復元後は dirty になり改めて退避される）
         useApp.getState().restoreProject(saved);
         useUI.getState().setOutlineCollapsed(new Set());
+        useUI.getState().setWelcomeDismissed(true); // 復元した作業（工程 0 件でも）を Welcome で覆わない
         useUI.getState().toast('前回の未保存データを復元しました。保存をお忘れなく。', 'success');
       } else {
         clearAutosave();
@@ -369,6 +420,17 @@ export function App() {
             gantt-<span className="brand-accent">flow</span>
           </span>
         </span>
+        <span
+          className="file-chip"
+          title={`${fileName ?? UNTITLED_LABEL}${dirty ? '（未保存の変更あり）' : ''}`}
+        >
+          {dirty && (
+            <span className="file-chip-dot" aria-label="未保存の変更あり">
+              ●
+            </span>
+          )}
+          <span className="file-chip-name">{fileName ?? UNTITLED_LABEL}</span>
+        </span>
         <span className="spacer" />
 
         <span className="tool-group" role="group" aria-label="履歴">
@@ -386,7 +448,7 @@ export function App() {
           </button>
         </span>
 
-        <span className="tool-group" role="group" aria-label="ファイル">
+        <span className={`tool-group${recentSupported ? ' has-menu' : ''}`} role="group" aria-label="ファイル">
           <button className="icon-btn" onClick={onNew} aria-label="新規" title="新規プロジェクト">
             <Icons.FilePlus />
           </button>
@@ -401,6 +463,26 @@ export function App() {
           <button className="icon-btn" onClick={onOpen} aria-label="開く" title="開く">
             <Icons.FolderOpen />
           </button>
+          {recentSupported && (
+            <Menu
+              className="icon-btn menu-trigger"
+              title="最近使ったファイル"
+              label={<Icons.ChevronDown />}
+              onOpen={refreshRecent}
+            >
+              {recentFiles.length === 0 && (
+                <div className="menu-empty">最近使ったファイルはありません</div>
+              )}
+              {recentFiles.slice(0, 5).map((r) => (
+                <MenuItem key={r.name} onClick={() => void onOpenRecent(r.name)}>
+                  <span className="recent-row" title={r.name}>
+                    <span className="recent-name">{r.name}</span>
+                    <span className="recent-at">{formatRecentTime(r.at)}</span>
+                  </span>
+                </MenuItem>
+              ))}
+            </Menu>
+          )}
           <button
             className={`icon-btn${dirty ? ' has-unsaved' : ''}`}
             onClick={() => onSave()}
@@ -478,8 +560,15 @@ export function App() {
           <Icons.Keyboard />
         </button>
       </header>
-      {isEmpty ? (
-        <Welcome onSample={onSample} onImport={onImport} onOpen={onOpen} onOpenRecent={onOpenRecent} onTemplate={onTemplate} />
+      {showWelcome ? (
+        <Welcome
+          onSample={onSample}
+          onImport={onImport}
+          onOpen={onOpen}
+          onOpenRecent={onOpenRecent}
+          onTemplate={onTemplate}
+          onStartEmpty={onStartEmpty}
+        />
       ) : (
         <div
           className={`panes${!fullMode && selectedTaskId && inspectorOpen ? ' with-inspector' : ''}${
@@ -572,12 +661,13 @@ export function App() {
           )}
         </div>
       )}
-      {!isEmpty && <StatusBar />}
+      {!showWelcome && <StatusBar />}
       <CommandPalette
         onNew={onNew}
         onSave={onSave}
         onSaveAs={onSaveAs}
         onOpen={onOpen}
+        onOpenRecent={(name) => void onOpenRecent(name)}
         onImport={onImport}
         onSample={onSample}
         onExportExcel={onExportExcel}

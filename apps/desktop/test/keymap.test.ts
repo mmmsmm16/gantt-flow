@@ -77,6 +77,17 @@ describe('keymap: findBinding', () => {
     ).toBe('flow.addInput'); // Alt 代替は残る
   });
 
+  it('フローの n / Shift+N で次工程を追加(接続あり / なし)', () => {
+    expect(findBinding(ev({ key: 'n' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.addNext');
+    expect(findBinding(ev({ key: 'N', shiftKey: true }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe(
+      'flow.addNextNoConnect',
+    );
+    // 表の n(row-add)と同じく単キーなので、シングルキーOFFでは消える
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'n' }), off, ['flow'], false)).toBeUndefined();
+    expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['flow'], false)).toBeUndefined();
+  });
+
   it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動', () => {
     expect(findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
     expect(findBinding(ev({ key: 'arrowdown' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
@@ -101,6 +112,32 @@ describe('keymap: findBinding', () => {
     expect(gg?.action).toBe('table.first');
     const G = findBinding(ev({ key: 'G', shiftKey: true }), DEFAULT_KEYMAP, ['table', 'global'], false);
     expect(G?.action).toBe('table.last');
+  });
+
+  it('mod+. は直前コマンドのリピートで、既存キーと衝突しない', () => {
+    expect(
+      findBinding(ev({ key: '.', ctrlKey: true }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action,
+    ).toBe('global.repeatLast');
+    expect(
+      findBinding(ev({ key: '.', metaKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action,
+    ).toBe('global.repeatLast');
+    const target = DEFAULT_KEYMAP.find((b) => b.id === 'repeat-last')!;
+    expect(findConflict(DEFAULT_KEYMAP, target, target.chord)).toBeUndefined();
+  });
+
+  it('table コンテキストの Ctrl/⌘+F はクイックフィルタ(既存キーと衝突しない)', () => {
+    expect(
+      findBinding(ev({ key: 'f', ctrlKey: true }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action,
+    ).toBe('table.find');
+    expect(
+      findBinding(ev({ key: 'f', metaKey: true }), DEFAULT_KEYMAP, ['table', 'global'], false)?.action,
+    ).toBe('table.find');
+    // mod 付きなのでシングルキーOFFでも有効
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'f', ctrlKey: true }), off, ['table'], false)?.action).toBe('table.find');
+    // flow の f(フィット)・g f(リーダー)とは衝突しない
+    const target = DEFAULT_KEYMAP.find((b) => b.id === 'table-find')!;
+    expect(findConflict(DEFAULT_KEYMAP, target, target.chord)).toBeUndefined();
   });
 
   it('Ctrl+Z は undo、Ctrl+Shift+Z は redo', () => {
@@ -387,6 +424,8 @@ describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
       'row-add-child', // Shift+N
       'row-last', // G(Shift+g)
       'row-collapse', // Space
+      'node-add-next', // n(フロー)
+      'node-add-next-plain', // Shift+N(フロー)
       'zoom-in', // +
       'zoom-in-eq', // =
       'zoom-out', // -

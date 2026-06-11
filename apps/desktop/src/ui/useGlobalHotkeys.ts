@@ -10,12 +10,13 @@
 //  4. Esc のフォーカス規則(planEscFocus): モーダルコンテキスト(接続モード等)の Esc が最優先 →
 //     入力系(isEditableTarget)は blur のみ → 非編集のフォーカスは blur しつつ同じ押下で
 //     バインディング(flow.clear / table.clear 等)へ落とす
-//  5. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷)のみ。undo/redo はネイティブ優先
+//  5. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷/クイックフィルタ)のみ。undo/redo はネイティブ優先
 //  6. g リーダー → findBinding(pushKeyContext した 'connect' 等が最優先) → dispatch
 import { useEffect } from 'react';
 import type { TaskColor } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
+import { repeatLastCommand } from './lastCommand';
 import {
   createLeaderTracker,
   findBinding,
@@ -152,6 +153,8 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           ui.setSettingsTab('general');
           ui.setOverlay('settings');
           return true;
+        case 'global.repeatLast':
+          return repeatLastCommand(); // 未記録は false=preventDefault しない
         case 'pane.table':
           activatePane('table');
           return true;
@@ -196,8 +199,14 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       }
 
       // オーバーレイ等の表示中は停止(パレットの Ctrl+K トグルと、ヘルプ表示中の ? だけ例外)。
+      // 一時 UI(コンテキストメニュー/ドロップダウン)中も停止するが、Esc は上の
+      // closeTopLayer が先に処理するため「Esc でメニューを閉じる」は生きたまま。
       const blocked =
-        ui.overlay !== null || ui.dialog !== null || ui.busy !== null || ui.tourStep !== null;
+        ui.overlay !== null ||
+        ui.dialog !== null ||
+        ui.busy !== null ||
+        ui.tourStep !== null ||
+        ui.hasTransientLayer();
       if (blocked) {
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
           e.preventDefault();
@@ -265,14 +274,16 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
 
       if (!binding) return;
 
-      // 編集中(input 等)は mod 付きのパレット/保存/印刷のみ通す。
+      // 編集中(input 等)は mod 付きのパレット/保存/印刷/クイックフィルタのみ通す
+      // (table.find はセル編集中や検索ボックス内の再押下でもブラウザ検索を出さないため)。
       // Ctrl+Z/Y はネイティブのテキスト undo を優先(従来挙動)。単キーはすべて無効。
       if (editable) {
         const allowWhileEditing =
           binding.chord.mod === true &&
           (binding.action === 'global.palette' ||
             binding.action === 'global.save' ||
-            binding.action === 'global.print');
+            binding.action === 'global.print' ||
+            binding.action === 'table.find');
         if (!allowWhileEditing) return;
       }
 
