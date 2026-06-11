@@ -69,8 +69,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'settings', action: 'global.settings', context: 'global', chord: { key: ',', mod: true }, help: { group: G.global, label: '設定を開く' } },
   // パレットで最後に実行した repeatable なコマンドを、いま選択中の工程へ再適用(Vim の . 相当)。
   { id: 'repeat-last', action: 'global.repeatLast', context: 'global', chord: { key: '.', mod: true }, help: { group: G.global, label: '直前のコマンドを再実行(パレット)' } },
-  // 作業エリアを最大化する集中モード(上部ツールバーを隠す/戻す)。
-  { id: 'toggle-chrome', action: 'global.toggleChrome', context: 'global', chord: { key: '\\', mod: true }, help: { group: G.global, label: 'ツールバーを隠す / 表示(集中モード)' } },
+  // 作業エリアを最大化する集中モード(上部ツールバー＋各ビューの操作バーを隠す/戻す)。
+  { id: 'toggle-chrome', action: 'global.toggleChrome', context: 'global', chord: { key: '\\', mod: true }, help: { group: G.global, label: '集中モード(ツールバー・操作バーを隠す)' } },
 
   // --- 工程カラーのクイック変更(よく使う 既定/青/赤 のみ。他の色はパレットから) ---
   // Mac の Option+数字は記号入力になるため e.code(Digit*)で物理キー判定する。

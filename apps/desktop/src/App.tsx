@@ -438,7 +438,7 @@ export function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className={`app${chromeHidden ? ' focus-mode' : ''}`}>
       <a className="skip-link" href="#main-table">
         工程表へスキップ
       </a>
@@ -446,8 +446,8 @@ export function App() {
         <button
           className="chrome-reveal"
           onClick={toggleChrome}
-          aria-label="ツールバーを表示"
-          title="ツールバーを表示（Ctrl/⌘+\）"
+          aria-label="集中モードを解除（ツールバー・操作バーを表示）"
+          title="集中モードを解除（Ctrl/⌘+\）"
         >
           <Icons.ChevronDown />
         </button>
@@ -606,8 +606,8 @@ export function App() {
         <button
           className="icon-btn"
           onClick={toggleChrome}
-          aria-label="ツールバーを隠して作業エリアを最大化"
-          title="作業エリアを最大化（ツールバーを隠す）Ctrl/⌘+\"
+          aria-label="集中モード（ツールバーと各ビューの操作バーを隠す）"
+          title="集中モード: 作業エリアを最大化（ツールバー＋各ビューの操作バーを隠す）Ctrl/⌘+\"
         >
           <Icons.Maximize />
         </button>

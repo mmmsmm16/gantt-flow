@@ -139,7 +139,8 @@ interface UIState {
   /** 分割 / 工程表のみ / 工程フローのみ をタブで直接切替（tableWide・flowWide を一括設定）。 */
   setPaneLayout: (mode: 'split' | 'table' | 'flow') => void;
 
-  /** 作業エリアを最大化するため上部ツールバーを隠す（集中モード）。localStorage 永続(既定 OFF=表示)。 */
+  /** 集中モード: 上部ツールバー＋各ビューのヘッダ・操作バーを隠して作業エリアを最大化。
+      表示制御は App の .focus-mode クラス＋CSS で行う。localStorage 永続(既定 OFF=表示)。 */
   chromeHidden: boolean;
   toggleChrome: () => void;
 

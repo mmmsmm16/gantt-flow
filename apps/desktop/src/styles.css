@@ -175,6 +175,16 @@ body {
 .toolbar[hidden] {
   display: none;
 }
+/* 集中モード: 上部ツールバーに加えて各ビューのヘッダ・操作バーも隠し、作業領域を最大化する。
+   工程表/フローの中身（行・キャンバス）だけを残す。復帰は上端中央のタブ / Ctrl⌘+\ / パレット。 */
+.app.focus-mode .table-head,
+.app.focus-mode .flow-head,
+.app.focus-mode .outline-actions,
+.app.focus-mode .ft-actions,
+.app.focus-mode .ft-filters,
+.app.focus-mode .flow-palette {
+  display: none;
+}
 /* 集中モード（ツールバーを隠す）時に上端中央へ出す復帰ハンドル（引き出しタブ）。
    作業エリアを塞がない最小の的。右上はインスペクタの×と近接するため中央に置く。 */
 .chrome-reveal {
