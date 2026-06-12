@@ -84,16 +84,13 @@ export function planEscFocus(opts: {
 /** ペインをアクティブにし、必要ならレイアウトを直して見えるようにする(フォーカスも移す)。 */
 export function activatePane(pane: 'table' | 'flow'): void {
   const ui = useUI.getState();
-  if (pane === 'table') {
-    if (ui.flowWide) ui.toggleFlowWide(); // 表が畳まれていたら開く
-    ui.setActivePane('table');
-    document.querySelector<HTMLElement>('#main-table')?.focus();
-  } else {
-    if (ui.tableWide) ui.toggleTableWide(); // フローが畳まれていたら開く
-    if (ui.tableMode === 'full') ui.setTableMode('outline'); // 全項目表はフローを隠すため戻す
-    ui.setActivePane('flow');
-    document.querySelector<HTMLElement>('.flow-pane')?.focus();
-  }
+  // 全画面（工程表のみ / フローのみ）でも必ず分割へ戻してから対象ペインをアクティブにする。
+  // g f / g t（小文字）・mod+1 / mod+2・F6 共通の「分割でアクティブ化」挙動。
+  ui.setPaneLayout('split'); // tableWide/flowWide を解除＋全項目表ならアウトラインへ戻す
+  ui.setActivePane(pane);
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>(pane === 'table' ? '#main-table' : '.flow-pane')?.focus();
+  });
 }
 
 // 現在のペインレイアウト（App の paneLayout と同じ規則。full は常にフロー非表示なので表扱い）。
