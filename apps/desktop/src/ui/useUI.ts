@@ -8,6 +8,7 @@ type Id = string;
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
 const MINIMAP_KEY = 'gf-minimap';
+const CHROME_KEY = 'gf-chrome-hidden';
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
 const FT_W_KEY = 'gf-ft-widths';
@@ -116,6 +117,17 @@ interface UIState {
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 
+  /** いま開いている/保存先のファイル名（null=未割当: 新規/サンプル/テンプレート/取り込み）。
+      正本は persistence のモジュール変数（React から購読できない）なので、
+      保存/開く等の完了時に App がここへ写す。チップとウィンドウタイトルの購読元。 */
+  fileName: string | null;
+  setFileName: (name: string | null) => void;
+
+  /** Welcome（工程 0 件のオンボーディング）をこのセッションで離れたか（非永続）。
+      空の編集画面に到達した後、全工程を削除しても突然 Welcome へ戻さないためのフラグ。 */
+  welcomeDismissed: boolean;
+  setWelcomeDismissed: (dismissed: boolean) => void;
+
   /** 工程表に集中するため、フローを畳んで表を全幅にする。 */
   tableWide: boolean;
   toggleTableWide: () => void;
@@ -123,6 +135,14 @@ interface UIState {
   /** フローに集中するため、表を畳んでフローを全幅にする（tableWide と排他）。 */
   flowWide: boolean;
   toggleFlowWide: () => void;
+
+  /** 分割 / 工程表のみ / 工程フローのみ をタブで直接切替（tableWide・flowWide を一括設定）。 */
+  setPaneLayout: (mode: 'split' | 'table' | 'flow') => void;
+
+  /** 集中モード: 上部ツールバー＋各ビューのヘッダ・操作バーを隠して作業エリアを最大化。
+      表示制御は App の .focus-mode クラス＋CSS で行う。localStorage 永続(既定 OFF=表示)。 */
+  chromeHidden: boolean;
+  toggleChrome: () => void;
 
   /** 工程表の表示モード: アウトライン（階層＋インスペクタ） / 全項目フル表（全列1グリッド）。 */
   tableMode: 'outline' | 'full';
@@ -205,6 +225,9 @@ interface UIState {
   registerOverlayCloser: (closer: () => boolean) => () => void;
   /** Esc で閉じる一時 UI(メニュー等)を登録する(後から登録したものが最上位)。戻り値で解除。 */
   registerTransientLayer: (close: () => void) => () => void;
+  /** 一時 UI(コンテキストメニュー/ドロップダウン)が開いているか。
+      useGlobalHotkeys の停止判定用(メニュー操作中のグローバルキー暴発を防ぐ)。 */
+  hasTransientLayer: () => boolean;
 
   toasts: ToastItem[];
   toast: (message: string, tone?: ToastTone) => void;
@@ -234,6 +257,12 @@ export const useUI = create<UIState>((set, get) => ({
   },
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
 
+  fileName: null,
+  setFileName: (fileName) => set({ fileName }),
+
+  welcomeDismissed: false,
+  setWelcomeDismissed: (welcomeDismissed) => set({ welcomeDismissed }),
+
   tableWide: false,
   toggleTableWide: () =>
     set({ tableWide: !get().tableWide, flowWide: false, ...(get().tableWide ? {} : { activePane: 'table' as const }) }),
@@ -241,6 +270,37 @@ export const useUI = create<UIState>((set, get) => ({
   flowWide: false,
   toggleFlowWide: () =>
     set({ flowWide: !get().flowWide, tableWide: false, ...(get().flowWide ? {} : { activePane: 'flow' as const }) }),
+
+  setPaneLayout: (mode) =>
+    set({
+      tableWide: mode === 'table',
+      flowWide: mode === 'flow',
+      // 全項目表(full)はフローと併存できないため、分割/フロー選択時はアウトラインへ戻す。
+      ...(mode !== 'table' && get().tableMode === 'full' ? { tableMode: 'outline' as const } : {}),
+      ...(mode === 'table'
+        ? { activePane: 'table' as const }
+        : mode === 'flow'
+          ? { activePane: 'flow' as const }
+          : {}),
+    }),
+
+  chromeHidden: (() => {
+    try {
+      return localStorage.getItem(CHROME_KEY) === '1';
+    } catch {
+      return false;
+    }
+  })(),
+  toggleChrome: () => {
+    const next = !get().chromeHidden;
+    try {
+      if (next) localStorage.setItem(CHROME_KEY, '1');
+      else localStorage.removeItem(CHROME_KEY);
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ chromeHidden: next });
+  },
 
   tableMode: 'outline',
   setTableMode: (mode) => set({ tableMode: mode, ...(mode === 'full' ? { activePane: 'table' as const } : {}) }),
@@ -412,6 +472,7 @@ export const useUI = create<UIState>((set, get) => ({
       if (i >= 0) transientClosers.splice(i, 1);
     };
   },
+  hasTransientLayer: () => transientClosers.length > 0,
 
   toasts: [],
   toast: (message, tone = 'info') => {

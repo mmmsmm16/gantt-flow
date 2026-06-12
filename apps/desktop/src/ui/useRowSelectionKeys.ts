@@ -4,11 +4,13 @@
 // j/k での高速移動中はフロー側の粒度/スコープ同期(openRow 相当)を行わず、編集開始時のみ同期する。
 // h/l・←→ で「列カーソル」を動かし、Enter でそのセルの入力へフォーカス(Excel 風)。
 // セルの特定は行内の data-cell 属性(コンポーネント側が付与)で行う。
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { Id } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { confirmRemoveTasks } from '../taskOps';
+import { isImeKeyEvent } from '../keymap';
 import { registerContextHandler } from './useGlobalHotkeys';
 
 export interface RowSelectionOpts {
@@ -22,9 +24,11 @@ export interface RowSelectionOpts {
   beginEdit: (taskId: Id) => void;
   /** 折りたたみトグル(アウトラインのみ)。 */
   toggleCollapse?: (taskId: Id) => void;
+  /** クイックフィルタの検索ボックスへフォーカス(アウトラインのみ。Ctrl/⌘+F)。 */
+  openFind?: () => boolean;
 }
 
-function scrollRowIntoView(taskId: Id): void {
+export function scrollRowIntoView(taskId: Id): void {
   document
     .querySelector(`tr[data-taskid="${CSS.escape(taskId)}"]`)
     ?.scrollIntoView({ block: 'nearest' });
@@ -68,20 +72,96 @@ function cellOf(taskId: Id, colKey: string | undefined): HTMLElement | null {
 // 選択行の指定セル(data-cell)の入力へフォーカスして編集を開始する。
 // data-cell が入力要素そのものなら直接、複合セル(I/O・課題・方策・前工程などの
 // チップ+ボタン構成)は td 側に付け、中の最初の入力(無ければ追加ボタン)へフォーカスする。
-function focusCell(taskId: Id, colKey: string | undefined): boolean {
+// editableOnly=true(編集中の Enter/Tab セル移動)は input/textarea だけを対象にし、
+// select やボタンしか無いセルはスキップ扱いにする(編集可能セルだけを辿る規約)。
+export function focusCell(taskId: Id, colKey: string | undefined, editableOnly = false): boolean {
   const el = cellOf(taskId, colKey);
   if (!el) return false;
   // 入力系を優先し、無ければ追加ボタン等へ(×削除ボタンに最初のフォーカスが
   // 当たって Enter 連打で誤削除…を避けるため、button は最後の手段)。
-  const target = el.matches('input, textarea, select, button')
+  const editable = el.matches('input, textarea')
     ? el
-    : (el.querySelector<HTMLElement>('input, textarea, select') ??
-      el.querySelector<HTMLElement>('button'));
+    : el.querySelector<HTMLElement>('input, textarea');
+  const target = editableOnly
+    ? editable
+    : (editable ??
+      (el.matches('select, button')
+        ? el
+        : (el.querySelector<HTMLElement>('select') ?? el.querySelector<HTMLElement>('button'))));
   if (!target) return false;
   target.focus();
   if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) target.select();
   scrollCellVisible(el);
   return true;
+}
+
+export type EditNavDir = 'up' | 'down' | 'left' | 'right';
+
+// 編集中ナビゲーションの移動先解決。tryFocus が true を返す最初のセルまで一方向に辿る
+// (編集できない行・列を飛ばす)。DOM 非依存の純粋ロジックとして切り出しテスト可能にする。
+export function resolveEditNavTarget(
+  grid: { orderedIds: readonly Id[]; columns: readonly string[] },
+  from: { taskId: Id; colKey: string },
+  dir: EditNavDir,
+  tryFocus: (taskId: Id, colKey: string) => boolean,
+): { taskId: Id; colKey: string } | null {
+  if (dir === 'up' || dir === 'down') {
+    const r = grid.orderedIds.indexOf(from.taskId);
+    if (r < 0) return null;
+    const step = dir === 'down' ? 1 : -1;
+    for (let i = r + step; i >= 0 && i < grid.orderedIds.length; i += step) {
+      const id = grid.orderedIds[i]!;
+      if (tryFocus(id, from.colKey)) return { taskId: id, colKey: from.colKey };
+    }
+  } else {
+    const c = grid.columns.indexOf(from.colKey);
+    if (c < 0) return null;
+    const step = dir === 'right' ? 1 : -1;
+    for (let j = c + step; j >= 0 && j < grid.columns.length; j += step) {
+      const key = grid.columns[j]!;
+      if (tryFocus(from.taskId, key)) return { taskId: from.taskId, colKey: key };
+    }
+  }
+  return null;
+}
+
+// 編集中(セル内入力)の Enter/Tab ナビゲーション(Excel 風)。アウトラインと全項目表で共通の規約:
+//  Enter=確定して同列の下セルへ / Shift+Enter=上へ / Tab・Shift+Tab=確定して右/左の編集可能セルへ。
+//  確定は各入力の onBlur コミットに任せる(フォーカス移動で blur が走る)。textarea の Enter は
+//  改行を優先して奪わない(行追加は Ctrl+Enter のまま)。select・チップ等で入力が無いセルはスキップ。
+function handleEditNav(
+  e: ReactKeyboardEvent,
+  o: RowSelectionOpts,
+  setColIdx: (idx: number) => void,
+): void {
+  if (isImeKeyEvent(e)) return; // IME 変換確定の Enter/Tab を移動にしない
+  if (e.ctrlKey || e.metaKey || e.altKey) return; // Ctrl+Enter(行追加)等は呼び出し側の既存処理へ
+  if (e.key !== 'Enter' && e.key !== 'Tab') return;
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) return; // select 等は既定動作のまま
+  if (t instanceof HTMLTextAreaElement && e.key === 'Enter') return; // 複数行セルは Enter=改行
+  const colKey = t.closest('[data-cell]')?.getAttribute('data-cell');
+  const taskId = t.closest('tr[data-taskid]')?.getAttribute('data-taskid');
+  if (!colKey || !taskId) return; // 表のセル外(ヘッダの検索ボックス等)は対象外
+  e.preventDefault();
+  e.stopPropagation(); // blur 後にグローバルの Enter(table.edit)を再発火させない
+  const dir: EditNavDir =
+    e.key === 'Enter' ? (e.shiftKey ? 'up' : 'down') : e.shiftKey ? 'left' : 'right';
+  const moved = resolveEditNavTarget(
+    { orderedIds: o.orderedIds, columns: o.columns },
+    { taskId, colKey },
+    dir,
+    (id, key) => focusCell(id, key, true),
+  );
+  if (!moved) {
+    // 端で移動先が無い Enter は従来どおり確定して選択モードへ(Tab はその場に留まる)。
+    if (e.key === 'Enter') t.blur();
+    return;
+  }
+  // 選択と列カーソルを移動先へ追従させる(Esc で選択モードへ戻った直後の j/k・h/l と一致)。
+  if (moved.taskId !== taskId) useApp.getState().select(moved.taskId);
+  const ci = o.columns.indexOf(moved.colKey);
+  if (ci >= 0) setColIdx(ci);
 }
 
 // 'table' コンテキストのアクション実行本体。hook の閉包から切り離し、テストから直接呼べる形にする。
@@ -92,6 +172,14 @@ export function runTableAction(
   col: { get: () => number; set: (idx: number) => void },
 ): boolean {
   if (!o.enabled) return false;
+  // クイックフィルタは行ゼロでも開ける(絞り込みで 0 件になった状態から解除できるように)。
+  // 非対応ビュー(全項目表)でも true を返して preventDefault し、ブラウザ検索に
+  // 素通りさせない(アプリ内ショートカットのつもりの押下に案内だけ出す)。
+  if (action === 'table.find') {
+    if (o.openFind?.()) return true;
+    useUI.getState().toast('クイックフィルタはアウトライン表示で使えます');
+    return true;
+  }
   const app = useApp.getState();
   const ids = o.orderedIds;
   if (ids.length === 0) return false;
@@ -211,7 +299,11 @@ export function runTableAction(
   }
 }
 
-export function useRowSelectionKeys(opts: RowSelectionOpts): { colIdx: number } {
+export function useRowSelectionKeys(opts: RowSelectionOpts): {
+  colIdx: number;
+  /** 編集中(セル内入力)の Enter/Tab セル移動。表(table 要素)の onKeyDown に張る。 */
+  editNavKeyDown: (e: ReactKeyboardEvent) => void;
+} {
   // ハンドラは初回登録のみ・中身は ref 経由で常に最新を見る(再登録の揺れを避ける)。
   const optsRef = useRef(opts);
   optsRef.current = opts;
@@ -226,5 +318,10 @@ export function useRowSelectionKeys(opts: RowSelectionOpts): { colIdx: number } 
     );
   }, []);
 
-  return { colIdx: Math.min(colIdx, Math.max(0, opts.columns.length - 1)) };
+  const editNavKeyDown = useCallback(
+    (e: ReactKeyboardEvent) => handleEditNav(e, optsRef.current, setColIdx),
+    [],
+  );
+
+  return { colIdx: Math.min(colIdx, Math.max(0, opts.columns.length - 1)), editNavKeyDown };
 }

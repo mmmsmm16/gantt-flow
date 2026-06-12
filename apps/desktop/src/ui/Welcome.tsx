@@ -11,9 +11,11 @@ interface Props {
   onOpen: () => void;
   onOpenRecent: (name: string) => void;
   onTemplate: (key: string) => void;
+  /** 空の編集画面（空の表＋空のフロー）へ。プロジェクトは既に空なので画面を切り替えるだけ。 */
+  onStartEmpty: () => void;
 }
 
-export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate }: Props) {
+export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate, onStartEmpty }: Props) {
   const [recent, setRecent] = useState<{ name: string; at: number }[]>([]);
   useEffect(() => {
     void listRecentFiles().then(setRecent);
@@ -54,6 +56,10 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate }
           <button className="welcome-secondary" onClick={onOpen}>
             <Icons.FolderOpen />
             保存ファイルを開く
+          </button>
+          <button className="welcome-secondary" onClick={onStartEmpty}>
+            <Icons.FilePlus />
+            空のプロジェクトから始める
           </button>
         </div>
 
@@ -109,7 +115,8 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate }
         </ul>
 
         <p className="welcome-foot">
-          空の状態から始めるには、上部ツールバーの <Icons.FilePlus /> 新規、または下の表から作業を追加します。
+          まっさらな状態から作るには上の「空のプロジェクトから始める」を。開いたあとは表の「＋
+          大工程」「＋ 中工程」から作業を追加できます。
         </p>
       </div>
     </div>
