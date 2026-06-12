@@ -57,7 +57,7 @@
 
 ### 入出力・保存
 
-- **保存 / 開く**：ブラウザは File System Access API（同一ファイルへ上書き）、Tauri はアトミック保存＋助言ロックで同時編集に対応。最近使ったファイルの再オープンも可。
+- **保存 / 開く**：専用拡張子 **`.gflow`**（中身は JSON）で保存。デスクトップ版は OS にファイル関連付けされ、`.gflow` の既定アプリが本アプリになる（テキストエディタへの誤関連付けを避ける）。ブラウザは File System Access API（同一ファイルへ上書き）、Tauri はアトミック保存＋助言ロックで同時編集に対応。旧 `.json` も開ける（後方互換）。最近使ったファイルの再オープンも可。
 - **取り込み**：CSV / Excel を取り込んで新規プロジェクト化。工程No による前工程参照でラウンドトリップ。
 - **出力**：Excel（.xlsx）／CSV（数式インジェクション対策あり）／画像（SVG・PNG）／印刷・PDF（工程表＋フローを 1 枚に合成）。
 - **自動退避 / 世代バックアップ**：未保存データを localStorage に自動退避し起動時に復元確認。保存成功時は直近世代をバックアップ。
@@ -73,9 +73,9 @@
 | 粒度切替・親範囲バンド・課題レイヤ・逆同期(レーン→担当)・取り込み(CSV/Excel) | ✅ 実装 |
 | 自動退避・世代バックアップ・設定の JSON 共有・テーマ（ライト/ダーク） | ✅ 実装 |
 | `crates/fsstore`（Rust: アトミック保存＋助言ロック=同時編集の核） | ✅ 実装（cargo test 15 件 green） |
-| `apps/desktop/src-tauri`（Tauri 2 殻） | 🟡 スキャフォールド済（ビルドは各自環境・[手順](apps/desktop/src-tauri/README.md)） |
+| `apps/desktop/src-tauri`（Tauri 2 殻: save/open・stat・助言ロック・ファイルダイアログ・パス許可リスト・`.gflow` 関連付け） | ✅ Rust コマンド実装＋フロント配線済（`persistence.ts` が `__TAURI__` 検出で invoke） |
 | 出力(Excel・CSV・SVG/PNG・印刷/PDF) | ✅ 実装 |
-| E2E(Playwright) / Tauri 配下のファイル保存配線 | ⛔ 未実装 |
+| デスクトップ実機ビルド/実行（`libwebkit2gtk-4.1-dev`＋画面が必要・[手順](apps/desktop/src-tauri/README.md)） / E2E(Playwright) | ⛔ 本リポジトリでは未実施 |
 
 ## はじめかた（クローン → 起動）
 
@@ -100,7 +100,7 @@ npm run dev -w @gantt-flow/desktop
 サンプルや業務テンプレートを開いたら、表で担当・前工程・I/O・課題を編集すると、右の **業務フロー図が自動で同期** されます。
 フローのノードはドラッグで動かせ、配置は編集を跨いで保持されます（戻す/やり直しも可）。
 **粒度切替・親範囲バンド・課題レイヤ ON/OFF・別レーンへドラッグで担当を書き戻す逆同期**にも対応。
-**「保存」で `.json` 書き出し、「開く」で読込、「取り込み(CSV/Excel)」で既存表から新規作成**できます。
+**「保存」で `.gflow` 書き出し（中身は JSON・旧 `.json` も開けます）、「開く」で読込、「取り込み(CSV/Excel)」で既存表から新規作成**できます。
 
 ### 開発（テスト・型チェック・ビルド）
 
@@ -113,10 +113,13 @@ cargo test --manifest-path crates/fsstore/Cargo.toml   # Rust（保存/ロック
 
 `packages/core` 単体で作業する場合は `cd packages/core && npm run test:watch`。
 
-> **Tauri デスクトップ殻（webview）はスキャフォールド済・このリポジトリではビルドしていません。**
-> デスクトップ保存の核（アトミック書き込み・助言ロック）は `crates/fsstore` に Rust で実装＆テスト済みで、
-> Tauri 殻（`apps/desktop/src-tauri`）がこれを呼びます。殻のビルドには `libwebkit2gtk-4.1-dev` 等と画面が
-> 要るため各自の環境で。手順は [apps/desktop/src-tauri/README.md](apps/desktop/src-tauri/README.md) を参照。
+> **Tauri デスクトップ殻のコードは実装済みです（このリポジトリでは実機バイナリをビルドしていません）。**
+> デスクトップ保存の核（アトミック書き込み・助言ロック）は `crates/fsstore` に Rust で実装＆テスト済み、
+> それを呼ぶ Tauri コマンド（`apps/desktop/src-tauri/src/main.rs`）と、`__TAURI__` を検出して invoke する
+> フロント側（`apps/desktop/src/persistence.ts`）も配線済みです。保存形式は専用拡張子 `.gflow`（中身は JSON）で、
+> `tauri.conf.json` の `fileAssociations` により OS に関連付きます。残るのは実機バイナリのビルド/実行で、
+> `libwebkit2gtk-4.1-dev` 等と画面が要るため各自の環境で行います。手順は
+> [apps/desktop/src-tauri/README.md](apps/desktop/src-tauri/README.md) を参照。
 
 ### UI ワイヤーフレーム（参考）
 

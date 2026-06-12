@@ -52,8 +52,18 @@ declare global {
   }
 }
 
-const JSON_TYPES: FsPickerType[] = [
-  { description: 'gantt-flow プロジェクト', accept: { 'application/json': ['.json'] } },
+// プロジェクトの保存拡張子。中身は JSON のままだが、専用拡張子にすることで
+// OS のファイル関連付け（tauri.conf.json の bundle.fileAssociations）でダブルクリック時に
+// 本アプリで開け、テキストエディタへの誤関連付けを避ける。
+export const PROJECT_EXT = '.gflow';
+
+// 保存/開くのファイルピッカー種別。保存時は先頭の拡張子（.gflow）が既定になり、
+// 開く時は旧 .json も選べる（後方互換: 拡張子変更前に保存したファイルを読める）。
+const PROJECT_TYPES: FsPickerType[] = [
+  {
+    description: 'gantt-flow プロジェクト',
+    accept: { 'application/json': [PROJECT_EXT, '.json'] },
+  },
 ];
 
 // ---- Tauri バックエンド ----
@@ -261,14 +271,14 @@ async function doSaveProjectToFile(
   opts: { saveAs?: boolean; force?: boolean },
 ): Promise<SaveOutcome> {
   const json = serializeProject(project);
-  const suggested = `${safeName(project.meta.title)}.json`;
+  const suggested = `${safeName(project.meta.title)}${PROJECT_EXT}`;
   if (isTauri()) return saveTauri(json, suggested, opts);
   if (fsSupported()) {
     if (!fileHandle || opts.saveAs) {
       try {
         fileHandle = await window.showSaveFilePicker!({
           suggestedName: suggested,
-          types: JSON_TYPES,
+          types: PROJECT_TYPES,
         });
       } catch (err) {
         if (isAbort(err)) return { kind: 'cancelled' };
@@ -296,7 +306,7 @@ async function saveTauri(
   if (!path || opts.saveAs) {
     path = await invoke<string | null>('pick_save_path', { suggestedName: suggested });
     if (path === null) return { kind: 'cancelled' };
-    // 拡張子（.json）の補完と保存先の許可登録は Rust 側 pick_save_path が行う。ここで
+    // 拡張子（.gflow）の補完と保存先の許可登録は Rust 側 pick_save_path が行う。ここで
     // 別の文字列へ書き換えると、許可リストに載ったパスと一致せず save_project が弾かれる。
     picked = true;
   }
@@ -332,9 +342,9 @@ async function saveTauri(
   return { kind: 'saved', name: basename(path) };
 }
 
-/** プロジェクトを JSON ファイルとしてダウンロード保存する（クラッシュ時の退避など最終手段）。 */
+/** プロジェクトをファイルとしてダウンロード保存する（クラッシュ時の退避など最終手段）。 */
 export function downloadProjectJson(project: Project): string {
-  const name = `${safeName(project.meta.title)}.json`;
+  const name = `${safeName(project.meta.title)}${PROJECT_EXT}`;
   download(name, serializeProject(project), 'application/json');
   return name;
 }
@@ -539,7 +549,7 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
   if (typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function') {
     let handles: FsFileHandle[];
     try {
-      handles = await window.showOpenFilePicker({ types: JSON_TYPES, multiple: false });
+      handles = await window.showOpenFilePicker({ types: PROJECT_TYPES, multiple: false });
     } catch (err) {
       if (isAbort(err)) return null;
       throw err;
@@ -556,7 +566,7 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,application/json';
+    input.accept = '.gflow,.json,application/json';
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) {

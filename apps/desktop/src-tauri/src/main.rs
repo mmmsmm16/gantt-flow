@@ -152,7 +152,8 @@ async fn pick_open_path(
     let picked = app
         .dialog()
         .file()
-        .add_filter("JSON", &["json"])
+        // 専用拡張子 .gflow を既定にしつつ、旧 .json も開ける（後方互換）。
+        .add_filter("gantt-flow", &["gflow", "json"])
         .blocking_pick_file()
         .map(file_path_to_string)
         .transpose()?;
@@ -171,19 +172,22 @@ async fn pick_save_path(
     let picked = app
         .dialog()
         .file()
-        .add_filter("JSON", &["json"])
+        // 専用拡張子 .gflow を既定にしつつ、旧 .json での上書き保存も許す（後方互換）。
+        .add_filter("gantt-flow", &["gflow", "json"])
         .set_file_name(suggested_name)
         .blocking_save_file()
         .map(file_path_to_string)
         .transpose()?;
     // 拡張子の補完はここ（許可リストに載る最終パス）で行う。Linux（GTK ポータル等）の保存
-    // ダイアログは拡張子を自動付与しないため、.json 無しのパスをそのまま許可リストに入れると、
-    // フロント側が .json を足したパスが許可リストと一致せず保存が弾かれてしまう。
+    // ダイアログは拡張子を自動付与しないため、拡張子無しのパスをそのまま許可リストに入れると、
+    // フロント側が拡張子を足したパスが許可リストと一致せず保存が弾かれてしまう。
+    // 既に .gflow / .json なら尊重し、無ければ既定の .gflow を付与する。
     let picked = picked.map(|p| {
-        if p.to_lowercase().ends_with(".json") {
+        let lower = p.to_lowercase();
+        if lower.ends_with(".gflow") || lower.ends_with(".json") {
             p
         } else {
-            format!("{p}.json")
+            format!("{p}.gflow")
         }
     });
     if let Some(path) = &picked {
