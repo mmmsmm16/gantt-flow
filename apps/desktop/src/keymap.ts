@@ -83,8 +83,12 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'text-red', action: 'color.textRed', context: 'global', chord: { code: 'Digit3', alt: true, shift: true }, help: { group: G.color, label: '文字色: 赤' } },
 
   // --- g リーダー(画面移動) ---
-  { id: 'go-table', action: 'layout.tableToggle', context: 'global', chord: { key: 't' }, leader: true, help: { group: G.nav, label: '工程表を全画面 / 分割に戻す' } },
-  { id: 'go-flow', action: 'layout.flowToggle', context: 'global', chord: { key: 'f' }, leader: true, help: { group: G.nav, label: 'フローを全画面 / 分割に戻す' } },
+  // 小文字 g t / g f = 分割のままそのペインをアクティブ化（フォーカス移動）。
+  // Shift 版 g T / g F = そのペインを全画面トグル。shift は明示（未指定だと Shift 版と二重一致する）。
+  { id: 'go-table', action: 'pane.table', context: 'global', chord: { key: 't', shift: false }, leader: true, help: { group: G.nav, label: '工程表ペインをアクティブ（分割）' } },
+  { id: 'go-flow', action: 'pane.flow', context: 'global', chord: { key: 'f', shift: false }, leader: true, help: { group: G.nav, label: 'フローペインをアクティブ（分割）' } },
+  { id: 'go-table-full', action: 'layout.tableToggle', context: 'global', chord: { key: 't', shift: true }, leader: true, help: { group: G.nav, label: '工程表を全画面 / 分割に戻す' } },
+  { id: 'go-flow-full', action: 'layout.flowToggle', context: 'global', chord: { key: 'f', shift: true }, leader: true, help: { group: G.nav, label: 'フローを全画面 / 分割に戻す' } },
   { id: 'go-split', action: 'layout.split', context: 'global', chord: { key: 'd' }, leader: true, help: { group: G.nav, label: '分割表示（工程表＋フロー）' } },
   { id: 'go-issues', action: 'view.issues', context: 'global', chord: { key: 'i' }, leader: true, help: { group: G.nav, label: '課題一覧を開く' } },
   { id: 'go-summary', action: 'view.summary', context: 'global', chord: { key: 's' }, leader: true, help: { group: G.nav, label: 'サマリを開く' } },

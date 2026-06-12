@@ -104,15 +104,25 @@ describe('keymap: findBinding', () => {
     const normal = findBinding(ev({ key: 't' }), DEFAULT_KEYMAP, ['table', 'global'], false);
     expect(normal).toBeUndefined();
     const led = findBinding(ev({ key: 't' }), DEFAULT_KEYMAP, ['table', 'global'], true);
-    expect(led?.action).toBe('layout.tableToggle');
+    expect(led?.action).toBe('pane.table');
   });
 
-  it('g t / g f は全画面トグル、g d は分割（リーダー、衝突なし）', () => {
-    expect(findBinding(ev({ key: 't' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('layout.tableToggle');
-    expect(findBinding(ev({ key: 'f' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('layout.flowToggle');
+  it('g t / g f は分割アクティブ化、Shift 併用 g T / g F は全画面トグル、g d は分割', () => {
+    // 小文字: 分割のままペインをアクティブ化
+    expect(findBinding(ev({ key: 't' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('pane.table');
+    expect(findBinding(ev({ key: 'f' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('pane.flow');
+    // Shift 版: 全画面トグル
+    expect(findBinding(ev({ key: 'T', shiftKey: true }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe(
+      'layout.tableToggle',
+    );
+    expect(findBinding(ev({ key: 'F', shiftKey: true }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe(
+      'layout.flowToggle',
+    );
     expect(findBinding(ev({ key: 'd' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('layout.split');
-    const split = DEFAULT_KEYMAP.find((b) => b.id === 'go-split')!;
-    expect(findConflict(DEFAULT_KEYMAP, split, split.chord)).toBeUndefined();
+    for (const id of ['go-table', 'go-flow', 'go-table-full', 'go-flow-full', 'go-split']) {
+      const b = DEFAULT_KEYMAP.find((x) => x.id === id)!;
+      expect(findConflict(DEFAULT_KEYMAP, b, b.chord), id).toBeUndefined();
+    }
   });
 
   it('g g は table コンテキストで先頭へ、G(Shift) は末尾へ', () => {
