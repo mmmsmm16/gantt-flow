@@ -2771,6 +2771,20 @@ kbd {
   opacity: 0.5;
   pointer-events: none;
 }
+/* ドラッグ吸着のガイド線（スマートガイド）。揃った相手同士を結ぶ破線。 */
+.snap-guide {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+.snap-guide-y {
+  height: 0;
+  border-top: 1px dashed var(--accent-strong);
+}
+.snap-guide-x {
+  width: 0;
+  border-left: 1px dashed var(--accent-strong);
+}
 .palette-sep {
   width: 1px;
   height: 18px;

@@ -5,7 +5,8 @@ import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { TASK_COLORS } from './theme';
-import { nearestInDirection, firstVisual, type NavDir } from './spatialNav';
+import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
+import { computeSnap, type SnapGuide, type SnapRect } from './snap';
 import * as Icons from './ui/icons';
 import {
   SIZE,
@@ -36,6 +37,8 @@ const FULL_W = 3000;
 const CANVAS_W = 1600; // フロー配置の論理サイズ（はみ出しはスクロール）
 const CANVAS_H = 1400;
 const clampScale = (s: number) => Math.min(2.5, Math.max(0.4, +s.toFixed(3)));
+// ドラッグ吸着の距離（画面ピクセル）。論理座標へは scale で割って換算する。
+const SNAP_PX = 6;
 const CONTROL_LABEL: Record<ControlKind, string> = {
   start: '開始',
   end: '終了',
@@ -101,6 +104,10 @@ export function FlowCanvas() {
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; ox: number; oy: number; offX: number; offY: number } | null>(null);
+  // ドラッグ吸着（スマートガイド）。候補はドラッグ開始時に 1 回だけ構築して ref に保持
+  // （drag effect は毎フレーム再実行されるため、effect 内で組むと毎フレーム O(n) になる）。
+  const snapCtxRef = useRef<{ size: { w: number; h: number }; candidates: SnapRect[] } | null>(null);
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   // 複数選択（範囲ドラッグ / Shift+クリック）。まとめて移動・削除できる。
   const [multiSel, setMultiSel] = useState<Set<FlowNodeId>>(new Set());
   const multiSelRef = useRef(multiSel);
@@ -267,15 +274,33 @@ export function FlowCanvas() {
   }, []);
 
   useEffect(() => {
-    if (!drag) return;
+    if (!drag) {
+      setSnapGuides((g) => (g.length ? [] : g)); // ドラッグ終了後にガイドが残らないように
+      return;
+    }
     const onMove = (e: PointerEvent) => {
       const s = downPosRef.current;
       if (s && (Math.abs(e.clientX - s.x) > 4 || Math.abs(e.clientY - s.y) > 4)) movedRef.current = true;
       const p = relPoint(e);
-      setDrag((d) => (d ? { ...d, x: p.x - d.offX, y: p.y - d.offY } : d));
+      // 近くのノードと上端/中央・左端/中央が揃う位置へ吸着（Alt/Option 押下中は無効）。
+      // 吸着済みの座標を drag に書くので、確定(onUp)もそのまま揃った値になる。
+      let nx = p.x - drag.offX;
+      let ny = p.y - drag.offY;
+      let guides: SnapGuide[] = [];
+      const ctx = snapCtxRef.current;
+      if (ctx && !e.altKey) {
+        const snapped = computeSnap({ x: nx, y: ny, ...ctx.size }, ctx.candidates, SNAP_PX / scale);
+        nx = snapped.x;
+        ny = snapped.y;
+        guides = snapped.guides;
+      }
+      setSnapGuides(guides);
+      setDrag((d) => (d ? { ...d, x: nx, y: ny } : d));
     };
     const onUp = () => {
       downPosRef.current = null;
+      snapCtxRef.current = null;
+      setSnapGuides([]);
       setDrag((d) => {
         if (d && movedRef.current) {
           const ms = multiSelRef.current;
@@ -498,6 +523,30 @@ export function FlowCanvas() {
         return nudge(0, -step);
       case 'flow.moveDown':
         return nudge(0, step);
+      case 'flow.alignLeft':
+      case 'flow.alignRight':
+      case 'flow.alignUp':
+      case 'flow.alignDown': {
+        // 整列ジャンプ: その方向の隣の列(左端 x)/行(中央 y)へぴったり揃えて移動。
+        // 複数選択は主ノード(先頭)を基準に全体を同じ差分で動かす。
+        const targets = keyTargets();
+        if (!targets.length) return false;
+        const boxes = navBoxes();
+        const cur = boxes.find((b) => b.id === targets[0]);
+        if (!cur) return false;
+        const tset = new Set(targets);
+        const dir: NavDir =
+          action === 'flow.alignLeft'
+            ? 'left'
+            : action === 'flow.alignRight'
+              ? 'right'
+              : action === 'flow.alignUp'
+                ? 'up'
+                : 'down';
+        const jump = alignTarget(cur, boxes.filter((b) => !tset.has(b.id)), dir);
+        if (jump) moveNodesBy(targets, jump.dx, jump.dy);
+        return true; // 行き先が無くてもキーは消費(画面スクロールの暴発を防ぐ)
+      }
       case 'flow.zoomIn':
         zoomBy(1.2);
         return true;
@@ -1176,6 +1225,18 @@ export function FlowCanvas() {
                 downPosRef.current = { x: e.clientX, y: e.clientY };
                 movedRef.current = false;
                 const pt = relPoint(e);
+                // 吸着候補（自分と複数選択の連れは除外）をドラッグ開始時に 1 回だけ構築。
+                const dragged = multiSel.has(n.id) ? multiSel : new Set([n.id]);
+                snapCtxRef.current = {
+                  size: nodeSize(n),
+                  candidates: divNodes
+                    .filter(
+                      (m) =>
+                        (m.kind === 'task' || m.kind === 'control' || m.kind === 'comment') &&
+                        !dragged.has(m.id),
+                    )
+                    .map((m) => ({ x: m.x, y: m.y, ...nodeSize(m) })),
+                };
                 setDrag({ id: n.id, x: n.x, y: n.y, ox: n.x, oy: n.y, offX: pt.x - n.x, offY: pt.y - n.y });
               }}
               onClick={(e) => {
@@ -1382,6 +1443,19 @@ export function FlowCanvas() {
             );
           })}
         </svg>
+
+        {/* ドラッグ吸着のガイド線（揃った相手を端から端まで結ぶ）。ノードより上層に描く。 */}
+        {snapGuides.map((g, i) => (
+          <div
+            key={`${g.axis}-${i}`}
+            className={`snap-guide snap-guide-${g.axis}`}
+            style={
+              g.axis === 'y'
+                ? { left: g.from, top: g.pos, width: g.to - g.from }
+                : { left: g.pos, top: g.from, height: g.to - g.from }
+            }
+          />
+        ))}
 
         {!nodes.some((n) => n.kind === 'task') && (
           <div className="flow-empty">
