@@ -273,6 +273,13 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       const mod = e.ctrlKey || e.metaKey;
       const leaderActive = leader.isPending();
 
+      // リーダー待機中の修飾キー単独(Shift/Ctrl/Alt/Meta)の keydown は 2 打目として消費しない。
+      // 「g → Shift+F」のように Shift の keydown が先に届いてもリーダーを解除せず、続く本来の
+      // キー(Shift+F)で判定できるようにする。
+      if (leaderActive && (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta')) {
+        return;
+      }
+
       // g 単打 → リーダー待機開始(編集外・修飾なしのみ。Shift+G は別バインド)。
       // シングルキー操作 OFF のときはリーダー自体を無効化(チップも出さない)。
       if (ui.singleKey && !editable && !leaderActive && !mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g' && !e.repeat) {
