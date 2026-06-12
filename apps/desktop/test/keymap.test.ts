@@ -77,6 +77,22 @@ describe('keymap: findBinding', () => {
     ).toBe('flow.addInput'); // Alt 代替は残る
   });
 
+  it('並行工程: p=並行追加 / Shift+P=並行化ピッカー(Alt+KeyP は常時有効の代替)', () => {
+    expect(findBinding(ev({ key: 'p' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.addParallel');
+    expect(findBinding(ev({ key: 'P', shiftKey: true }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe(
+      'flow.makeParallel',
+    );
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'p' }), off, ['flow'], false)).toBeUndefined(); // 単キーは OFF で消える
+    // Mac の Option+P は 'π'、Option+Shift+P は '∏' になるため code(KeyP) で判定する
+    expect(findBinding(ev({ key: 'π', code: 'KeyP', altKey: true }), off, ['flow'], false)?.action).toBe(
+      'flow.addParallel',
+    );
+    expect(
+      findBinding(ev({ key: '∏', code: 'KeyP', altKey: true, shiftKey: true }), off, ['flow'], false)?.action,
+    ).toBe('flow.makeParallel');
+  });
+
   it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動、Alt+Shift=整列ジャンプ', () => {
     expect(findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
     expect(findBinding(ev({ key: 'arrowdown' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');

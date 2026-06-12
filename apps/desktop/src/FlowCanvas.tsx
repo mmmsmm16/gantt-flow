@@ -57,6 +57,8 @@ export function FlowCanvas() {
   const moveNode = useApp((s) => s.moveNode);
   const addTaskAt = useApp((s) => s.addTaskAt);
   const connect = useApp((s) => s.connect);
+  const addParallel = useApp((s) => s.addParallel);
+  const makeParallelTo = useApp((s) => s.makeParallelTo);
   const addControlNode = useApp((s) => s.addControlNode);
   const addComment = useApp((s) => s.addComment);
   const setEdgeLabel = useApp((s) => s.setEdgeLabel);
@@ -116,8 +118,10 @@ export function FlowCanvas() {
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   // フロー上で工程名をその場編集している対象（ダブルクリック / F2）。
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  // キーボード接続モード(c)。起点から候補(距離順)を Tab/矢印で循環し Enter で接続。
+  // キーボードピッカー。mode='connect'(c)は接続先、'parallel'(Shift+P)は並行化の基準工程を、
+  // 起点から候補(距離順)を Tab/矢印で循環し Enter(またはクリック)で確定する。
   const [kbConnect, setKbConnect] = useState<{
+    mode: 'connect' | 'parallel';
     from: FlowNodeId;
     candidates: FlowNodeId[];
     idx: number;
@@ -598,7 +602,36 @@ export function FlowCanvas() {
           })
           .map((n) => n.id);
         if (!cands.length) return false;
-        setKbConnect({ from: from.id, candidates: cands, idx: 0 });
+        setKbConnect({ mode: 'connect', from: from.id, candidates: cands, idx: 0 });
+        return true;
+      }
+      case 'flow.addParallel': {
+        // 選択中の工程の並行工程を追加(前工程を写して直下へ。store が配置まで行う)。
+        const targetId = keyTargets()[0];
+        const tn = targetId ? view.nodes[targetId] : undefined;
+        const taskId = tn?.kind === 'task' ? tn.taskId : selectedTaskId;
+        if (!taskId || !project.core.tasks[taskId]) return false;
+        addParallel(taskId);
+        return true;
+      }
+      case 'flow.makeParallel': {
+        // 基準工程ピッカーを開く(接続モードと同じ操作系。候補は工程ノードのみ)。
+        const fromId = keyTargets()[0];
+        const from = fromId ? view.nodes[fromId] : undefined;
+        if (!from || from.kind !== 'task') return false;
+        const fc = center(from);
+        const cands = Object.values(view.nodes)
+          .filter((n) => n.kind === 'task' && n.id !== from.id)
+          .sort((a, b) => {
+            const ca = center(a);
+            const cb = center(b);
+            return (
+              Math.hypot(ca.cx - fc.cx, ca.cy - fc.cy) - Math.hypot(cb.cx - fc.cx, cb.cy - fc.cy)
+            );
+          })
+          .map((n) => n.id);
+        if (!cands.length) return false;
+        setKbConnect({ mode: 'parallel', from: from.id, candidates: cands, idx: 0 });
         return true;
       }
       case 'flow.delete': {
@@ -651,6 +684,17 @@ export function FlowCanvas() {
     }
   };
 
+  // ピッカー確定: connect=矢印(依存)を引く、parallel=基準工程と並行化(依存の付け替えは store)。
+  const commitPick = (mode: 'connect' | 'parallel', fromId: FlowNodeId, targetId: FlowNodeId) => {
+    if (mode === 'parallel') {
+      const f = view.nodes[fromId];
+      const t = view.nodes[targetId];
+      if (f?.kind === 'task' && t?.kind === 'task') makeParallelTo(f.taskId, t.taskId);
+      return;
+    }
+    connect(fromId, targetId);
+  };
+
   // 'connect' コンテキストのアクション実行(キー照合・ガードは useGlobalHotkeys 済み)。
   // Tab=距離順の循環、矢印/hjkl=方向で接続先を選ぶ、Enter=確定、Esc/c=取消。
   connectActionsRef.current = (action) => {
@@ -691,7 +735,7 @@ export function FlowCanvas() {
       case 'connect.commit': {
         if (!kbConnect) return false;
         const target = kbConnect.candidates[kbConnect.idx];
-        if (target) connect(kbConnect.from, target);
+        if (target) commitPick(kbConnect.mode, kbConnect.from, target);
         setKbConnect(null);
         return true;
       }
@@ -953,7 +997,9 @@ export function FlowCanvas() {
         </span>
         {kbConnect ? (
           <span className="palette-hint connect-hint">
-            接続モード: 矢印（hjkl）で接続先を選び Enter で接続（Tab=順送り / Esc で取消）
+            {kbConnect.mode === 'parallel'
+              ? '並行化: 矢印（hjkl）で基準の工程を選び Enter で確定（クリックでも可 / Esc で取消）'
+              : '接続モード: 矢印（hjkl）で接続先を選び Enter で接続（Tab=順送り / Esc で取消）'}
           </span>
         ) : (
           <span className="palette-hint">○ドラッグで矢印 / c で接続モード / Shift+ドラッグで範囲選択 / Delete で削除</span>
@@ -1245,6 +1291,12 @@ export function FlowCanvas() {
                   movedRef.current = false; // ドラッグで動かした直後の click は選択しない
                   return;
                 }
+                if (kbConnect && kbCandSet?.has(n.id)) {
+                  // ピッカー中のクリック=その候補で確定(接続/並行化とも。従来は選択に化けていた)。
+                  commitPick(kbConnect.mode, kbConnect.from, n.id);
+                  setKbConnect(null);
+                  return;
+                }
                 if (e.shiftKey) {
                   // Shift+クリック: 複数選択にトグル（単一選択・詳細パネルは出さない）。
                   setMultiSel((prev) => {
@@ -1370,6 +1422,18 @@ export function FlowCanvas() {
                     }}
                   >
                     📌
+                  </button>
+                  <button
+                    className="pin-btn parallel-btn"
+                    title="並行工程を追加（前工程を引き継いで直下に作成）"
+                    aria-label="並行工程を追加"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addParallel(n.taskId);
+                    }}
+                  >
+                    ∥
                   </button>
                 </>
               )}

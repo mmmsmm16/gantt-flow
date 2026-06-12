@@ -512,6 +512,39 @@ function PaletteBody(handlers: FileHandlers) {
         },
       },
       {
+        id: 'add-parallel',
+        label: '並行工程を追加（選択工程の直下）',
+        keywords: 'parallel heikou 並行 並列 同時 追加',
+        available: hasSel,
+        run: () => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.addParallel(a.selectedTaskId);
+        },
+      },
+      {
+        id: 'arg-make-parallel',
+        label: '基準を指定して並行にする…（選択工程を）',
+        keywords: 'parallel heikou 並行 並列 同時 揃える',
+        available: hasSel,
+        arg: {
+          placeholder: '並行にする基準の工程を選択',
+          options: () => {
+            const a = useApp.getState();
+            const view = findView(a.project, a.level, a.scopeParentId);
+            if (!view || !a.selectedTaskId) return [];
+            return Object.values(view.nodes).flatMap((n) =>
+              n.kind === 'task' && n.taskId !== a.selectedTaskId
+                ? [{ value: n.taskId, label: a.project.core.tasks[n.taskId]?.name || '（無題）' }]
+                : [],
+            );
+          },
+        },
+        runWithArg: (v) => {
+          const a = useApp.getState();
+          if (a.selectedTaskId) a.makeParallelTo(a.selectedTaskId, v);
+        },
+      },
+      {
         id: 'duplicate-task',
         label: '選択中の工程を複製',
         keywords: 'duplicate fukusei 複製 コピー copy',

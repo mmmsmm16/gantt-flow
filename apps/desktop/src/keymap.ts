@@ -156,6 +156,12 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'add-input-alt', action: 'flow.addInput', context: 'flow', chord: { code: 'KeyI', alt: true } },
   { id: 'add-output', action: 'flow.addOutput', context: 'flow', chord: { key: 'o' }, help: { group: G.flow, label: 'アウトプットを追加(選択工程)' } },
   { id: 'add-output-alt', action: 'flow.addOutput', context: 'flow', chord: { code: 'KeyO', alt: true } },
+  // 並行工程: p=並行工程を追加(前工程を写して直下へ)、Shift+P=基準を選んで並行化(ピッカー)。
+  // Alt 版は常時有効の代替(i/o と同じ規約。Mac の Option 記号対策で code 判定)。
+  { id: 'add-parallel', action: 'flow.addParallel', context: 'flow', chord: { key: 'p', shift: false }, help: { group: G.flow, label: '並行工程を追加(選択工程の直下)' } },
+  { id: 'add-parallel-alt', action: 'flow.addParallel', context: 'flow', chord: { code: 'KeyP', alt: true, shift: false } },
+  { id: 'make-parallel', action: 'flow.makeParallel', context: 'flow', chord: { key: 'p', shift: true }, help: { group: G.flow, label: '基準を選んで並行にする(Shift+P)' } },
+  { id: 'make-parallel-alt', action: 'flow.makeParallel', context: 'flow', chord: { code: 'KeyP', alt: true, shift: true } },
   // Delete/Backspace=選択要素の削除、Esc=選択解除(表の row-delete / row-clear と同じ体系)。
   { id: 'node-delete', action: 'flow.delete', context: 'flow', chord: { key: 'delete' }, fixed: true, help: { group: G.flow, label: '選択中の要素を削除' } },
   { id: 'node-delete-bs', action: 'flow.delete', context: 'flow', chord: { key: 'backspace' }, fixed: true },
