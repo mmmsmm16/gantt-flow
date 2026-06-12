@@ -10,12 +10,13 @@
 //  4. Esc のフォーカス規則(planEscFocus): モーダルコンテキスト(接続モード等)の Esc が最優先 →
 //     入力系(isEditableTarget)は blur のみ → 非編集のフォーカスは blur しつつ同じ押下で
 //     バインディング(flow.clear / table.clear 等)へ落とす
-//  5. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷)のみ。undo/redo はネイティブ優先
+//  5. 編集中(input 等)は mod 付きの一部(パレット/保存/印刷/クイックフィルタ)のみ。undo/redo はネイティブ優先
 //  6. g リーダー → findBinding(pushKeyContext した 'connect' 等が最優先) → dispatch
 import { useEffect } from 'react';
 import type { TaskColor } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
+import { repeatLastCommand } from './lastCommand';
 import {
   createLeaderTracker,
   findBinding,
@@ -83,16 +84,27 @@ export function planEscFocus(opts: {
 /** ペインをアクティブにし、必要ならレイアウトを直して見えるようにする(フォーカスも移す)。 */
 export function activatePane(pane: 'table' | 'flow'): void {
   const ui = useUI.getState();
-  if (pane === 'table') {
-    if (ui.flowWide) ui.toggleFlowWide(); // 表が畳まれていたら開く
-    ui.setActivePane('table');
-    document.querySelector<HTMLElement>('#main-table')?.focus();
-  } else {
-    if (ui.tableWide) ui.toggleTableWide(); // フローが畳まれていたら開く
-    if (ui.tableMode === 'full') ui.setTableMode('outline'); // 全項目表はフローを隠すため戻す
-    ui.setActivePane('flow');
-    document.querySelector<HTMLElement>('.flow-pane')?.focus();
-  }
+  // 全画面（工程表のみ / フローのみ）でも必ず分割へ戻してから対象ペインをアクティブにする。
+  // g f / g t（小文字）・mod+1 / mod+2・F6 共通の「分割でアクティブ化」挙動。
+  ui.setPaneLayout('split'); // tableWide/flowWide を解除＋全項目表ならアウトラインへ戻す
+  ui.setActivePane(pane);
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>(pane === 'table' ? '#main-table' : '.flow-pane')?.focus();
+  });
+}
+
+// 現在のペインレイアウト（App の paneLayout と同じ規則。full は常にフロー非表示なので表扱い）。
+function currentPaneLayout(ui: ReturnType<typeof useUI.getState>): 'split' | 'table' | 'flow' {
+  return ui.flowWide ? 'flow' : ui.tableWide || ui.tableMode === 'full' ? 'table' : 'split';
+}
+
+// レイアウトを設定し、全画面化したペインへフォーカスを移す（再レンダ後に対象が出るので次フレームで）。
+function setPaneLayoutFocused(mode: 'split' | 'table' | 'flow'): void {
+  useUI.getState().setPaneLayout(mode);
+  requestAnimationFrame(() => {
+    if (mode === 'table') document.querySelector<HTMLElement>('#main-table')?.focus();
+    else if (mode === 'flow') document.querySelector<HTMLElement>('.flow-pane')?.focus();
+  });
 }
 
 export interface GlobalHotkeyHandlers {
@@ -152,6 +164,11 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           ui.setSettingsTab('general');
           ui.setOverlay('settings');
           return true;
+        case 'global.repeatLast':
+          return repeatLastCommand(); // 未記録は false=preventDefault しない
+        case 'global.toggleChrome':
+          ui.toggleChrome();
+          return true;
         case 'pane.table':
           activatePane('table');
           return true;
@@ -160,6 +177,16 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           return true;
         case 'pane.toggle':
           activatePane(ui.activePane === 'table' ? 'flow' : 'table');
+          return true;
+        // g t / g f は全画面トグル（もう一度押すと分割へ戻る）、g d は分割。全画面化した側へフォーカス。
+        case 'layout.tableToggle':
+          setPaneLayoutFocused(currentPaneLayout(ui) === 'table' ? 'split' : 'table');
+          return true;
+        case 'layout.flowToggle':
+          setPaneLayoutFocused(currentPaneLayout(ui) === 'flow' ? 'split' : 'flow');
+          return true;
+        case 'layout.split':
+          setPaneLayoutFocused('split');
           return true;
         case 'view.issues':
           ui.setOverlay('issues');
@@ -196,8 +223,14 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       }
 
       // オーバーレイ等の表示中は停止(パレットの Ctrl+K トグルと、ヘルプ表示中の ? だけ例外)。
+      // 一時 UI(コンテキストメニュー/ドロップダウン)中も停止するが、Esc は上の
+      // closeTopLayer が先に処理するため「Esc でメニューを閉じる」は生きたまま。
       const blocked =
-        ui.overlay !== null || ui.dialog !== null || ui.busy !== null || ui.tourStep !== null;
+        ui.overlay !== null ||
+        ui.dialog !== null ||
+        ui.busy !== null ||
+        ui.tourStep !== null ||
+        ui.hasTransientLayer();
       if (blocked) {
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
           e.preventDefault();
@@ -237,6 +270,13 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       const mod = e.ctrlKey || e.metaKey;
       const leaderActive = leader.isPending();
 
+      // リーダー待機中の修飾キー単独(Shift/Ctrl/Alt/Meta)の keydown は 2 打目として消費しない。
+      // 「g → Shift+F」のように Shift の keydown が先に届いてもリーダーを解除せず、続く本来の
+      // キー(Shift+F)で判定できるようにする。
+      if (leaderActive && (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta')) {
+        return;
+      }
+
       // g 単打 → リーダー待機開始(編集外・修飾なしのみ。Shift+G は別バインド)。
       // シングルキー操作 OFF のときはリーダー自体を無効化(チップも出さない)。
       if (ui.singleKey && !editable && !leaderActive && !mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g' && !e.repeat) {
@@ -265,14 +305,17 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
 
       if (!binding) return;
 
-      // 編集中(input 等)は mod 付きのパレット/保存/印刷のみ通す。
+      // 編集中(input 等)は mod 付きのパレット/保存/印刷/クイックフィルタのみ通す
+      // (table.find はセル編集中や検索ボックス内の再押下でもブラウザ検索を出さないため)。
       // Ctrl+Z/Y はネイティブのテキスト undo を優先(従来挙動)。単キーはすべて無効。
       if (editable) {
         const allowWhileEditing =
           binding.chord.mod === true &&
           (binding.action === 'global.palette' ||
             binding.action === 'global.save' ||
-            binding.action === 'global.print');
+            binding.action === 'global.print' ||
+            binding.action === 'global.toggleChrome' ||
+            binding.action === 'table.find');
         if (!allowWhileEditing) return;
       }
 

@@ -11,8 +11,9 @@ import { parseEffortHoursToMinutes } from './parseEffort';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
+import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
-import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
+import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
@@ -164,6 +165,9 @@ export function FullTable() {
   const setAssigneeManyByName = useApp((s) => s.setAssigneeManyByName);
   const duplicateTask = useApp((s) => s.duplicateTask);
   const pasteRowsAsTasks = useApp((s) => s.pasteRowsAsTasks);
+  // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
+  const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
+  const assigneeFlash = useFlashIds(lastAssigneeSync);
   const ftColumns = useUI((s) => s.ftColumns);
   const toggleFtColumn = useUI((s) => s.toggleFtColumn);
   const ftColWidths = useUI((s) => s.ftColWidths);
@@ -323,7 +327,7 @@ export function FullTable() {
     'name',
     ...FT_COLUMNS.filter((c) => c.cursorable && vis(c.key)).map((c) => c.key),
   ];
-  const { colIdx } = useRowSelectionKeys({
+  const { colIdx, editNavKeyDown } = useRowSelectionKeys({
     enabled: activePane === 'table',
     orderedIds: rows.map((t) => t.id),
     columns: cursorColumns,
@@ -339,6 +343,15 @@ export function FullTable() {
     const idx = rows.findIndex((t) => t.id === selectedTaskId);
     if (idx >= renderCount) setRenderCount(Math.ceil((idx + 1) / ROW_CHUNK) * ROW_CHUNK);
   }, [selectedTaskId, rows, renderCount]);
+
+  // 選択中の工程が変わったら、その行が画面外のとき視点を寄せる（フロー→表追従）。
+  // renderCount を deps に入れない＝ユーザーのスクロール（行追加描画）で視点が戻らないように。
+  // 上の effect が同コミットで描画数を広げるので、rAF 後には対象行が描画済み。
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const raf = requestAnimationFrame(() => scrollRowIntoView(selectedTaskId));
+    return () => cancelAnimationFrame(raf);
+  }, [selectedTaskId]);
 
   // 行クリック: 通常＝単一選択（インスペクタ）、Ctrl/⌘＝トグル、Shift＝アンカーからの範囲選択。
   const onRowClick = (e: React.MouseEvent, t: ProcessTask) => {
@@ -423,10 +436,10 @@ export function FullTable() {
   // キーボード操作:
   //  Ctrl/⌘+Enter … 現在行の次に行を追加（連続入力）
   //  Ctrl/⌘+Delete … 現在行を削除（確認あり）
-  //  Enter（単一行の入力）… 同じ列の下のセルへ移動（textarea は改行優先）
+  //  Enter/Tab（セル内編集中）… 確定して下/上・右/左の編集可能セルへ移動
+  //  （editNavKeyDown=アウトラインと共通の規約。textarea の Enter は改行優先）
   const onGridKeyDown = (e: React.KeyboardEvent) => {
     if (isImeKeyEvent(e)) return; // IME 変換確定の Enter でセル移動しない
-    const el = e.target as HTMLElement;
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       const id = taskOfEvent(e);
@@ -451,14 +464,7 @@ export function FullTable() {
       if (id) void confirmRemoveTasks([id]);
       return;
     }
-    if (e.key !== 'Enter' || el.tagName !== 'INPUT') return;
-    const r = el.dataset.r;
-    const c = el.dataset.c;
-    if (r == null || !c) return;
-    e.preventDefault();
-    const next = tableRef.current?.querySelector<HTMLInputElement>(`input[data-r="${Number(r) + 1}"][data-c="${c}"]`);
-    next?.focus();
-    next?.select?.();
+    editNavKeyDown(e);
   };
 
   if (flat.length === 0) {
@@ -509,7 +515,8 @@ export function FullTable() {
           </span>
         ) : (
           <span className="ft-hint">
-            h/l・←→＝セル移動・Enter＝編集 / Ctrl+Enter＝行追加・Ctrl+D＝複製・Ctrl+Delete＝削除。
+            h/l・←→＝セル移動・Enter＝編集（編集中: Enter/Tab＝下/右のセルへ） /
+            Ctrl+Enter＝行追加・Ctrl+D＝複製・Ctrl+Delete＝削除。
           </span>
         )}
       </div>
@@ -614,7 +621,7 @@ export function FullTable() {
           </tr>
         </thead>
         <tbody>
-          {renderRows.map((t, ri) => {
+          {renderRows.map((t) => {
             const d = project.details[t.id];
             const hasChildren = parentsWithChildren.has(t.id);
             const assigneeName = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
@@ -646,17 +653,8 @@ export function FullTable() {
                         aria-label={c.label}
                         data-task={t.id}
                         key={`name-${t.name}`}
+                        // Enter/Tab のセル移動は表全体の onGridKeyDown(editNavKeyDown)が担う。
                         onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (isImeKeyEvent(e)) return; // IME 変換確定の Enter では確定しない
-                          if (e.key === 'Enter') {
-                            // 確定して選択モードへ(誤挿入防止のため行追加はしない。追加は n / Ctrl+Enter)。
-                            e.preventDefault();
-                            e.stopPropagation(); // blur 後にグローバルの Enter(セル編集)が再発火しないように
-                            if (e.currentTarget.value !== t.name) renameTask(t.id, e.currentTarget.value);
-                            e.currentTarget.blur();
-                          }
-                        }}
                       />
                     ) : name !== undefined ? (
                       <span className="ft-anc" title={name}>
@@ -675,7 +673,11 @@ export function FullTable() {
                   );
                 case 'assignee':
                   return (
-                    <td key={c.key} className="ft-c-assignee" onClick={(e) => e.stopPropagation()}>
+                    <td
+                      key={c.key}
+                      className={`ft-c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input
                         className={`ft-in${cellCursorCls(t.id, 'assignee')}`}
                         data-cell="assignee"
@@ -683,8 +685,6 @@ export function FullTable() {
                         defaultValue={assigneeName}
                         placeholder="（未割当）"
                         aria-label="担当"
-                        data-r={ri}
-                        data-c="assignee"
                         key={`asg-${assigneeName}`}
                         onBlur={(e) => e.target.value !== assigneeName && setAssigneeByName(t.id, e.target.value)}
                       />
@@ -750,8 +750,6 @@ export function FullTable() {
                           defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
                           placeholder="h"
                           aria-label="工数（時間）"
-                          data-r={ri}
-                          data-c="effort"
                           key={`eff-${d?.effortMinutes ?? ''}`}
                           onBlur={(e) => {
                             const minutes = parseEffortHoursToMinutes(e.target.value);

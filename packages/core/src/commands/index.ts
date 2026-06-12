@@ -105,6 +105,9 @@ export function addAssignee(p: Project, args: AddAssigneeArgs, idGen: IdGen): Pr
 export function addDependency(p: Project, from: Id, to: Id, idGen: IdGen): Project {
   const next = clone(p);
   if (from === to) return next;
+  // 実在しない工程への依存は保存ファイルの strict 検証（dependency.from/to は FATAL）で
+  // 再オープン不能になるため、コア層でも no-op にする（UI 層のガードと二重防御）。
+  if (!next.core.tasks[from] || !next.core.tasks[to]) return next;
   const exists = Object.values(next.core.dependencies).some(
     (d) => d.from === from && d.to === to,
   );

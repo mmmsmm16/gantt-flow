@@ -20,6 +20,8 @@
   --toolbar-bg: rgba(255, 255, 255, 0.85);
   --btn-bg: #ffffff;
   --row-hover: #eef2f7;
+  /* ボタン・リスト項目のホバー背景（テーブル行は --row-hover を使う使い分け） */
+  --hover: #e8ecf2;
   --input-bg: #ffffff;
 
   /* アクセント（青系の差し色 #5271A5） */
@@ -37,6 +39,9 @@
   --ok: #15803d;
   --red: #d6452f;
   --red-fill: #fbe4de;
+  /* 破壊的操作（削除等）の意味色。値は --red 系に委譲し、意図をトークン名で表す。 */
+  --danger: var(--red);
+  --danger-soft: var(--red-fill);
   --amber: #b9820a;
   --amber-fill: #f6ecc6;
   --amber-ink: #7a5407;
@@ -90,6 +95,7 @@
   --toolbar-bg: rgba(30, 36, 46, 0.85);
   --btn-bg: #2a313d;
   --row-hover: #262d39;
+  --hover: #2a3140;
   --input-bg: #1e242e;
 
   --accent: #5271a5; /* ライトと同じ固定の差し色（ダークでも明るくしない） */
@@ -165,6 +171,55 @@ body {
   border-bottom: 1px solid var(--line);
   z-index: 10;
 }
+/* 集中モード: .toolbar の display:flex が UA の [hidden] を上書きするため明示的に隠す。 */
+.toolbar[hidden] {
+  display: none;
+}
+/* 集中モード: 上部ツールバーに加えて各ビューのヘッダ・操作バーも隠し、作業領域を最大化する。
+   工程表/フローの中身（行・キャンバス）だけを残す。復帰は上端中央のタブ / Ctrl⌘+\ / パレット。 */
+.app.focus-mode .table-head,
+.app.focus-mode .flow-head,
+.app.focus-mode .outline-actions,
+.app.focus-mode .ft-actions,
+.app.focus-mode .ft-filters,
+.app.focus-mode .flow-palette {
+  display: none;
+}
+/* 集中モード（ツールバーを隠す）時に上端中央へ出す復帰ハンドル（引き出しタブ）。
+   作業エリアを塞がない最小の的。右上はインスペクタの×と近接するため中央に置く。 */
+.chrome-reveal {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(8px);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.12s ease, color 0.12s ease, height 0.12s ease;
+}
+.chrome-reveal:hover {
+  opacity: 1;
+  height: 24px;
+  color: var(--ink);
+  background: var(--hover);
+}
+.chrome-reveal:focus-visible {
+  opacity: 1;
+  outline: none;
+  box-shadow: var(--ring);
+}
 .toolbar .brand {
   display: inline-flex;
   align-items: center;
@@ -193,6 +248,35 @@ body {
 }
 .brand-accent {
   color: var(--accent);
+}
+/* 現在ファイル名チップ（保存＝どのファイルを上書きするかの常時表示）。● は未保存の変更あり */
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--hdr);
+  color: var(--muted);
+  font-size: 12px;
+}
+.file-chip-dot {
+  color: var(--amber);
+  font-size: 10px;
+  line-height: 1;
+}
+.file-chip-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 540px) {
+  .file-chip-name {
+    max-width: 76px;
+  }
 }
 .toolbar .spacer {
   flex: 1;
@@ -380,8 +464,10 @@ button.danger:hover {
 .outline-actions {
   flex: none;
   display: flex;
+  flex-wrap: wrap; /* インスペクタ表示時の狭いペインでは折り返す（縦書き崩壊の防止） */
   align-items: center;
   gap: 8px;
+  row-gap: 6px;
   margin-bottom: 10px;
 }
 .outline-scroll {
@@ -402,6 +488,45 @@ button.danger:hover {
 .outline-collapse button {
   font-size: 12px;
   padding: 5px 9px;
+}
+/* クイックフィルタ(Ctrl/⌘+F)。一致行とその祖先だけを表示する(表示のみの絞り込み) */
+.outline-find {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--faint);
+}
+.outline-find svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.outline-find-input {
+  font: inherit;
+  font-size: 12px;
+  flex: 1 1 90px;
+  min-width: 90px;
+  max-width: 150px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+}
+.outline-find-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+.outline-find-count {
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+/* フィルタ一致行の作業名。input 要素なので mark ではなく背景色で示す(両テーマのトークン) */
+.name-input.name-match {
+  background: var(--amber-fill);
 }
 .caret {
   border: none;
@@ -1443,6 +1568,24 @@ button.danger:hover {
   background: var(--hdr);
   color: var(--ink);
 }
+/* ドロップダウン(▼)を含むグループ: overflow で .menu が切れないようにする。
+   角丸は clip ではなく端のボタン自身に与えて代替する */
+.tool-group.has-menu {
+  overflow: visible;
+}
+.tool-group.has-menu > :first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+.tool-group.has-menu > :last-child {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+/* menu-wrap 内のトリガーは :last-child に当たって区切り線が消えるため戻す */
+.tool-group.has-menu .menu-wrap .icon-btn {
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+}
 .menu-wrap {
   position: relative;
   display: inline-flex;
@@ -1493,6 +1636,67 @@ button.danger:hover {
 .menu-check input {
   margin: 0;
   accent-color: var(--accent);
+}
+
+/* フローの右クリックメニュー（.menu の見た目を流用し、カーソル位置に fixed で出す） */
+.ctx-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 60;
+  min-width: 200px;
+}
+.ctx-menu .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  white-space: nowrap;
+}
+.ctx-menu .ctx-label {
+  flex: 1;
+}
+.ctx-menu .ctx-keys {
+  display: inline-flex;
+  gap: 2px;
+}
+.menu-item.danger {
+  color: var(--danger);
+}
+.menu-item.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+/* メニューの空状態（最近使ったファイルが無い等）。項目と違いホバー/クリック不可の案内文 */
+.menu-empty {
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+/* 最近使ったファイルの 1 行（名前＋最終使用日）。長い名前は省略して日付を右端に保つ */
+.recent-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+}
+.recent-row .recent-name {
+  flex: 1;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-row .recent-at {
+  color: var(--faint);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* フローの空状態 */
@@ -2610,6 +2814,32 @@ kbd {
   color: var(--danger);
   border-bottom: 1px solid var(--line);
 }
+/* クイック追加: 入力の解釈結果チップ（argError と同じ帯位置・類似スタイル） */
+.palette-parse {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.qa-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--hdr); /* --hover はホバー状態専用トークンのため静的背景には使わない */
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 前工程が一致しない等の注意（確定は止めない＝依存を張らないだけ） */
+.qa-chip.warn {
+  background: var(--amber-fill);
+  color: var(--amber-ink);
+}
 .palette-item.free .pi-label {
   color: var(--accent);
   font-weight: 600;
@@ -3540,7 +3770,8 @@ kbd {
 .panes.flow-wide.with-inspector {
   grid-template-columns: 1fr 360px;
 }
-.flow-head .flow-wide-toggle {
+/* 分割/表/フローの切替タブは各ヘッダの右端に寄せる。 */
+.pane-layout-seg {
   margin-left: auto;
 }
 
@@ -3869,4 +4100,42 @@ input.colored-text {
   outline: 2px solid var(--accent) !important;
   outline-offset: -1px;
   border-radius: 5px;
+}
+
+/* =========================================================================
+   表⇔フロー同期のフラッシュ（同期で追加/書き戻しされた要素を一瞬光らせて変更点を示す）
+   - .node-flash … フローのノード（表側編集の同期で追加されたもの。doc は io-icon 側）
+   - .cell-flash … 表の担当セル（フローのレーン移動 → 担当書き戻しの逆同期）
+   点灯時間は useFlash.ts の FLASH_MS と対応。to を書かないキーフレームは
+   各要素の通常スタイルへフェードして戻る（selected の枠などと干渉しない）。
+   ========================================================================= */
+@keyframes sync-flash {
+  from {
+    box-shadow: 0 0 0 3px var(--accent), 0 0 0 8px var(--accent-soft);
+  }
+}
+.node.node-flash {
+  animation: sync-flash 1.5s ease-out;
+}
+@keyframes sync-flash-stroke {
+  from {
+    stroke: var(--accent);
+    stroke-width: 3;
+  }
+}
+.io-icon.node-flash .io-main {
+  animation: sync-flash-stroke 1.5s ease-out;
+}
+.c-assignee.cell-flash .assignee,
+.ft-c-assignee.cell-flash .ft-in {
+  animation: sync-flash 1.5s ease-out;
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .node.node-flash,
+  .io-icon.node-flash .io-main,
+  .c-assignee.cell-flash .assignee,
+  .ft-c-assignee.cell-flash .ft-in {
+    animation: none;
+  }
 }

@@ -4,13 +4,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessLevel, ProcessTask, TaskColor } from '@gantt-flow/core';
 import { computeCodes } from '@gantt-flow/core';
-import { useApp, findView } from '../store';
+import { useApp, findView, resolveQuickAddParent } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
+import { parseQuickAdd, type QuickAddParsed } from '../quickAdd';
 import { revealTask, confirmRemoveTasks } from '../taskOps';
 import { isImeKeyEvent } from '../keymap';
+import { listRecentFiles, recentFilesSupported } from '../persistence';
+import { formatRecentTime } from '../fileLabel';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from '../theme';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
+import { getLastCommand, recordLastCommand, formatRepeatDisplay } from './lastCommand';
 import * as Icons from './icons';
 
 interface FileHandlers {
@@ -18,6 +22,8 @@ interface FileHandlers {
   onSave: () => void;
   onSaveAs: () => void;
   onOpen: () => void;
+  /** 最近使ったファイルを名前で開く（未保存確認は App 側）。 */
+  onOpenRecent: (name: string) => void;
   onImport: () => void;
   onSample: () => void;
   onExportExcel: () => void;
@@ -57,6 +63,9 @@ export interface Cmd {
   /** 指定すると「選択 → 引数入力」の 2 段階コマンドになる。 */
   arg?: ArgSpec;
   runWithArg?: (value: string, opt?: ArgOption) => void;
+  /** mod+. のリピートとパレット先頭の「もう一度」行の記録対象か。選択工程へ
+      再適用して意味があるものだけ true（ファイル/テーマ/オーバーレイ系は対象外）。 */
+  repeatable?: boolean;
 }
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
@@ -71,6 +80,51 @@ function selectedIoOptions(): ArgOption[] {
     ...(d?.inputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'インプット' })),
     ...(d?.outputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'アウトプット' })),
   ];
+}
+
+// クイック追加 DSL の解釈を現在のアプリ状態に対して行う（チップ表示と Enter 確定で共用）。
+// 前工程候補は prevCandidates と同じ「同じ親・同じ粒度」の規則だが、対象の工程がまだ
+// 存在しないため規則をここで再現する。# で粒度を変えると候補グループも変わるので、
+// トークンだけ先に読んでから候補を作る 2 段階（入力は短く、走査コストは無視できる）。
+function parseQuickAddInApp(input: string): QuickAddParsed {
+  const a = useApp.getState();
+  const assigneeNames = Object.values(a.project.core.assignees).map((x) => x.name);
+  const sel = a.selectedTaskId ? a.project.core.tasks[a.selectedTaskId] : undefined;
+  const pre = parseQuickAdd(input, { assigneeNames, predecessors: [] });
+  const level = pre.level ?? sel?.level ?? a.level;
+  // 親は確定時（addTaskWithOptions）と同じ解決を使う＝チップに出る前工程候補と実際の配置が一致する。
+  const parentId = resolveQuickAddParent(a.project.core.tasks, sel, level, a.scopeParentId);
+  const taskCodes = computeCodes(a.project.core);
+  const predecessors = Object.values(a.project.core.tasks)
+    .filter((t) => t.level === level && (t.parentId ?? undefined) === (parentId ?? undefined))
+    .sort((x, y) => x.order - y.order || x.id.localeCompare(y.id))
+    .map((t) => ({ id: t.id, name: t.name, code: taskCodes[t.id] }));
+  return parseQuickAdd(input, { assigneeNames, predecessors });
+}
+
+// 工程クイック追加（DSL）。「受注確認 @営業 #小 2h >受注登録」を 1 行で解釈して
+// addTaskWithOptions（1 undo・作成後に選択）へ渡す。空欄の確定は無題で 1 件追加
+//（旧・無引数コマンドの代替）。
+export function addTaskQuickCommand(hasSelection: boolean): Cmd {
+  return {
+    id: 'add-task',
+    label: hasSelection ? '工程を追加（選択の次に）…' : '工程を追加…',
+    keywords: 'add task koutei tsuika 追加 行 ぎょう quick',
+    arg: {
+      placeholder: '工程名 @担当 #粒度(大/中/小/詳細) 2h >前工程（すべて省略可）',
+      freeText: true,
+    },
+    runWithArg: (v) => {
+      const parsed = parseQuickAddInApp(v.trim());
+      useApp.getState().addTaskWithOptions({
+        name: parsed.name,
+        level: parsed.level,
+        assigneeName: parsed.assignee?.name,
+        effortMinutes: parsed.effortHours != null ? Math.round(parsed.effortHours * 60) : undefined,
+        predecessorId: parsed.predecessor?.matched?.id,
+      });
+    },
+  };
 }
 
 // 部分一致＋連続一致を軽く評価するファジー。query の全文字が順に現れれば一致。
@@ -108,6 +162,7 @@ export function textArgCommand(spec: {
     label: spec.label,
     keywords: spec.keywords,
     available: spec.available,
+    repeatable: true, // すべて「選択中の工程へ文字列を設定」＝別の工程への再適用が意味を持つ
     arg: {
       placeholder: spec.placeholder,
       freeText: true,
@@ -194,32 +249,40 @@ function PaletteBody(handlers: FileHandlers) {
     return () => clearTimeout(t);
   }, []);
 
+  // 「最近のファイルを開く…」の候補。ArgSpec.options は同期のため、パレットを開いた
+  // 時点で先読みして state 経由で渡す（IndexedDB 読みは引数モードに入るまでに揃う）。
+  const [recentFiles, setRecentFiles] = useState<{ name: string; at: number }[]>([]);
+  useEffect(() => {
+    if (recentFilesSupported()) void listRecentFiles().then(setRecentFiles);
+  }, []);
+
   const commands: Cmd[] = useMemo(() => {
     const ui = useUI.getState();
     const app = useApp.getState();
     const hasSel = !!selectedTaskId;
+    // 直前コマンドの「もう一度」行。query 空のとき先頭に出す（配列先頭＋fuzzyScore の
+    // 安定ソートで保証）。repeatable は付けない＝再実行しても記録はそのまま。
+    const last = getLastCommand();
     return [
-      {
-        id: 'add-task',
-        label: selectedTaskId ? '工程を追加（選択の次に）' : '工程を追加',
-        keywords: 'add task koutei tsuika 追加 行 ぎょう',
-        run: () => {
-          const a = useApp.getState();
-          const sel = a.selectedTaskId;
-          if (sel) {
-            const nid = a.addSiblingOf(sel);
-            if (nid) a.select(nid);
-          } else {
-            a.addRootTask('medium');
-          }
-        },
-      },
+      ...(last
+        ? [
+            {
+              id: 'repeat-last',
+              label: `もう一度: ${last.display}`,
+              keywords: 'repeat again mouichido もう一度 直前 繰り返し リピート',
+              hint: '⌘.',
+              run: last.run,
+            } satisfies Cmd,
+          ]
+        : []),
+      addTaskQuickCommand(hasSel),
       // ---- 引数付きコマンド（選択中の工程に対する編集） ----
       {
         id: 'arg-assignee',
         label: '担当を設定…',
         keywords: 'assignee tantou 担当 部署 設定 set',
         available: hasSel,
+        repeatable: true,
         arg: {
           placeholder: '担当（部門 / 個人）。空欄で未割当',
           freeText: true,
@@ -239,6 +302,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '粒度を変更…',
         keywords: 'level ryuudo 粒度 大 中 小 詳細 granularity',
         available: hasSel,
+        repeatable: true,
         arg: {
           placeholder: '粒度を選択（大 / 中 / 小 / 詳細）',
           options: () =>
@@ -257,6 +321,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '塗り色を設定…',
         keywords: 'color iro 色 塗り fill 赤 青 緑 黄 紫 オレンジ グレー 仮説',
         available: hasSel,
+        repeatable: true,
         arg: {
           placeholder: '塗り色を選択（フローのノードと表のドット）',
           options: () => [
@@ -279,6 +344,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '文字色を設定…',
         keywords: 'text color moji 文字色 赤 青 緑 黄 紫 オレンジ グレー',
         available: hasSel,
+        repeatable: true,
         arg: {
           placeholder: '文字色を選択（作業名）',
           options: () => [
@@ -304,6 +370,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '工数を設定…',
         keywords: 'effort kousuu 工数 時間 hours',
         available: hasSel,
+        repeatable: true,
         arg: {
           placeholder: '工数（時間・0.5 刻み）。空欄で解除',
           freeText: true,
@@ -328,6 +395,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '課題を追加…',
         keywords: 'issue kadai 課題 追加',
         available: hasSel,
+        repeatable: true,
         arg: { placeholder: '課題の内容', freeText: true },
         runWithArg: (v) => {
           const a = useApp.getState();
@@ -339,6 +407,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '方策を追加…',
         keywords: 'measure housaku 方策 改善 対策',
         available: hasSel,
+        repeatable: true,
         arg: { placeholder: '方策（改善案）の内容', freeText: true },
         runWithArg: (v) => {
           const a = useApp.getState();
@@ -350,6 +419,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: 'インプットを追加…',
         keywords: 'input nyuuryoku インプット 入力 帳票 io',
         available: hasSel,
+        repeatable: true,
         arg: {
           placeholder: '帳票 / 情報の名称',
           freeText: true,
@@ -366,6 +436,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: 'アウトプットを追加…',
         keywords: 'output shutsuryoku アウトプット 出力 帳票 io',
         available: hasSel,
+        repeatable: true,
         arg: {
           placeholder: '帳票 / 情報の名称',
           freeText: true,
@@ -426,6 +497,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '前工程を設定…',
         keywords: 'pred zenkoutei 前工程 依存 dependency 順序',
         available: hasSel,
+        repeatable: true, // 複数工程へ同じ前工程を順に張る使い方（合流の表現）が成立する
         arg: {
           placeholder: '前工程にする工程を選択',
           options: () => {
@@ -549,6 +621,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '選択中の工程を複製',
         keywords: 'duplicate fukusei 複製 コピー copy',
         available: hasSel,
+        repeatable: true,
         run: () => {
           const a = useApp.getState();
           if (a.selectedTaskId) a.duplicateTask(a.selectedTaskId);
@@ -559,6 +632,7 @@ function PaletteBody(handlers: FileHandlers) {
         label: '選択中の工程を削除',
         keywords: 'delete remove sakujo 削除 行 ぎょう',
         available: hasSel,
+        repeatable: true,
         run: () => {
           const id = useApp.getState().selectedTaskId;
           if (id) void confirmRemoveTasks([id]);
@@ -570,6 +644,26 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'new', label: '新規プロジェクト', keywords: 'new shinki あたらしい', run: handlers.onNew },
       { id: 'import', label: 'CSV / Excel を取り込む', keywords: 'import torikomi excel csv', run: handlers.onImport },
       { id: 'open', label: '保存ファイルを開く', keywords: 'open hiraku json', run: handlers.onOpen },
+      // File System Access + IndexedDB が無い環境（Firefox/Safari）では再オープン不可のため出さない。
+      ...(recentFilesSupported()
+        ? [
+            {
+              id: 'open-recent',
+              label: '最近のファイルを開く…',
+              keywords: 'recent saikin 最近 履歴 りれき ファイル 開く open history',
+              arg: {
+                placeholder: '開く最近のファイルを選択',
+                options: () =>
+                  recentFiles.map((r) => ({
+                    value: r.name,
+                    label: r.name,
+                    detail: formatRecentTime(r.at),
+                  })),
+              },
+              runWithArg: (v) => handlers.onOpenRecent(v),
+            } satisfies Cmd,
+          ]
+        : []),
       { id: 'export-excel', label: 'Excel に書き出す', keywords: 'export excel xlsx 出力 書き出し', run: handlers.onExportExcel },
       { id: 'export-csv', label: 'CSV に書き出す', keywords: 'export csv', run: handlers.onExportCsv },
       { id: 'export-png', label: '画像 (PNG) に書き出す', keywords: 'export png gazou 画像 図', run: handlers.onExportPng },
@@ -631,8 +725,10 @@ function PaletteBody(handlers: FileHandlers) {
       },
       { id: 'table-mode', label: '表モード切替（アウトライン ⇄ 全項目表）', keywords: 'table mode hyou 表 切替 アウトライン 全項目', run: () => ui.setTableMode(useUI.getState().tableMode === 'outline' ? 'full' : 'outline') },
       { id: 'issues-layer', label: '課題レイヤの表示を切り替え', keywords: 'issue kadai 課題 レイヤ', run: app.toggleIssues },
-      { id: 'wide', label: '表を広く / 分割に戻す', keywords: 'wide hyou table 表', run: ui.toggleTableWide },
-      { id: 'flow-wide', label: 'フローを広く / 分割に戻す', keywords: 'wide flow フロー 全幅 広く', run: ui.toggleFlowWide },
+      { id: 'layout-split', label: '分割表示（工程表＋フロー）', keywords: 'split bunkatsu 分割 両方 並べる レイアウト', run: () => ui.setPaneLayout('split') },
+      { id: 'wide', label: '工程表だけを全幅表示', keywords: 'wide hyou table 表 全幅 広く レイアウト', run: () => ui.setPaneLayout('table') },
+      { id: 'flow-wide', label: '工程フローだけを全幅表示', keywords: 'wide flow フロー 全幅 広く レイアウト', run: () => ui.setPaneLayout('flow') },
+      { id: 'toggle-chrome', label: '集中モード（ツールバー・操作バーを隠す / 表示）', keywords: 'chrome toolbar shuchu 集中 ツールバー 操作バー ヘッダ 隠す 非表示 最大化 全画面 focus zen', hint: '⌘\\', run: ui.toggleChrome },
       { id: 'minimap', label: 'ミニマップの表示を切り替え', keywords: 'minimap map ミニマップ 地図 俯瞰', run: () => useUI.getState().toggleMinimap() },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
@@ -643,7 +739,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },
     ];
-  }, [handlers, canUndo, canRedo, selectedTaskId]);
+  }, [handlers, canUndo, canRedo, selectedTaskId, recentFiles]);
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 
@@ -696,6 +792,13 @@ function PaletteBody(handlers: FileHandlers) {
     [argCmd, argFlat, cmdHits, taskHits],
   );
 
+  // クイック追加の解釈チップ（入力中のリアルタイム表示）。パレット表示中は他経路の
+  // 編集が走らないため、依存は入力だけで足りる。
+  const quickAdd = useMemo(
+    () => (argCmd?.id === 'add-task' && query.trim() ? parseQuickAddInApp(query.trim()) : null),
+    [argCmd, query],
+  );
+
   useEffect(() => {
     if (active >= flat.length) setActive(0);
   }, [flat.length, active]);
@@ -736,7 +839,7 @@ function PaletteBody(handlers: FileHandlers) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 引数を確定して実行（validate → runWithArg → 閉じる）。
+  // 引数を確定して実行（validate → リピート記録 → runWithArg → 閉じる）。
   const commitArg = (value: string, opt?: ArgOption) => {
     if (!argCmd) return;
     const err = argCmd.arg?.validate?.(value) ?? null;
@@ -745,6 +848,15 @@ function PaletteBody(handlers: FileHandlers) {
       return;
     }
     const fn = argCmd.runWithArg;
+    // 引数を束縛したクロージャを記録（runWithArg は実行時に getState を読むため、
+    // 選択を移して mod+. すると「いま選択中の工程」へ同じ引数が適用される）。
+    if (argCmd.repeatable && fn) {
+      recordLastCommand({
+        id: argCmd.id,
+        display: formatRepeatDisplay(argCmd.label, value, opt?.label),
+        run: () => fn(value, opt),
+      });
+    }
     close();
     fn?.(value, opt);
   };
@@ -759,7 +871,12 @@ function PaletteBody(handlers: FileHandlers) {
     if (item.kind === 'arg') commitArg(item.a.opt.value, item.a.kind === 'opt' ? item.a.opt : undefined);
     else if (item.kind === 'cmd') {
       if (item.c.arg) enterArgMode(item.c);
-      else if (item.c.run) runAndClose(item.c.run);
+      else if (item.c.run) {
+        if (item.c.repeatable) {
+          recordLastCommand({ id: item.c.id, display: item.c.label, run: item.c.run });
+        }
+        runAndClose(item.c.run);
+      }
     } else runAndClose(() => revealTask(item.t.id));
   };
 
@@ -816,6 +933,27 @@ function PaletteBody(handlers: FileHandlers) {
           <kbd className="palette-esc">Esc</kbd>
         </div>
         {argError && <div className="palette-error">{argError}</div>}
+        {quickAdd && (
+          <div className="palette-parse" aria-live="polite">
+            <span className="qa-chip">工程名: {quickAdd.name || '（無題）'}</span>
+            {quickAdd.assignee && (
+              <span className="qa-chip">
+                担当: {quickAdd.assignee.name}
+                {quickAdd.assignee.isNew ? '（新規）' : ''}
+              </span>
+            )}
+            {quickAdd.level && <span className="qa-chip">粒度: {LEVEL_LABEL[quickAdd.level]}</span>}
+            {quickAdd.effortHours != null && <span className="qa-chip">工数: {quickAdd.effortHours}h</span>}
+            {quickAdd.predecessor &&
+              (quickAdd.predecessor.matched ? (
+                <span className="qa-chip">
+                  前工程: {quickAdd.predecessor.matched.name || quickAdd.predecessor.matched.code || '（無題）'}
+                </span>
+              ) : (
+                <span className="qa-chip warn">前工程: 「{quickAdd.predecessor.input}」に一致なし</span>
+              ))}
+          </div>
+        )}
 
         <div className="palette-list" ref={listRef} role="listbox" aria-label="候補">
           {flat.length === 0 && (

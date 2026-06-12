@@ -1,8 +1,20 @@
-// パレットの自由入力コマンド共通形（textArgCommand / detailTextCommand）。
-// trim と「空欄=解除」の規約が 1 箇所に集約されていることを検証する。
+// パレットの自由入力コマンド共通形（textArgCommand / detailTextCommand）と、
+// クイック追加 DSL（add-task）・直前コマンドのリピート（mod+. / もう一度行）。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useApp } from '../src/store';
-import { textArgCommand, detailTextCommand, renameTaskCommand } from '../src/ui/CommandPalette';
+import {
+  textArgCommand,
+  detailTextCommand,
+  renameTaskCommand,
+  addTaskQuickCommand,
+} from '../src/ui/CommandPalette';
+import {
+  recordLastCommand,
+  getLastCommand,
+  repeatLastCommand,
+  clearLastCommand,
+  formatRepeatDisplay,
+} from '../src/ui/lastCommand';
 
 const selectFirstTask = (): string => {
   useApp.getState().addTask('受付');
@@ -70,6 +82,132 @@ describe('renameTaskCommand（工程名を変更…）', () => {
     const cmd = renameTaskCommand(true);
     cmd.runWithArg?.('   ');
     expect(useApp.getState().project.core.tasks[id]?.name).toBe('受付');
+  });
+});
+
+describe('addTaskQuickCommand（工程クイック追加 DSL）', () => {
+  const orderedNames = () =>
+    Object.values(useApp.getState().project.core.tasks)
+      .sort((x, y) => x.order - y.order)
+      .map((t) => t.name);
+
+  it('担当・工数・前工程を合成して 1 undo 単位で作成し、新工程を選択する', () => {
+    const baseId = selectFirstTask(); // 「受付」(medium)
+    addTaskQuickCommand(true).runWithArg?.('受注確認 @営業 2h >受付');
+
+    const s = useApp.getState();
+    const created = Object.values(s.project.core.tasks).find((t) => t.name === '受注確認')!;
+    expect(created).toBeDefined();
+    expect(created.level).toBe('medium'); // 粒度未指定＝選択工程と同じ
+    expect(s.selectedTaskId).toBe(created.id);
+    expect(s.project.core.assignees[created.assigneeId!]?.name).toBe('営業'); // 既存なし→新規作成
+    expect(s.project.details[created.id]?.effortMinutes).toBe(120);
+    const deps = Object.values(s.project.core.dependencies);
+    expect(deps).toHaveLength(1);
+    expect(deps[0]).toMatchObject({ from: baseId, to: created.id });
+
+    // 作成＋担当＋工数＋依存が 1 回の undo でまとめて戻る
+    useApp.getState().undo();
+    const after = useApp.getState().project;
+    expect(Object.values(after.core.tasks)).toHaveLength(1);
+    expect(Object.values(after.core.dependencies)).toHaveLength(0);
+    expect(Object.values(after.core.assignees)).toHaveLength(0);
+  });
+
+  it('選択中の工程の直下（次の兄弟）に挿入する', () => {
+    useApp.getState().addTask('A');
+    useApp.getState().addTask('B');
+    const a = Object.values(useApp.getState().project.core.tasks).find((t) => t.name === 'A')!;
+    useApp.getState().select(a.id);
+    addTaskQuickCommand(true).runWithArg?.('C');
+    expect(orderedNames()).toEqual(['A', 'C', 'B']);
+  });
+
+  it('#粒度 の指定が選択工程の粒度より優先され、未選択時の既定は表示粒度', () => {
+    addTaskQuickCommand(false).runWithArg?.('準備'); // 未選択 → 表示粒度(medium)
+    expect(
+      Object.values(useApp.getState().project.core.tasks).find((t) => t.name === '準備')?.level,
+    ).toBe('medium');
+    addTaskQuickCommand(true).runWithArg?.('手順確認 #詳細'); // 選択(medium)より # を優先
+    expect(
+      Object.values(useApp.getState().project.core.tasks).find((t) => t.name === '手順確認')?.level,
+    ).toBe('detail');
+  });
+
+  it('空欄の確定は無題で 1 件追加（旧・無引数コマンドの代替）', () => {
+    selectFirstTask();
+    addTaskQuickCommand(true).runWithArg?.('');
+    const s = useApp.getState();
+    const created = Object.values(s.project.core.tasks).find((t) => t.name === '');
+    expect(created).toBeDefined();
+    expect(s.selectedTaskId).toBe(created!.id);
+  });
+
+  it('一致しない前工程では依存を作らない（作成自体は成功する）', () => {
+    selectFirstTask();
+    addTaskQuickCommand(true).runWithArg?.('出荷 >存在しない名前');
+    const s = useApp.getState();
+    expect(Object.values(s.project.core.tasks).some((t) => t.name === '出荷')).toBe(true);
+    expect(Object.values(s.project.core.dependencies)).toHaveLength(0);
+  });
+});
+
+describe('直前コマンドのリピート（mod+. / もう一度行）', () => {
+  beforeEach(() => clearLastCommand());
+
+  it('未記録は no-op(false)。記録後は再実行できる', () => {
+    expect(repeatLastCommand()).toBe(false);
+    let n = 0;
+    recordLastCommand({
+      id: 'arg-assignee',
+      display: '担当を設定 "営業"',
+      run: () => {
+        n += 1;
+      },
+    });
+    expect(getLastCommand()?.display).toBe('担当を設定 "営業"');
+    expect(repeatLastCommand()).toBe(true);
+    expect(n).toBe(1);
+  });
+
+  it('選択を移してから再実行すると「いま選択中の工程」へ同じ引数が適用される', () => {
+    useApp.getState().addTask('受付');
+    useApp.getState().addTask('出荷');
+    const [t1, t2] = Object.values(useApp.getState().project.core.tasks).sort(
+      (x, y) => x.order - y.order,
+    );
+    useApp.getState().select(t1!.id);
+    // パレットの commitArg が記録するのと同じ形: 実行時に getState を読むクロージャ
+    recordLastCommand({
+      id: 'arg-assignee',
+      display: '担当を設定 "営業"',
+      run: () => {
+        const s = useApp.getState();
+        if (s.selectedTaskId) s.setAssigneeByName(s.selectedTaskId, '営業');
+      },
+    });
+    repeatLastCommand();
+    useApp.getState().select(t2!.id);
+    repeatLastCommand();
+    const s = useApp.getState();
+    const nameOf = (id?: string) => (id ? s.project.core.assignees[id]?.name : undefined);
+    expect(nameOf(s.project.core.tasks[t1!.id]?.assigneeId)).toBe('営業');
+    expect(nameOf(s.project.core.tasks[t2!.id]?.assigneeId)).toBe('営業');
+  });
+
+  it('プロジェクト境界（新規/開く＝adopt）で記録は破棄される（前プロジェクトの工程 id を持ち越さない）', () => {
+    recordLastCommand({ id: 'arg-pred', display: '前工程を設定 "受付"', run: () => {} });
+    expect(getLastCommand()).not.toBeNull();
+    useApp.getState().newProject();
+    expect(getLastCommand()).toBeNull();
+    expect(repeatLastCommand()).toBe(false);
+  });
+
+  it('formatRepeatDisplay は末尾の … を外し、引数は候補ラベル優先で引用表示', () => {
+    expect(formatRepeatDisplay('担当を設定…', '営業')).toBe('担当を設定 "営業"');
+    expect(formatRepeatDisplay('粒度を変更…', 'small', '小工程')).toBe('粒度を変更 "小工程"');
+    expect(formatRepeatDisplay('選択中の工程を複製')).toBe('選択中の工程を複製');
+    expect(formatRepeatDisplay('担当を設定…', '   ')).toBe('担当を設定'); // 空欄(解除)は引数表示なし
   });
 });
 

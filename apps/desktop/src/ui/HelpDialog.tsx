@@ -24,9 +24,9 @@ const STATIC_GROUPS: Group[] = [
   {
     title: '工程表（セルの編集中）',
     items: [
-      { keys: ['Enter'], label: '確定して選択モードへ戻る' },
+      { keys: ['Enter'], label: '確定して同じ列の下のセルへ（Shift で上へ）' },
+      { keys: ['Tab'], label: '確定して右のセルへ（Shift で左へ）' },
       { keys: ['Esc'], label: '編集をやめて選択モードへ戻る' },
-      { keys: ['Tab'], label: '字下げ（作業名のみ・子にする）' },
       { keys: ['Alt', '↑ / ↓'], label: '行を上下に移動（作業名のみ）' },
     ],
   },
@@ -48,7 +48,7 @@ const STATIC_GROUPS: Group[] = [
       { keys: ['Shift', 'ドラッグ'], label: '範囲選択（まとめて移動 / 削除）' },
       { keys: [MOD, 'ホイール'], label: '拡大 / 縮小' },
       { keys: ['ダブルクリック（矢印）'], label: '分岐ラベルを編集' },
-      { keys: ['右クリック（矢印）'], label: '矢印を削除' },
+      { keys: ['右クリック（矢印 / 工程）'], label: '操作メニューを開く（ラベル編集・工程の挿入・削除など）' },
     ],
   },
 ];

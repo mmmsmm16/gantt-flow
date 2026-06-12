@@ -7,11 +7,14 @@ export function Menu({
   title,
   className,
   children,
+  onOpen,
 }: {
   label: ReactNode;
   title?: string;
   className?: string;
   children: ReactNode;
+  /** 開いた瞬間に呼ぶ。内容を開くたびに最新化したい場合（最近使ったファイル等）に使う。 */
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -38,7 +41,10 @@ export function Menu({
         title={title}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen(!open);
+        }}
       >
         {label}
       </button>
