@@ -2,12 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { createAppStore, useApp, findView } from '../src/store';
 import { revealTask, confirmRemoveTasks } from '../src/taskOps';
 import { useUI } from '../src/ui/useUI';
-import { serializeProject, deserializeProject, SIZE } from '@gantt-flow/core';
+import { serializeProject, deserializeProject, ROW_SUB, SIZE } from '@gantt-flow/core';
 import type { FlowTaskNode, FlowDocNode } from '@gantt-flow/core';
 
 const view0 = (s: ReturnType<typeof createAppStore>) => s.getState().project.flow.byLevel[0]!;
 const taskNodes = (s: ReturnType<typeof createAppStore>) =>
   Object.values(view0(s).nodes).filter((n): n is FlowTaskNode => n.kind === 'task');
+const idByName = (s: ReturnType<typeof createAppStore>, name: string) =>
+  Object.values(s.getState().project.core.tasks).find((t) => t.name === name)!.id;
+const depPairs = (s: ReturnType<typeof createAppStore>) =>
+  Object.values(s.getState().project.core.dependencies)
+    .map((d) => {
+      const t = s.getState().project.core.tasks;
+      return `${t[d.from]?.name}→${t[d.to]?.name}`;
+    })
+    .sort();
 
 describe('app store（command → reconcile → history）', () => {
   it('作業追加でフローにノードが出て、undo/redo できる', () => {
@@ -774,6 +783,74 @@ describe('taskOps（store と UI をまたぐ手続き）', () => {
     expect(useApp.getState().level).toBe('large');
     expect(useApp.getState().scopeParentId).toBeUndefined();
     expect(useUI.getState().inspectorOpen).toBe(true);
+  });
+
+  it('addParallel: 前工程のみコピーし、基準ノードの直下に配置、1 undo で戻る', () => {
+    const s = createAppStore();
+    for (const n of ['A', 'B', 'C']) s.getState().addTask(n);
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    const c = idByName(s, 'C');
+    s.getState().addDependency(a, b);
+    s.getState().addDependency(b, c);
+
+    const newId = s.getState().addParallel(b)!;
+    const deps = Object.values(s.getState().project.core.dependencies);
+    expect(deps.some((d) => d.from === a && d.to === newId)).toBe(true); // 前工程コピー
+    expect(deps.some((d) => d.from === newId)).toBe(false); // 後続はコピーしない
+    const bNode = taskNodes(s).find((n) => n.taskId === b)!;
+    const newNode = taskNodes(s).find((n) => n.taskId === newId)!;
+    expect(newNode.x).toBe(bNode.x); // 基準と同列
+    expect(newNode.y).toBe(bNode.y + ROW_SUB); // 直下のサブ行
+    expect(s.getState().selectedTaskId).toBe(newId);
+
+    s.getState().undo(); // 作成と配置が 1 undo 単位
+    expect(s.getState().project.core.tasks[newId]).toBeUndefined();
+    expect(taskNodes(s)).toHaveLength(3);
+  });
+
+  it('addParallel: 連打しても直下の空きへ順に積まれ重ならない', () => {
+    const s = createAppStore();
+    s.getState().addTask('B');
+    const b = idByName(s, 'B');
+    const id1 = s.getState().addParallel(b)!;
+    const id2 = s.getState().addParallel(b)!;
+    const n1 = taskNodes(s).find((n) => n.taskId === id1)!;
+    const n2 = taskNodes(s).find((n) => n.taskId === id2)!;
+    expect(n1.y).not.toBe(n2.y);
+  });
+
+  it('makeParallelTo: X→Y→B→C が X→{Y,B}→C になり、B は基準の直下へ寄る', () => {
+    const s = createAppStore();
+    for (const n of ['X', 'Y', 'B', 'C']) s.getState().addTask(n);
+    const x = idByName(s, 'X');
+    const y = idByName(s, 'Y');
+    const b = idByName(s, 'B');
+    const c = idByName(s, 'C');
+    s.getState().addDependency(x, y);
+    s.getState().addDependency(y, b);
+    s.getState().addDependency(b, c);
+
+    s.getState().makeParallelTo(b, y);
+    expect(depPairs(s)).toEqual(['B→C', 'X→B', 'X→Y', 'Y→C']);
+    const yNode = taskNodes(s).find((n) => n.taskId === y)!;
+    const bNode = taskNodes(s).find((n) => n.taskId === b)!;
+    expect(bNode.x).toBe(yNode.x);
+    expect(bNode.y).toBe(yNode.y + ROW_SUB);
+
+    s.getState().undo(); // 依存付け替えと配置が 1 undo 単位
+    expect(depPairs(s)).toEqual(['B→C', 'X→Y', 'Y→B']);
+  });
+
+  it('makeParallelTo: 同一工程・粒度違いは no-op（履歴も汚さない）', () => {
+    const s = createAppStore();
+    s.getState().addTask('B');
+    const b = idByName(s, 'B');
+    const canUndoBefore = s.getState().canUndo;
+    const json = serializeProject(s.getState().project);
+    s.getState().makeParallelTo(b, b);
+    expect(serializeProject(s.getState().project)).toBe(json);
+    expect(s.getState().canUndo).toBe(canUndoBefore);
   });
 
   it('revealTask: スコープ絞り込み中は対象工程の親へスコープを追従させる', () => {

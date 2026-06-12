@@ -77,6 +77,22 @@ describe('keymap: findBinding', () => {
     ).toBe('flow.addInput'); // Alt 代替は残る
   });
 
+  it('並行工程: p=並行追加 / Shift+P=並行化ピッカー(Alt+KeyP は常時有効の代替)', () => {
+    expect(findBinding(ev({ key: 'p' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.addParallel');
+    expect(findBinding(ev({ key: 'P', shiftKey: true }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe(
+      'flow.makeParallel',
+    );
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'p' }), off, ['flow'], false)).toBeUndefined(); // 単キーは OFF で消える
+    // Mac の Option+P は 'π'、Option+Shift+P は '∏' になるため code(KeyP) で判定する
+    expect(findBinding(ev({ key: 'π', code: 'KeyP', altKey: true }), off, ['flow'], false)?.action).toBe(
+      'flow.addParallel',
+    );
+    expect(
+      findBinding(ev({ key: '∏', code: 'KeyP', altKey: true, shiftKey: true }), off, ['flow'], false)?.action,
+    ).toBe('flow.makeParallel');
+  });
+
   it('フローの n / Shift+N で次工程を追加(接続あり / なし)', () => {
     expect(findBinding(ev({ key: 'n' }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe('flow.addNext');
     expect(findBinding(ev({ key: 'N', shiftKey: true }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe(
@@ -88,16 +104,28 @@ describe('keymap: findBinding', () => {
     expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['flow'], false)).toBeUndefined();
   });
 
-  it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動', () => {
+  it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動、Alt+Shift=整列ジャンプ', () => {
     expect(findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
     expect(findBinding(ev({ key: 'arrowdown' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
     expect(
       findBinding(ev({ key: 'arrowdown', altKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action,
     ).toBe('flow.moveDown');
+    // Alt+Shift+矢印 は「大きく移動」ではなく整列ジャンプ(隣の列/行へ揃えて移動)
     expect(
       findBinding(ev({ key: 'arrowleft', altKey: true, shiftKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)
         ?.action,
-    ).toBe('flow.moveLeft'); // Shift 併用(大きく移動)も同じバインドに一致
+    ).toBe('flow.alignLeft');
+    // Alt+H/J/K/L(Mac の Option 記号対策で code 判定)はノード移動、Shift 併用で整列ジャンプ
+    expect(
+      findBinding(ev({ key: '∆', code: 'KeyJ', altKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action,
+    ).toBe('flow.moveDown');
+    expect(
+      findBinding(ev({ key: 'Ó', code: 'KeyH', altKey: true, shiftKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)
+        ?.action,
+    ).toBe('flow.alignLeft');
+    // Alt+H/J/K/L は修飾付きなのでシングルキー OFF でも使える
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: '˚', code: 'KeyK', altKey: true }), off, ['flow'], false)?.action).toBe('flow.moveUp');
   });
 
   it('リーダー有効時はリーダーバインドのみ一致する(g t)', () => {

@@ -125,6 +125,65 @@ describe('tidyFlowView', () => {
     expect(x(b)).toBeLessThan(x(c));
   });
 
+  it('前工程なしで途中合流する工程は、左端ではなく後続の直前の列に置かれる', () => {
+    const gen = counter();
+    // A→B→C→D のチェーンに、前工程を持たない E が E→D で途中合流する。
+    let p = emptyProject();
+    p = addAssignee(p, { name: '担当', kind: 'department' }, gen);
+    const who = Object.keys(p.core.assignees)[0]!;
+    for (const name of ['A', 'B', 'C', 'D', 'E']) p = addTask(p, { name, level: 'large' }, gen);
+    const id = (name: string) => taskIdByName(p, name);
+    for (const name of ['A', 'B', 'C', 'D', 'E']) p = setAssignee(p, id(name), who);
+    p = addDependency(p, id('A'), id('B'), gen);
+    p = addDependency(p, id('B'), id('C'), gen);
+    p = addDependency(p, id('C'), id('D'), gen);
+    p = addDependency(p, id('E'), id('D'), gen);
+    p = ensureLevelView(p, 'large');
+    p = reconcileProject(p, gen);
+    const view = p.flow.byLevel.find((v) => v.level === 'large')!;
+
+    const tidied = tidyFlowView(p.core, p.details, view);
+    const x = (name: string) =>
+      (Object.values(tidied.nodes).find((n) => n.kind === 'task' && n.taskId === id(name)) as FlowTaskNode).x;
+    // E は左端（A の列）ではなく、合流先 D の 1 つ手前＝C と同じ列に来る。
+    expect(x('E')).toBe(x('C'));
+    expect(x('E')).toBeGreaterThan(x('A'));
+  });
+
+  it('全体ビューでは親またぎのブリッジも段組みに使う（次の親の先頭が左端に寄らない）', () => {
+    // 大: P1→P2。中工程同士はコア依存で繋がらず、全体ビューでは親依存からの導出ブリッジ
+    // （a2→b1）で流れが見える。コア依存だけで段組みすると b1 が「前工程なし」扱いで
+    // col0 に寄ってしまう（＝ユーザーが訴えた「整理で左端に寄る」の実態）。
+    const gen = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'P1', level: 'large' }, gen);
+    p = addTask(p, { name: 'P2', level: 'large' }, gen);
+    const id = (name: string) => taskIdByName(p, name);
+    for (const [name, parent] of [
+      ['a1', 'P1'],
+      ['a2', 'P1'],
+      ['b1', 'P2'],
+      ['b2', 'P2'],
+    ] as const) {
+      p = addTask(p, { name, level: 'medium', parentId: id(parent) }, gen);
+    }
+    p = addDependency(p, id('P1'), id('P2'), gen); // 大同士の依存 → ブリッジ a2→b1 を導出
+    p = addDependency(p, id('a1'), id('a2'), gen);
+    p = addDependency(p, id('b1'), id('b2'), gen);
+    p = reconcileProject(ensureLevelView(p, 'medium'), gen); // 全体（親横断）ビュー
+    const view = p.flow.byLevel.find((v) => v.level === 'medium' && !v.scopeParentId)!;
+
+    const tidied = tidyFlowView(p.core, p.details, view);
+    const x = (name: string) =>
+      (Object.values(tidied.nodes).find(
+        (n) => n.kind === 'task' && n.taskId === id(name),
+      ) as FlowTaskNode).x;
+    // a1 → a2 → (ブリッジ) → b1 → b2 と連続した段組みになる
+    expect(x('a2')).toBeGreaterThan(x('a1'));
+    expect(x('b1')).toBeGreaterThan(x('a2'));
+    expect(x('b2')).toBeGreaterThan(x('b1'));
+  });
+
   it('固定(pinned)した工程は整列で位置を動かさない', () => {
     const p = createSampleProject(counter());
     const view = mediumView(p);

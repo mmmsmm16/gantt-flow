@@ -5,6 +5,8 @@ import {
   setAssignee,
   addAssignee,
   addDependency,
+  addParallelTask,
+  makeParallel,
   removeDependency,
   deleteTask,
   deleteTaskKeepChildren,
@@ -177,5 +179,104 @@ describe('commands', () => {
     p = addTask(p, { name: 'A', level: 'medium' }, g);
     p = renameTask(p, taskIdByName(p, 'A'), 'B');
     expect(validate(p)).toHaveLength(0);
+  });
+
+  it('addParallelTask は前工程のみコピーし、属性は基準と同じ・order は基準の直後になる', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addAssignee(p, { name: '営業', kind: 'department' }, g);
+    const who = assigneeIdByName(p, '営業');
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'B', level: 'medium', assigneeId: who }, g);
+    p = addTask(p, { name: 'C', level: 'medium' }, g);
+    const a = taskIdByName(p, 'A');
+    const b = taskIdByName(p, 'B');
+    const c = taskIdByName(p, 'C');
+    p = addDependency(p, a, b, g);
+    p = addDependency(p, b, c, g);
+
+    p = addParallelTask(p, b, g, 'new-id');
+    const nu = p.core.tasks['new-id']!;
+    const deps = Object.values(p.core.dependencies);
+    // 前工程 A→新 はコピーされ、後続 新→C は張られない
+    expect(deps.some((d) => d.from === a && d.to === 'new-id')).toBe(true);
+    expect(deps.some((d) => d.from === 'new-id')).toBe(false);
+    // 属性は基準と同じ、order は基準の直後、詳細は空
+    expect(nu.level).toBe('medium');
+    expect(nu.assigneeId).toBe(who);
+    expect(nu.order).toBe(p.core.tasks[b]!.order + 1);
+    expect(p.details['new-id']).toEqual({ taskId: 'new-id' });
+    expect(validate(p)).toHaveLength(0);
+  });
+
+  it('addParallelTask は基準が不在なら no-op', () => {
+    const g = counter();
+    const p = emptyProject();
+    const q = addParallelTask(p, 'missing', g);
+    expect(Object.keys(q.core.tasks)).toHaveLength(0);
+  });
+
+  it('makeParallel: X→Y→B→C で B を Y と並行にすると X→{Y,B}→C になる', () => {
+    const g = counter();
+    let p = emptyProject();
+    for (const name of ['X', 'Y', 'B', 'C']) p = addTask(p, { name, level: 'medium' }, g);
+    const id = (n: string) => taskIdByName(p, n);
+    p = addDependency(p, id('X'), id('Y'), g);
+    p = addDependency(p, id('Y'), id('B'), g);
+    p = addDependency(p, id('B'), id('C'), g);
+
+    p = makeParallel(p, id('B'), id('Y'), g);
+    const pairs = Object.values(p.core.dependencies)
+      .map((d) => `${p.core.tasks[d.from]!.name}→${p.core.tasks[d.to]!.name}`)
+      .sort();
+    expect(pairs).toEqual(['B→C', 'X→B', 'X→Y', 'Y→C']);
+    expect(validate(p)).toHaveLength(0);
+  });
+
+  it('makeParallel: 別チェーンの工程を並行化すると旧チェーンは heal で直結される', () => {
+    const g = counter();
+    let p = emptyProject();
+    for (const name of ['A', 'B', 'D', 'X', 'Y', 'C']) p = addTask(p, { name, level: 'medium' }, g);
+    const id = (n: string) => taskIdByName(p, n);
+    p = addDependency(p, id('A'), id('B'), g);
+    p = addDependency(p, id('B'), id('D'), g);
+    p = addDependency(p, id('X'), id('Y'), g);
+    p = addDependency(p, id('Y'), id('C'), g);
+
+    p = makeParallel(p, id('B'), id('Y'), g);
+    const pairs = Object.values(p.core.dependencies)
+      .map((d) => `${p.core.tasks[d.from]!.name}→${p.core.tasks[d.to]!.name}`)
+      .sort();
+    // 旧チェーン A→[B]→D は A→D に heal、B は Y と同じ前後（X→B, B→C）
+    expect(pairs).toEqual(['A→D', 'B→C', 'X→B', 'X→Y', 'Y→C']);
+  });
+
+  it('makeParallel: 既に同じ依存があっても重複しない', () => {
+    const g = counter();
+    let p = emptyProject();
+    for (const name of ['X', 'Y', 'B']) p = addTask(p, { name, level: 'medium' }, g);
+    const id = (n: string) => taskIdByName(p, n);
+    p = addDependency(p, id('X'), id('Y'), g);
+    p = addDependency(p, id('X'), id('B'), g); // コピー予定の依存が既に存在
+
+    p = makeParallel(p, id('B'), id('Y'), g);
+    const xb = Object.values(p.core.dependencies).filter(
+      (d) => d.from === id('X') && d.to === id('B'),
+    );
+    expect(xb).toHaveLength(1);
+  });
+
+  it('makeParallel: 同一 ID・粒度違いは no-op', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = addTask(p, { name: 'P', level: 'large' }, g);
+    p = addTask(p, { name: 'B', level: 'medium', parentId: taskIdByName(p, 'P') }, g);
+    const big = taskIdByName(p, 'P');
+    const b = taskIdByName(p, 'B');
+    const before = Object.keys(p.core.dependencies).length;
+    let q = makeParallel(p, b, b, g);
+    expect(Object.keys(q.core.dependencies)).toHaveLength(before);
+    q = makeParallel(p, b, big, g); // 粒度違い
+    expect(Object.keys(q.core.dependencies)).toHaveLength(before);
   });
 });

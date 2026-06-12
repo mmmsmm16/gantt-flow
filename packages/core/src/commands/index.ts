@@ -130,6 +130,64 @@ export function removeDependency(p: Project, depId: Id): Project {
   return next;
 }
 
+// 並行工程を追加: 基準工程 ref と同じ親・粒度・担当の新工程を ref の直後（order）に作り、
+// ref の「前工程のみ」をコピーする（A→B→C で B に並行追加 → A→新 のみ。新→C は張らない＝
+// 後続の繋ぎ方はユーザーに委ねる仕様）。details はコピーしない（addTask の空詳細のまま）。
+export function addParallelTask(p: Project, refId: Id, idGen: IdGen, newId?: Id): Project {
+  const ref = p.core.tasks[refId];
+  if (!ref) return clone(p);
+  const id = newId ?? idGen();
+  let next = addTask(
+    p,
+    { name: '新規工程', level: ref.level, parentId: ref.parentId, assigneeId: ref.assigneeId, id },
+    idGen,
+  );
+  // ref の直後へ挿入（同一親の兄弟内 index + 1）
+  const siblings = Object.values(next.core.tasks)
+    .filter((t) => (t.parentId ?? undefined) === (ref.parentId ?? undefined))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  next = reorderTask(next, id, siblings.findIndex((t) => t.id === refId) + 1);
+  // 前工程のみコピー（追加で依存集合が変わるため、先に収集してから処理する）
+  const preds = Object.values(next.core.dependencies)
+    .filter((d) => d.to === refId)
+    .map((d) => d.from);
+  for (const from of preds) next = addDependency(next, from, id, idGen);
+  return next;
+}
+
+// 既存工程 B(taskId) を、基準工程 Y(baseId) と「並行」（同じ前後関係）にする。
+// 手順の順序が重要: ①B の旧前後を収集 → ②直結で補完(heal: A→[B]→C を A→C に) →
+// ③B が端点の依存を撤去 → ④撤去後に Y の前後を収集して B へコピー。
+// ④を③より先にやると、B↔Y 間に依存があるケースで Y の前後に B 自身が混入して崩れる。
+export function makeParallel(p: Project, taskId: Id, baseId: Id, idGen: IdGen): Project {
+  const task = p.core.tasks[taskId];
+  const base = p.core.tasks[baseId];
+  if (taskId === baseId || !task || !base || task.level !== base.level) return clone(p);
+
+  // ① B の旧 前/後 を収集
+  const deps0 = Object.values(p.core.dependencies);
+  const oldPreds = deps0.filter((d) => d.to === taskId).map((d) => d.from);
+  const oldSuccs = deps0.filter((d) => d.from === taskId).map((d) => d.to);
+
+  // ② heal: 旧前×旧後を直結補完（自己ループ・重複は addDependency のガード任せ）
+  let next = clone(p);
+  for (const a of oldPreds) for (const c of oldSuccs) next = addDependency(next, a, c, idGen);
+
+  // ③ B が端点の依存を撤去（削除で集合が変わるため id を集めてから消す）
+  const incident = Object.values(next.core.dependencies)
+    .filter((d) => d.from === taskId || d.to === taskId)
+    .map((d) => d.id);
+  for (const depId of incident) next = removeDependency(next, depId);
+
+  // ④ 基準 Y の前後を B へコピー（③の後なので Y の前後に B は含まれない）
+  const deps1 = Object.values(next.core.dependencies);
+  for (const d of deps1) {
+    if (d.to === baseId) next = addDependency(next, d.from, taskId, idGen);
+    if (d.from === baseId) next = addDependency(next, taskId, d.to, idGen);
+  }
+  return next;
+}
+
 // タスク削除: サブツリーごと削除し、削除点の前後を繋ぎ直す（A→[X]→B を A→B に）。
 export function deleteTask(p: Project, taskId: Id): Project {
   const next = clone(p);

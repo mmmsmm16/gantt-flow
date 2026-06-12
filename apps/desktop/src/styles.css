@@ -3001,6 +3001,20 @@ kbd {
   opacity: 0.5;
   pointer-events: none;
 }
+/* ドラッグ吸着のガイド線（スマートガイド）。揃った相手同士を結ぶ破線。 */
+.snap-guide {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+.snap-guide-y {
+  height: 0;
+  border-top: 1px dashed var(--accent-strong);
+}
+.snap-guide-x {
+  width: 0;
+  border-left: 1px dashed var(--accent-strong);
+}
 .palette-sep {
   width: 1px;
   height: 18px;
@@ -3843,6 +3857,25 @@ kbd {
 }
 .node.task.pinned {
   border-color: var(--accent); /* 固定中は枠を差し色に（選択リングとは別。常時表示の📌で判別） */
+}
+/* 並行工程の追加ボタン（左下角）。pin-btn の円形スタイルを流用して位置だけ変える。 */
+.pin-btn.parallel-btn {
+  top: auto;
+  right: auto;
+  bottom: -11px;
+  left: -11px;
+  font-size: 12px;
+}
+/* 固定中の常時表示・強調は 📌 側だけ（∥ は通常のホバー表示のまま） */
+.node.task.pinned .pin-btn.parallel-btn {
+  opacity: 0;
+  filter: grayscale(1) opacity(0.8);
+  border-color: var(--line-strong);
+  background: var(--panel);
+}
+.node.task.pinned:hover .pin-btn.parallel-btn,
+.node.task.pinned .pin-btn.parallel-btn:focus-visible {
+  opacity: 1;
 }
 /* 接続ハンドルをより分かりやすく（ホバーでアクセント塗り＋拡大） */
 .handle {
