@@ -13,7 +13,7 @@ import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
-import { useRowSelectionKeys } from './ui/useRowSelectionKeys';
+import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
@@ -343,6 +343,15 @@ export function FullTable() {
     const idx = rows.findIndex((t) => t.id === selectedTaskId);
     if (idx >= renderCount) setRenderCount(Math.ceil((idx + 1) / ROW_CHUNK) * ROW_CHUNK);
   }, [selectedTaskId, rows, renderCount]);
+
+  // 選択中の工程が変わったら、その行が画面外のとき視点を寄せる（フロー→表追従）。
+  // renderCount を deps に入れない＝ユーザーのスクロール（行追加描画）で視点が戻らないように。
+  // 上の effect が同コミットで描画数を広げるので、rAF 後には対象行が描画済み。
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const raf = requestAnimationFrame(() => scrollRowIntoView(selectedTaskId));
+    return () => cancelAnimationFrame(raf);
+  }, [selectedTaskId]);
 
   // 行クリック: 通常＝単一選択（インスペクタ）、Ctrl/⌘＝トグル、Shift＝アンカーからの範囲選択。
   const onRowClick = (e: React.MouseEvent, t: ProcessTask) => {

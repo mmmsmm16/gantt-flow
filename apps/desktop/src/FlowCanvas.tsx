@@ -423,6 +423,22 @@ export function FlowCanvas() {
     };
   }, [conn, view, connect]);
 
+  // 選択中の工程が変わったら、対応するフローノードが画面外のとき視点を寄せる（表→フロー追従）。
+  // 'nearest' なので見えている間はスクロールしない＝フロー側の操作で既に見えている時は動かない。
+  useEffect(() => {
+    if (!selectedTaskId || !view) return;
+    const node = Object.values(view.nodes).find(
+      (n) => n.kind === 'task' && n.taskId === selectedTaskId,
+    );
+    if (!node) return;
+    const raf = requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-nodeid="${CSS.escape(node.id)}"]`)
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [selectedTaskId, view]);
+
   if (!view) return <p className="empty">ビューがありません。</p>;
 
   let nodes = Object.values(view.nodes);

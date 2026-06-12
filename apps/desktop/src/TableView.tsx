@@ -139,6 +139,14 @@ export function TableView() {
     setFocusId(null);
   }, [focusId, rows.length]);
 
+  // 選択中の工程が変わったら、その行が画面外のとき視点を寄せる（フロー→表追従）。
+  // 'nearest' なので表側の操作で既に見えている時は動かない。畳まれて未描画なら no-op。
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const raf = requestAnimationFrame(() => scrollRowIntoView(selectedTaskId));
+    return () => cancelAnimationFrame(raf);
+  }, [selectedTaskId]);
+
   const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
   // 行クリック/編集開始は工程へジャンプ(選択＋粒度同期＋詳細パネル)。
