@@ -104,7 +104,15 @@ describe('keymap: findBinding', () => {
     const normal = findBinding(ev({ key: 't' }), DEFAULT_KEYMAP, ['table', 'global'], false);
     expect(normal).toBeUndefined();
     const led = findBinding(ev({ key: 't' }), DEFAULT_KEYMAP, ['table', 'global'], true);
-    expect(led?.action).toBe('pane.table');
+    expect(led?.action).toBe('layout.tableToggle');
+  });
+
+  it('g t / g f は全画面トグル、g d は分割（リーダー、衝突なし）', () => {
+    expect(findBinding(ev({ key: 't' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('layout.tableToggle');
+    expect(findBinding(ev({ key: 'f' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('layout.flowToggle');
+    expect(findBinding(ev({ key: 'd' }), DEFAULT_KEYMAP, ['global'], true)?.action).toBe('layout.split');
+    const split = DEFAULT_KEYMAP.find((b) => b.id === 'go-split')!;
+    expect(findConflict(DEFAULT_KEYMAP, split, split.chord)).toBeUndefined();
   });
 
   it('g g は table コンテキストで先頭へ、G(Shift) は末尾へ', () => {

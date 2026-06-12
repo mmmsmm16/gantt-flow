@@ -83,8 +83,9 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'text-red', action: 'color.textRed', context: 'global', chord: { code: 'Digit3', alt: true, shift: true }, help: { group: G.color, label: '文字色: 赤' } },
 
   // --- g リーダー(画面移動) ---
-  { id: 'go-table', action: 'pane.table', context: 'global', chord: { key: 't' }, leader: true, help: { group: G.nav, label: '表ペインへ' } },
-  { id: 'go-flow', action: 'pane.flow', context: 'global', chord: { key: 'f' }, leader: true, help: { group: G.nav, label: 'フローペインへ' } },
+  { id: 'go-table', action: 'layout.tableToggle', context: 'global', chord: { key: 't' }, leader: true, help: { group: G.nav, label: '工程表を全画面 / 分割に戻す' } },
+  { id: 'go-flow', action: 'layout.flowToggle', context: 'global', chord: { key: 'f' }, leader: true, help: { group: G.nav, label: 'フローを全画面 / 分割に戻す' } },
+  { id: 'go-split', action: 'layout.split', context: 'global', chord: { key: 'd' }, leader: true, help: { group: G.nav, label: '分割表示（工程表＋フロー）' } },
   { id: 'go-issues', action: 'view.issues', context: 'global', chord: { key: 'i' }, leader: true, help: { group: G.nav, label: '課題一覧を開く' } },
   { id: 'go-summary', action: 'view.summary', context: 'global', chord: { key: 's' }, leader: true, help: { group: G.nav, label: 'サマリを開く' } },
   { id: 'go-level-1', action: 'level.large', context: 'global', chord: { key: '1' }, leader: true, help: { group: G.nav, label: '粒度: 大' } },

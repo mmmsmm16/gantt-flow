@@ -96,6 +96,20 @@ export function activatePane(pane: 'table' | 'flow'): void {
   }
 }
 
+// 現在のペインレイアウト（App の paneLayout と同じ規則。full は常にフロー非表示なので表扱い）。
+function currentPaneLayout(ui: ReturnType<typeof useUI.getState>): 'split' | 'table' | 'flow' {
+  return ui.flowWide ? 'flow' : ui.tableWide || ui.tableMode === 'full' ? 'table' : 'split';
+}
+
+// レイアウトを設定し、全画面化したペインへフォーカスを移す（再レンダ後に対象が出るので次フレームで）。
+function setPaneLayoutFocused(mode: 'split' | 'table' | 'flow'): void {
+  useUI.getState().setPaneLayout(mode);
+  requestAnimationFrame(() => {
+    if (mode === 'table') document.querySelector<HTMLElement>('#main-table')?.focus();
+    else if (mode === 'flow') document.querySelector<HTMLElement>('.flow-pane')?.focus();
+  });
+}
+
 export interface GlobalHotkeyHandlers {
   onSave: () => void;
   onPrint: () => void;
@@ -166,6 +180,16 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           return true;
         case 'pane.toggle':
           activatePane(ui.activePane === 'table' ? 'flow' : 'table');
+          return true;
+        // g t / g f は全画面トグル（もう一度押すと分割へ戻る）、g d は分割。全画面化した側へフォーカス。
+        case 'layout.tableToggle':
+          setPaneLayoutFocused(currentPaneLayout(ui) === 'table' ? 'split' : 'table');
+          return true;
+        case 'layout.flowToggle':
+          setPaneLayoutFocused(currentPaneLayout(ui) === 'flow' ? 'split' : 'flow');
+          return true;
+        case 'layout.split':
+          setPaneLayoutFocused('split');
           return true;
         case 'view.issues':
           ui.setOverlay('issues');
