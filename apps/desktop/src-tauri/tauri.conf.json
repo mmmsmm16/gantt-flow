@@ -33,6 +33,15 @@
       "icons/icon.icns",
       "icons/icon.ico",
       "icons/icon.png"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["gflow"],
+        "name": "gantt-flow Project",
+        "description": "gantt-flow プロジェクトファイル",
+        "role": "Editor",
+        "mimeType": "application/json"
+      }
     ]
   }
 }

@@ -131,6 +131,20 @@ describe('saveProjectToFile（Tauri: アトミック保存＋競合検知）', (
     expect(calls.find((c) => c.cmd === 'save_project')!.args['path']).toBe('/tmp/レポート.json');
   });
 
+  it('新規保存の suggestedName は専用拡張子 .gflow を使う', async () => {
+    const calls = installTauri({
+      pick_save_path: () => '/tmp/サンプル.gflow',
+      save_project: () => null,
+      stat_updated_at: () => '1',
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+    await saveProjectToFile(createSampleProject(gen('s5b')));
+    const pick = calls.find((c) => c.cmd === 'pick_save_path')!;
+    expect(String(pick.args['suggestedName'])).toMatch(/\.gflow$/);
+  });
+
   it('保存後のロック取得が解決する前に保存先が変わったら、取得したロックは保持せず返す', async () => {
     let resolveAcquire!: (v: unknown) => void;
     const calls = installTauri({
