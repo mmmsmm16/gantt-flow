@@ -77,16 +77,28 @@ describe('keymap: findBinding', () => {
     ).toBe('flow.addInput'); // Alt 代替は残る
   });
 
-  it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動', () => {
+  it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動、Alt+Shift=整列ジャンプ', () => {
     expect(findBinding(ev({ key: 'j' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
     expect(findBinding(ev({ key: 'arrowdown' }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action).toBe('flow.down');
     expect(
       findBinding(ev({ key: 'arrowdown', altKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action,
     ).toBe('flow.moveDown');
+    // Alt+Shift+矢印 は「大きく移動」ではなく整列ジャンプ(隣の列/行へ揃えて移動)
     expect(
       findBinding(ev({ key: 'arrowleft', altKey: true, shiftKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)
         ?.action,
-    ).toBe('flow.moveLeft'); // Shift 併用(大きく移動)も同じバインドに一致
+    ).toBe('flow.alignLeft');
+    // Alt+H/J/K/L(Mac の Option 記号対策で code 判定)はノード移動、Shift 併用で整列ジャンプ
+    expect(
+      findBinding(ev({ key: '∆', code: 'KeyJ', altKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)?.action,
+    ).toBe('flow.moveDown');
+    expect(
+      findBinding(ev({ key: 'Ó', code: 'KeyH', altKey: true, shiftKey: true }), DEFAULT_KEYMAP, ['flow', 'global'], false)
+        ?.action,
+    ).toBe('flow.alignLeft');
+    // Alt+H/J/K/L は修飾付きなのでシングルキー OFF でも使える
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: '˚', code: 'KeyK', altKey: true }), off, ['flow'], false)?.action).toBe('flow.moveUp');
   });
 
   it('リーダー有効時はリーダーバインドのみ一致する(g t)', () => {

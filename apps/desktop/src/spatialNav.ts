@@ -48,6 +48,36 @@ export function nearestInDirection(cur: NavRect, candidates: NavRect[], dir: Nav
   return best;
 }
 
+/**
+ * 整列ジャンプ: dir 方向にある「次の揃え位置」までの移動量を返す(無ければ null)。
+ * 左右 = 他ノードの左端 x のうち、現在より手前/先の最近値へ x をジャンプ(y は不変)。
+ * 上下 = 他ノードの中央 y のうち、最近の行へ y をジャンプ(x は不変)。
+ * nearestInDirection(最近傍ノードへの選択移動)と違い軸の値だけを見る。最近傍ノードの
+ * 座標へそのまま重ねると隣のノードに重なるため、「列・行の値の集合」へ段階的に揃える。
+ */
+export function alignTarget(
+  cur: NavRect,
+  candidates: NavRect[],
+  dir: NavDir,
+): { dx: number; dy: number } | null {
+  const EPS = 0.5; // 既に揃っている値はスキップ(浮動小数の誤差は同値とみなす)
+  if (dir === 'left' || dir === 'right') {
+    const xs = candidates.filter((c) => c.id !== cur.id).map((c) => c.x);
+    const next =
+      dir === 'left'
+        ? Math.max(...xs.filter((x) => x < cur.x - EPS), -Infinity)
+        : Math.min(...xs.filter((x) => x > cur.x + EPS), Infinity);
+    return Number.isFinite(next) ? { dx: next - cur.x, dy: 0 } : null;
+  }
+  const cy = cur.y + cur.h / 2;
+  const cys = candidates.filter((c) => c.id !== cur.id).map((c) => c.y + c.h / 2);
+  const next =
+    dir === 'up'
+      ? Math.max(...cys.filter((y) => y < cy - EPS), -Infinity)
+      : Math.min(...cys.filter((y) => y > cy + EPS), Infinity);
+  return Number.isFinite(next) ? { dx: 0, dy: next - cy } : null;
+}
+
 /** 視覚順(上→下、同じ高さなら左→右)で最初のノード。未選択時の開始点に使う。 */
 export function firstVisual(candidates: NavRect[]): string | null {
   let best: NavRect | null = null;
