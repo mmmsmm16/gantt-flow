@@ -9,8 +9,8 @@
   親範囲（大/中工程）を帯で可視化する。
 - **キーボード中心**で操作でき（Vim 風の単キー＋`g` リーダー）、`?` でショートカット一覧を表示。
 
-> 技術スタックは Tauri 2 + React + TypeScript。現在は **設計書 + ドメイン層（`packages/core`）+ Web UI（`apps/desktop`）** まで実装済み。
-> **ブラウザで起動して「表を編集 → フロー自動同期」をそのまま体験できます**（Tauri デスクトップ殻はこれから）。
+> 技術スタックは Tauri 2 + React + TypeScript。現在は **設計書 + ドメイン層（`packages/core`）+ Web UI（`apps/desktop`）+ Tauri 殻（Rust コマンド＋フロント配線）** まで実装済み。
+> **ブラウザで起動して「表を編集 → フロー自動同期」をそのまま体験できます**（デスクトップ実機バイナリのビルド/実行のみ各自環境で）。
 
 ![分割ビュー：左に工程表、右に業務フロー図](docs/screenshots/02-split.png)
 
@@ -73,9 +73,9 @@
 | 粒度切替・親範囲バンド・課題レイヤ・逆同期(レーン→担当)・取り込み(CSV/Excel) | ✅ 実装 |
 | 自動退避・世代バックアップ・設定の JSON 共有・テーマ（ライト/ダーク） | ✅ 実装 |
 | `crates/fsstore`（Rust: アトミック保存＋助言ロック=同時編集の核） | ✅ 実装（cargo test 15 件 green） |
-| `apps/desktop/src-tauri`（Tauri 2 殻） | 🟡 スキャフォールド済（ビルドは各自環境・[手順](apps/desktop/src-tauri/README.md)） |
+| `apps/desktop/src-tauri`（Tauri 2 殻: save/open・stat・助言ロック・ファイルダイアログ・パス許可リスト） | ✅ Rust コマンド実装＋フロント配線済（`persistence.ts` が `__TAURI__` 検出で invoke） |
 | 出力(Excel・CSV・SVG/PNG・印刷/PDF) | ✅ 実装 |
-| E2E(Playwright) / Tauri 配下のファイル保存配線 | ⛔ 未実装 |
+| デスクトップ実機ビルド/実行（`libwebkit2gtk-4.1-dev`＋画面が必要・[手順](apps/desktop/src-tauri/README.md)） / E2E(Playwright) | ⛔ 本リポジトリでは未実施 |
 
 ## はじめかた（クローン → 起動）
 
@@ -113,10 +113,12 @@ cargo test --manifest-path crates/fsstore/Cargo.toml   # Rust（保存/ロック
 
 `packages/core` 単体で作業する場合は `cd packages/core && npm run test:watch`。
 
-> **Tauri デスクトップ殻（webview）はスキャフォールド済・このリポジトリではビルドしていません。**
-> デスクトップ保存の核（アトミック書き込み・助言ロック）は `crates/fsstore` に Rust で実装＆テスト済みで、
-> Tauri 殻（`apps/desktop/src-tauri`）がこれを呼びます。殻のビルドには `libwebkit2gtk-4.1-dev` 等と画面が
-> 要るため各自の環境で。手順は [apps/desktop/src-tauri/README.md](apps/desktop/src-tauri/README.md) を参照。
+> **Tauri デスクトップ殻のコードは実装済みです（このリポジトリでは実機バイナリをビルドしていません）。**
+> デスクトップ保存の核（アトミック書き込み・助言ロック）は `crates/fsstore` に Rust で実装＆テスト済み、
+> それを呼ぶ Tauri コマンド（`apps/desktop/src-tauri/src/main.rs`）と、`__TAURI__` を検出して invoke する
+> フロント側（`apps/desktop/src/persistence.ts`）も配線済みです。残るのは実機バイナリのビルド/実行で、
+> `libwebkit2gtk-4.1-dev` 等と画面が要るため各自の環境で行います。手順は
+> [apps/desktop/src-tauri/README.md](apps/desktop/src-tauri/README.md) を参照。
 
 ### UI ワイヤーフレーム（参考）
 

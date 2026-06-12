@@ -33,10 +33,14 @@ npx tauri build --config apps/desktop/src-tauri/tauri.conf.json
 `tauri dev` は `beforeDevCommand`（`npm run dev`＝Vite）を起動し、その画面を
 ネイティブウィンドウで表示する。
 
-## フロント連携の仕上げ（TODO）
+## フロント連携（実装済み）
 
-現状フロントの保存/開くは**ブラウザのダウンロード/アップロード**。Tauri 配下では
-`withGlobalTauri: true` なので `window.__TAURI__.core.invoke('save_project', { path, contents })`
-等に差し替えると、共有フォルダへ**アトミック保存＋助言ロック**で書ける。
-パス選択にはダイアログプラグイン（`tauri-plugin-dialog`）を足す。
-土台は [`apps/desktop/src/persistence.ts`](../src/persistence.ts) にあり、`__TAURI__` 検出で分岐すればよい。
+フロントの保存/開くは [`apps/desktop/src/persistence.ts`](../src/persistence.ts) が
+`__TAURI__` 検出（`isTauri()`）で分岐し、Tauri 配下では
+`window.__TAURI__.core.invoke('save_project', { path, contents })` 等を呼んで
+共有フォルダへ**アトミック保存＋助言ロック**で書く（ブラウザ配下は File System
+Access API／ダウンロードにフォールバック）。パス選択は `pick_save_path` /
+`pick_open_path`（`tauri-plugin-dialog`、`main.rs` で登録済み）を経由し、選ばれた
+パスだけが Rust 側のパス許可リストに載る。
+
+残作業は **実機バイナリのビルド/実行**（上記「開発・ビルド」）と E2E のみ。
