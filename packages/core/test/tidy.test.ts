@@ -125,6 +125,31 @@ describe('tidyFlowView', () => {
     expect(x(b)).toBeLessThan(x(c));
   });
 
+  it('前工程なしで途中合流する工程は、左端ではなく後続の直前の列に置かれる', () => {
+    const gen = counter();
+    // A→B→C→D のチェーンに、前工程を持たない E が E→D で途中合流する。
+    let p = emptyProject();
+    p = addAssignee(p, { name: '担当', kind: 'department' }, gen);
+    const who = Object.keys(p.core.assignees)[0]!;
+    for (const name of ['A', 'B', 'C', 'D', 'E']) p = addTask(p, { name, level: 'large' }, gen);
+    const id = (name: string) => taskIdByName(p, name);
+    for (const name of ['A', 'B', 'C', 'D', 'E']) p = setAssignee(p, id(name), who);
+    p = addDependency(p, id('A'), id('B'), gen);
+    p = addDependency(p, id('B'), id('C'), gen);
+    p = addDependency(p, id('C'), id('D'), gen);
+    p = addDependency(p, id('E'), id('D'), gen);
+    p = ensureLevelView(p, 'large');
+    p = reconcileProject(p, gen);
+    const view = p.flow.byLevel.find((v) => v.level === 'large')!;
+
+    const tidied = tidyFlowView(p.core, p.details, view);
+    const x = (name: string) =>
+      (Object.values(tidied.nodes).find((n) => n.kind === 'task' && n.taskId === id(name)) as FlowTaskNode).x;
+    // E は左端（A の列）ではなく、合流先 D の 1 つ手前＝C と同じ列に来る。
+    expect(x('E')).toBe(x('C'));
+    expect(x('E')).toBeGreaterThan(x('A'));
+  });
+
   it('固定(pinned)した工程は整列で位置を動かさない', () => {
     const p = createSampleProject(counter());
     const view = mediumView(p);

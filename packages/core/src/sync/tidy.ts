@@ -7,7 +7,8 @@ import { laneTaskBaseY, LANE_DEFAULT_H } from './lanes';
 
 const MARGIN_X = 120;
 const COL_W = 220;
-const ROW_SUB = SIZE.task.h + 20; // 並行（同レーン同段）工程を縦に積む間隔
+/** 並行（同レーン同段）工程を縦に積む間隔。desktop の store（並行追加の配置）からも参照する。 */
+export const ROW_SUB = SIZE.task.h + 20;
 const LANE_PAD = LANE_DEFAULT_H - ROW_SUB; // 1 段なら既定高さに一致するよう調整
 
 const sameScope = (a: Id | undefined, b: Id | undefined): boolean =>
@@ -45,6 +46,18 @@ export function tidyFlowView(
       }
     }
     if (!changed) break;
+  }
+
+  // 前工程なし（入次数 0）で後続を持つ工程は、longest-path だと必ず段 0（左端）に置かれて
+  // しまう。途中から合流する工程（例: A→B→C→D の途中に E→D）は「後続の直前の列」が自然
+  // なので、min(後続の layer) - 1 へ引き上げる。
+  // 限界: 引き上げるのは単独の起点ノードのみ。鎖（E→F→D の E）は min(F)-1 = 現値で動かない
+  // （鎖全体の ALAP 化は依存済みの既存配置まで大きく動かすため意図的にしない）。
+  for (const n of taskNodes) {
+    if (deps.some((d) => d.to === n.taskId)) continue;
+    const succLayers = deps.filter((d) => d.from === n.taskId).map((d) => layer.get(d.to) ?? 0);
+    if (!succLayers.length) continue;
+    layer.set(n.taskId, Math.max(0, Math.min(...succLayers) - 1));
   }
 
   // レーン順（担当）→ 縦位置。未割当は最上段。
