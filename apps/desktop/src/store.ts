@@ -31,6 +31,8 @@ import {
   laneHeight,
   laneLayout,
   LANE_MIN_H,
+  ROW_SUB,
+  SIZE,
   addTask as cAddTask,
   renameTask as cRenameTask,
   setTaskLevel as cSetTaskLevel,
@@ -49,6 +51,8 @@ import {
   deleteTaskKeepChildren as cDeleteTaskKeepChildren,
   reorderTask as cReorderTask,
   reparentTask as cReparentTask,
+  addParallelTask as cAddParallelTask,
+  makeParallel as cMakeParallel,
 } from '@gantt-flow/core';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
@@ -62,6 +66,26 @@ export const findView = (
   p.flow.byLevel.find(
     (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
   );
+
+// 基準ノードの直下の空きサブ行（y = ref.y + k*ROW_SUB、x は同じ）を探す。
+// 並行追加・並行化の連打でノードが重ならないようにする。
+function parallelSlotBelow(
+  view: FlowLevelView,
+  ref: { x: number; y: number },
+  excludeId?: FlowNodeId,
+): { x: number; y: number } {
+  const taken = Object.values(view.nodes).filter(
+    (n) => (n.kind === 'task' || n.kind === 'control') && n.id !== excludeId,
+  );
+  for (let k = 1; k <= taken.length + 1; k++) {
+    const y = ref.y + k * ROW_SUB;
+    const occupied = taken.some(
+      (n) => Math.abs(n.x - ref.x) < SIZE.task.w && Math.abs(n.y - y) < SIZE.task.h,
+    );
+    if (!occupied) return { x: ref.x, y };
+  }
+  return { x: ref.x, y: ref.y + ROW_SUB }; // 到達しない保険
+}
 
 function initialProject(): Project {
   const now = new Date().toISOString();
@@ -124,6 +148,10 @@ export interface AppState {
   moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
   /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。 */
   addTaskAt: (x: number, y: number) => void;
+  /** 並行工程を追加（前工程のみコピー）。フロー上は基準ノードの直下の空きへ配置。1 undo。 */
+  addParallel: (taskId: Id) => Id | undefined;
+  /** 既存工程を基準工程と並行にする（依存を付け替え、旧チェーンは直結で修復）。1 undo。 */
+  makeParallelTo: (taskId: Id, baseTaskId: Id) => void;
   /** 制御ノードを追加。x,y を渡せばその位置（例: 画面中央）に置く。省略時は左上に段積み。 */
   addControlNode: (control: ControlKind, x?: number, y?: number) => void;
   /** 付箋を追加。x,y を渡せばその位置に置く。省略時は既定位置に段積み。 */
@@ -568,6 +596,50 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       }
       history.push(p);
       sync({ selectedTaskId: newId });
+    },
+
+    // 並行工程を追加。コマンド適用 → reconcile でノード生成 → 基準ノードの直下へ上書き →
+    // 1 push（addTaskAt と同じ「作成と配置を 1 スナップショットに集約」パターン。commit() だと
+    // push 後に位置を上書きできない）。
+    addParallel: (taskId) => {
+      const { level, scopeParentId } = get();
+      if (!get().project.core.tasks[taskId]) return undefined;
+      const newId = uuid();
+      let p = cAddParallelTask(get().project, taskId, uuid, newId);
+      p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
+      const view = findView(p, level, scopeParentId);
+      const nodes = view ? Object.values(view.nodes) : [];
+      const refNode = nodes.find((n) => n.kind === 'task' && n.taskId === taskId);
+      const newNode = nodes.find((n) => n.kind === 'task' && n.taskId === newId);
+      if (view && refNode && newNode) {
+        const pos = parallelSlotBelow(view, refNode, newNode.id);
+        newNode.x = pos.x;
+        newNode.y = pos.y;
+      }
+      history.push(p);
+      sync({ selectedTaskId: newId });
+      return newId;
+    },
+
+    // 既存工程を基準工程と並行化（依存付け替え＋旧チェーン修復）し、基準ノードの直下へ寄せる。
+    makeParallelTo: (taskId, baseTaskId) => {
+      const { level, scopeParentId } = get();
+      const t = get().project.core.tasks[taskId];
+      const base = get().project.core.tasks[baseTaskId];
+      if (!t || !base || taskId === baseTaskId || t.level !== base.level) return;
+      let p = cMakeParallel(get().project, taskId, baseTaskId, uuid);
+      p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
+      const view = findView(p, level, scopeParentId);
+      const nodes = view ? Object.values(view.nodes) : [];
+      const baseNode = nodes.find((n) => n.kind === 'task' && n.taskId === baseTaskId);
+      const node = nodes.find((n) => n.kind === 'task' && n.taskId === taskId);
+      if (view && baseNode && node) {
+        const pos = parallelSlotBelow(view, baseNode, node.id);
+        node.x = pos.x;
+        node.y = pos.y;
+      }
+      history.push(p);
+      sync();
     },
 
     // フロー固有要素（制御ノード/コメント/手動エッジ）の編集。view を直接いじって push。
