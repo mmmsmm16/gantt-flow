@@ -8,6 +8,7 @@ type Id = string;
 export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
 const MINIMAP_KEY = 'gf-minimap';
+const TOBE_KEY = 'gf-tobe';
 const CHROME_KEY = 'gf-chrome-hidden';
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
@@ -159,6 +160,10 @@ interface UIState {
   /** シングルキー操作(Vim 風: j/k/hjkl/gリーダー等)が有効か。既定 OFF。設定で切替。 */
   singleKey: boolean;
   setSingleKey: (enabled: boolean) => void;
+
+  /** As-Is/To-Be 比較機能（比較ボタン・To-Beタブ・シナリオ切替）が有効か。既定 OFF。設定で切替。 */
+  tobeEnabled: boolean;
+  setTobeEnabled: (enabled: boolean) => void;
 
   /** 全項目表の列表示（true=表示。未指定キーは表示）。localStorage 永続。 */
   ftColumns: Record<string, boolean>;
@@ -345,6 +350,24 @@ export const useUI = create<UIState>((set, get) => ({
 
   settingsTab: 'general',
   setSettingsTab: (tab) => set({ settingsTab: tab }),
+
+  tobeEnabled: (() => {
+    try {
+      return localStorage.getItem(TOBE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  })(),
+  setTobeEnabled: (enabled) => {
+    try {
+      if (enabled) localStorage.setItem(TOBE_KEY, '1');
+      else localStorage.removeItem(TOBE_KEY);
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    // 無効化したら開いている比較オーバーレイを閉じる。
+    set((s) => ({ tobeEnabled: enabled, overlay: !enabled && s.overlay === 'comparison' ? null : s.overlay }));
+  },
 
   minimap: (() => {
     try {

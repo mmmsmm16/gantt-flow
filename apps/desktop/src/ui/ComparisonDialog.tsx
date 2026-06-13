@@ -3,7 +3,7 @@
 // 集計は core の computeCompare（純関数）。SummaryDialog と同じモーダル語彙を踏襲。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Difficulty } from '@gantt-flow/core';
-import { computeCompare, leafEffortMinutes, leafLtDays, HOURS_PER_DAY } from '@gantt-flow/core';
+import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
@@ -63,21 +63,6 @@ function CompareBars({ asis, tobe, unit, emph }: { asis: number; tobe: number; u
   );
 }
 
-// 待ち内訳バー（実作業 vs 待ち）。待ち比率が高いほど赤面積大。
-function WaitBreakdown({ workDays, waitDays, label }: { workDays: number; waitDays: number; label: string }) {
-  const total = workDays + Math.max(waitDays, 0);
-  const waitPct = total ? (Math.max(waitDays, 0) / total) * 100 : 0;
-  return (
-    <div className="cmp-split-row" title={`${label}: 実作業 ${fmtDays(workDays)} / 待ち ${fmtDays(waitDays)}`}>
-      <span className="cmp-bar-tag">{label}</span>
-      <span className="cmp-split-track">
-        <span className="cmp-split-work" style={{ width: `${total ? (workDays / total) * 100 : 0}%` }} />
-        <span className={`cmp-split-wait ${waitPct >= 50 ? 'hi' : 'lo'}`} style={{ width: `${waitPct}%` }} />
-      </span>
-    </div>
-  );
-}
-
 function DiffStack({ counts, total, unit }: { counts: Record<Difficulty, number>; total: number; unit: string }) {
   return (
     <span className="cmp-auto-track">
@@ -118,12 +103,12 @@ export function ComparisonDialog() {
         const bEff = leafEffortMinutes(d, 'tobe') / 60;
         const aLt = leafLtDays(d, 'asis');
         const bLt = leafLtDays(d, 'tobe');
-        const waitCut = (aLt - aEff / HOURS_PER_DAY) - (bLt - bEff / HOURS_PER_DAY);
+        const ltCut = aLt - bLt; // リードタイム短縮（日）
         return {
           id: t.id,
           name: t.name,
           owner: t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '',
-          aEff, bEff, aLt, bLt, waitCut,
+          aEff, bEff, aLt, bLt, ltCut,
           changed: !!d?.toBe,
         };
       })
@@ -136,7 +121,7 @@ export function ComparisonDialog() {
   if (!open) return null;
 
   const effH = { asis: c.effortMinutes.asis / 60, tobe: c.effortMinutes.tobe / 60, delta: c.effortMinutes.delta / 60 };
-  const maxCut = Math.max(...perRow.map((r) => r.waitCut), 1);
+  const maxCut = Math.max(...perRow.map((r) => r.ltCut), 1);
   const counts = diffMode === 'count' ? c.difficulty.count : c.difficulty.effort;
   const totals = diffMode === 'count'
     ? { asis: c.leafCount, tobe: c.leafCount }
@@ -196,16 +181,7 @@ export function ComparisonDialog() {
               </div>
               <Headline from={fmtDays(c.ltDays.asis)} to={`${round1(c.ltDays.tobe)}`} unit="日" />
               <CompareBars asis={c.ltDays.asis} tobe={c.ltDays.tobe} unit="日" emph={phase} />
-              <div className="cmp-wait">
-                <div className="cmp-wait-cap">うち待ち時間<span className="push">実作業 ／ 待ち</span></div>
-                <WaitBreakdown workDays={c.workDays.asis} waitDays={c.waitDays.asis} label="As-Is" />
-                <WaitBreakdown workDays={c.workDays.tobe} waitDays={c.waitDays.tobe} label="To-Be" />
-                <div className="cmp-wait-legend">
-                  <span><span className="dot work" />実作業</span>
-                  <span><span className="dot wait" />待ち</span>
-                  <span className="push cmp-good">待ち {signed(c.waitDays.delta, '日')}</span>
-                </div>
-              </div>
+              <div className="cmp-axis-note">各工程の着手〜完了の経過時間（クリティカルパス）。並行工程は加算されません。</div>
             </section>
           </div>
 
@@ -238,7 +214,7 @@ export function ComparisonDialog() {
               <div className="cmp-table-scroll">
                 <table className="cmp-table">
                   <thead>
-                    <tr><th>工程</th><th>担当</th><th className="num">工数</th><th className="num">リードタイム</th><th className="num">待ち削減</th></tr>
+                    <tr><th>工程</th><th>担当</th><th className="num">工数</th><th className="num">リードタイム</th><th className="num">短縮</th></tr>
                   </thead>
                   <tbody>
                     {perRow.map((r) => (
@@ -248,10 +224,10 @@ export function ComparisonDialog() {
                         <td className="num flow">{round1(r.aEff)}h <b>→ {round1(r.bEff)}h</b></td>
                         <td className="num flow">{round1(r.aLt)}日 <b>→ {round1(r.bLt)}日</b></td>
                         <td className="num">
-                          {r.waitCut > 0.05 ? (
+                          {r.ltCut > 0.05 ? (
                             <span className="cmp-cut-bar">
-                              <span className="cmp-cut-track"><span className="cmp-cut-fill" style={{ width: `${(r.waitCut / maxCut) * 100}%` }} /></span>
-                              <span className="cmp-good">−{round1(r.waitCut)}日</span>
+                              <span className="cmp-cut-track"><span className="cmp-cut-fill" style={{ width: `${(r.ltCut / maxCut) * 100}%` }} /></span>
+                              <span className="cmp-good">−{round1(r.ltCut)}日</span>
                             </span>
                           ) : <span className="cmp-cut-zero">±0</span>}
                         </td>

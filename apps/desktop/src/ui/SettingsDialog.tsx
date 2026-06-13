@@ -61,6 +61,8 @@ export function SettingsDialog() {
   const setSingleKey = useUI((s) => s.setSingleKey);
   const minimap = useUI((s) => s.minimap);
   const toggleMinimap = useUI((s) => s.toggleMinimap);
+  const tobeEnabled = useUI((s) => s.tobeEnabled);
+  const setTobeEnabled = useUI((s) => s.setTobeEnabled);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -156,6 +158,17 @@ export function SettingsDialog() {
                 <span>
                   <strong>ミニマップを表示する</strong>
                   <small>フロー右下の全体俯瞰マップ。大きな図で現在地を確認しながら移動できます。</small>
+                </span>
+              </label>
+            </section>
+
+            <section className="settings-section">
+              <h4>改善提案（実験的）</h4>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={tobeEnabled} onChange={(e) => setTobeEnabled(e.target.checked)} />
+                <span>
+                  <strong>As-Is / To-Be 比較を使う</strong>
+                  <small>現状(As-Is)と改善後(To-Be)を、工数とリードタイムの2軸で比較する機能。ツールバーに「比較」ボタンが出ます（既定オフ・開発中）。</small>
                 </span>
               </label>
             </section>

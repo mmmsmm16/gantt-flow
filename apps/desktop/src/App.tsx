@@ -117,6 +117,7 @@ export function App() {
   }, [isEmpty]);
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
+  const tobeEnabled = useUI((s) => s.tobeEnabled);
   const tableWide = useUI((s) => s.tableWide);
   const flowWide = useUI((s) => s.flowWide);
   const chromeHidden = useUI((s) => s.chromeHidden);
@@ -662,14 +663,16 @@ export function App() {
           >
             <Icons.ChartBar />
           </button>
-          <button
-            className="icon-btn"
-            onClick={() => useUI.getState().setOverlay('comparison')}
-            aria-label="改善効果サマリ（As-Is / To-Be 比較）"
-            title="改善効果サマリ（As-Is / To-Be 比較） (⌘⇧C)"
-          >
-            <Icons.Compare />
-          </button>
+          {tobeEnabled && (
+            <button
+              className="icon-btn"
+              onClick={() => useUI.getState().setOverlay('comparison')}
+              aria-label="改善効果サマリ（As-Is / To-Be 比較）"
+              title="改善効果サマリ（As-Is / To-Be 比較） (⌘⇧C)"
+            >
+              <Icons.Compare />
+            </button>
+          )}
         </span>
 
         <button
