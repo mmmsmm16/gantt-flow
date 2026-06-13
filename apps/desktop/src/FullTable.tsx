@@ -467,11 +467,18 @@ export function FullTable() {
     editNavKeyDown(e);
   };
 
+  // ＋大/＋中: 追加した工程の作業名入力へフォーカスして即編集（末尾に空行が増えて止まる問題を
+  // 解消・子追加/キーボード n と挙動統一）。未描画なら focus 用 effect が描画数を広げて待つ。
+  const addRootAndEdit = (level: ProcessLevel) => {
+    const id = addRootTask(level);
+    if (id) setFocusTask(id);
+  };
+
   if (flat.length === 0) {
     return (
       <div className="ft-empty">
         <p>工程がありません。</p>
-        <button className="primary" onClick={() => addRootTask('large')}>
+        <button className="primary" onClick={() => addRootAndEdit('large')}>
           ＋ 大工程を追加
         </button>
       </div>
@@ -481,10 +488,10 @@ export function FullTable() {
   return (
     <div className={`ft-wrap${resizing ? ' resizing' : ''}`}>
       <div className="ft-actions">
-        <button className="primary" title="大工程を追加" onClick={() => addRootTask('large')}>
+        <button className="primary" title="大工程を追加" onClick={() => addRootAndEdit('large')}>
           <Icons.BoxPlus />大
         </button>
-        <button title="中工程を追加" onClick={() => addRootTask('medium')}>
+        <button title="中工程を追加" onClick={() => addRootAndEdit('medium')}>
           <Icons.BoxPlus />中
         </button>
         <button onClick={onPasteRows} title="クリップボード（Excel など）の各行を工程として追加。列はタブ区切りで [作業名, 担当]。">

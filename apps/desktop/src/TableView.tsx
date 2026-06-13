@@ -184,6 +184,16 @@ export function TableView() {
     if (value !== t.name) renameTask(t.id, value);
   };
 
+  // ＋大/＋中: 追加した工程を選択（→ useEffect が行を可視化）し、名前入力へフォーカスして
+  // 即編集を始める（末尾に空の「新規工程」が増えて止まる問題を解消・キーボード n と挙動統一）。
+  const addRootAndEdit = (level: ProcessLevel) => {
+    const id = addRootTask(level);
+    if (id) {
+      select(id);
+      setFocusId(id);
+    }
+  };
+
   // 検索ボックス内のキー操作。Enter=次の一致行へ選択ジャンプ(循環)・Esc=クリアして表へフォーカスを返す。
   // stopPropagation でグローバルの Enter(table.edit)/Esc(blur→選択解除)へ流さない。
   const onFindKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -207,10 +217,10 @@ export function TableView() {
   return (
     <div className="outline">
       <div className="outline-actions">
-        <button className="primary" title="大工程を追加" onClick={() => addRootTask('large')}>
+        <button className="primary" title="大工程を追加" onClick={() => addRootAndEdit('large')}>
           <Icons.BoxPlus />大
         </button>
-        <button title="中工程を追加" onClick={() => addRootTask('medium')}>
+        <button title="中工程を追加" onClick={() => addRootAndEdit('medium')}>
           <Icons.BoxPlus />中
         </button>
         {parentsWithChildren.size > 0 && (
