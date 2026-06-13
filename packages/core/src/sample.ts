@@ -122,6 +122,36 @@ export function createSampleProject(idGen: IdGen, now = '2026-01-01T00:00:00.000
   dep(M7, M8);
   dep(M9, M10);
 
+  // ---- リードタイム(As-Is) と業務難易度・To-Be（As-Is/To-Be 比較のデモ） ----
+  // 工数＝タッチタイム(分) / ltDays＝経過日数(待ち含む) / toBe＝あるべき姿の差分。
+  // 改善の物語: 停滞(承認・引当待ち)の削減と、暗黙知の形式知化で難易度を下げる。
+  detail(S1, { ltDays: 0.5, difficulty: 'L' });
+  detail(S2, { ltDays: 0.5, difficulty: 'M' });
+  detail(S3, {
+    ltDays: 1,
+    difficulty: 'M',
+    toBe: { effortMinutes: 5, ltDays: 0.2, automation: 'system', difficulty: 'L', rationale: '受注データを EDI 連携で自動取込し、手入力を廃止。' },
+  });
+  detail(M2, {
+    ltDays: 3,
+    toBe: { ltDays: 1, difficulty: 'L', rationale: 'チェック観点を10項目に形式知化し電子承認へ。若手でも一次承認でき、承認待ち 3日→1日。' },
+  });
+  detail(M3, {
+    ltDays: 2,
+    difficulty: 'M',
+    toBe: { ltDays: 0.5, automation: 'system', rationale: '在庫引当をシステム自動化し、引当待ちを解消。' },
+  });
+  detail(M4, { ltDays: 1, difficulty: 'L', toBe: { ltDays: 0.5 } });
+  detail(M5, { ltDays: 0.5, difficulty: 'L' });
+  detail(M6, { ltDays: 1, difficulty: 'M' });
+  detail(M7, {
+    ltDays: 2,
+    toBe: { difficulty: 'L', ltDays: 1, rationale: '検品基準をチェックリスト化し一部を画像検査で自動化。熟練の目視判断が不要になり難易度 高→低。' },
+  });
+  detail(M8, { ltDays: 1, difficulty: 'L' });
+  detail(M9, { ltDays: 2, difficulty: 'M', toBe: { ltDays: 1, rationale: '請求データを受注から自動生成し転記を廃止。' } });
+  detail(M10, { ltDays: 3, difficulty: 'M', toBe: { ltDays: 1, rationale: '入金消込を口座 API 連携で自動照合。' } });
+
   let project: Project = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     meta: {

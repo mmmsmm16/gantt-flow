@@ -179,9 +179,9 @@ interface UIState {
     ftWidths?: Record<string, number>;
   }) => void;
 
-  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / バックアップ / 設定）。同時に 1 つだけ。 */
-  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'settings' | null;
-  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'backups' | 'settings' | null) => void;
+  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / 比較 / バックアップ / 設定）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'comparison' | 'backups' | 'settings' | null;
+  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'comparison' | 'backups' | 'settings' | null) => void;
 
   /** 設定ダイアログのアクティブタブ（パレットからの深リンク用）。 */
   settingsTab: 'general' | 'keys' | 'data';

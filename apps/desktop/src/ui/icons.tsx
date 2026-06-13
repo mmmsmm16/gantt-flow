@@ -158,6 +158,13 @@ export const Clock = (p: SVGProps<SVGSVGElement>) => (
     <path d="M12 7v5l3 2" />
   </Svg>
 );
+// As-Is / To-Be 比較。長短2本のバー＝改善前後の対比。
+export const Compare = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M4 7h15M4 7l3-3M4 7l3 3" />
+    <path d="M20 17H5M20 17l-3-3M20 17l-3 3" />
+  </Svg>
+);
 export const MapIcon = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>
     <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" />

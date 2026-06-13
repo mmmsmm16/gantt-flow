@@ -34,6 +34,7 @@ import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
 import { IssueListDialog } from './ui/IssueListDialog';
 import { SummaryDialog } from './ui/SummaryDialog';
+import { ComparisonDialog } from './ui/ComparisonDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
@@ -661,6 +662,14 @@ export function App() {
           >
             <Icons.ChartBar />
           </button>
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('comparison')}
+            aria-label="改善効果サマリ（As-Is / To-Be 比較）"
+            title="改善効果サマリ（As-Is / To-Be 比較） (⌘⇧C)"
+          >
+            <Icons.Compare />
+          </button>
         </span>
 
         <button
@@ -816,6 +825,7 @@ export function App() {
       <HelpDialog />
       <IssueListDialog />
       <SummaryDialog />
+      <ComparisonDialog />
       <BackupsDialog />
       <SettingsDialog />
       <Tour />
