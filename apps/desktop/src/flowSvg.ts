@@ -17,6 +17,7 @@ import {
   type Rect,
 } from '@gantt-flow/core';
 import { FLOW_LIGHT, TASK_COLORS } from './theme';
+import { ioInfoChipPath } from './flowShapes';
 
 // 画面の --font-ui と揃える（WYSIWYG・DESIGN §8）。欧文 Inter / 和文 Meiryo UI → OS。
 // styles.css と同期。出力 SVG は font-family を埋め込まないため、Inter 未導入の第三者
@@ -234,11 +235,9 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const r = ioIconRect(task, io, items.length);
     const pal = io === 'input' ? FLOW_LIGHT.ioIn : FLOW_LIGHT.ioOut;
     if (items[0]?.kind === 'info') {
-      // 情報=平行四辺形（DESIGN §8・画面の描画と一致＝WYSIWYG）
-      const slant = Math.max(5, Math.round(r.h * 0.35));
-      const pts = `${r.x + slant},${r.y} ${r.x + r.w},${r.y} ${r.x + r.w - slant},${r.y + r.h} ${r.x},${r.y + r.h}`;
+      // 情報=3 角丸＋1 角を立てた角丸ボックス（DESIGN §8・画面と一致＝WYSIWYG）
       parts.push(
-        `<polygon points="${pts}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+        `<path d="${ioInfoChipPath(r, io)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
       );
     } else {
       // 帳票=下辺が波打つ書類形
