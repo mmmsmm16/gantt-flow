@@ -5025,3 +5025,79 @@ input.colored-text {
   line-height: 1.6;
   border-top: 1px solid var(--line-faint);
 }
+
+/* 画面4: フロー比較タブ */
+.cmp-view-tabs {
+  margin-left: var(--sp-3);
+}
+.cmp-flow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+}
+.cmp-flow-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cmp-flow-diffchips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cmp-chip {
+  font-size: var(--fs-caption);
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: var(--fw-strong);
+}
+.cmp-chip.added {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.cmp-chip.removed {
+  color: var(--red);
+  background: var(--red-fill);
+}
+.cmp-chip.moved {
+  color: var(--amber-ink);
+  background: var(--amber-fill);
+}
+.cmp-chip.parallel {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.cmp-flow-hint {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.cmp-flow-pane {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas-bg);
+  overflow: hidden;
+}
+.cmp-flow-label {
+  padding: 4px var(--sp-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
+  border-bottom: 1px solid var(--line-faint);
+  background: var(--panel-2);
+}
+.cmp-flow-label.asis {
+  color: var(--muted);
+}
+.cmp-flow-label.tobe {
+  color: var(--accent);
+}
+.cmp-flow-svg {
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--sp-2);
+}
+.cmp-flow-svg svg {
+  max-width: 100%;
+  height: auto;
+}

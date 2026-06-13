@@ -2,12 +2,34 @@
 // 「リードタイム(経過日数・停滞含む)」の2軸で対等に見せ、待ち=LT−工数 と業務難易度の変化も示す。
 // 集計は core の computeCompare（純関数）。SummaryDialog と同じモーダル語彙を踏襲。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Difficulty } from '@gantt-flow/core';
-import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
+import type { Difficulty, ProcessLevel, Project } from '@gantt-flow/core';
+import {
+  computeCompare,
+  leafEffortMinutes,
+  leafLtDays,
+  projectScenarioCore,
+  reconcileProject,
+  ensureLevelView,
+  tidyFlowView,
+  uuid,
+} from '@gantt-flow/core';
+import { buildFlowSvg } from '../flowSvg';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
 import * as Icons from './icons';
+
+// 指定シナリオ・粒度のフロー図 SVG を生成（射影→ビュー保証→reconcile→tidy→buildFlowSvg）。読み取り専用。
+function buildScenarioFlowSvg(project: Project, phase: 'asis' | 'tobe', level: ProcessLevel): string {
+  const core = projectScenarioCore(project.core, project.details, phase);
+  let tmp: Project = { ...project, core, flow: { byLevel: [] } };
+  tmp = ensureLevelView(tmp, level);
+  tmp = reconcileProject(tmp, uuid);
+  const base = tmp.flow.byLevel.find((v) => v.level === level && v.scopeParentId === undefined);
+  if (!base) return '';
+  const view = tidyFlowView(core, project.details, base);
+  return buildFlowSvg(tmp, view);
+}
 
 type Phase = 'asis' | 'tobe' | 'delta';
 
@@ -89,8 +111,33 @@ export function ComparisonDialog() {
   useFocusTrap(dialogRef, open);
   const [phase, setPhase] = useState<Phase>('delta');
   const [diffMode, setDiffMode] = useState<'count' | 'effort'>('count');
+  const [view, setView] = useState<'summary' | 'flow'>('summary');
+  const [flowLevel, setFlowLevel] = useState<ProcessLevel>('medium');
 
   const c = useMemo(() => computeCompare(project.core, project.details), [project]);
+  // フロー比較（画面4）の As-Is / To-Be 図。flow タブのときだけ計算。
+  const flowSvgs = useMemo(
+    () =>
+      view !== 'flow'
+        ? null
+        : { asis: buildScenarioFlowSvg(project, 'asis', flowLevel), tobe: buildScenarioFlowSvg(project, 'tobe', flowLevel) },
+    [project, view, flowLevel],
+  );
+  // 構造差分の要約（新規 / 廃止 / 移動 / 並行化）。
+  const struct = useMemo(() => {
+    const added: string[] = [];
+    const removed: string[] = [];
+    const moved: string[] = [];
+    for (const t of Object.values(project.core.tasks)) {
+      const tb = project.details[t.id]?.toBe;
+      if (!tb) continue;
+      if (tb.lifecycle === 'added') added.push(t.name);
+      else if (tb.lifecycle === 'removed') removed.push(t.name);
+      if (tb.assigneeId && tb.assigneeId !== t.assigneeId) moved.push(t.name);
+    }
+    const parallelized = Object.values(project.core.dependencies).filter((d) => d.phase === 'asis').length;
+    return { added, removed, moved, parallelized };
+  }, [project]);
   // 工程別の差分（末端のみ・工数 or LT が入っている行）
   const perRow = useMemo(() => {
     const tasks = Object.values(project.core.tasks);
@@ -124,7 +171,7 @@ export function ComparisonDialog() {
   const maxCut = Math.max(...perRow.map((r) => r.ltCut), 1);
   const counts = diffMode === 'count' ? c.difficulty.count : c.difficulty.effort;
   const totals = diffMode === 'count'
-    ? { asis: c.leafCount, tobe: c.leafCount }
+    ? { asis: c.leafCount.asis, tobe: c.leafCount.tobe }
     : { asis: c.effortMinutes.asis / 60, tobe: c.effortMinutes.tobe / 60 };
   const unit = diffMode === 'count' ? '工程' : 'h';
   const hAsis = diffMode === 'count' ? c.difficulty.count.asis.H : c.difficulty.effort.asis.H / 60;
@@ -138,9 +185,14 @@ export function ComparisonDialog() {
       <div className="modal cmp-modal" role="dialog" aria-modal="true" aria-label="改善効果サマリ（As-Is / To-Be 比較）" ref={dialogRef} onMouseDown={(e) => e.stopPropagation()}>
         <div className="help-head">
           <h3 className="modal-title">改善効果サマリ <span className="cmp-modal-sub">As-Is / To-Be</span></h3>
+          <div className="seg cmp-view-tabs" role="tablist">
+            <button role="tab" aria-selected={view === 'summary'} className={view === 'summary' ? 'on' : ''} onClick={() => setView('summary')}>サマリ</button>
+            <button role="tab" aria-selected={view === 'flow'} className={view === 'flow' ? 'on' : ''} onClick={() => setView('flow')}>フロー比較</button>
+          </div>
           <button ref={closeRef} className="x" aria-label="閉じる" title="閉じる" onClick={close}>×</button>
         </div>
 
+        {view === 'summary' && (
         <div className="cmp-tabrow">
           <div className="seg cmp-phase-tabs" role="tablist">
             {(['asis', 'tobe', 'delta'] as Phase[]).map((p) => (
@@ -154,7 +206,41 @@ export function ComparisonDialog() {
             <span className="cmp-leg"><span className="sw tobe" />To-Be</span>
           </span>
         </div>
+        )}
 
+        {view === 'flow' && (
+          <div className="cmp-flow">
+            <div className="cmp-flow-toolbar">
+              <div className="seg cmp-seg-sm" role="tablist">
+                {([['large', '大'], ['medium', '中'], ['small', '小']] as [ProcessLevel, string][]).map(([k, lab]) => (
+                  <button key={k} className={flowLevel === k ? 'on' : ''} onClick={() => setFlowLevel(k)}>{lab}</button>
+                ))}
+              </div>
+              <span className="cmp-flow-diffchips">
+                {struct.added.length > 0 && <span className="cmp-chip added">新規 {struct.added.length}</span>}
+                {struct.removed.length > 0 && <span className="cmp-chip removed">廃止 {struct.removed.length}</span>}
+                {struct.moved.length > 0 && <span className="cmp-chip moved">移動 {struct.moved.length}</span>}
+                {struct.parallelized > 0 && <span className="cmp-chip parallel">並行化 {struct.parallelized}</span>}
+                {struct.added.length + struct.removed.length + struct.moved.length + struct.parallelized === 0 && (
+                  <span className="cmp-flow-hint">構造の変更はありません（工数・リードタイム・難易度のみ変化）</span>
+                )}
+              </span>
+            </div>
+            <div className="cmp-flow-pane">
+              <div className="cmp-flow-label asis">As-Is（現状）</div>
+              <div className="cmp-flow-svg" dangerouslySetInnerHTML={{ __html: flowSvgs?.asis ?? '' }} />
+            </div>
+            <div className="cmp-flow-pane">
+              <div className="cmp-flow-label tobe">To-Be（改善後）</div>
+              <div className="cmp-flow-svg" dangerouslySetInnerHTML={{ __html: flowSvgs?.tobe ?? '' }} />
+            </div>
+            <p className="cmp-table-foot">
+              ※ 読み取り専用。構造（新規・廃止・担当移動・並行化）は To-Be 編集（インスペクタ）と一括入力で変更できます。配置は自動整列で都度導出します。
+            </p>
+          </div>
+        )}
+
+        {view === 'summary' && (
         <div className="cmp-body">
           <div className="cmp-cards">
             {/* 工数（左） */}
@@ -242,6 +328,7 @@ export function ComparisonDialog() {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
