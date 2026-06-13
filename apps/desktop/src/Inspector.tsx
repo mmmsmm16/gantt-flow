@@ -194,7 +194,7 @@ export function Inspector() {
           {preds.map((dep) => (
             <div className="dep-row" key={dep.id}>
               <span className="dep-name">{nameOf(dep.from)}</span>
-              <button className="x" aria-label="前工程を解除" onClick={() => removeDependency(dep.id)}>
+              <button className="x" aria-label="前工程を解除" title="前工程を解除" onClick={() => removeDependency(dep.id)}>
                 ×
               </button>
             </div>
@@ -228,7 +228,7 @@ export function Inspector() {
           {succs.map((dep) => (
             <div className="dep-row" key={dep.id}>
               <span className="dep-name">{nameOf(dep.to)}</span>
-              <button className="x" aria-label="次工程を解除" onClick={() => removeDependency(dep.id)}>
+              <button className="x" aria-label="次工程を解除" title="次工程を解除" onClick={() => removeDependency(dep.id)}>
                 ×
               </button>
             </div>

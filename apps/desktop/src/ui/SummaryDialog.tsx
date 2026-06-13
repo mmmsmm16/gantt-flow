@@ -74,7 +74,7 @@ export function SummaryDialog() {
       >
         <div className="help-head">
           <h3 className="modal-title">サマリ</h3>
-          <button ref={closeRef} className="x" aria-label="閉じる" onClick={close}>
+          <button ref={closeRef} className="x" aria-label="閉じる" title="閉じる" onClick={close}>
             ×
           </button>
         </div>

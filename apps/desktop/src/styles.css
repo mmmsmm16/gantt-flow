@@ -1,7 +1,39 @@
 /* =========================================================================
+   Webfonts（セルフホスト・オフライン対応 / CSP: font-src 'self'）
+   - 欧文 UI: Inter（Latin・400 / 600）。和文グリフは持たないため、日本語は
+     --font-ui の次の家系（Meiryo UI → OS フォント）が自動で使われる。
+   - 等幅: Cascadia Code（Latin・400）。kbd・コード断片に使用。
+   出典: design-handoff（claude.ai/design）tokens/fonts.css。CDN 読み込みは
+   Tauri の CSP（font-src 'self'）でブロックされるためセルフホストに置換。
+   ========================================================================= */
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-latin-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cascadia Code';
+  src: url('./fonts/cascadia-code-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* =========================================================================
    デザイントークン
    - ライト値は apps/desktop/src/theme.ts（出力パレット）と整合させる。
    - ダークは [data-theme="dark"] で上書き（出力には乗らない）。
+   - タイプスケール・ウェイト・スペーシング・モーションは design-handoff の
+     tokens/*.css と一致（DESIGN.md §5）。
    ========================================================================= */
 :root {
   color-scheme: light;
@@ -46,11 +78,24 @@
   --amber-fill: #f6ecc6;
   --amber-ink: #7a5407;
 
-  /* 粒度色（トークン化・ダーク追従）。medium はアクセント(青)、small は入力ティールと被らないよう緑に。 */
-  --lvl-large: #b5701d;
-  --lvl-medium: var(--accent);
-  --lvl-small: #2f9e6b;
-  --lvl-detail: var(--muted);
+  /* 粒度＝中立の青グレー階段（DESIGN §13 #7 解消）。粒度は「構造」なので静かな濃淡で表し、
+     色相は意味色（入/出/課題/成功/警告）に解放する＝1色相1意味。大=最濃→詳細=淡。
+     判別は濃淡＋ラベル。親範囲の帯もこの色から導出されるため自動的に中立化し、出力(theme.ts
+     の中立グレー帯)と画面が一致する（WYSIWYG）。 */
+  --lvl-large: #475569;
+  --lvl-medium: #647487;
+  --lvl-small: #8693a3;
+  --lvl-detail: #aab3bf;
+
+  /* 状態・自動化・カテゴリ色（用途別にトークン化。1色相1意味。DESIGN §13 #6） */
+  --status-heard: #b07a1e; /* ヒアリング: 聞き取り済み */
+  --status-review: #2f6fb0; /* ヒアリング: 要確認 */
+  --status-done: #2f8f5b; /* ヒアリング: 完了 */
+  --auto-manual: #dc6a4b; /* 自動化度: 手作業 */
+  --auto-partial: #e0a44a; /* 自動化度: 一部自動 */
+  --auto-system: #4a9d7a; /* 自動化度: システム */
+  --mm-comment: #d9b44a; /* ミニマップ: 付箋ノード */
+  --scrim: rgba(15, 23, 42, 0.45); /* モーダル背景の覆い */
 
   /* フローキャンバス（涼しい紙白＝画像出力 theme.ts と整合） */
   --canvas-bg: #ffffff;
@@ -73,9 +118,39 @@
   --radius: 10px;
   --radius-sm: 7px;
   --radius-lg: 14px;
-  --font-ui: system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI',
-    'Noto Sans JP', Meiryo, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Yu Gothic UI', monospace;
+  --radius-pill: 999px;
+
+  /* 書体（欧文 Inter＝セルフホスト webfont、和文 Meiryo UI → OS フォールバック）。
+     Inter は和文グリフを持たないため、日本語は 'Meiryo UI' 以降が自動で使われる。 */
+  --font-ui: 'Inter', 'Meiryo UI', system-ui, -apple-system, 'Hiragino Kaku Gothic ProN',
+    'Yu Gothic UI', 'Noto Sans JP', Meiryo, sans-serif;
+  --font-mono: 'Cascadia Code', ui-monospace, 'SF Mono', Consolas, 'Yu Gothic UI', monospace;
+
+  /* タイプスケール（5 段固定・端数 / 11px 未満禁止。DESIGN §5.2） */
+  --fs-caption: 11px; /* チップ・補足・ステータスバー */
+  --fs-label: 12px; /* 操作部・表ヘッダ・ラベル */
+  --fs-body: 13px; /* 本文・表データ・ノード名（基準） */
+  --fs-title: 15px; /* ペイン見出し・ダイアログ表題 */
+  --fs-display: 18px; /* 空状態の見出しなど（希少） */
+
+  /* ウェイト（400 / 600 の 2 段のみ。700 は廃止＝D-4） */
+  --fw-regular: 400;
+  --fw-strong: 600;
+
+  /* スペーシング（4px グリッド。密部品の内側のみ 2 / 6。DESIGN §5.3） */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-dense-1: 2px;
+  --sp-dense-2: 6px;
+
+  /* モーション（標準 0.12s / オーバーレイ 0.16s・イージング 1 種。DESIGN §5.5 / 課題#9） */
+  --dur-1: 0.12s;
+  --dur-2: 0.16s;
+  --ease: ease-out;
 }
 
 :root[data-theme='dark'] {
@@ -114,8 +189,21 @@
   --amber-fill: rgba(202, 138, 4, 0.2);
   --amber-ink: #f0c453;
 
-  --lvl-large: #e0995a;
-  --lvl-small: #34d18d;
+  /* 粒度（中立の青グレー階段・ダークは明度を持ち上げ。大=明→詳細=暗で序列維持） */
+  --lvl-large: #c7d2e0;
+  --lvl-medium: #a3afbf;
+  --lvl-small: #828e9e;
+  --lvl-detail: #687284;
+
+  /* 状態・自動化・カテゴリ色（ダークは明度を持ち上げて可読性確保） */
+  --status-heard: #d6a55a;
+  --status-review: #6fa0d8;
+  --status-done: #5cbf8a;
+  --auto-manual: #e6917a;
+  --auto-partial: #edc079;
+  --auto-system: #6cc0a0;
+  --mm-comment: #e0c46a;
+  --scrim: rgba(0, 0, 0, 0.55);
 
   --canvas-bg: #161b23;
   --canvas-dot: rgba(150, 170, 200, 0.16);
@@ -149,7 +237,7 @@ body {
   text-rendering: optimizeLegibility;
   color: var(--ink);
   background: var(--bg);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 
 .app {
@@ -165,7 +253,7 @@ body {
   flex-wrap: wrap;
   gap: 10px;
   row-gap: 8px;
-  padding: 10px 16px;
+  padding: 12px 16px;
   background: var(--toolbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
@@ -207,7 +295,7 @@ body {
   color: var(--muted);
   cursor: pointer;
   opacity: 0.5;
-  transition: opacity 0.12s ease, color 0.12s ease, height 0.12s ease;
+  transition: opacity var(--dur-1) ease, color var(--dur-1) ease, height var(--dur-1) ease;
 }
 .chrome-reveal:hover {
   opacity: 1;
@@ -228,21 +316,20 @@ body {
 .brand-mark {
   filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.18));
 }
-.brand-mark .bg {
-  fill: var(--accent);
-}
+/* 地はブランドグラデーション（#5271a5 → #3f5a89）。塗りは SVG 内の <linearGradient> を
+   インライン指定するため、ここでは fill を上書きしない（design/icon.svg と同一の見た目）。 */
 .brand-mark .bar {
-  fill: #fff;
+  fill: var(--on-accent);
 }
 .brand-mark .bar.b2 {
-  opacity: 0.9;
+  opacity: 0.72;
 }
 .brand-mark .bar.b3 {
-  opacity: 0.78;
+  opacity: 0.46;
 }
 .brand-name {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
   letter-spacing: -0.01em;
   color: var(--ink);
 }
@@ -255,16 +342,16 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--hdr);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .file-chip-dot {
   color: var(--amber);
-  font-size: 10px;
+  font-size: var(--fs-caption);
   line-height: 1;
 }
 .file-chip-name {
@@ -290,15 +377,15 @@ body {
 
 button {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-body);
   font-weight: 500;
   padding: 6px 12px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--btn-bg);
   color: var(--ink);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s, transform 0.05s;
+  transition: background var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1), transform 0.05s;
 }
 button:hover {
   background: var(--hdr);
@@ -340,18 +427,18 @@ button.danger:hover {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--muted);
   background: var(--hdr);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 2px 4px;
 }
 .seg button {
   border: none;
   background: transparent;
-  padding: 4px 10px;
-  border-radius: 7px;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
 }
 .seg button:hover {
@@ -360,20 +447,20 @@ button.danger:hover {
 .seg button.on {
   background: var(--panel);
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--fw-strong);
   box-shadow: var(--shadow);
 }
 .scope {
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 6px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--input-bg);
   color: var(--ink);
 }
 .toggle {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--muted);
   display: inline-flex;
   align-items: center;
@@ -388,7 +475,7 @@ button.danger:hover {
   display: grid;
   grid-template-columns: minmax(520px, 42%) 1fr;
   gap: 14px;
-  padding: 14px;
+  padding: 16px;
   min-height: 0;
 }
 .panes.with-inspector {
@@ -405,7 +492,7 @@ button.danger:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 14px 16px;
+  padding: 16px 16px;
 }
 /* キーボード操作の対象ペイン(activePane)。控えめな枠で「いまどちらに居るか」を示す。 */
 .pane.pane-active {
@@ -415,8 +502,8 @@ button.danger:hover {
   outline: none; /* ペイン自体のフォーカスリングは出さない(pane-active が代替) */
 }
 .pane h2 {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-strong);
   color: var(--muted);
   letter-spacing: 0.02em;
   margin: 2px 0 12px;
@@ -428,7 +515,7 @@ button.danger:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 14px 0;
+  padding: 16px 0;
 }
 .flow-pane > .flow-head {
   flex: none;
@@ -450,7 +537,7 @@ button.danger:hover {
 }
 .empty {
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--fs-body);
   padding: 12px 4px;
 }
 
@@ -470,6 +557,19 @@ button.danger:hover {
   row-gap: 6px;
   margin-bottom: 10px;
 }
+/* 大工程 / 中工程の追加: アイコン＋粒度の一文字（大/中）。階層差はアイコンで表せないため
+   一文字を残す。全展開/折りたたみ・列はアイコンのみ（下の各規則）。 */
+.outline-actions > button,
+.ft-actions > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.outline-actions > button svg,
+.ft-actions > button svg {
+  width: 16px;
+  height: 16px;
+}
 .outline-scroll {
   flex: 1;
   min-height: 0;
@@ -486,8 +586,17 @@ button.danger:hover {
   gap: 6px;
 }
 .outline-collapse button {
-  font-size: 12px;
-  padding: 5px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: var(--fs-label);
+}
+.outline-collapse button svg {
+  width: 16px;
+  height: 16px;
 }
 /* クイックフィルタ(Ctrl/⌘+F)。一致行とその祖先だけを表示する(表示のみの絞り込み) */
 .outline-find {
@@ -504,13 +613,13 @@ button.danger:hover {
 }
 .outline-find-input {
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-label);
   flex: 1 1 90px;
   min-width: 90px;
   max-width: 150px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--ink);
 }
@@ -520,7 +629,7 @@ button.danger:hover {
   box-shadow: var(--ring);
 }
 .outline-find-count {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--faint);
   white-space: nowrap;
 }
@@ -532,7 +641,7 @@ button.danger:hover {
   border: none;
   background: transparent;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-caption);
   line-height: 1;
   padding: 2px 4px;
   width: 18px;
@@ -563,7 +672,7 @@ button.danger:hover {
      表示中の列数に応じて TableView がインラインで与える。 */
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-body);
   font-variant-numeric: tabular-nums;
 }
 .grid th,
@@ -577,7 +686,7 @@ button.danger:hover {
   text-align: left;
   color: var(--faint);
   font-weight: 600;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   letter-spacing: 0.03em;
   text-transform: uppercase;
   padding: 6px 8px;
@@ -588,7 +697,7 @@ button.danger:hover {
 }
 .grid td {
   border-bottom: 1px solid var(--line-faint);
-  padding: 5px 8px;
+  padding: 6px 8px;
   vertical-align: middle;
 }
 .grid tbody tr {
@@ -604,9 +713,9 @@ button.danger:hover {
 .grid input,
 .grid select {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-body);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   width: 100%;
   background: transparent;
@@ -631,7 +740,7 @@ button.danger:hover {
   text-align: right;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  padding-right: 7px;
+  padding-right: 8px;
 }
 .detail-chips {
   display: inline-flex;
@@ -643,10 +752,10 @@ button.danger:hover {
   padding-left: 4px;
 }
 .chip {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 7px;
-  border-radius: 999px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -666,7 +775,7 @@ button.danger:hover {
 }
 .dep-row .dep-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .dep-add {
   margin-top: 4px;
@@ -686,7 +795,7 @@ button.danger:hover {
 .row-grip {
   cursor: grab;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--fs-body);
   line-height: 1;
   user-select: none;
 }
@@ -724,7 +833,7 @@ button.danger:hover {
 .c-code {
   width: 58px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-label);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -738,14 +847,14 @@ button.danger:hover {
 }
 .prev-names {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .prev-add {
-  font-size: 12px;
+  font-size: var(--fs-label);
   margin-top: 2px;
 }
 .c-io {
@@ -763,10 +872,10 @@ button.danger:hover {
 }
 .tree-twig {
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .lvl {
-  font-weight: 700;
+  font-weight: var(--fw-strong);
   text-align: center;
 }
 .lvl-large {
@@ -790,8 +899,8 @@ button.danger:hover {
 .io-chip {
   display: inline-flex;
   align-items: center;
-  border-radius: 6px;
-  padding: 0 1px 0 4px;
+  border-radius: var(--radius-sm);
+  padding: 0 2px 0 4px;
 }
 .io-chip.in {
   background: var(--in-fill);
@@ -800,7 +909,7 @@ button.danger:hover {
   background: var(--out-fill);
 }
 .io-chip-name {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   border: none;
   background: transparent;
   width: 62px;
@@ -816,8 +925,8 @@ button.danger:hover {
 .io-chip-x {
   border: none;
   background: transparent;
-  padding: 0 3px;
-  font-size: 12px;
+  padding: 0 4px;
+  font-size: var(--fs-label);
   line-height: 1;
   color: var(--faint);
 }
@@ -827,15 +936,15 @@ button.danger:hover {
   color: var(--red);
 }
 .io-add {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   padding: 2px 6px;
 }
 .io-issue {
   cursor: pointer;
 }
 .c-act button {
-  padding: 4px 7px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: var(--fs-label);
 }
 
 /* ---- Flow canvas ---- */
@@ -922,7 +1031,7 @@ button.danger:hover {
   stroke: var(--out);
 }
 .io-icon .io-name {
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: 600;
 }
 .io-icon.io-input .io-name {
@@ -939,12 +1048,12 @@ button.danger:hover {
 }
 .io-source-name {
   fill: var(--in);
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 600;
 }
 .io-source-from {
   fill: var(--muted);
-  font-size: 8.5px;
+  font-size: var(--fs-caption);
 }
 .io-source-line {
   stroke: var(--in);
@@ -959,7 +1068,7 @@ button.danger:hover {
 .band {
   position: absolute;
   border: 1px dashed var(--band-stroke);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   pointer-events: none;
 }
 /* 入れ子（大⊃中⊃小）を見分けやすく: 外側=大ほど太く粗い破線・濃いふち。 */
@@ -981,7 +1090,7 @@ button.danger:hover {
   position: absolute;
   top: 4px;
   left: 10px;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   color: var(--muted);
 }
@@ -1005,8 +1114,8 @@ button.danger:hover {
   justify-content: center;
   text-align: center;
   z-index: 1;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
   color: var(--ink);
   padding: 0 6px;
   pointer-events: auto;
@@ -1020,17 +1129,17 @@ button.danger:hover {
   flex-direction: column;
   gap: 1px;
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity var(--dur-1);
 }
 .lane-label:hover .lane-reorder,
 .lane-reorder:focus-within {
   opacity: 1;
 }
 .lane-mv {
-  font-size: 8px;
+  font-size: var(--fs-caption);
   line-height: 1;
-  padding: 1px 3px;
-  border-radius: 4px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
 }
 .lane-mv:disabled {
@@ -1042,9 +1151,9 @@ button.danger:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: var(--fs-body);
   text-align: center;
-  border-radius: 9px;
+  border-radius: var(--radius);
   user-select: none;
 }
 .node.task {
@@ -1087,14 +1196,14 @@ button.danger:hover {
   background: var(--red-fill);
   border: 1.5px solid var(--red);
   color: var(--red);
-  border-radius: 6px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-caption);
   font-weight: 600;
   /* 記載された課題文を表示するため内容に応じて自動サイズ（左寄せ・折り返し）。 */
   width: 174px;
   height: auto;
   min-height: 28px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   align-items: flex-start;
   justify-content: flex-start;
   text-align: left;
@@ -1107,7 +1216,7 @@ button.danger:hover {
 }
 .node.issue .issue-list {
   margin: 0;
-  padding-left: 14px;
+  padding-left: 16px;
   text-align: left;
 }
 .node.issue .issue-list li {
@@ -1117,14 +1226,14 @@ button.danger:hover {
   background: var(--amber-fill);
   border: 1.4px solid var(--amber);
   color: var(--amber-ink);
-  font-size: 11px;
-  border-radius: 4px;
+  font-size: var(--fs-caption);
+  border-radius: var(--radius-sm);
 }
 .node.control {
   background: var(--node-task-bg);
   border: 1.6px solid var(--node-task-border);
-  border-radius: 18px;
-  font-size: 11px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-caption);
   color: var(--muted);
   font-weight: 600;
 }
@@ -1162,7 +1271,7 @@ button.danger:hover {
   z-index: 2;
   width: 92%;
   border: 1px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 2px 4px;
   font: inherit;
   text-align: center;
@@ -1184,18 +1293,18 @@ button.danger:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
 }
 .insp-head strong {
-  font-size: 14px;
+  font-size: var(--fs-title);
 }
 .lvl-badge {
   display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 7px;
-  border-radius: 6px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
   margin-right: 8px;
   background: var(--hdr);
   border: 1px solid var(--line);
@@ -1212,14 +1321,14 @@ button.danger:hover {
 .insp-scroll {
   flex: 1;
   overflow: auto;
-  padding: 12px 14px 28px;
+  padding: 12px 16px 24px;
 }
 .inspector section {
   margin-bottom: 18px;
 }
 .inspector h3 {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
   color: var(--muted);
   margin: 0 0 8px;
   display: flex;
@@ -1228,7 +1337,7 @@ button.danger:hover {
 }
 .inspector label {
   display: block;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--faint);
   margin: 8px 0 3px;
 }
@@ -1236,10 +1345,10 @@ button.danger:hover {
 .inspector select,
 .inspector textarea {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-body);
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   background: var(--input-bg);
   color: var(--ink);
@@ -1256,22 +1365,22 @@ button.danger:hover {
   box-shadow: var(--ring);
 }
 .inspector .readonly {
-  font-size: 13px;
+  font-size: var(--fs-body);
   color: var(--muted);
   padding: 6px 8px;
   background: var(--hdr);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   font-variant-numeric: tabular-nums;
 }
 .inspector .hint {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--faint);
   margin: 2px 0;
 }
 .add-inline button {
   font-weight: 500;
-  padding: 3px 8px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: var(--fs-label);
   margin-left: 4px;
 }
 .two-col {
@@ -1287,14 +1396,14 @@ button.danger:hover {
   margin-bottom: 6px;
 }
 .io-row .io-tag {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   width: 20px;
   height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   flex: none;
 }
 .io-row.in .io-tag {
@@ -1330,7 +1439,7 @@ button.danger:hover {
   background: transparent;
   color: var(--faint);
   padding: 2px 6px;
-  font-size: 15px;
+  font-size: var(--fs-title);
   line-height: 1;
 }
 .x:hover {
@@ -1354,7 +1463,7 @@ button.danger:hover {
   z-index: 7;
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
   cursor: pointer;
   overflow: hidden;
@@ -1371,7 +1480,7 @@ button.danger:hover {
   fill: var(--faint);
 }
 .mm-node.mm-comment {
-  fill: #d9b44a;
+  fill: var(--mm-comment);
 }
 .mm-node.mm-issue {
   fill: var(--danger);
@@ -1387,17 +1496,27 @@ button.danger:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 16px 10px;
+  padding: 4px 16px 12px;
   background: var(--panel);
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--muted);
 }
+/* パレットのノード追加・操作はアイコンのみ（ホバーで title 説明）。正方形に揃える。 */
 .flow-palette button {
-  padding: 3px 9px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: var(--fs-label);
+}
+.flow-palette button svg {
+  width: 16px;
+  height: 16px;
 }
 .flow-palette .add-task {
-  font-weight: 700;
+  font-weight: var(--fw-strong);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
 }
@@ -1408,13 +1527,17 @@ button.danger:hover {
   gap: 2px;
 }
 .palette-zoom button {
-  padding: 3px 8px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
   min-width: 32px;
+  padding: 0 6px;
+  font-size: var(--fs-label);
 }
 .palette-hint {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-caption);
   margin-left: 12px;
 }
 .handle {
@@ -1429,7 +1552,7 @@ button.danger:hover {
   border: 2px solid var(--accent);
   cursor: crosshair;
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity var(--dur-1);
 }
 .node:hover .handle {
   opacity: 1;
@@ -1442,7 +1565,7 @@ button.danger:hover {
   height: 18px;
   padding: 0;
   border-radius: 50%;
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1;
   background: var(--panel);
   border: 1px solid var(--line-strong);
@@ -1480,7 +1603,7 @@ button.danger:hover {
 .flow-canvas.connecting .node.droppable {
   outline: 2px dashed var(--accent);
   outline-offset: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .flow-canvas.connecting .node.drop-active {
   outline-style: solid;
@@ -1490,7 +1613,7 @@ button.danger:hover {
 .flow-canvas.connecting .node.conn-source {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 /* 繋げられない要素はドラッグ中だけ控えめに（落下先を目立たせる）。 */
 .flow-canvas.connecting .node:not(.droppable):not(.conn-source) {
@@ -1504,7 +1627,7 @@ button.danger:hover {
   pointer-events: none;
 }
 .edge-label {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   fill: var(--muted);
   paint-order: stroke;
@@ -1551,7 +1674,7 @@ button.danger:hover {
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--line-strong);
-  border-radius: 9px;
+  border-radius: var(--radius);
   background: var(--btn-bg);
   overflow: hidden;
 }
@@ -1593,7 +1716,7 @@ button.danger:hover {
 .menu-trigger {
   width: auto;
   gap: 1px;
-  padding: 0 7px;
+  padding: 0 8px;
 }
 .menu {
   position: absolute;
@@ -1609,7 +1732,7 @@ button.danger:hover {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  animation: pop-in 0.12s ease-out;
+  animation: pop-in var(--dur-1) var(--ease);
 }
 .menu-item {
   border: none;
@@ -1617,10 +1740,10 @@ button.danger:hover {
   width: 100%;
   justify-content: flex-start;
   text-align: left;
-  padding: 7px 10px;
-  border-radius: 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .menu-item:hover {
   background: var(--accent-soft);
@@ -1673,8 +1796,8 @@ button.danger:hover {
 }
 /* メニューの空状態（最近使ったファイルが無い等）。項目と違いホバー/クリック不可の案内文 */
 .menu-empty {
-  padding: 7px 10px;
-  font-size: 12.5px;
+  padding: 8px 12px;
+  font-size: var(--fs-body);
   color: var(--faint);
   white-space: nowrap;
 }
@@ -1695,7 +1818,7 @@ button.danger:hover {
 }
 .recent-row .recent-at {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-caption);
   white-space: nowrap;
 }
 
@@ -1711,11 +1834,11 @@ button.danger:hover {
   gap: 4px;
   text-align: center;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--fs-body);
   background: var(--panel);
   border: 1px dashed var(--line-strong);
-  border-radius: 10px;
-  padding: 12px 18px;
+  border-radius: var(--radius);
+  padding: 12px 16px;
   box-shadow: var(--shadow);
 }
 
@@ -1724,13 +1847,13 @@ button.danger:hover {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(15, 23, 42, 0.45);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  animation: fade-in 0.12s ease-out;
+  animation: fade-in var(--dur-1) var(--ease);
 }
 .modal {
   width: min(420px, 100%);
@@ -1739,28 +1862,28 @@ button.danger:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
-  padding: 18px 18px 14px;
-  animation: pop-in 0.14s ease-out;
+  padding: 16px 16px 16px;
+  animation: pop-in var(--dur-1) var(--ease);
 }
 .modal-title {
   margin: 0 0 6px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
 }
 .modal-msg {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: var(--fs-body);
   color: var(--muted);
   line-height: 1.55;
   white-space: pre-line;
 }
 .modal-input {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-body);
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: 8px 12px;
   background: var(--input-bg);
   color: var(--ink);
   margin-bottom: 14px;
@@ -1778,7 +1901,7 @@ button.danger:hover {
 .modal-actions .danger-solid {
   background: var(--red);
   border-color: var(--red);
-  color: #fff;
+  color: var(--on-accent);
 }
 .modal-actions .danger-solid:hover {
   filter: brightness(0.96);
@@ -1805,9 +1928,9 @@ button.danger:hover {
   border-left: 3px solid var(--muted);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-pop);
-  padding: 10px 10px 10px 12px;
-  font-size: 13px;
-  animation: toast-in 0.16s ease-out;
+  padding: 12px 12px 12px 12px;
+  font-size: var(--fs-body);
+  animation: toast-in var(--dur-2) var(--ease);
 }
 .toast span {
   flex: 1;
@@ -1825,7 +1948,7 @@ button.danger:hover {
   border: none;
   background: transparent;
   color: var(--faint);
-  font-size: 15px;
+  font-size: var(--fs-title);
   line-height: 1;
   padding: 2px 4px;
 }
@@ -1873,7 +1996,7 @@ button.danger:hover {
   overflow: auto;
   display: grid;
   place-items: center;
-  padding: 32px 20px;
+  padding: 32px 24px;
   background:
     radial-gradient(1200px 600px at 50% -10%, var(--accent-soft), transparent 60%),
     var(--bg);
@@ -1884,7 +2007,7 @@ button.danger:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 28px 30px 24px;
+  padding: 24px 32px 24px;
   animation: rise 0.28s ease both;
 }
 .welcome-brand {
@@ -1894,8 +2017,8 @@ button.danger:hover {
 }
 .welcome-brand h1 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 760;
+  font-size: var(--fs-display);
+  font-weight: var(--fw-strong);
   letter-spacing: -0.02em;
 }
 .welcome-brand .brand-accent {
@@ -1904,13 +2027,13 @@ button.danger:hover {
 .welcome-tagline {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .welcome-lead {
   margin: 18px 0 20px;
   color: var(--ink);
   line-height: 1.75;
-  font-size: 13.5px;
+  font-size: var(--fs-body);
 }
 .welcome-actions {
   display: flex;
@@ -1925,11 +2048,11 @@ button.danger:hover {
   border: 1px solid var(--line);
   background: var(--btn-bg);
   color: var(--ink);
-  padding: 11px 16px;
-  font-size: 13px;
+  padding: 12px 16px;
+  font-size: var(--fs-body);
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.14s, border-color 0.14s, transform 0.05s, box-shadow 0.14s;
+  transition: background var(--dur-1), border-color var(--dur-1), transform 0.05s, box-shadow var(--dur-1);
 }
 .welcome-actions button:hover {
   border-color: var(--line-strong);
@@ -1966,9 +2089,9 @@ button.danger:hover {
   gap: 3px;
   width: 100%;
   height: 100%;
-  padding: 10px 12px;
+  padding: 12px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   cursor: pointer;
   text-align: left;
@@ -1978,10 +2101,10 @@ button.danger:hover {
   border-color: var(--accent);
 }
 .welcome-template-item strong {
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .welcome-template-item span {
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   color: var(--faint);
   line-height: 1.5;
 }
@@ -2000,8 +2123,8 @@ button.danger:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   letter-spacing: 0.04em;
   color: var(--faint);
   margin: 0 0 8px;
@@ -2019,12 +2142,12 @@ button.danger:hover {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-body);
   text-align: left;
 }
 .welcome-recent-item:hover {
@@ -2048,23 +2171,23 @@ button.danger:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-2);
-  padding: 12px 13px;
+  padding: 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .welcome-points strong {
-  font-size: 12.5px;
+  font-size: var(--fs-body);
 }
 .welcome-points span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.55;
 }
 .welcome-foot {
   margin: 18px 0 0;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-label);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -2120,15 +2243,15 @@ kbd {
   justify-content: center;
   min-width: 18px;
   height: 19px;
-  padding: 0 5px;
+  padding: 0 6px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-caption);
   line-height: 1;
   color: var(--muted);
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-bottom-width: 2px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 
 /* =========================================================================
@@ -2140,8 +2263,8 @@ kbd {
   align-items: center;
   gap: 10px;
   height: 26px;
-  padding: 0 14px;
-  font-size: 11.5px;
+  padding: 0 16px;
+  font-size: var(--fs-label);
   color: var(--muted);
   background: var(--panel-2);
   border-top: 1px solid var(--line);
@@ -2149,7 +2272,7 @@ kbd {
 }
 .statusbar strong {
   color: var(--ink);
-  font-weight: 650;
+  font-weight: var(--fw-strong);
 }
 .st-item {
   display: inline-flex;
@@ -2169,10 +2292,10 @@ kbd {
   font-weight: 600;
 }
 .st-leader kbd {
-  font-size: 10px;
-  padding: 1px 5px;
+  font-size: var(--fs-caption);
+  padding: 2px 6px;
   border: 1px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--accent);
   background: var(--accent-soft);
 }
@@ -2234,8 +2357,8 @@ kbd {
 }
 .help-group h4 {
   margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--faint);
@@ -2260,7 +2383,7 @@ kbd {
 }
 .help-row dd {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-body);
   color: var(--ink);
   text-align: right;
 }
@@ -2271,7 +2394,7 @@ kbd {
 }
 .help-foot {
   margin: 14px 0 0;
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   color: var(--faint);
 }
 
@@ -2286,7 +2409,7 @@ kbd {
   flex-direction: column;
 }
 .issues-count {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--faint);
   font-weight: 500;
 }
@@ -2299,10 +2422,10 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
-  padding: 4px 10px;
+  font-size: var(--fs-label);
+  padding: 4px 12px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   cursor: pointer;
 }
@@ -2316,7 +2439,7 @@ kbd {
 .issues-empty,
 .summary-empty {
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--fs-body);
   padding: 12px 2px;
 }
 .issues-scroll {
@@ -2326,12 +2449,12 @@ kbd {
 .issues-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--fs-body);
 }
 .issues-table th,
 .issues-table td {
   border-bottom: 1px solid var(--line);
-  padding: 7px 8px;
+  padding: 8px 8px;
   text-align: left;
   vertical-align: top;
 }
@@ -2340,8 +2463,8 @@ kbd {
   top: 0;
   background: var(--panel);
   color: var(--faint);
-  font-weight: 700;
-  font-size: 11px;
+  font-weight: var(--fw-strong);
+  font-size: var(--fs-caption);
 }
 .issues-table tbody tr {
   cursor: pointer;
@@ -2377,12 +2500,12 @@ kbd {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 20px;
+  padding: 16px 24px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .busy-spinner {
   width: 16px;
@@ -2413,27 +2536,27 @@ kbd {
 .tour-highlight {
   position: fixed;
   border: 2px solid var(--accent);
-  border-radius: 10px;
+  border-radius: var(--radius);
   box-shadow: 0 0 0 4px var(--accent-soft);
   transition: all 0.25s ease;
 }
 .tour-card {
   position: fixed;
   width: 340px;
-  padding: 14px 16px;
+  padding: 16px 16px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg, var(--shadow));
   pointer-events: auto;
 }
 .tour-card h4 {
   margin: 0 0 6px;
-  font-size: 13.5px;
+  font-size: var(--fs-body);
 }
 .tour-card p {
   margin: 0 0 12px;
-  font-size: 12.5px;
+  font-size: var(--fs-body);
   line-height: 1.7;
   color: var(--ink);
 }
@@ -2460,21 +2583,21 @@ kbd {
   gap: 8px;
 }
 .tour-skip {
-  font-size: 12px;
-  padding: 4px 10px;
+  font-size: var(--fs-label);
+  padding: 4px 12px;
   border: none;
   background: transparent;
   color: var(--faint);
   cursor: pointer;
 }
 .tour-next {
-  font-size: 12px;
+  font-size: var(--fs-label);
   font-weight: 600;
-  padding: 4px 14px;
+  padding: 4px 16px;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   cursor: pointer;
 }
 .tour-next:hover {
@@ -2498,12 +2621,12 @@ kbd {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 9px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2, var(--panel));
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-body);
   text-align: left;
 }
 .backup-item:hover {
@@ -2524,21 +2647,21 @@ kbd {
 }
 .bk-meta {
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-label);
   flex-shrink: 0;
 }
 .bk-latest {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   color: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 999px;
-  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
   flex-shrink: 0;
 }
 .backup-foot {
   margin: 12px 0 0;
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   color: var(--faint);
 }
 
@@ -2555,8 +2678,8 @@ kbd {
 }
 .keybind-group h4 {
   margin: 14px 0 6px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   letter-spacing: 0.04em;
   color: var(--faint);
 }
@@ -2570,7 +2693,7 @@ kbd {
   gap: 12px;
   padding: 6px 4px;
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .keybind-row.disabled .kb-label {
   color: var(--faint);
@@ -2583,12 +2706,12 @@ kbd {
   min-width: 120px;
 }
 .kb-capture {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--accent);
   font-weight: 600;
 }
 .kb-off {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--faint);
 }
 .kb-actions {
@@ -2596,10 +2719,10 @@ kbd {
   gap: 4px;
 }
 .kb-actions button {
-  font-size: 11.5px;
-  padding: 3px 8px;
+  font-size: var(--fs-label);
+  padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   cursor: pointer;
 }
@@ -2607,9 +2730,9 @@ kbd {
   background: var(--hover);
 }
 .kb-fixed {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--faint);
-  padding: 3px 8px;
+  padding: 4px 8px;
 }
 
 /* サマリ */
@@ -2622,8 +2745,8 @@ kbd {
 }
 .summary-card {
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: var(--radius);
+  padding: 16px 16px;
   background: var(--panel-2, var(--panel));
 }
 .summary-card:first-child {
@@ -2631,9 +2754,9 @@ kbd {
 }
 .summary-card h4 {
   margin: 0 0 12px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--faint);
-  font-weight: 700;
+  font-weight: var(--fw-strong);
 }
 .sum-bars {
   list-style: none;
@@ -2648,7 +2771,7 @@ kbd {
   grid-template-columns: 84px 1fr 56px;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .sum-bar-label {
   overflow: hidden;
@@ -2658,14 +2781,14 @@ kbd {
 .sum-bar-track {
   height: 12px;
   background: var(--hover);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .sum-bar-fill {
   display: block;
   height: 100%;
   background: var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .sum-bar-val {
   text-align: right;
@@ -2675,13 +2798,13 @@ kbd {
 .summary-total {
   margin: 12px 0 0;
   text-align: right;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--faint);
 }
 .sum-auto-bar {
   display: flex;
   height: 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--hover);
 }
@@ -2689,13 +2812,13 @@ kbd {
   height: 100%;
 }
 .auto-manual {
-  background: #dc6a4b;
+  background: var(--auto-manual);
 }
 .auto-partial {
-  background: #e0a44a;
+  background: var(--auto-partial);
 }
 .auto-system {
-  background: #4a9d7a;
+  background: var(--auto-system);
 }
 .auto-none {
   background: var(--line-strong);
@@ -2707,7 +2830,7 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .sum-auto-legend li {
   display: flex;
@@ -2717,7 +2840,7 @@ kbd {
 .sum-auto-dot {
   width: 11px;
   height: 11px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   display: inline-block;
 }
 .sum-levels {
@@ -2727,7 +2850,7 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .sum-levels li {
   display: flex;
@@ -2740,9 +2863,9 @@ kbd {
   justify-content: center;
   min-width: 30px;
   padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
   background: var(--hover);
 }
 .sum-level-total {
@@ -2773,13 +2896,13 @@ kbd {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
   overflow: hidden;
-  animation: pop-in 0.14s ease-out;
+  animation: pop-in var(--dur-1) var(--ease);
 }
 .palette-search {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 13px 15px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
 }
@@ -2788,7 +2911,7 @@ kbd {
   border: none;
   background: transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--fs-title);
   color: var(--ink);
   outline: none;
 }
@@ -2800,17 +2923,17 @@ kbd {
   flex: none;
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
-  border-radius: 999px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 12.5px;
+  font-size: var(--fs-body);
   font-weight: 600;
   white-space: nowrap;
 }
 .palette-error {
   padding: 8px 16px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--danger);
   border-bottom: 1px solid var(--line);
 }
@@ -2826,11 +2949,11 @@ kbd {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  padding: 2px 9px;
-  border-radius: 999px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
   background: var(--hdr); /* --hover はホバー状態専用トークンのため静的背景には使わない */
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2846,7 +2969,7 @@ kbd {
 }
 .pi-arg-mark {
   color: var(--faint);
-  font-weight: 700;
+  font-weight: var(--fw-strong);
   margin-left: -4px;
 }
 /* 色コマンドの候補に出す色見本 */
@@ -2854,7 +2977,7 @@ kbd {
   flex: none;
   width: 14px;
   height: 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--line-strong);
 }
 .palette-list {
@@ -2863,15 +2986,15 @@ kbd {
   padding: 6px;
 }
 .palette-empty {
-  padding: 22px 12px;
+  padding: 24px 12px;
   text-align: center;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .palette-section {
-  padding: 8px 10px 4px;
-  font-size: 10.5px;
-  font-weight: 700;
+  padding: 8px 12px 4px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--faint);
@@ -2885,8 +3008,8 @@ kbd {
   border: 1px solid transparent;
   background: transparent;
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: 8px 12px;
+  font-size: var(--fs-body);
   color: var(--ink);
   cursor: pointer;
 }
@@ -2909,22 +3032,22 @@ kbd {
 .pi-code {
   flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--muted);
   min-width: 30px;
 }
 .pi-badge {
   flex-shrink: 0;
-  font-size: 10.5px;
-  padding: 1px 6px;
-  border-radius: 999px;
+  font-size: var(--fs-caption);
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
   background: var(--panel-2);
   border: 1px solid var(--line);
   color: var(--muted);
 }
 .pi-assignee {
   flex-shrink: 0;
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   color: var(--faint);
 }
 
@@ -2972,15 +3095,15 @@ kbd {
   transform: translate(-50%, -130%);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
   white-space: nowrap;
 }
 .edge-toolbar button {
-  font-size: 11px;
-  padding: 2px 7px;
+  font-size: var(--fs-caption);
+  padding: 2px 8px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
   color: var(--ink);
@@ -3027,8 +3150,8 @@ kbd {
   gap: 5px;
 }
 .flow-palette .palette-act svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 /* ---- フロー: レーン高さの手動リサイズ ---- */
@@ -3052,10 +3175,10 @@ kbd {
   width: 26px;
   height: 3px;
   transform: translateX(-50%);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--line-strong);
   opacity: 0.35; /* 常に薄く見せて「ここで高さを変えられる」ことを示す */
-  transition: opacity 0.12s, width 0.12s, height 0.12s;
+  transition: opacity var(--dur-1), width var(--dur-1), height var(--dur-1);
 }
 .lane-label:hover .lane-resize::after,
 .lane-resize:hover::after {
@@ -3088,26 +3211,26 @@ kbd {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 24px 26px;
+  padding: 24px 24px;
 }
 .crash-card h1 {
   margin: 0 0 10px;
-  font-size: 18px;
+  font-size: var(--fs-display);
 }
 .crash-card p {
   margin: 0 0 14px;
   color: var(--muted);
   line-height: 1.7;
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .crash-detail {
   margin: 0 0 16px;
-  padding: 10px 12px;
+  padding: 12px 12px;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   color: var(--red);
   white-space: pre-wrap;
   word-break: break-word;
@@ -3128,13 +3251,13 @@ kbd {
   z-index: 200;
   background: var(--accent);
   color: var(--on-accent);
-  padding: 8px 14px;
+  padding: 8px 16px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--fs-body);
   font-weight: 600;
   text-decoration: none;
   box-shadow: var(--shadow-pop);
-  transition: top 0.16s ease;
+  transition: top var(--dur-2) ease;
 }
 .skip-link:focus {
   top: 12px;
@@ -3194,7 +3317,7 @@ kbd {
 }
 /* 親行は太字＋地色で「まとまりの先頭」を示す。No. も濃くして階層を読みやすく。 */
 .grid tr.is-parent .name-input {
-  font-weight: 700;
+  font-weight: var(--fw-strong);
 }
 .grid tr.is-parent .c-code {
   color: var(--ink);
@@ -3228,7 +3351,7 @@ kbd {
   margin: 0;
 }
 .table-mode-seg button {
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 
 /* 工程表ペイン共通: タブ(ヘッダ)を固定し、スクロールは表本体だけに閉じ込める
@@ -3263,7 +3386,7 @@ kbd {
 }
 .ft-hint {
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-label);
   margin-left: 4px;
 }
 /* 一括操作バー（複数行選択中に表示） */
@@ -3272,16 +3395,16 @@ kbd {
   align-items: center;
   gap: 8px;
   margin-left: 4px;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .ft-bulk strong {
   color: var(--accent);
 }
 .ft-bulk button {
-  font-size: 12px;
-  padding: 3px 10px;
+  font-size: var(--fs-label);
+  padding: 4px 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   cursor: pointer;
 }
@@ -3303,7 +3426,7 @@ kbd {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .ft-filter-label {
   display: inline-flex;
@@ -3312,17 +3435,17 @@ kbd {
   color: var(--faint);
 }
 .ft-filter-sel {
-  font-size: 12px;
-  padding: 3px 6px;
+  font-size: var(--fs-label);
+  padding: 4px 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
 }
 .ft-filter-chip {
-  font-size: 12px;
-  padding: 3px 10px;
+  font-size: var(--fs-label);
+  padding: 4px 12px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--panel);
   cursor: pointer;
 }
@@ -3335,10 +3458,10 @@ kbd {
   color: var(--accent);
 }
 .ft-filter-clear {
-  font-size: 12px;
-  padding: 3px 10px;
+  font-size: var(--fs-label);
+  padding: 4px 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   cursor: pointer;
 }
@@ -3353,15 +3476,15 @@ kbd {
 /* ステータス（ヒアリング進行）の色分け。文字色で状態を示す（select のまま軽量に） */
 .ft-status.st-heard,
 .insp-status.st-heard {
-  color: #b07a1e;
+  color: var(--status-heard);
 }
 .ft-status.st-review,
 .insp-status.st-review {
-  color: #2f6fb0;
+  color: var(--status-review);
 }
 .ft-status.st-done,
 .insp-status.st-done {
-  color: #2f8f5b;
+  color: var(--status-done);
   font-weight: 600;
 }
 .ft-status.st-todo,
@@ -3370,10 +3493,10 @@ kbd {
 }
 /* 逐次レンダリングのセンチネル（ここが見えたら次のチャンクを描画） */
 .ft-more {
-  padding: 14px;
+  padding: 16px;
   text-align: center;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 /* 一括選択でマークされた行（単一選択 .sel とは別の淡い強調） */
 .ft tbody tr.marked > td {
@@ -3397,7 +3520,7 @@ kbd {
   border-spacing: 0;
   table-layout: fixed;
   width: max-content; /* 列幅の合計まで広がる＝潰さずに横スクロール */
-  font-size: 12px;
+  font-size: var(--fs-label);
   font-variant-numeric: tabular-nums;
 }
 .ft th {
@@ -3406,10 +3529,10 @@ kbd {
   z-index: 2;
   background: var(--hdr);
   text-align: left;
-  font-weight: 700;
-  font-size: 11px;
+  font-weight: var(--fw-strong);
+  font-size: var(--fs-caption);
   color: var(--muted);
-  padding: 7px 8px;
+  padding: 8px 8px;
   border-bottom: 1px solid var(--line-strong);
   border-right: 1px solid var(--line-faint);
   white-space: nowrap;
@@ -3462,9 +3585,9 @@ kbd {
 /* 上位粒度の列に表示する親の工程名（読み取り） */
 .ft-anc {
   display: block;
-  padding: 6px 7px;
+  padding: 6px 8px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3475,18 +3598,18 @@ kbd {
   text-align: left;
   color: var(--muted);
   font-family: var(--font-mono);
-  padding: 7px 6px;
+  padding: 8px 6px;
   white-space: nowrap;
 }
 
 /* セル内の入力 */
 .ft-in {
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-label);
   width: 100%;
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 6px 7px;
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
   background: transparent;
   color: var(--ink);
 }
@@ -3502,7 +3625,7 @@ kbd {
 }
 .ft-name { font-weight: 600; }
 .ft-num { text-align: right; }
-.ft-roll { display: block; padding: 6px 7px; text-align: right; color: var(--muted); }
+.ft-roll { display: block; padding: 6px 8px; text-align: right; color: var(--muted); }
 
 /* 前工程セル */
 .ft-prev { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; align-items: center; }
@@ -3512,12 +3635,12 @@ kbd {
   gap: 2px;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 1px 4px 1px 7px;
-  font-size: 11px;
+  border-radius: var(--radius-pill);
+  padding: 2px 4px 2px 8px;
+  font-size: var(--fs-caption);
   white-space: nowrap;
 }
-.ft-add-sel { font-size: 11px; border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); padding: 2px 4px; }
+.ft-add-sel { font-size: var(--fs-caption); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 2px 4px; }
 
 /* I/O セル */
 .ft-io { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; }
@@ -3525,9 +3648,9 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  border-radius: 6px;
-  padding: 1px 2px 1px 4px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  padding: 2px 2px 2px 4px;
+  font-size: var(--fs-caption);
   border: 1px solid var(--in);
   background: var(--in-fill);
   max-width: 100%;
@@ -3535,9 +3658,9 @@ kbd {
 /* 入出力の向きで色分け（フローの I/O タグと統一）。種別(帳票/情報)では色を変えない。 */
 .ft-iochip.in { border-color: var(--in); background: var(--in-fill); }
 .ft-iochip.out { border-color: var(--out); background: var(--out-fill); }
-.ft-io-name { font: inherit; font-size: 11px; width: 64px; border: none; background: transparent; color: var(--ink); padding: 2px; }
+.ft-io-name { font: inherit; font-size: var(--fs-caption); width: 64px; border: none; background: transparent; color: var(--ink); padding: 2px; }
 .ft-io-name:focus { outline: none; }
-.ft-io-kind { font-size: 10px; border: none; background: transparent; color: var(--muted); }
+.ft-io-kind { font-size: var(--fs-caption); border: none; background: transparent; color: var(--muted); }
 
 /* 課題 / 方策セル（独立列。行ごとに 1 課題・1 方策が並ぶ） */
 .ft-issues { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
@@ -3546,11 +3669,11 @@ kbd {
 
 /* 追加/削除ボタン */
 .ft-add {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   border: 1px dashed var(--line-strong);
   background: transparent;
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 2px 6px;
   align-self: flex-start;
 }
@@ -3558,7 +3681,7 @@ kbd {
   border: none;
   background: transparent;
   color: var(--faint);
-  font-size: 13px;
+  font-size: var(--fs-body);
   line-height: 1;
   padding: 0 2px;
   cursor: pointer;
@@ -3568,12 +3691,12 @@ kbd {
   border: none;
   background: transparent;
   color: var(--faint);
-  font-size: 15px;
+  font-size: var(--fs-title);
   padding: 6px;
   width: 100%;
 }
 .ft-del:hover { color: var(--red); background: var(--red-fill); }
-.ft .lvl { width: 100%; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 6px 2px; font-size: 12px; }
+.ft .lvl { width: 100%; border: 1px solid transparent; background: transparent; border-radius: var(--radius-sm); padding: 6px 2px; font-size: var(--fs-label); }
 .ft .lvl:hover { border-color: var(--line); }
 
 /* 全項目表: 並べ替えヘッダ */
@@ -3582,8 +3705,8 @@ kbd {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -3598,7 +3721,7 @@ kbd {
 }
 .ft-sortmark {
   color: var(--faint);
-  font-size: 9px;
+  font-size: var(--fs-caption);
   flex: none;
 }
 .ft th.sorted,
@@ -3607,8 +3730,8 @@ kbd {
   color: var(--accent);
 }
 .ft-clear-sort {
-  font-size: 12px;
-  padding: 5px 9px;
+  font-size: var(--fs-label);
+  padding: 6px 8px;
 }
 .col-menu {
   margin-left: 2px;
@@ -3691,7 +3814,7 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  padding: 3px;
+  padding: 4px;
 }
 .ft-rowbtn {
   display: inline-flex;
@@ -3703,7 +3826,7 @@ kbd {
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .ft-rowbtn:hover {
   background: var(--panel-2);
@@ -3724,7 +3847,7 @@ kbd {
 .ft tbody tr.sel td.ft-c-no {
   box-shadow: inset 3px 0 0 var(--accent);
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--fw-strong);
 }
 
 /* 全項目表: 今いるセル/行を分かりやすく（フォーカス中の強調） */
@@ -3751,7 +3874,7 @@ kbd {
 .ft tbody tr.sel > td.ft-c-no {
   box-shadow: inset 3px 0 0 var(--accent);
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--fw-strong);
 }
 /* アクティブセル（フォーカスのあるセル）を太枠で明示 */
 .ft td:focus-within {
@@ -3770,9 +3893,43 @@ kbd {
 .panes.flow-wide.with-inspector {
   grid-template-columns: 1fr 360px;
 }
-/* 分割/表/フローの切替タブは各ヘッダの右端に寄せる。 */
-.pane-layout-seg {
-  margin-left: auto;
+/* 分割/表/フローのビュー切替＝下線タブ（DESIGN D-2 / 課題#1）。
+   「塗りは情報、線は道具」（原則 2）に従い、常設の操作部から塗りを除き、
+   文字＋アクティブ下線 2px（ブランド青）で示す。ツールバー上部に一つだけ置く。
+   状態の選択（粒度など）は引き続き .seg（枠＋淡い塗り）を使う。 */
+.view-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.view-tabs button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-regular);
+  color: var(--muted);
+  padding: var(--sp-dense-2) var(--sp-dense-1) var(--sp-2);
+  /* 既定の button は border-radius:8px のため、下線が角丸で湾曲する。0 にして直線に保つ。 */
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.view-tabs button:hover {
+  color: var(--ink);
+}
+.view-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  /* 上端のみ角丸にし、選択ハイライト＝下線は常に直線に保つ（claude design「下線のみ」）。 */
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+.view-tabs button.on {
+  color: var(--ink);
+  font-weight: var(--fw-strong);
+  border-bottom-color: var(--accent);
 }
 
 /* 工程ノード: 角の I/O 追加ボタン（ホバーで表示。左上=入力 / 右下=出力） */
@@ -3782,7 +3939,7 @@ kbd {
   height: 20px;
   padding: 0;
   border-radius: 50%;
-  font-size: 13px;
+  font-size: var(--fs-body);
   line-height: 1;
   display: flex;
   align-items: center;
@@ -3790,7 +3947,7 @@ kbd {
   border: 1.5px solid;
   background: var(--panel);
   opacity: 0;
-  transition: opacity 0.12s, transform 0.08s;
+  transition: opacity var(--dur-1), transform 0.08s;
   z-index: 3;
   cursor: pointer;
 }
@@ -3829,7 +3986,7 @@ kbd {
   height: 22px;
   padding: 0;
   border-radius: 50%;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   line-height: 1;
   display: flex;
   align-items: center;
@@ -3838,7 +3995,7 @@ kbd {
   border: 1.5px solid var(--line-strong);
   opacity: 0;
   filter: grayscale(1) opacity(0.8);
-  transition: opacity 0.12s, transform 0.08s;
+  transition: opacity var(--dur-1), transform 0.08s;
   z-index: 3;
   cursor: pointer;
 }
@@ -3864,7 +4021,7 @@ kbd {
   right: auto;
   bottom: -11px;
   left: -11px;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 /* 固定中の常時表示・強調は 📌 側だけ（∥ は通常のホバー表示のまま） */
 .node.task.pinned .pin-btn.parallel-btn {
@@ -3920,7 +4077,7 @@ input.colored-text {
 .swatch {
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid transparent;
   cursor: pointer;
   padding: 0;
@@ -3936,7 +4093,7 @@ input.colored-text {
   background: var(--panel);
   border-color: var(--line) !important;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1;
 }
 
@@ -3957,11 +4114,11 @@ input.colored-text {
   margin-bottom: 14px;
 }
 .settings-tab {
-  padding: 7px 14px;
+  padding: 8px 16px;
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--fs-body);
   color: var(--faint);
   cursor: pointer;
 }
@@ -3982,8 +4139,8 @@ input.colored-text {
 }
 .settings-section h4 {
   margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   letter-spacing: 0.04em;
   color: var(--faint);
 }
@@ -3995,11 +4152,11 @@ input.colored-text {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 6px 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .settings-radio.on {
   border-color: var(--accent);
@@ -4018,7 +4175,7 @@ input.colored-text {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .settings-toggle small {
   color: var(--faint);
@@ -4026,12 +4183,12 @@ input.colored-text {
 }
 .settings-desc {
   margin: 0 0 10px;
-  font-size: 12.5px;
+  font-size: var(--fs-body);
   color: var(--muted, var(--faint));
   line-height: 1.6;
 }
 .settings-note {
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   color: var(--faint);
   margin-top: 10px;
 }
@@ -4040,17 +4197,17 @@ input.colored-text {
   gap: 8px;
 }
 .settings-actions button {
-  font-size: 13px;
-  padding: 7px 16px;
+  font-size: var(--fs-body);
+  padding: 8px 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   cursor: pointer;
 }
 .settings-actions button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .settings-actions button:hover {
   filter: brightness(1.05);
@@ -4058,11 +4215,11 @@ input.colored-text {
 /* ショートカットエディタ（タブ内） */
 .keybind-note {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--faint);
   background: var(--hover);
-  border-radius: 7px;
-  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
 }
 .keybind-toolbar {
   margin-bottom: 8px;
@@ -4079,8 +4236,8 @@ input.colored-text {
 .ft-pill.derived {
   color: var(--faint);
   border: 1px dashed var(--line-strong);
-  border-radius: 999px;
-  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
   background: transparent;
 }
 .dep-row.derived .dep-name {
@@ -4088,18 +4245,18 @@ input.colored-text {
 }
 .dep-note {
   flex: none;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   color: var(--faint);
   border: 1px dashed var(--line-strong);
-  border-radius: 999px;
-  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
 }
 
 /* 表の列カーソル(h/l・←→で移動、Enterで編集)。選択行の現在セルを示す */
 .cell-cursor {
   outline: 2px solid var(--accent) !important;
   outline-offset: -1px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 
 /* =========================================================================
@@ -4115,7 +4272,7 @@ input.colored-text {
   }
 }
 .node.node-flash {
-  animation: sync-flash 1.5s ease-out;
+  animation: sync-flash 1.5s var(--ease);
 }
 @keyframes sync-flash-stroke {
   from {
@@ -4124,12 +4281,12 @@ input.colored-text {
   }
 }
 .io-icon.node-flash .io-main {
-  animation: sync-flash-stroke 1.5s ease-out;
+  animation: sync-flash-stroke 1.5s var(--ease);
 }
 .c-assignee.cell-flash .assignee,
 .ft-c-assignee.cell-flash .ft-in {
-  animation: sync-flash 1.5s ease-out;
-  border-radius: 6px;
+  animation: sync-flash 1.5s var(--ease);
+  border-radius: var(--radius-sm);
 }
 @media (prefers-reduced-motion: reduce) {
   .node.node-flash,

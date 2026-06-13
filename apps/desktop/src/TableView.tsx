@@ -210,20 +210,23 @@ export function TableView() {
   return (
     <div className="outline">
       <div className="outline-actions">
-        <button className="primary" onClick={() => addRootTask('large')}>
-          ＋ 大工程
+        <button className="primary" title="大工程を追加" onClick={() => addRootTask('large')}>
+          <Icons.BoxPlus />大
         </button>
-        <button onClick={() => addRootTask('medium')}>＋ 中工程</button>
+        <button title="中工程を追加" onClick={() => addRootTask('medium')}>
+          <Icons.BoxPlus />中
+        </button>
         {parentsWithChildren.size > 0 && (
           <span className="outline-collapse">
-            <button onClick={() => setCollapsed(new Set())} title="すべて展開">
-              全展開
+            <button onClick={() => setCollapsed(new Set())} title="すべて展開" aria-label="すべて展開">
+              <Icons.UnfoldVertical />
             </button>
             <button
               onClick={() => setCollapsed(new Set(parentsWithChildren))}
               title="すべて折りたたみ"
+              aria-label="すべて折りたたみ"
             >
-              全折りたたみ
+              <Icons.FoldVertical />
             </button>
           </span>
         )}
@@ -251,7 +254,7 @@ export function TableView() {
           label={
             <>
               <Icons.Columns />
-              列<Icons.ChevronDown />
+              <Icons.ChevronDown />
             </>
           }
         >

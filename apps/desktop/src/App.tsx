@@ -56,33 +56,33 @@ const PARENT_LEVEL: Record<ProcessLevel, ProcessLevel | null> = {
   detail: 'small',
 };
 
-// 分割 / 工程表のみ / 工程フローのみ をタブで切り替えるセグメント。両ペインのヘッダに置き、
-// どのレイアウトでも（片方を全幅にしていても）常に切替先へ行けるようにする。
+// 分割 / 表 / フロー のビュー切替。ツールバー（上部）に一つだけ置き、どのレイアウトでも
+// 常に切替先へ行けるようにする（各ペインのヘッダには持たせない）。
+// 「場所の移動」は下線タブで示す（DESIGN D-2）。常設の操作部から塗りを除き、成果物＝
+// フロー図と視覚的に競合させない。状態の選択（粒度など）は別形（.seg）を使う。
+const PANE_LAYOUT_TABS: { value: 'split' | 'table' | 'flow'; label: string; title: string }[] = [
+  { value: 'split', label: '分割', title: '工程表とフローを分割表示' },
+  { value: 'table', label: '表', title: '工程表だけを全幅表示' },
+  { value: 'flow', label: 'フロー', title: '工程フローだけを全幅表示' },
+];
+
 function PaneLayoutTabs({ current }: { current: 'split' | 'table' | 'flow' }) {
   const setPaneLayout = useUI((s) => s.setPaneLayout);
   return (
-    <span className="seg pane-layout-seg" role="group" aria-label="表示するペイン">
-      <button
-        className={current === 'split' ? 'on' : ''}
-        onClick={() => setPaneLayout('split')}
-        title="工程表とフローを分割表示"
-      >
-        分割
-      </button>
-      <button
-        className={current === 'table' ? 'on' : ''}
-        onClick={() => setPaneLayout('table')}
-        title="工程表だけを全幅表示"
-      >
-        表
-      </button>
-      <button
-        className={current === 'flow' ? 'on' : ''}
-        onClick={() => setPaneLayout('flow')}
-        title="工程フローだけを全幅表示"
-      >
-        フロー
-      </button>
+    <span className="view-tabs" role="tablist" aria-label="表示するペイン">
+      {PANE_LAYOUT_TABS.map((t) => (
+        <button
+          key={t.value}
+          type="button"
+          role="tab"
+          aria-selected={current === t.value}
+          className={current === t.value ? 'on' : ''}
+          onClick={() => setPaneLayout(t.value)}
+          title={t.title}
+        >
+          {t.label}
+        </button>
+      ))}
     </span>
   );
 }
@@ -455,7 +455,13 @@ export function App() {
       <header className="toolbar" role="banner" hidden={chromeHidden}>
         <span className="brand">
           <svg className="brand-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-            <rect className="bg" width="18" height="18" rx="5" />
+            <defs>
+              <linearGradient id="brandmark-grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stopColor="#5271a5" />
+                <stop offset="1" stopColor="#3f5a89" />
+              </linearGradient>
+            </defs>
+            <rect className="bg" width="18" height="18" rx="4" fill="url(#brandmark-grad)" />
             <rect className="bar" x="3.5" y="3.8" width="8" height="2.2" rx="1.1" />
             <rect className="bar b2" x="6" y="7.9" width="8.5" height="2.2" rx="1.1" />
             <rect className="bar b3" x="3.5" y="12" width="6" height="2.2" rx="1.1" />
@@ -475,6 +481,7 @@ export function App() {
           )}
           <span className="file-chip-name">{fileName ?? UNTITLED_LABEL}</span>
         </span>
+        <PaneLayoutTabs current={paneLayout} />
         <span className="spacer" />
 
         <span className="tool-group" role="group" aria-label="履歴">
@@ -645,7 +652,6 @@ export function App() {
                   全項目表
                 </button>
               </span>
-              <PaneLayoutTabs current={paneLayout} />
             </div>
             {fullMode ? <FullTable /> : <TableView />}
           </section>
@@ -695,7 +701,6 @@ export function App() {
                 >
                   {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
                 </button>
-                <PaneLayoutTabs current={paneLayout} />
               </div>
               <FlowCanvas />
             </section>

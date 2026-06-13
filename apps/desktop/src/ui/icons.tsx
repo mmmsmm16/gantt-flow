@@ -184,3 +184,70 @@ export const Gear = (p: SVGProps<SVGSVGElement>) => (
     <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.85a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10.05 3V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01c.26.63.87 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09c-.69 0-1.3.41-1.51 1.05Z" />
   </Svg>
 );
+
+// --- フロー・パレット / アウトライン操作のアイコン（形＝種類）。キャンバスの記法と対応。 ---
+// 工程の追加（角丸矩形＋プラス）。工程ノード＝角丸矩形に対応。
+export const BoxPlus = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="3" />
+    <path d="M12 9.5v5M9.5 12h5" />
+  </Svg>
+);
+// 開始（スタジアム形のターミネータ）。▶ で「開始」を示し、終了（■）と区別。
+export const Play = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M8 5.5v13l11-6.5z" />
+  </Svg>
+);
+// 終了（スタジアム形のターミネータ）。■ で「終了」を示し、開始（▶）と区別。
+export const Stop = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2.5" />
+  </Svg>
+);
+// 判断（ひし形）。キャンバスの判断ノード＝ひし形に対応。
+export const Diamond = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M12 3l9 9-9 9-9-9z" />
+  </Svg>
+);
+// 合流（複数の流れが一つに）。
+export const Merge = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M6 5l6 7 6-7" />
+    <path d="M12 12v7" />
+  </Svg>
+);
+// 付箋（折り返した角のメモ）。課題・付箋ノードに対応。
+export const StickyNote = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M4 4h10l6 6v10H4z" />
+    <path d="M14 4v6h6" />
+  </Svg>
+);
+// すべて展開（上下に開く）。
+export const UnfoldVertical = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M8 9l4-4 4 4" />
+    <path d="M8 15l4 4 4-4" />
+  </Svg>
+);
+// すべて折りたたみ（上下から閉じる）。
+export const FoldVertical = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M8 5l4 4 4-4" />
+    <path d="M8 19l4-4 4 4" />
+  </Svg>
+);
+// ズーム拡大。
+export const Plus = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </Svg>
+);
+// ズーム縮小。
+export const Minus = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M5 12h14" />
+  </Svg>
+);

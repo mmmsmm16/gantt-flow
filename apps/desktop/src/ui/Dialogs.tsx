@@ -106,7 +106,7 @@ function ToastView({
   return (
     <div className={`toast toast-${item.tone}`} role="status">
       <span>{item.message}</span>
-      <button className="toast-x" aria-label="閉じる" onClick={() => onDone(item.id)}>
+      <button className="toast-x" aria-label="閉じる" title="閉じる" onClick={() => onDone(item.id)}>
         ×
       </button>
     </div>
