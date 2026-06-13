@@ -156,11 +156,16 @@ export function createSampleProject(idGen: IdGen, now = '2026-01-01T00:00:00.000
   detail(M9, { ltDays: 2, difficulty: 'M', toBe: { ltDays: 1, rationale: '請求データを受注から自動生成し転記を廃止。' } });
   detail(M10, { ltDays: 3, difficulty: 'M', toBe: { ltDays: 1, rationale: '入金消込を口座 API 連携で自動照合。' } });
 
-  // ---- 構造差分のデモ（画面4: 並行化）----
-  // 並行化: 与信確認→在庫引当 は As-Is 専用（To-Be では並行＝この依存を外す）。
-  // M3 の担当移動（toBe.assigneeId=営業部）と合わせ、To-Be フローでレーン移動＋並行が見える。
+  // ---- 構造差分のデモ（画面4: 並行化＋担当移動）----
+  // 並行化: As-Is は 注文受付→与信確認→在庫引当 の直列。To-Be では 与信確認 と 在庫引当 を
+  // 注文受付の直後に並行で走らせる。= 与信確認→在庫引当(M2→M3) を As-Is 専用にし、
+  // 代わりに 注文受付→在庫引当(M1→M3) を To-Be 専用で張る（在庫引当が先頭で注文受付と重ならないよう、
+  // 注文受付の後ろ＝同じ列に与信確認と並ぶ）。M3 の担当移動(toBe.assigneeId=営業部)と合わせて見える。
   const depMM = Object.values(dependencies).find((dd) => dd.from === M2 && dd.to === M3);
   if (depMM) depMM.phase = 'asis';
+  dep(M1, M3);
+  const depM1M3 = Object.values(dependencies).find((dd) => dd.from === M1 && dd.to === M3);
+  if (depM1M3) depM1M3.phase = 'tobe';
 
   let project: Project = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
