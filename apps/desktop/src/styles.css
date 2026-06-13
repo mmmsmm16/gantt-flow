@@ -1350,7 +1350,73 @@ button.danger:hover {
   margin: 0 0 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+}
+.add-inline {
+  margin-left: auto;
+}
+/* PR3/44: ヘッダのアイブロウ（レベル＋No.＋担当チップ）と表題。 */
+.insp-head-main {
+  min-width: 0;
+}
+.insp-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.insp-eyebrow .lvl-badge {
+  margin-right: 0;
+}
+.insp-code {
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.insp-chip {
+  font-size: var(--fs-caption);
+  color: var(--ink);
+  background: var(--hdr);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+}
+.insp-chip.warn {
+  color: var(--amber-ink);
+  background: var(--amber-fill);
+  border-color: transparent;
+}
+.insp-title {
+  display: block;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
+  color: var(--ink);
+}
+/* PR3/52: セクション件数バッジ。 */
+.insp-count {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+  background: var(--hdr);
+  border-radius: var(--radius-pill);
+  padding: 0 7px;
+}
+/* PR3/46: 工数（親=子の自動集計）の大型表示。 */
+.insp-effort-box {
+  padding: 8px 10px;
+  background: var(--hdr);
+  border-radius: var(--radius-sm);
+}
+.insp-effort {
+  font-size: var(--fs-display);
+  font-weight: var(--fw-strong);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.insp-derived {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+  margin-top: 2px;
 }
 .inspector label {
   display: block;
@@ -1450,6 +1516,22 @@ button.danger:hover {
 .issue-row select {
   flex: none;
   width: 96px;
+}
+/* PR3/61: I/O 行を枠付きカードに（方向は入/出タグで示す。左縁のみの色帯は使わない）。 */
+.io-row {
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+/* PR3/62: 課題は赤縁のカラーアウト枠（課題＝赤の意味色）。 */
+.issue-row {
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--red-fill) 55%, var(--panel));
 }
 .x {
   border: none;

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, TaskColor } from '@gantt-flow/core';
+import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
@@ -58,11 +58,15 @@ export function Inspector() {
   const setTaskCode = useApp((s) => s.setTaskCode);
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
+  const setAssigneeByName = useApp((s) => s.setAssigneeByName);
+  const setTaskLevel = useApp((s) => s.setTaskLevel);
 
   if (!taskId) return null;
   const task = project.core.tasks[taskId];
   if (!task) return null;
   const d = project.details[taskId];
+  const assigneeName = task.assigneeId ? project.core.assignees[task.assigneeId]?.name ?? '' : '';
+  const LEVEL_JP: Record<ProcessLevel, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
   const hasChildren = Object.values(project.core.tasks).some((t) => t.parentId === taskId);
   const rollup = effortRollupMinutes(project.core, project.details, taskId);
   const ios: { item: IoItem; io: 'inputs' | 'outputs' }[] = [
@@ -100,15 +104,22 @@ export function Inspector() {
   return (
     <aside className="inspector" key={taskId}>
       <div className="insp-head">
-        <div>
-          <span className={`lvl-badge lvl-${task.level}`}>
-            {task.level === 'large' ? '大' : task.level === 'medium' ? '中' : task.level === 'small' ? '小' : '詳細'}
-          </span>
-          <strong>{task.name || '（無題）'}</strong>
+        <div className="insp-head-main">
+          <div className="insp-eyebrow">
+            <span className={`lvl-badge lvl-${task.level}`}>{LEVEL_JP[task.level]}</span>
+            <span className="insp-code">No. {computeCodes(project.core)[taskId] ?? task.code ?? '—'}</span>
+            {assigneeName ? (
+              <span className="insp-chip">{assigneeName}</span>
+            ) : (
+              <span className="insp-chip warn">未割当</span>
+            )}
+          </div>
+          <strong className="insp-title">{task.name || '（無題）'}</strong>
         </div>
         <button
           className="x"
           aria-label="詳細パネルを閉じる（選択は維持）"
+          title="詳細を閉じる（選択は維持）"
           onClick={() => useUI.getState().setInspectorOpen(false)}
         >
           ×
@@ -118,6 +129,39 @@ export function Inspector() {
       <div className="insp-scroll">
         <section>
           <h3>基本</h3>
+          <div className="two-col">
+            <div>
+              <label>担当 / 部署</label>
+              <select
+                value={assigneeName}
+                onChange={(e) => {
+                  if (e.target.value !== assigneeName) setAssigneeByName(taskId, e.target.value);
+                }}
+              >
+                <option value="">（未割当）</option>
+                {deptNames.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>粒度</label>
+              <select
+                value={task.level}
+                onChange={(e) => {
+                  const lv = e.target.value as ProcessLevel;
+                  if (lv !== task.level) setTaskLevel(taskId, lv);
+                }}
+              >
+                <option value="large">大工程</option>
+                <option value="medium">中工程</option>
+                <option value="small">小工程</option>
+                <option value="detail">詳細工程</option>
+              </select>
+            </div>
+          </div>
           <label>塗り色（フローのノード）</label>
           <ColorSwatchRow
             value={d?.fillColor}
@@ -154,7 +198,10 @@ export function Inspector() {
           />
           <label>工数（時間・0.5刻み）</label>
           {hasChildren ? (
-            <div className="readonly">{formatHours(rollup)}（子の合計・自動）</div>
+            <div className="insp-effort-box">
+              <div className="insp-effort">{formatHours(rollup)}</div>
+              <div className="insp-derived">子工程の合計（自動集計）</div>
+            </div>
           ) : (
             <input
               type="number"
@@ -255,6 +302,7 @@ export function Inspector() {
         <section>
           <h3>
             インプット / アウトプット
+            {ios.length > 0 && <span className="insp-count">{ios.length}</span>}
             <span className="add-inline">
               <button onClick={() => addIo(taskId, 'inputs', '帳票')}>＋入力</button>
               <button onClick={() => addIo(taskId, 'outputs', '帳票')}>＋出力</button>
@@ -323,6 +371,7 @@ export function Inspector() {
         <section>
           <h3>
             課題 / 方策
+            {(d?.issues?.length ?? 0) > 0 && <span className="insp-count">{(d?.issues ?? []).length}</span>}
             <span className="add-inline">
               <button onClick={() => addIssue(taskId, '課題')}>＋課題</button>
             </span>
