@@ -64,13 +64,24 @@ export interface IssueItem {
   target?: IssueTarget;
 }
 
+// To-Be（あるべき姿）の差分。未設定の項目は As-Is（同名の既存フィールド）と同一とみなす。
+// As-Is/To-Be 比較（提言#1/#2/#8）。工数＝タッチタイム・LT＝リードタイム(経過日数)の2軸で見る。
+export interface TaskDetailToBe {
+  effortMinutes?: number; // To-Be 工数（分）
+  ltDays?: number; // To-Be リードタイム（日）
+  difficulty?: Difficulty; // To-Be 業務難易度（H=ベテラン依存→L=誰でも へ下げるのが改善の主役）
+  automation?: Automation; // To-Be 自動化区分
+  rationale?: string; // 根拠（なぜ達成できるか＝暗黙知の形式知化の内容）
+}
+
 export interface TaskDetail {
   taskId: Id;
   how?: string;
   inputs?: IoItem[];
   outputs?: IoItem[];
   system?: string;
-  effortMinutes?: number; // 工数（整数の「分」・末端に入力）
+  effortMinutes?: number; // 工数（整数の「分」・末端に入力）＝タッチタイム（As-Is）
+  ltDays?: number; // リードタイム（経過日数・末端に入力）＝着手〜完了の経過(待ち・停滞含む)（As-Is）
   note?: string;
   volume?: string;
   issues?: IssueItem[];
@@ -82,6 +93,7 @@ export interface TaskDetail {
   status?: TaskStatus; // ヒアリング進行管理（任意・未指定は未着手扱い）
   fillColor?: TaskColor; // 工程ノードの塗り色（任意・未指定は既定の白）
   textColor?: TaskColor; // 作業名の文字色（任意・未指定は既定のインク色）
+  toBe?: TaskDetailToBe; // To-Be 差分（未設定なら As-Is と同一）
 }
 
 // ---- フロー詳細（図にだけある情報・同期で保持） ----

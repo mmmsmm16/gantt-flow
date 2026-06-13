@@ -60,6 +60,7 @@ const TaskDetail = z.object({
   outputs: z.array(IoItem).optional(),
   system: z.string().optional(),
   effortMinutes: z.number().finite().optional(),
+  ltDays: z.number().finite().optional(),
   note: z.string().optional(),
   volume: z.string().optional(),
   issues: z.array(IssueItem).optional(),
@@ -71,6 +72,15 @@ const TaskDetail = z.object({
   status: z.enum(['todo', 'heard', 'review', 'done']).optional(),
   fillColor: z.enum(['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray']).optional(),
   textColor: z.enum(['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray']).optional(),
+  toBe: z
+    .object({
+      effortMinutes: z.number().finite().optional(),
+      ltDays: z.number().finite().optional(),
+      difficulty: z.enum(['H', 'M', 'L']).optional(),
+      automation: z.enum(['manual', 'system', 'partial']).optional(),
+      rationale: z.string().optional(),
+    })
+    .optional(),
 });
 
 // Infinity/NaN は JSON にできず座標計算も壊すため有限値に限る
