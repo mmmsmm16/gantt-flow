@@ -867,12 +867,16 @@ export function FlowCanvas() {
   ) => {
     if (!items.length) return null;
     const r = ioIconRect(taskPos, io, items.length);
+    // 形＝種類（DESIGN §8・色非依存で白黒可読）: 帳票(doc)=下辺が波打つ書類形 /
+    // 情報(info)=平行四辺形。種類は同側 I/O の先頭で代表させる（既存仕様）。
     const wave = 6;
     const path = `M${r.x},${r.y} h${r.w} v${r.h - wave} q${-r.w / 4},${wave} ${-r.w / 2},0 q${-r.w / 4},${-wave} ${-r.w / 2},0 z`;
+    const slant = Math.max(5, Math.round(r.h * 0.35));
+    const para = `${r.x + slant},${r.y} ${r.x + r.w},${r.y} ${r.x + r.w - slant},${r.y + r.h} ${r.x},${r.y + r.h}`;
     return (
       <g className={`io-icon io-${io}${items.some((it) => flashIoIds.has(it.id)) ? ' node-flash' : ''}`}>
         {items[0]?.kind === 'info' ? (
-          <rect className="io-main" x={r.x} y={r.y} width={r.w} height={r.h} rx={8} />
+          <polygon className="io-main" points={para} />
         ) : (
           <path className="io-main" d={path} />
         )}

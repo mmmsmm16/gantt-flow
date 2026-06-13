@@ -234,10 +234,14 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const r = ioIconRect(task, io, items.length);
     const pal = io === 'input' ? FLOW_LIGHT.ioIn : FLOW_LIGHT.ioOut;
     if (items[0]?.kind === 'info') {
+      // 情報=平行四辺形（DESIGN §8・画面の描画と一致＝WYSIWYG）
+      const slant = Math.max(5, Math.round(r.h * 0.35));
+      const pts = `${r.x + slant},${r.y} ${r.x + r.w},${r.y} ${r.x + r.w - slant},${r.y + r.h} ${r.x},${r.y + r.h}`;
       parts.push(
-        `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="8" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+        `<polygon points="${pts}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
       );
     } else {
+      // 帳票=下辺が波打つ書類形
       const w = r.w;
       const wave = 6;
       parts.push(
