@@ -478,8 +478,9 @@ button.danger:hover {
   padding: 16px;
   min-height: 0;
 }
+/* 案A: 詳細(インスペクタ)を開くと最大2ペイン（アクティブ側＋詳細）。3ペインにはしない。 */
 .panes.with-inspector {
-  grid-template-columns: minmax(440px, 34%) 1fr 360px;
+  grid-template-columns: 1fr 360px;
 }
 .inspector-pane {
   padding: 0;
@@ -1735,22 +1736,44 @@ button.danger:hover {
   transform: translateX(-50%) translateY(0);
 }
 
+/* 13/新案: ツールバーは枠付きセグメントをやめ、フラットなアイコン群＋ギャップで区切る。 */
 .tool-group {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--btn-bg);
-  overflow: hidden;
+  gap: 2px;
 }
 .tool-group .icon-btn {
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
-  border-right: 1px solid var(--line);
 }
-.tool-group .icon-btn:last-child {
-  border-right: none;
+/* ツールバー内のアイコンボタンは常時フラット（枠なし）、ホバーで背景のみ。
+   トグルの on 状態（accent-soft）は壊さないよう :not(.on) でスコープする。 */
+.toolbar .icon-btn {
+  border-color: transparent;
+}
+.toolbar .icon-btn:not(.on) {
+  background: transparent;
+}
+.toolbar .icon-btn:not(:disabled):not(.on):hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+/* 66/新案: ペイン見出しの種別ドット（表=アクセント / フロー=粒度小色）。 */
+.pane-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex: none;
+}
+.pane-dot.table {
+  background: var(--accent);
+}
+.pane-dot.flow {
+  background: var(--lvl-small);
 }
 .tool-group .icon-btn:not(:disabled):hover {
   background: var(--hdr);

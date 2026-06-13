@@ -251,3 +251,12 @@ export const Minus = (p: SVGProps<SVGSVGElement>) => (
     <path d="M5 12h14" />
   </Svg>
 );
+// 表⇄フロー の入れ替え（案A: 詳細を開いている側を切替）。
+export const Swap = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M8 3 4 7l4 4" />
+    <path d="M4 7h16" />
+    <path d="m16 21 4-4-4-4" />
+    <path d="M20 17H4" />
+  </Svg>
+);

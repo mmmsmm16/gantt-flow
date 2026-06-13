@@ -128,6 +128,13 @@ export function App() {
   const fullMode = tableMode === 'full';
   // 現在のレイアウト（タブのハイライト用）。full は常にフロー非表示なので「表のみ」扱い。
   const paneLayout: 'split' | 'table' | 'flow' = flowWide ? 'flow' : tableWide || fullMode ? 'table' : 'split';
+  // 案A: インスペクタ(詳細)はオンデマンド。3ペインは作らず、最大2ペイン。
+  // 分割で詳細を開いたら「いま操作中のペイン(activePane)＋詳細」にして反対側を隠す。
+  // 表のみ/フローのみ＋詳細はそのまま2ペイン。閉じれば元のレイアウトへ戻る。
+  const showInspector = !fullMode && !!selectedTaskId && inspectorOpen;
+  const collapseForInspector = showInspector && paneLayout === 'split';
+  const showTable = !flowWide && !(collapseForInspector && activePane === 'flow');
+  const showFlow = !tableWide && !fullMode && !(collapseForInspector && activePane === 'table');
   const parentLevel = PARENT_LEVEL[level];
   const scopeOptions = parentLevel
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
@@ -564,7 +571,47 @@ export function App() {
           <Icons.Printer />
         </button>
 
+        <button
+          className="icon-btn"
+          onClick={() => useUI.getState().setOverlay('palette')}
+          aria-label="コマンド・工程を検索"
+          title="コマンド・工程を検索 (⌘K)"
+        >
+          <Icons.Search />
+        </button>
+
         <span className="tool-group" role="group" aria-label="ビュー">
+          {collapseForInspector && (
+            <button
+              className="icon-btn"
+              onClick={() => setActivePane(activePane === 'table' ? 'flow' : 'table')}
+              aria-label="工程表とフローを入れ替え"
+              title={`${activePane === 'table' ? '工程フロー' : '工程表'}＋詳細に切り替え (案A)`}
+            >
+              <Icons.Swap />
+            </button>
+          )}
+          <button
+            className={`icon-btn toggle-btn${showInspector ? ' on' : ''}`}
+            onClick={() => {
+              const ui = useUI.getState();
+              if (showInspector) {
+                ui.setInspectorOpen(false);
+                return;
+              }
+              ui.setInspectorOpen(true);
+              if (!selectedTaskId) {
+                const tasks = Object.values(project.core.tasks);
+                const first = tasks.find((t) => t.level === 'large') ?? tasks[0];
+                if (first) useApp.getState().select(first.id);
+              }
+            }}
+            aria-pressed={showInspector}
+            aria-label="詳細インスペクタの表示切替"
+            title={showInspector ? '詳細を閉じる' : '詳細を開く（選択工程の全項目）'}
+          >
+            <Icons.Columns />
+          </button>
           <button
             className="icon-btn"
             onClick={() => useUI.getState().setOverlay('issues')}
@@ -630,11 +677,11 @@ export function App() {
         />
       ) : (
         <div
-          className={`panes${!fullMode && selectedTaskId && inspectorOpen ? ' with-inspector' : ''}${
+          className={`panes${showInspector ? ' with-inspector' : ''}${
             tableWide || fullMode ? ' table-wide' : ''
           }${flowWide ? ' flow-wide' : ''}`}
         >
-          {!flowWide && (
+          {showTable && (
           <section
             className={`pane table-pane${fullMode ? ' full' : ''}${activePane === 'table' ? ' pane-active' : ''}`}
             id="main-table"
@@ -643,7 +690,10 @@ export function App() {
             onPointerDownCapture={() => setActivePane('table')}
           >
             <div className="table-head">
-              <h2>工程表（手順一覧表）</h2>
+              <h2>
+                <span className="pane-dot table" aria-hidden="true" />
+                工程表（手順一覧表）
+              </h2>
               <span className="seg table-mode-seg" role="group" aria-label="表示モード">
                 <button className={!fullMode ? 'on' : ''} onClick={() => setTableMode('outline')}>
                   アウトライン
@@ -656,7 +706,7 @@ export function App() {
             {fullMode ? <FullTable /> : <TableView />}
           </section>
           )}
-          {!tableWide && !fullMode && (
+          {showFlow && (
             <section
               className={`pane flow-pane${activePane === 'flow' ? ' pane-active' : ''}`}
               tabIndex={-1}
@@ -664,7 +714,10 @@ export function App() {
               onPointerDownCapture={() => setActivePane('flow')}
             >
               <div className="flow-head">
-                <h2>工程フロー</h2>
+                <h2>
+                  <span className="pane-dot flow" aria-hidden="true" />
+                  工程フロー
+                </h2>
                 <span className="seg" role="group" aria-label="粒度">
                   {LEVELS.map((l) => (
                     <button
@@ -705,7 +758,7 @@ export function App() {
               <FlowCanvas />
             </section>
           )}
-          {!fullMode && selectedTaskId && inspectorOpen && (
+          {showInspector && (
             <section className="pane inspector-pane">
               <Inspector />
             </section>
