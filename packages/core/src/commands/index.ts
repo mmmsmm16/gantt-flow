@@ -131,6 +131,17 @@ export function removeDependency(p: Project, depId: Id): Project {
   return next;
 }
 
+// 依存の所属シナリオを変更（並行化＝As-Is専用にすると To-Be では繋がらない／To-Be専用で新接続）。
+// undefined=両方。
+export function setDependencyPhase(p: Project, depId: Id, phase: 'asis' | 'tobe' | undefined): Project {
+  const next = clone(p);
+  const dep = next.core.dependencies[depId];
+  if (!dep) return next;
+  if (phase) dep.phase = phase;
+  else delete dep.phase;
+  return next;
+}
+
 // 並行工程を追加: 基準工程 ref と同じ親・粒度・担当の新工程を ref の直後（order）に作り、
 // ref の「前工程のみ」をコピーする（A→B→C で B に並行追加 → A→新 のみ。新→C は張らない＝
 // 後続の繋ぎ方はユーザーに委ねる仕様）。details はコピーしない（addTask の空詳細のまま）。

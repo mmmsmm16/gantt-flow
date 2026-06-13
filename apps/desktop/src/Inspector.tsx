@@ -62,6 +62,7 @@ export function Inspector() {
   const setTaskLevel = useApp((s) => s.setTaskLevel);
   const updateToBe = useApp((s) => s.updateToBe);
   const copyAsIsToToBe = useApp((s) => s.copyAsIsToToBe);
+  const setDependencyPhase = useApp((s) => s.setDependencyPhase);
   const tobeEnabled = useUI((s) => s.tobeEnabled);
 
   if (!taskId) return null;
@@ -575,6 +576,29 @@ export function Inspector() {
                   rows={2}
                   onBlur={(e) => updateToBe(taskId, { rationale: e.target.value.trim() || undefined })}
                 />
+                {preds.length > 0 && (
+                  <>
+                    <label>前後関係（To-Be）</label>
+                    {preds.map((dep) => {
+                      const asisOnly = dep.phase === 'asis';
+                      return (
+                        <div className="tobe-dep-row" key={dep.id}>
+                          <span className="tobe-dep-name" title={nameOf(dep.from)}>{nameOf(dep.from)} →</span>
+                          <span className="seg tobe-dep-seg">
+                            <button className={!asisOnly ? 'on' : ''} onClick={() => setDependencyPhase(dep.id, undefined)}>継続</button>
+                            <button
+                              className={asisOnly ? 'on' : ''}
+                              onClick={() => setDependencyPhase(dep.id, 'asis')}
+                              title="To-Be でこの前後関係を外す（並行化）"
+                            >
+                              To-Beで解除
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
               </section>
             );
           })()}

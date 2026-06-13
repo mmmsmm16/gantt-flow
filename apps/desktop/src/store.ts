@@ -48,6 +48,7 @@ import {
   addAssignee as cAddAssignee,
   addDependency as cAddDependency,
   removeDependency as cRemoveDependency,
+  setDependencyPhase as cSetDependencyPhase,
   addIoItem as cAddIoItem,
   removeIoItem as cRemoveIoItem,
   updateIoItem as cUpdateIoItem,
@@ -207,6 +208,10 @@ export interface AppState {
   removeManyTasks: (taskIds: Id[]) => void;
   addDependency: (from: Id, to: Id) => void;
   removeDependency: (depId: Id) => void;
+  /** 依存の所属シナリオを変更（undefined=両方 / 'asis'=To-Beで解除＝並行化 / 'tobe'=To-Be専用）。 */
+  setDependencyPhase: (depId: Id, phase: 'asis' | 'tobe' | undefined) => void;
+  /** To-Be 上の前工程を 1 本に設定（既存の To-Be 専用 incoming を置換）。新設工程の接続に使う。 */
+  setToBePredecessor: (taskId: Id, fromId: Id | undefined) => void;
   addSiblingOf: (taskId: Id) => Id | undefined;
   /** クイック追加: 作成＋担当＋工数＋前工程の依存を 1 undo 単位で合成し、作成工程を選択する。
       選択中の工程と同じ粒度ならその直下（同じ親）へ挿入（addSiblingOf と同じ位置規則）。
@@ -507,6 +512,20 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     removeDependency: (depId) => commit(cRemoveDependency(get().project, depId)),
+    setDependencyPhase: (depId, phase) => commit(cSetDependencyPhase(get().project, depId, phase)),
+    setToBePredecessor: (taskId, fromId) => {
+      let p = get().project;
+      // 既存の To-Be 専用 incoming を外す（前工程は 1 本に保つ）。
+      for (const d of Object.values(p.core.dependencies)) {
+        if (d.to === taskId && d.phase === 'tobe') p = cRemoveDependency(p, d.id);
+      }
+      if (fromId && fromId !== taskId) {
+        const id = uuid();
+        p = cAddDependency(p, fromId, taskId, () => id);
+        p = cSetDependencyPhase(p, id, 'tobe');
+      }
+      commit(p);
+    },
 
     // 「次行を追加」: 同じ親・同じ粒度の兄弟を「クリック行の直下」に挿入し、新タスクの id を返す（フォーカス用）。
     addSiblingOf: (taskId) => {

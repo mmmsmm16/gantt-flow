@@ -91,6 +91,7 @@ export function ComparisonDialog() {
   const renameTask = useApp((s) => s.renameTask);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
   const removeTask = useApp((s) => s.removeTask);
+  const setToBePredecessor = useApp((s) => s.setToBePredecessor);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -315,6 +316,7 @@ export function ComparisonDialog() {
                     <tr>
                       <th>工程名</th>
                       <th>担当</th>
+                      <th>前工程</th>
                       <th className="num">工数(h)</th>
                       <th className="num">LT(日)</th>
                       <th>難易度</th>
@@ -337,6 +339,20 @@ export function ComparisonDialog() {
                               {assigneeNames.map((n) => (
                                 <option key={n} value={n}>{n}</option>
                               ))}
+                            </select>
+                          </td>
+                          <td>
+                            <select
+                              className="cmp-bulk-in"
+                              value={Object.values(project.core.dependencies).find((dd) => dd.to === t.id && dd.phase === 'tobe')?.from ?? ''}
+                              onChange={(e) => setToBePredecessor(t.id, e.target.value || undefined)}
+                            >
+                              <option value="">（なし）</option>
+                              {Object.values(project.core.tasks)
+                                .filter((o) => o.id !== t.id && project.details[o.id]?.toBe?.lifecycle !== 'added')
+                                .map((o) => (
+                                  <option key={o.id} value={o.id}>{o.name}</option>
+                                ))}
                             </select>
                           </td>
                           <td className="num">

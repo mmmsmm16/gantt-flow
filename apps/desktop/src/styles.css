@@ -4674,6 +4674,25 @@ input.colored-text {
   color: var(--ok);
   font-variant-numeric: tabular-nums;
 }
+.tobe-dep-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 4px;
+}
+.tobe-dep-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seg.tobe-dep-seg button {
+  padding: 2px 8px;
+  font-size: var(--fs-caption);
+}
 .push {
   margin-left: auto;
 }
