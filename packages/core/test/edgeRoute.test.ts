@@ -60,6 +60,16 @@ describe('routeEdge: 直角経路のノード回避', () => {
     }
   });
 
+  it('障害物が縦に連続していても、隙間や全体の上下の通り道で全回避する', () => {
+    // 行を塞ぐ A の直下に B が連続（A 直下のチャネルは B 内）。さらに横にもう一つ。
+    // 旧来の「障害物端±2PAD」だけでは抜け道が塞がれがちなケース。
+    const A = R(200, 100);
+    const B = R(200, 150);
+    const C = R(360, 100);
+    const r = routeEdge(R(0, 100), R(560, 100), [A, B, C]);
+    for (const o of [A, B, C]) expect(passesThrough(r.points, o)).toBe(false);
+  });
+
   it('後ろ向き(ターゲットが左)でも経路が返る', () => {
     const r = routeEdge(R(400, 0), R(0, 200), []);
     expect(r.points.length).toBeGreaterThanOrEqual(4);

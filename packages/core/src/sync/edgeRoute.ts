@@ -101,12 +101,17 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
     { x: x2, y: y2 },
   ];
   const defaultMid = (x1 + x2) / 2;
+  // 障害物の x 端を並べ、隣り合う端の中点も通り道候補にする（＝障害物と障害物の「隙間」を通す）。
+  const xEdges = [...new Set(obstacles.flatMap((o) => [o.x - PAD, o.x + o.w + PAD]))].sort((a, b) => a - b);
+  const xGapMids: number[] = [];
+  for (let i = 0; i < xEdges.length - 1; i++) xGapMids.push((xEdges[i]! + xEdges[i + 1]!) / 2);
   const midCandidates = dedupe([
     defaultMid,
     x1 + STUB,
     x2 - STUB,
     // 区間内の障害物の左右脇を通り道の候補にする
     ...obstacles.flatMap((o) => [o.x - PAD * 2, o.x + o.w + PAD * 2]),
+    ...xGapMids,
   ]).filter((m) => (x2 >= x1 ? m >= x1 + 4 && m <= x2 - 4 : m <= x1 + 4 && m >= x2 - 4));
   if (midCandidates.length === 0) midCandidates.push(Math.round(defaultMid));
 
@@ -125,7 +130,13 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
   const m1 = x1 + STUB;
   const m2 = x2 - STUB;
   const ys = obstacles.flatMap((o) => [o.y - PAD * 2, o.y + o.h + PAD * 2]);
-  const channelCandidates = dedupe([y1, y2, ...ys]);
+  // 障害物の y 端の隙間中点に加え、全障害物の上/下を通る確実な迂回路（必ず横移動が clear）を候補に。
+  const yEdges = [...new Set(obstacles.flatMap((o) => [o.y - PAD, o.y + o.h + PAD]))].sort((a, b) => a - b);
+  const yGapMids: number[] = [];
+  for (let i = 0; i < yEdges.length - 1; i++) yGapMids.push((yEdges[i]! + yEdges[i + 1]!) / 2);
+  const aboveAll = obstacles.length ? Math.min(...obstacles.map((o) => o.y)) - PAD * 2 - 10 : y1;
+  const belowAll = obstacles.length ? Math.max(...obstacles.map((o) => o.y + o.h)) + PAD * 2 + 10 : y2;
+  const channelCandidates = dedupe([y1, y2, ...ys, ...yGapMids, aboveAll, belowAll]);
   for (const cy of channelCandidates) {
     const pts: Pt[] = [
       { x: x1, y: y1 },
