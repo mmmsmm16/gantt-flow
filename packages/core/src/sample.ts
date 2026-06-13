@@ -121,6 +121,9 @@ export function createSampleProject(idGen: IdGen, now = '2026-01-01T00:00:00.000
   dep(M6, M7);
   dep(M7, M8);
   dep(M9, M10);
+  // 大工程の前後関係（受注業務 → 出荷業務 → 請求業務）。中/小の全体ビューでもブリッジで繋がる。
+  dep(L1, L2);
+  dep(L2, L3);
 
   // ---- リードタイム(As-Is) と業務難易度・To-Be（As-Is/To-Be 比較のデモ） ----
   // 工数＝タッチタイム(分) / ltDays＝経過日数(待ち含む) / toBe＝あるべき姿の差分。
