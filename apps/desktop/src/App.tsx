@@ -140,6 +140,39 @@ export function App() {
     ? Object.values(project.core.tasks).filter((t) => t.level === parentLevel)
     : [];
 
+  // PR6/item4: ビュー構成(分割/表/フロー)・インスペクタ開閉・粒度・課題レイヤを永続化し、
+  // 再起動で前回の作業姿勢を復元する。選択工程(selectedTaskId)は別ファイルで無効IDになり
+  // 混乱しうるため永続対象にしない（必要時は明示選択で開く）。
+  const prefsRestored = useRef(false);
+  useEffect(() => {
+    if (!prefsRestored.current) {
+      prefsRestored.current = true; // マウント時は復元のみ（初期値で上書き保存しない）
+      try {
+        const p = JSON.parse(localStorage.getItem('gf-ws-prefs') || '{}');
+        const ui = useUI.getState();
+        const app = useApp.getState();
+        if (p.flowWide) ui.setPaneLayout('flow');
+        else if (p.tableWide) ui.setPaneLayout('table');
+        if (typeof p.inspectorOpen === 'boolean') ui.setInspectorOpen(p.inspectorOpen);
+        if (['large', 'medium', 'small', 'detail'].includes(p.level) && p.level !== app.level) {
+          app.setLevel(p.level);
+        }
+        if (typeof p.showIssues === 'boolean' && p.showIssues !== app.showIssues) app.toggleIssues();
+      } catch {
+        /* localStorage 不可/破損: 既定のまま */
+      }
+      return;
+    }
+    try {
+      localStorage.setItem(
+        'gf-ws-prefs',
+        JSON.stringify({ tableWide, flowWide, inspectorOpen, level, showIssues }),
+      );
+    } catch {
+      /* 保存不可は無視 */
+    }
+  }, [tableWide, flowWide, inspectorOpen, level, showIssues]);
+
   // persistence が覚えている保存先はモジュール変数で React から購読できないため、
   // 保存/開く等の「保存先が変わりうる操作」の完了時にここで useUI へ写す。
   const syncFileName = () => useUI.getState().setFileName(currentFileName());
