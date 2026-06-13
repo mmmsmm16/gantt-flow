@@ -215,6 +215,28 @@ export function detailTextCommand(
   });
 }
 
+// 53: コマンド項目の先頭アイコン。id から用途を推定して馴染むアイコンを返す（新案準拠）。
+function iconForCmd(c: Cmd) {
+  const id = c.id;
+  const has = (s: string) => id.includes(s);
+  if (has('save')) return <Icons.Save />;
+  if (has('undo')) return <Icons.Undo />;
+  if (has('redo') || id === 'repeat-last') return <Icons.Redo />;
+  if (has('print')) return <Icons.Printer />;
+  if (has('settings')) return <Icons.Gear />;
+  if (has('help')) return <Icons.Keyboard />;
+  if (has('palette')) return <Icons.Search />;
+  if (has('chrome')) return <Icons.Maximize />;
+  if (has('pane') || has('layout') || has('table-mode') || has('go-') || has('scope') || has('level') || has('inspector'))
+    return <Icons.Columns />;
+  if (has('fill') || has('text-') || has('color')) return <Icons.Sparkles />;
+  if (has('effort')) return <Icons.Clock />;
+  if (has('io') || has('input') || has('output')) return <Icons.Upload />;
+  if (has('comment')) return <Icons.StickyNote />;
+  if (has('add') || has('task')) return <Icons.FilePlus />;
+  return <Icons.ListChecks />;
+}
+
 export function CommandPalette(handlers: FileHandlers) {
   // 閉じている間は本体をマウントしない（プロジェクト購読や computeCodes 等の
   // 派生計算が編集のたびに走るのを防ぐ。開いたら初期状態から始まる）。
@@ -999,6 +1021,7 @@ function PaletteBody(handlers: FileHandlers) {
                 onMouseMove={() => setActive(i)}
                 onClick={() => runItem(i)}
               >
+                <span className="pi-icon" aria-hidden="true">{iconForCmd(c)}</span>
                 <span className="pi-label">{c.label}</span>
                 {c.arg && <span className="pi-arg-mark" aria-hidden="true">›</span>}
                 {c.hint && <kbd className="pi-hint">{c.hint}</kbd>}

@@ -17,10 +17,13 @@ import {
   type Rect,
 } from '@gantt-flow/core';
 import { FLOW_LIGHT, TASK_COLORS } from './theme';
+import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 
-// 画面 (--font-ui) と一致させる和文優先スタック。出力＝画面の体験を保つ。styles.css と同期。
+// 画面の --font-ui と揃える（WYSIWYG・DESIGN §8）。欧文 Inter / 和文 Meiryo UI → OS。
+// styles.css と同期。出力 SVG は font-family を埋め込まないため、Inter 未導入の第三者
+// 環境では従来どおり次の家系へフォールバックする（見え方は据え置き、作図者の手元では一致）。
 const FONT_STACK =
-  "system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Noto Sans JP', Meiryo, sans-serif";
+  "'Inter', 'Meiryo UI', system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Noto Sans JP', Meiryo, sans-serif";
 
 const esc = (s: string) =>
   s.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
@@ -115,7 +118,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     for (const box of boxes) {
       // レーンの帯の中央に担当名（画面と揃える）。
       parts.push(
-        `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
+        `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
       );
     }
   }
@@ -232,15 +235,16 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const r = ioIconRect(task, io, items.length);
     const pal = io === 'input' ? FLOW_LIGHT.ioIn : FLOW_LIGHT.ioOut;
     if (items[0]?.kind === 'info') {
+      // 情報=3 角丸＋1 角を立てた角丸ボックス（DESIGN §8・画面と一致＝WYSIWYG）
       parts.push(
-        `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="8" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+        `<path d="${ioInfoChipPath(r, io)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
       );
     } else {
-      const w = r.w;
-      const wave = 6;
+      // 帳票=書類オブジェクト（角丸矩形＋右上ドッグイア。ドッグイアは枠色で塗る）
       parts.push(
-        `<path d="M${r.x},${r.y} h${w} v${r.h - wave} q${-w / 4},${wave} ${-w / 2},0 q${-w / 4},${-wave} ${-w / 2},0 z" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+        `<path d="${ioDocBodyPath(r)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
       );
+      parts.push(`<polygon points="${ioDocFoldPoints(r)}" fill="${pal.stroke}"/>`);
     }
     items.forEach((it, i) => {
       const ty = r.y + IO_ICON.padTop + i * IO_ICON.line + IO_ICON.line - 3;
@@ -316,7 +320,7 @@ export function decorateFlowSvg(
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${total}" viewBox="0 0 ${w} ${total}" font-family="${FONT_STACK}">`,
     `<rect width="100%" height="100%" fill="${L.bg}"/>`,
-    `<text x="16" y="26" font-size="18" font-weight="700" fill="${L.task.text}">${esc(opts.title)}</text>`,
+    `<text x="16" y="26" font-size="18" font-weight="600" fill="${L.task.text}">${esc(opts.title)}</text>`,
     opts.subtitle ? `<text x="16" y="44" font-size="11" fill="${L.bandLabel}">${esc(opts.subtitle)}</text>` : '',
     `<line x1="0" y1="${headH - 1}" x2="${w}" y2="${headH - 1}" stroke="${L.laneLine}" stroke-width="1"/>`,
     nested,

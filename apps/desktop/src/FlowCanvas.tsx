@@ -10,6 +10,7 @@ import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
 import { computeSnap, type SnapGuide, type SnapRect } from './snap';
 import * as Icons from './ui/icons';
+import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 import {
   SIZE,
   deriveBands,
@@ -867,14 +868,17 @@ export function FlowCanvas() {
   ) => {
     if (!items.length) return null;
     const r = ioIconRect(taskPos, io, items.length);
-    const wave = 6;
-    const path = `M${r.x},${r.y} h${r.w} v${r.h - wave} q${-r.w / 4},${wave} ${-r.w / 2},0 q${-r.w / 4},${-wave} ${-r.w / 2},0 z`;
+    // 形＝種類（DESIGN §8・色非依存で白黒可読）: 帳票(doc)=角丸矩形＋右上ドッグイアの書類形 /
+    // 情報(info)=3 角丸＋1 角を立てたタグ形。種類は同側 I/O の先頭で代表（既存仕様）。
     return (
       <g className={`io-icon io-${io}${items.some((it) => flashIoIds.has(it.id)) ? ' node-flash' : ''}`}>
         {items[0]?.kind === 'info' ? (
-          <rect className="io-main" x={r.x} y={r.y} width={r.w} height={r.h} rx={8} />
+          <path className="io-main" d={ioInfoChipPath(r, io)} />
         ) : (
-          <path className="io-main" d={path} />
+          <>
+            <path className="io-main" d={ioDocBodyPath(r)} />
+            <polygon className="io-fold" points={ioDocFoldPoints(r)} />
+          </>
         )}
         {items.map((it, i) => (
           <text
@@ -1033,6 +1037,7 @@ export function FlowCanvas() {
         <span>追加:</span>
         <button
           className="add-task"
+          aria-label="工程を追加"
           title="工程を追加"
           onClick={() => {
             const k = nodes.filter((n) => n.kind === 'task').length;
@@ -1041,12 +1046,12 @@ export function FlowCanvas() {
             else addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
           }}
         >
-          工程＋
+          <Icons.BoxPlus />
         </button>
-        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}>開始</button>
-        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}>終了</button>
-        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}>判断◇</button>
-        <button onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}>合流</button>
+        <button aria-label="開始" title="開始（スタジアム形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}><Icons.Play /></button>
+        <button aria-label="終了" title="終了（スタジアム形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}><Icons.Stop /></button>
+        <button aria-label="判断" title="判断（ひし形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}><Icons.Diamond /></button>
+        <button aria-label="合流" title="合流" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}><Icons.Merge /></button>
         <button
           onClick={async () => {
             const text = await useUI.getState().promptText({
@@ -1059,8 +1064,10 @@ export function FlowCanvas() {
               addComment(text, p.x, p.y);
             }
           }}
+          aria-label="付箋を追加"
+          title="付箋を追加"
         >
-          付箋
+          <Icons.StickyNote />
         </button>
         <span className="palette-sep" aria-hidden="true" />
         <button
@@ -1074,23 +1081,22 @@ export function FlowCanvas() {
             if (ok) tidyFlow();
           }}
           title="自動整列（依存で段組み・レーンで縦配置）"
+          aria-label="自動整列"
         >
           <Icons.Wand />
-          整列
         </button>
-        <button className="palette-act" onClick={fitView} title="全体表示（画面に合わせる）">
+        <button className="palette-act" onClick={fitView} title="全体表示（画面に合わせる）" aria-label="全体表示">
           <Icons.Maximize />
-          全体
         </button>
         <span className="palette-zoom">
           <button onClick={() => zoomBy(1 / 1.2)} aria-label="縮小" title="縮小">
-            −
+            <Icons.Minus />
           </button>
           <button onClick={() => setScale(1)} aria-label="ズームを100%に戻す" title="100%にリセット">
             {Math.round(scale * 100)}%
           </button>
           <button onClick={() => zoomBy(1.2)} aria-label="拡大" title="拡大">
-            ＋
+            <Icons.Plus />
           </button>
         </span>
         {kbConnect ? (

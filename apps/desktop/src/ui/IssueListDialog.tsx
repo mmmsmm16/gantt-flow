@@ -75,7 +75,7 @@ export function IssueListDialog() {
               <Icons.Download />
               Excel 出力
             </button>
-            <button ref={closeRef} className="x" aria-label="閉じる" onClick={close}>
+            <button ref={closeRef} className="x" aria-label="閉じる" title="閉じる" onClick={close}>
               ×
             </button>
           </div>

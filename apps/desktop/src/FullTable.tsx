@@ -481,10 +481,12 @@ export function FullTable() {
   return (
     <div className={`ft-wrap${resizing ? ' resizing' : ''}`}>
       <div className="ft-actions">
-        <button className="primary" onClick={() => addRootTask('large')}>
-          ＋ 大工程
+        <button className="primary" title="大工程を追加" onClick={() => addRootTask('large')}>
+          <Icons.BoxPlus />大
         </button>
-        <button onClick={() => addRootTask('medium')}>＋ 中工程</button>
+        <button title="中工程を追加" onClick={() => addRootTask('medium')}>
+          <Icons.BoxPlus />中
+        </button>
         <button onClick={onPasteRows} title="クリップボード（Excel など）の各行を工程として追加。列はタブ区切りで [作業名, 担当]。">
           貼り付けで追加
         </button>
@@ -699,7 +701,7 @@ export function FullTable() {
                         {preds.map((dep) => (
                           <span className="ft-pill" key={dep.id}>
                             {byId[dep.from]?.name ?? ''}
-                            <button className="ft-x" aria-label="前工程を解除" onClick={() => removeDependency(dep.id)}>
+                            <button className="ft-x" aria-label="前工程を解除" title="前工程を解除" onClick={() => removeDependency(dep.id)}>
                               ×
                             </button>
                           </span>
@@ -780,7 +782,7 @@ export function FullTable() {
                         {issues.map((iss) => (
                           <div className="ft-issue-row" key={iss.id}>
                             <AutoTextarea value={iss.issue} placeholder="課題" onCommit={(v) => updateIssue(t.id, iss.id, { issue: v })} />
-                            <button className="ft-x" aria-label="課題を削除" onClick={() => removeIssue(t.id, iss.id)}>
+                            <button className="ft-x" aria-label="課題を削除" title="課題を削除" onClick={() => removeIssue(t.id, iss.id)}>
                               ×
                             </button>
                           </div>
@@ -992,7 +994,7 @@ function IoCell({
               <option value="doc">帳票</option>
               <option value="info">情報</option>
             </select>
-            <button className="ft-x" aria-label="削除" onClick={() => onRemove(it.id)}>
+            <button className="ft-x" aria-label="削除" title="入出力を削除" onClick={() => onRemove(it.id)}>
               ×
             </button>
           </span>

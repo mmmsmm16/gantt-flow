@@ -26,7 +26,13 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate, 
       <div className="welcome-card">
         <div className="welcome-brand">
           <svg width="34" height="34" viewBox="0 0 18 18" aria-hidden="true" className="brand-mark">
-            <rect className="bg" width="18" height="18" rx="5" />
+            <defs>
+              <linearGradient id="brandmark-grad-lg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stopColor="#5271a5" />
+                <stop offset="1" stopColor="#3f5a89" />
+              </linearGradient>
+            </defs>
+            <rect className="bg" width="18" height="18" rx="4" fill="url(#brandmark-grad-lg)" />
             <rect className="bar" x="3.5" y="3.8" width="8" height="2.2" rx="1.1" />
             <rect className="bar b2" x="6" y="7.9" width="8.5" height="2.2" rx="1.1" />
             <rect className="bar b3" x="3.5" y="12" width="6" height="2.2" rx="1.1" />
