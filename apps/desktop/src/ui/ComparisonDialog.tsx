@@ -87,6 +87,10 @@ export function ComparisonDialog() {
   const project = useApp((s) => s.project);
   const updateToBe = useApp((s) => s.updateToBe);
   const copyAsIsToToBe = useApp((s) => s.copyAsIsToToBe);
+  const addToBeTask = useApp((s) => s.addToBeTask);
+  const renameTask = useApp((s) => s.renameTask);
+  const setAssigneeByName = useApp((s) => s.setAssigneeByName);
+  const removeTask = useApp((s) => s.removeTask);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -143,6 +147,9 @@ export function ComparisonDialog() {
 
   const effH = { asis: c.effortMinutes.asis / 60, tobe: c.effortMinutes.tobe / 60, delta: c.effortMinutes.delta / 60 };
   const maxCut = Math.max(...perRow.map((r) => r.ltCut), 1);
+  // To-Be 新設工程（As-Is には出ない）。一括入力タブの専用セクションで作成・編集する。
+  const addedTasks = Object.values(project.core.tasks).filter((t) => project.details[t.id]?.toBe?.lifecycle === 'added');
+  const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
   const counts = diffMode === 'count' ? c.difficulty.count : c.difficulty.effort;
   const totals = diffMode === 'count'
     ? { asis: c.leafCount.asis, tobe: c.leafCount.tobe }
@@ -296,6 +303,76 @@ export function ComparisonDialog() {
                 </tbody>
               </table>
             </div>
+
+            <div className="cmp-bulk-cap cmp-bulk-added-cap">
+              <span>To-Be 新設工程 <span className="cmp-flow-hint">改善後に追加する工程（As-Is の表・フローには出ません）</span></span>
+              <button className="tobe-copy" onClick={() => addToBeTask()}>＋ To-Be 工程を新設</button>
+            </div>
+            {addedTasks.length > 0 && (
+              <div className="cmp-bulk-scroll">
+                <table className="cmp-table cmp-bulk-table">
+                  <thead>
+                    <tr>
+                      <th>工程名</th>
+                      <th>担当</th>
+                      <th className="num">工数(h)</th>
+                      <th className="num">LT(日)</th>
+                      <th>難易度</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {addedTasks.map((t) => {
+                      const d = project.details[t.id];
+                      const tb = d?.toBe;
+                      const owner = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
+                      return (
+                        <tr key={t.id}>
+                          <td>
+                            <input className="cmp-bulk-in" key={`n-${t.id}-${t.name}`} defaultValue={t.name} placeholder="工程名" onBlur={(e) => renameTask(t.id, e.target.value)} />
+                          </td>
+                          <td>
+                            <select className="cmp-bulk-in" value={owner} onChange={(e) => setAssigneeByName(t.id, e.target.value)}>
+                              <option value="">（未割当）</option>
+                              {assigneeNames.map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="num">
+                            <input
+                              className="cmp-bulk-in num"
+                              key={`ae-${t.id}-${tb?.effortMinutes}`}
+                              defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
+                              onBlur={(e) => updateToBe(t.id, { effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined })}
+                            />
+                          </td>
+                          <td className="num">
+                            <input
+                              className="cmp-bulk-in num"
+                              key={`al-${t.id}-${tb?.ltDays}`}
+                              defaultValue={tb?.ltDays ?? ''}
+                              onBlur={(e) => updateToBe(t.id, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })}
+                            />
+                          </td>
+                          <td>
+                            <select className="cmp-bulk-in" value={tb?.difficulty ?? ''} onChange={(e) => updateToBe(t.id, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}>
+                              <option value="">—</option>
+                              <option value="H">H</option>
+                              <option value="M">M</option>
+                              <option value="L">L</option>
+                            </select>
+                          </td>
+                          <td>
+                            <button className="cmp-del-btn" title="この新設工程を削除" aria-label="削除" onClick={() => removeTask(t.id)}>×</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

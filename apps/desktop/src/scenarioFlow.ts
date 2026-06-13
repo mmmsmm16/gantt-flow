@@ -19,14 +19,28 @@ export function buildScenarioView(
   scopeParentId?: string,
 ): ScenarioView | null {
   const core = projectScenarioCore(project.core, project.details, phase);
-  let tmp: Project = { ...project, core, flow: { byLevel: [] } };
+  // To-Be 投影では新設工程(toBe.lifecycle='added')も描きたいので、details の 'added' マーカーを外す
+  // （reconcileFlow は 'added' を As-Is 用に除外するため）。As-Is 投影は core 側で既に除外済み。
+  let details = project.details;
+  if (phase === 'tobe') {
+    details = {};
+    for (const [id, d] of Object.entries(project.details)) {
+      if (d.toBe?.lifecycle === 'added') {
+        const { lifecycle: _omit, ...restToBe } = d.toBe;
+        details[id] = { ...d, toBe: Object.keys(restToBe).length ? restToBe : undefined };
+      } else {
+        details[id] = d;
+      }
+    }
+  }
+  let tmp: Project = { ...project, core, details, flow: { byLevel: [] } };
   tmp = ensureLevelView(tmp, level, scopeParentId);
   tmp = reconcileProject(tmp, uuid);
   const base = tmp.flow.byLevel.find(
     (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
   );
   if (!base) return null;
-  const view = tidyFlowView(core, project.details, base);
+  const view = tidyFlowView(core, details, base);
   return { view, core, project: tmp };
 }
 

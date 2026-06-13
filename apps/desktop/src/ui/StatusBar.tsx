@@ -22,7 +22,8 @@ export function StatusBar() {
   const leaderPending = useUI((s) => s.leaderPending);
   const singleKey = useUI((s) => s.singleKey);
 
-  const tasks = Object.values(project.core.tasks);
+  // To-Be 新設工程(toBe.lifecycle='added')は As-Is の集計に含めない。
+  const tasks = Object.values(project.core.tasks).filter((t) => project.details[t.id]?.toBe?.lifecycle !== 'added');
   const byLevel = (l: ProcessLevel) => tasks.filter((t) => t.level === l).length;
   const roots = tasks.filter((t) => !t.parentId);
   // 集計工数はコミット時に 1 回だけ計算（ルートごとに effortRollupMinutes を呼ぶと

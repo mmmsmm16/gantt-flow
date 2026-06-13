@@ -235,6 +235,8 @@ export interface AppState {
   updateToBe: (taskId: Id, patch: Partial<TaskDetailToBe>) => void;
   /** As-Is の現状値を To-Be の起点へ複製。 */
   copyAsIsToToBe: (taskId: Id) => void;
+  /** To-Be で新設する工程(lifecycle='added')を作る。As-Is には出ない。作成 ID を返す。 */
+  addToBeTask: () => Id | undefined;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
   moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
@@ -686,6 +688,18 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
     updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch)),
     copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId)),
+    addToBeTask: () => {
+      const cur = get().project;
+      const firstLarge = Object.values(cur.core.tasks).find((t) => t.level === 'large');
+      const parentId = firstLarge?.id;
+      const level: ProcessLevel = parentId ? 'medium' : 'large';
+      const assigneeId = Object.values(cur.core.assignees)[0]?.id;
+      const id = uuid();
+      let p = cAddTask(cur, { name: '新規工程', level, parentId, assigneeId, id }, uuid);
+      p = cUpdateTaskToBe(p, id, { lifecycle: 'added' });
+      commit(p);
+      return id;
+    },
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     moveNode: (nodeId, x, y) => {

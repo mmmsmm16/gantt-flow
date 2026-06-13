@@ -194,7 +194,11 @@ export function FullTable() {
   const byId = project.core.tasks;
   // プロジェクト由来の導出はコミット時のみ変わる。選択移動や列カーソル移動の再レンダリングで
   // 全体を再計算しないよう useMemo で固定する（特にブリッジ導出と工程番号は全件走査）。
-  const tasks = useMemo(() => Object.values(byId), [byId]);
+  // To-Be 新設工程(toBe.lifecycle='added')は As-Is の工程表には出さない。
+  const tasks = useMemo(
+    () => Object.values(byId).filter((t) => project.details[t.id]?.toBe?.lifecycle !== 'added'),
+    [byId, project.details],
+  );
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
   // 親(大)同士の接続から導出される前工程(フローのブリッジと同じ)。表でも見せて同期ずれを無くす。
   const bridgePreds = useMemo(() => bridgePredMap(project.core), [project.core]);

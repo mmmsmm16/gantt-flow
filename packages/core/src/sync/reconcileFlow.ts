@@ -136,7 +136,14 @@ export function reconcileFlow(
   const parentOrder = (t: { parentId?: Id }): number =>
     t.parentId ? core.tasks[t.parentId]?.order ?? 0 : 0;
   const targets = Object.values(core.tasks)
-    .filter((t) => t.level === view.level && (allScope || sameScope(t.parentId, view.scopeParentId)))
+    // To-Be 新設工程(toBe.lifecycle='added')は As-Is フローには出さない。
+    // To-Be 投影では呼び出し側(buildScenarioView)が details の 'added' マーカーを外して描く。
+    .filter(
+      (t) =>
+        t.level === view.level &&
+        (allScope || sameScope(t.parentId, view.scopeParentId)) &&
+        details[t.id]?.toBe?.lifecycle !== 'added',
+    )
     .sort((a, b) => parentOrder(a) - parentOrder(b) || a.order - b.order || a.id.localeCompare(b.id));
   const targetIds = new Set(targets.map((t) => t.id));
   // 横位置は targets の並び順（親=大ごとに固めた連番）で詰めて配置する。

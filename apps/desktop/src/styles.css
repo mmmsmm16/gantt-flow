@@ -5409,6 +5409,22 @@ input.colored-text {
 .cmp-bulk-table td {
   vertical-align: middle;
 }
+.cmp-bulk-added-cap {
+  margin-top: var(--sp-4);
+}
+.cmp-del-btn {
+  border: 1px solid var(--line-strong);
+  background: var(--btn-bg);
+  color: var(--danger);
+  border-radius: var(--radius-sm);
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cmp-del-btn:hover {
+  background: var(--danger-soft);
+}
 
 /* 画面3: シナリオ切替（メインのフロー表示） */
 .scenario-seg button.on {
