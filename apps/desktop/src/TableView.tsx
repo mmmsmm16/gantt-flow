@@ -86,9 +86,6 @@ export function TableView() {
   const moveTaskDown = useApp((s) => s.moveTaskDown);
   const dropTask = useApp((s) => s.dropTask);
   const addDependency = useApp((s) => s.addDependency);
-  const addIo = useApp((s) => s.addIo);
-  const updateIo = useApp((s) => s.updateIo);
-  const removeIo = useApp((s) => s.removeIo);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
@@ -546,59 +543,36 @@ export function TableView() {
                       data-cell="io"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="io-chips">
-                        {(
-                          [
-                            ['in', detail?.inputs ?? [], '入力'],
-                            ['out', detail?.outputs ?? [], '出力'],
-                          ] as const
-                        ).flatMap(([dir, items, label]) =>
-                          items.map((item) => (
-                            <span className={`io-chip ${dir}`} key={item.id}>
-                              <input
-                                className="io-chip-name"
-                                defaultValue={item.name}
-                                aria-label={`${label}名`}
-                                // 触れただけの blur で履歴と未保存フラグを汚さない（変化があるときだけコミット）。
-                                onBlur={(e) => {
-                                  if (e.target.value !== item.name) updateIo(t.id, item.id, { name: e.target.value });
-                                }}
-                              />
-                              <button
-                                className="io-chip-x"
-                                aria-label={`${label}を削除`}
-                                onClick={() => removeIo(t.id, item.id)}
-                              >
-                                ×
-                              </button>
-                            </span>
-                          )),
-                        )}
-                        <button
-                          className="io-add"
-                          title="入力を追加"
-                          onClick={() => addIo(t.id, 'inputs', '帳票')}
-                        >
-                          ＋入
-                        </button>
-                        <button
-                          className="io-add"
-                          title="出力を追加"
-                          onClick={() => addIo(t.id, 'outputs', '帳票')}
-                        >
-                          ＋出
-                        </button>
-                        {issueCount > 0 && (
-                          <span
-                            className="chip chip-issue io-issue"
-                            title="課題（クリックでインスペクタ）"
-                            onClick={() => {
-                              select(t.id);
-                              useUI.getState().setInspectorOpen(true);
-                            }}
-                          >
-                            課題{issueCount}
-                          </span>
+                      {/* 24/22: アウトラインは入/出/課題のドット＋件数の要約のみ。
+                          深掘り編集はクリックでインスペクタ、または全項目表で行う。 */}
+                      <div
+                        className="io-summary"
+                        title="クリックで詳細（入出力・課題を編集）"
+                        onClick={() => {
+                          select(t.id);
+                          useUI.getState().setInspectorOpen(true);
+                        }}
+                      >
+                        {ioCount === 0 && issueCount === 0 ? (
+                          <span className="io-empty">—</span>
+                        ) : (
+                          <>
+                            {(detail?.inputs?.length ?? 0) > 0 && (
+                              <span className="io-pip in">
+                                <span className="io-dot" />入{detail?.inputs?.length}
+                              </span>
+                            )}
+                            {(detail?.outputs?.length ?? 0) > 0 && (
+                              <span className="io-pip out">
+                                <span className="io-dot" />出{detail?.outputs?.length}
+                              </span>
+                            )}
+                            {issueCount > 0 && (
+                              <span className="io-pip issue">
+                                <span className="io-dot" />課題{issueCount}
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>

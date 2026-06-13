@@ -859,7 +859,46 @@ button.danger:hover {
   margin-top: 2px;
 }
 .c-io {
-  width: 224px;
+  width: 150px;
+}
+/* 24/22: アウトラインの I/O・課題は入/出/課題のドット＋件数の要約（クリックで詳細）。 */
+.io-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.io-summary:hover {
+  color: var(--ink);
+}
+.io-pip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.io-pip .io-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.io-pip.in .io-dot {
+  background: var(--in);
+}
+.io-pip.out .io-dot {
+  background: var(--out);
+}
+.io-pip.issue {
+  color: var(--red);
+}
+.io-pip.issue .io-dot {
+  background: var(--red);
+}
+.io-empty {
+  color: var(--faint);
 }
 .c-act {
   width: 78px;
