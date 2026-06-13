@@ -14,6 +14,7 @@ import {
   type IoKind,
   type IssueTarget,
   type TaskDetailPatch,
+  type TaskDetailToBe,
   type IoItem,
   type IssueItem,
   type ImportReport,
@@ -54,6 +55,8 @@ import {
   removeIssueItem as cRemoveIssueItem,
   updateIssueItem as cUpdateIssueItem,
   updateTaskDetail as cUpdateTaskDetail,
+  updateTaskToBe as cUpdateTaskToBe,
+  copyAsIsToToBe as cCopyAsIsToToBe,
   deleteTaskKeepChildren as cDeleteTaskKeepChildren,
   reorderTask as cReorderTask,
   reparentTask as cReparentTask,
@@ -228,6 +231,10 @@ export interface AppState {
   updateIssue: (taskId: Id, issueId: Id, patch: Partial<Pick<IssueItem, 'issue' | 'measure' | 'target'>>) => void;
   removeIssue: (taskId: Id, issueId: Id) => void;
   updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
+  /** To-Be 差分の部分更新（undefined のキーは削除＝現状に戻す）。 */
+  updateToBe: (taskId: Id, patch: Partial<TaskDetailToBe>) => void;
+  /** As-Is の現状値を To-Be の起点へ複製。 */
+  copyAsIsToToBe: (taskId: Id) => void;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
   moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
@@ -677,6 +684,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     updateIssue: (taskId, issueId, patch) => commit(cUpdateIssueItem(get().project, taskId, issueId, patch)),
     removeIssue: (taskId, issueId) => commit(cRemoveIssueItem(get().project, taskId, issueId)),
     updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
+    updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch)),
+    copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId)),
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     moveNode: (nodeId, x, y) => {
