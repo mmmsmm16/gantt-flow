@@ -2,34 +2,14 @@
 // 「リードタイム(経過日数・停滞含む)」の2軸で対等に見せ、待ち=LT−工数 と業務難易度の変化も示す。
 // 集計は core の computeCompare（純関数）。SummaryDialog と同じモーダル語彙を踏襲。
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Difficulty, ProcessLevel, Project } from '@gantt-flow/core';
-import {
-  computeCompare,
-  leafEffortMinutes,
-  leafLtDays,
-  projectScenarioCore,
-  reconcileProject,
-  ensureLevelView,
-  tidyFlowView,
-  uuid,
-} from '@gantt-flow/core';
-import { buildFlowSvg } from '../flowSvg';
+import type { Difficulty, ProcessLevel } from '@gantt-flow/core';
+import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
+import { buildScenarioFlowSvg } from '../scenarioFlow';
+import { parseEffortHoursToMinutes } from '../parseEffort';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
 import * as Icons from './icons';
-
-// 指定シナリオ・粒度のフロー図 SVG を生成（射影→ビュー保証→reconcile→tidy→buildFlowSvg）。読み取り専用。
-function buildScenarioFlowSvg(project: Project, phase: 'asis' | 'tobe', level: ProcessLevel): string {
-  const core = projectScenarioCore(project.core, project.details, phase);
-  let tmp: Project = { ...project, core, flow: { byLevel: [] } };
-  tmp = ensureLevelView(tmp, level);
-  tmp = reconcileProject(tmp, uuid);
-  const base = tmp.flow.byLevel.find((v) => v.level === level && v.scopeParentId === undefined);
-  if (!base) return '';
-  const view = tidyFlowView(core, project.details, base);
-  return buildFlowSvg(tmp, view);
-}
 
 type Phase = 'asis' | 'tobe' | 'delta';
 
@@ -105,13 +85,15 @@ function DiffStack({ counts, total, unit }: { counts: Record<Difficulty, number>
 export function ComparisonDialog() {
   const open = useUI((s) => s.overlay === 'comparison');
   const project = useApp((s) => s.project);
+  const updateToBe = useApp((s) => s.updateToBe);
+  const copyAsIsToToBe = useApp((s) => s.copyAsIsToToBe);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, open);
   const [phase, setPhase] = useState<Phase>('delta');
   const [diffMode, setDiffMode] = useState<'count' | 'effort'>('count');
-  const [view, setView] = useState<'summary' | 'flow'>('summary');
+  const [view, setView] = useState<'summary' | 'flow' | 'bulk'>('summary');
   const [flowLevel, setFlowLevel] = useState<ProcessLevel>('medium');
 
   const c = useMemo(() => computeCompare(project.core, project.details), [project]);
@@ -188,6 +170,7 @@ export function ComparisonDialog() {
           <div className="seg cmp-view-tabs" role="tablist">
             <button role="tab" aria-selected={view === 'summary'} className={view === 'summary' ? 'on' : ''} onClick={() => setView('summary')}>サマリ</button>
             <button role="tab" aria-selected={view === 'flow'} className={view === 'flow' ? 'on' : ''} onClick={() => setView('flow')}>フロー比較</button>
+            <button role="tab" aria-selected={view === 'bulk'} className={view === 'bulk' ? 'on' : ''} onClick={() => setView('bulk')}>一括入力</button>
           </div>
           <button ref={closeRef} className="x" aria-label="閉じる" title="閉じる" onClick={close}>×</button>
         </div>
@@ -235,8 +218,99 @@ export function ComparisonDialog() {
               <div className="cmp-flow-svg" dangerouslySetInnerHTML={{ __html: flowSvgs?.tobe ?? '' }} />
             </div>
             <p className="cmp-table-foot">
-              ※ 読み取り専用。構造（新規・廃止・担当移動・並行化）は To-Be 編集（インスペクタ）と一括入力で変更できます。配置は自動整列で都度導出します。
+              ※ 読み取り専用。構造（廃止・担当移動・並行化）は To-Be 編集（インスペクタ）と一括入力で変更できます。配置は自動整列で都度導出します。
             </p>
+          </div>
+        )}
+
+        {view === 'bulk' && (
+          <div className="cmp-bulk">
+            <div className="cmp-bulk-cap">
+              <span>To-Be 一括入力 <span className="cmp-flow-hint">改善後の工数・リードタイム・難易度・状態・根拠をまとめて入力</span></span>
+              <button className="tobe-copy" onClick={() => perRow.forEach((r) => copyAsIsToToBe(r.id))} title="全工程の As-Is 値を To-Be の起点へコピー">
+                現状を一括複製
+              </button>
+            </div>
+            <div className="cmp-bulk-scroll">
+              <table className="cmp-table cmp-bulk-table">
+                <thead>
+                  <tr>
+                    <th>工程</th>
+                    <th>担当</th>
+                    <th className="num">To-Be 工数(h)</th>
+                    <th className="num">To-Be LT(日)</th>
+                    <th>難易度</th>
+                    <th>状態</th>
+                    <th>根拠</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {perRow.map((r) => {
+                    const tb = project.details[r.id]?.toBe;
+                    const removed = tb?.lifecycle === 'removed';
+                    return (
+                      <tr key={r.id} className={removed ? 'is-kept' : ''}>
+                        <td>{r.name}</td>
+                        <td className="flow">{r.owner}</td>
+                        <td className="num">
+                          <input
+                            className="cmp-bulk-in num"
+                            key={`e-${r.id}-${tb?.effortMinutes}`}
+                            defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
+                            placeholder={`${round1(r.aEff)}`}
+                            onBlur={(e) =>
+                              updateToBe(r.id, {
+                                effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined,
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="num">
+                          <input
+                            className="cmp-bulk-in num"
+                            key={`l-${r.id}-${tb?.ltDays}`}
+                            defaultValue={tb?.ltDays ?? ''}
+                            placeholder={`${r.aLt}`}
+                            onBlur={(e) => updateToBe(r.id, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="cmp-bulk-in"
+                            value={tb?.difficulty ?? ''}
+                            onChange={(e) => updateToBe(r.id, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}
+                          >
+                            <option value="">同</option>
+                            <option value="H">H</option>
+                            <option value="M">M</option>
+                            <option value="L">L</option>
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            className="cmp-bulk-in"
+                            value={removed ? 'removed' : 'kept'}
+                            onChange={(e) => updateToBe(r.id, { lifecycle: e.target.value === 'removed' ? 'removed' : undefined })}
+                          >
+                            <option value="kept">維持</option>
+                            <option value="removed">廃止</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            className="cmp-bulk-in"
+                            key={`r-${r.id}-${tb?.rationale ?? ''}`}
+                            defaultValue={tb?.rationale ?? ''}
+                            placeholder="なぜ達成できるか"
+                            onBlur={(e) => updateToBe(r.id, { rationale: e.target.value.trim() || undefined })}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

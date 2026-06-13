@@ -165,6 +165,10 @@ interface UIState {
   tobeEnabled: boolean;
   setTobeEnabled: (enabled: boolean) => void;
 
+  /** メインのフロー表示シナリオ（As-Is=編集可 / To-Be=改善後を読み取り専用で投影）。ビュー状態。 */
+  scenario: 'asis' | 'tobe';
+  setScenario: (scenario: 'asis' | 'tobe') => void;
+
   /** 全項目表の列表示（true=表示。未指定キーは表示）。localStorage 永続。 */
   ftColumns: Record<string, boolean>;
   toggleFtColumn: (key: string) => void;
@@ -365,9 +369,16 @@ export const useUI = create<UIState>((set, get) => ({
     } catch {
       /* 永続化失敗は無視 */
     }
-    // 無効化したら開いている比較オーバーレイを閉じる。
-    set((s) => ({ tobeEnabled: enabled, overlay: !enabled && s.overlay === 'comparison' ? null : s.overlay }));
+    // 無効化したら開いている比較オーバーレイを閉じ、シナリオを As-Is に戻す。
+    set((s) => ({
+      tobeEnabled: enabled,
+      overlay: !enabled && s.overlay === 'comparison' ? null : s.overlay,
+      scenario: enabled ? s.scenario : 'asis',
+    }));
   },
+
+  scenario: 'asis',
+  setScenario: (scenario) => set({ scenario }),
 
   minimap: (() => {
     try {
