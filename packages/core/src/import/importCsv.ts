@@ -9,11 +9,19 @@ import type {
   IoItem,
   IssueItem,
   Dependency,
+  Automation,
+  Difficulty,
   Id,
 } from '../model/types';
 import type { IdGen } from '../ids';
 import { CURRENT_SCHEMA_VERSION } from '../persistence/migrate';
-import { CSV_FORMULA_TRIGGER } from '../export/exportRows';
+import { CSV_FORMULA_TRIGGER, AUTOMATION_LABEL } from '../export/exportRows';
+
+// 自動化区分（取込）。出力の日本語ラベル（exportRows の AUTOMATION_LABEL）と内部値の双方を受ける。
+const AUTOMATION_BY_LABEL: Record<string, Automation> = { manual: 'manual', system: 'system', partial: 'partial' };
+for (const [k, v] of Object.entries(AUTOMATION_LABEL)) AUTOMATION_BY_LABEL[v] = k as Automation;
+// 難易度（取込）。H/M/L と 高/中/低 の双方を受ける。
+const DIFFICULTY_BY_LABEL: Record<string, Difficulty> = { H: 'H', M: 'M', L: 'L', 高: 'H', 中: 'M', 低: 'L' };
 
 // エクスポート側（exportRows の neutralizeFormula）が数式インジェクション対策で先頭に付けた
 // ' を剥がし、元の値へ戻す（ラウンドトリップ維持）。'=… のように ' の直後が数式トリガ文字の
@@ -124,6 +132,12 @@ export function rowsToProject(
     system: col('使用システム'),
     effort: col('工数(分)'),
     note: col('備考'),
+    volume: col('ボリューム'),
+    exception: col('例外対応'),
+    automation: col('自動化区分'),
+    dataLink: col('データ連携先'),
+    regulation: col('関連規程'),
+    difficulty: col('難易度'),
   };
   if (idx.name < 0) {
     report.warnings.push('「作業名」列が見つかりません');
@@ -224,6 +238,27 @@ export function rowsToProject(
     }
     const note = get(r, idx.note);
     if (note) detail.note = note;
+    // 分析項目（提言#3）。空欄は付けない（optional・後方互換）。
+    const volume = get(r, idx.volume);
+    if (volume) detail.volume = volume;
+    const exception = get(r, idx.exception);
+    if (exception) detail.exception = exception;
+    const automationRaw = get(r, idx.automation);
+    if (automationRaw) {
+      const a = AUTOMATION_BY_LABEL[automationRaw];
+      if (a) detail.automation = a;
+      else report.warnings.push(`${rowNo} 行目: 自動化区分「${automationRaw}」は不明（手作業/システム自動/一部自動）`);
+    }
+    const dataLink = get(r, idx.dataLink);
+    if (dataLink) detail.dataLink = dataLink;
+    const regulation = get(r, idx.regulation);
+    if (regulation) detail.regulation = regulation;
+    const difficultyRaw = get(r, idx.difficulty);
+    if (difficultyRaw) {
+      const diff = DIFFICULTY_BY_LABEL[difficultyRaw];
+      if (diff) detail.difficulty = diff;
+      else report.warnings.push(`${rowNo} 行目: 難易度「${difficultyRaw}」は不明（H/M/L）`);
+    }
     project.details[id] = detail;
 
     // 前工程（後で解決）

@@ -188,7 +188,9 @@ export interface AppState {
   lastAssigneeSync: { ids: Id[]; seq: number };
 
   addTask: (name: string) => void;
-  addRootTask: (level: ProcessLevel) => void;
+  /** ルート工程を追加し、新しい工程の ID を返す（追加直後に選択＋名前を即編集するため）。
+      名前は空（''）＝addSiblingOf/クイック追加と同じ「無題で作って即入力」の規約。 */
+  addRootTask: (level: ProcessLevel) => Id | undefined;
   /** 子工程を追加し、新しい工程の ID を返す（フォーカス/選択用）。 */
   addChildTask: (parentId: Id) => Id | undefined;
   removeTask: (taskId: Id) => void;
@@ -415,8 +417,12 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         ),
       ),
 
-    addRootTask: (level) =>
-      commit(cAddTask(get().project, { name: '新規工程', level, parentId: undefined }, uuid)),
+    addRootTask: (level) => {
+      // 空名で作り、UI 側が追加直後に選択＋名前を即編集する（キーボード n=addSiblingOf と挙動統一）。
+      const id = uuid();
+      commit(cAddTask(get().project, { name: '', level, parentId: undefined, id }, uuid));
+      return id;
+    },
 
     addChildTask: (parentId) => {
       const parent = get().project.core.tasks[parentId];

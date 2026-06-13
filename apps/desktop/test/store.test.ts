@@ -559,6 +559,16 @@ describe('app store（command → reconcile → history）', () => {
     expect(dd.textColor).toBe('red');
   });
 
+  it('addRootTask は空名のルート工程を作り ID を返す（追加直後に名前を即編集するため）', () => {
+    const s = createAppStore();
+    const id = s.getState().addRootTask('large');
+    expect(id).toBeTruthy();
+    const t = s.getState().project.core.tasks[id!]!;
+    expect(t.name).toBe(''); // 「新規工程」ではなく空名（即入力・キーボード n と統一）
+    expect(t.level).toBe('large');
+    expect(t.parentId).toBeUndefined();
+  });
+
   it('addChildTask / addSiblingOf は作成した工程の ID を返す（兄弟はクリック行の直下へ）', () => {
     const s = createAppStore();
     s.getState().addRootTask('large');
