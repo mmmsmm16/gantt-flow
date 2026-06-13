@@ -1096,13 +1096,19 @@ button.danger:hover {
   background: color-mix(in srgb, var(--lvl-small) 9%, transparent);
   border-color: color-mix(in srgb, var(--lvl-small) 40%, var(--band-stroke));
 }
+/* 親範囲帯のラベル: 帯の上辺をまたぐ位置に、キャンバス地色のピルで載せる（新案準拠）。
+   破線輪郭に重なっても読めるよう背景＋角丸の小チップにする。 */
 .band-label {
   position: absolute;
-  top: 4px;
-  left: 10px;
+  top: 0;
+  left: 12px;
+  transform: translateY(-50%);
   font-size: var(--fs-caption);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   color: var(--muted);
+  background: var(--canvas-bg);
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
 }
 /* 担当ラベルの固定レール: .flow-scale の外。横スクロールでも左端に貼り付く（JSで translateX）。 */
 .lane-rail {
@@ -1680,6 +1686,55 @@ button.danger:hover {
   background: var(--accent-soft);
   border-color: transparent;
 }
+/* CSS のみのツールチップ基盤（data-tip 属性で説明を出す。アイコン操作の補助。新案準拠）。
+   既定は上向き。広い説明は .tip-wrap、下向きは .tip-down。 */
+[data-tip] {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  transform: translateX(-50%) translateY(4px);
+  background: var(--ink);
+  color: var(--panel);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-regular);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  line-height: 1.4;
+  letter-spacing: 0;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+  z-index: 50;
+  box-shadow: var(--shadow);
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+.tip-wrap[data-tip]::after {
+  white-space: normal;
+  width: 220px;
+  text-align: left;
+}
+.tip-down[data-tip]::after {
+  bottom: auto;
+  top: calc(100% + 7px);
+  transform: translateX(-50%) translateY(-4px);
+}
+.tip-down[data-tip]:hover::after,
+.tip-down[data-tip]:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
+}
+
 .tool-group {
   display: inline-flex;
   align-items: center;
@@ -2271,10 +2326,10 @@ kbd {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 26px;
-  padding: 0 16px;
-  font-size: var(--fs-label);
+  gap: var(--sp-3);
+  height: 28px;
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-caption);
   color: var(--muted);
   background: var(--panel-2);
   border-top: 1px solid var(--line);
