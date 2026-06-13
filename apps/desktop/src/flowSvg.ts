@@ -17,7 +17,7 @@ import {
   type Rect,
 } from '@gantt-flow/core';
 import { FLOW_LIGHT, TASK_COLORS } from './theme';
-import { ioInfoChipPath } from './flowShapes';
+import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 
 // 画面の --font-ui と揃える（WYSIWYG・DESIGN §8）。欧文 Inter / 和文 Meiryo UI → OS。
 // styles.css と同期。出力 SVG は font-family を埋め込まないため、Inter 未導入の第三者
@@ -240,12 +240,11 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
         `<path d="${ioInfoChipPath(r, io)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
       );
     } else {
-      // 帳票=下辺が波打つ書類形
-      const w = r.w;
-      const wave = 6;
+      // 帳票=書類オブジェクト（角丸矩形＋右上ドッグイア。ドッグイアは枠色で塗る）
       parts.push(
-        `<path d="M${r.x},${r.y} h${w} v${r.h - wave} q${-w / 4},${wave} ${-w / 2},0 q${-w / 4},${-wave} ${-w / 2},0 z" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+        `<path d="${ioDocBodyPath(r)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
       );
+      parts.push(`<polygon points="${ioDocFoldPoints(r)}" fill="${pal.stroke}"/>`);
     }
     items.forEach((it, i) => {
       const ty = r.y + IO_ICON.padTop + i * IO_ICON.line + IO_ICON.line - 3;

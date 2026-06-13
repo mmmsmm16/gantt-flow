@@ -10,7 +10,7 @@ import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
 import { computeSnap, type SnapGuide, type SnapRect } from './snap';
 import * as Icons from './ui/icons';
-import { ioInfoChipPath } from './flowShapes';
+import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 import {
   SIZE,
   deriveBands,
@@ -868,16 +868,17 @@ export function FlowCanvas() {
   ) => {
     if (!items.length) return null;
     const r = ioIconRect(taskPos, io, items.length);
-    // 形＝種類（DESIGN §8・色非依存で白黒可読）: 帳票(doc)=下辺が波打つ書類形 /
-    // 情報(info)=3 角丸＋1 角を立てた角丸ボックス。種類は同側 I/O の先頭で代表（既存仕様）。
-    const wave = 6;
-    const path = `M${r.x},${r.y} h${r.w} v${r.h - wave} q${-r.w / 4},${wave} ${-r.w / 2},0 q${-r.w / 4},${-wave} ${-r.w / 2},0 z`;
+    // 形＝種類（DESIGN §8・色非依存で白黒可読）: 帳票(doc)=角丸矩形＋右上ドッグイアの書類形 /
+    // 情報(info)=3 角丸＋1 角を立てたタグ形。種類は同側 I/O の先頭で代表（既存仕様）。
     return (
       <g className={`io-icon io-${io}${items.some((it) => flashIoIds.has(it.id)) ? ' node-flash' : ''}`}>
         {items[0]?.kind === 'info' ? (
           <path className="io-main" d={ioInfoChipPath(r, io)} />
         ) : (
-          <path className="io-main" d={path} />
+          <>
+            <path className="io-main" d={ioDocBodyPath(r)} />
+            <polygon className="io-fold" points={ioDocFoldPoints(r)} />
+          </>
         )}
         {items.map((it, i) => (
           <text

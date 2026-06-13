@@ -38,3 +38,30 @@ export function ioInfoChipPath(r: ChipRect, io: 'input' | 'output'): string {
     .filter(Boolean)
     .join(' ');
 }
+
+// 帳票(doc)= 書類オブジェクト（DESIGN §8）。角丸（小）の矩形本体＋右上のドッグイア（折り返し三角）。
+// 本体とドッグイアの 2 要素で描く（本体=塗り+枠、ドッグイア=塗りのみ＝枠色）。色非依存・白黒可読。
+export function ioDocBodyPath(r: ChipRect): string {
+  const rad = 3;
+  const right = r.x + r.w;
+  const bottom = r.y + r.h;
+  return [
+    `M${r.x + rad},${r.y}`,
+    `L${right - rad},${r.y}`,
+    `Q${right},${r.y} ${right},${r.y + rad}`,
+    `L${right},${bottom - rad}`,
+    `Q${right},${bottom} ${right - rad},${bottom}`,
+    `L${r.x + rad},${bottom}`,
+    `Q${r.x},${bottom} ${r.x},${bottom - rad}`,
+    `L${r.x},${r.y + rad}`,
+    `Q${r.x},${r.y} ${r.x + rad},${r.y}`,
+    'Z',
+  ].join(' ');
+}
+
+// ドッグイア（右上の折り返し三角）の頂点。塗りつぶしてページの折れ角を表す。
+export function ioDocFoldPoints(r: ChipRect): string {
+  const fold = Math.min(8, Math.round(r.h * 0.35));
+  const right = r.x + r.w;
+  return `${right - fold},${r.y} ${right},${r.y} ${right},${r.y + fold}`;
+}

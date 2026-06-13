@@ -1030,6 +1030,16 @@ button.danger:hover {
   fill: var(--out-fill);
   stroke: var(--out);
 }
+/* 帳票のドッグイア（右上の折り返し三角）。塗り＝枠色（入=ティール / 出=橙）。 */
+.io-icon .io-fold {
+  stroke: none;
+}
+.io-icon.io-input .io-fold {
+  fill: var(--in);
+}
+.io-icon.io-output .io-fold {
+  fill: var(--out);
+}
 .io-icon .io-name {
   font-size: var(--fs-caption);
   font-weight: 600;
