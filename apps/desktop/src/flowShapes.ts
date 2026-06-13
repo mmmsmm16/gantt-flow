@@ -13,7 +13,9 @@ export interface ChipRect {
 }
 
 export function ioInfoChipPath(r: ChipRect, io: 'input' | 'output'): string {
-  const rad = Math.min(7, Math.floor(Math.min(r.w, r.h) / 2));
+  // claude design のチップと同等の丸み。半径はチップ高に比例（約 4 割）させ、
+  // 背の高いチップでもしっかり丸く見せる。幅の半分でクランプして潰れを防ぐ。
+  const rad = Math.min(Math.round(r.h * 0.42), Math.floor(r.w / 2));
   // 立てる（角丸にしない）コーナー。入力=左下 / 出力=左上。
   const cTL = io === 'output' ? 0 : rad;
   const cTR = rad;
