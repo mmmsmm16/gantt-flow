@@ -1,5 +1,5 @@
 // 出力（`docs/06-roadmap.md` Phase4）。Project → 表の行列。Excel/CSV はこの行列を各形式に流す。
-import type { Project, ProcessTask, ProcessLevel, Id } from '../model/types';
+import type { Project, ProcessTask, ProcessLevel, Automation, Id } from '../model/types';
 import { computeCodes } from '../codes';
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = {
@@ -7,6 +7,14 @@ const LEVEL_LABEL: Record<ProcessLevel, string> = {
   medium: '中',
   small: '小',
   detail: '詳細',
+};
+
+// 自動化区分の表示ラベル。納品物（Excel/CSV/印刷）は人間が読むため日本語で出す。
+// 取込側（importCsv）はこのラベルと内部値の双方を受ける（ラウンドトリップ維持）。
+export const AUTOMATION_LABEL: Record<Automation, string> = {
+  manual: '手作業',
+  system: 'システム自動',
+  partial: '一部自動',
 };
 
 export const EXPORT_HEADER = [
@@ -22,6 +30,14 @@ export const EXPORT_HEADER = [
   '使用システム',
   '工数(分)',
   '備考',
+  // 以下は改善提案の根拠になる分析項目。画面で入力できるのに従来は出力から落ちていた（提言#3）。
+  // 既存列の位置を保つため末尾に追加（CSV ラウンドトリップ・位置依存の検証を壊さない）。
+  'ボリューム',
+  '例外対応',
+  '自動化区分',
+  'データ連携先',
+  '関連規程',
+  '難易度',
 ];
 
 export interface ProjectToRowsOptions {
@@ -75,6 +91,12 @@ export function projectToRows(project: Project, opts: ProjectToRowsOptions = {})
         d?.system ?? '',
         d?.effortMinutes != null ? String(d.effortMinutes) : '',
         d?.note ?? '',
+        d?.volume ?? '',
+        d?.exception ?? '',
+        d?.automation ? AUTOMATION_LABEL[d.automation] : '',
+        d?.dataLink ?? '',
+        d?.regulation ?? '',
+        d?.difficulty ?? '',
       ]);
       walk(t.id);
     });

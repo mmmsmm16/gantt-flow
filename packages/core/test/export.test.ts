@@ -62,6 +62,52 @@ describe('export: Project → 行列 / CSV', () => {
     expect(d.issues![0]).toMatchObject({ issue: '基準が属人的', measure: 'チェックリストを標準化' });
   });
 
+  it('エクスポート→再取込で分析項目（ボリューム/例外/自動化区分/データ連携/関連規程/難易度）が保たれる', () => {
+    const csv = `工程No,作業名,担当,粒度,前工程,インプット,アウトプット,課題,業務内容,使用システム,工数(分),備考,ボリューム,例外対応,自動化区分,データ連携先,関連規程,難易度
+1,受注業務,営業部,大,,,,,,,,,,,,,,
+1-1,与信確認,経理,中,,,,,与信枠を確認,販売管理,30,,月800件,与信超過時は保留,一部自動,販売管理→与信DB,与信管理規程,H`;
+    const { project } = importCsv(csv, counter('a'));
+    const id0 = Object.values(project.core.tasks).find((t) => t.name === '与信確認')!.id;
+    // 取込時点で日本語ラベルは内部値に正規化される（「一部自動」→ partial）
+    expect(project.details[id0]!).toMatchObject({
+      volume: '月800件',
+      exception: '与信超過時は保留',
+      automation: 'partial',
+      dataLink: '販売管理→与信DB',
+      regulation: '与信管理規程',
+      difficulty: 'H',
+    });
+    // エクスポートでは人間が読む日本語ラベルで出る
+    const row = projectToRows(project).find((r) => r[1] === '与信確認')!;
+    expect(row).toContain('一部自動');
+    expect(row).toContain('月800件');
+    expect(row).not.toContain('partial');
+    // 再取込でラウンドトリップ（警告なし・値が保たれる）
+    const { project: p2, report } = importCsv(projectToCsv(project), counter('b'));
+    expect(report.warnings).toHaveLength(0);
+    const id = Object.values(p2.core.tasks).find((t) => t.name === '与信確認')!.id;
+    expect(p2.details[id]!).toMatchObject({
+      volume: '月800件',
+      exception: '与信超過時は保留',
+      automation: 'partial',
+      dataLink: '販売管理→与信DB',
+      regulation: '与信管理規程',
+      difficulty: 'H',
+    });
+  });
+
+  it('不明な自動化区分・難易度は警告し、値は付けない', () => {
+    const csv = `工程No,作業名,担当,粒度,前工程,インプット,アウトプット,課題,業務内容,使用システム,工数(分),備考,ボリューム,例外対応,自動化区分,データ連携先,関連規程,難易度
+1,受注業務,営業部,大,,,,,,,,,,,,,,
+1-1,検品,倉庫,中,,,,,,,,,,,なんとか自動,,,X`;
+    const { project, report } = importCsv(csv, counter('w'));
+    const id = Object.values(project.core.tasks).find((t) => t.name === '検品')!.id;
+    expect(project.details[id]!.automation).toBeUndefined();
+    expect(project.details[id]!.difficulty).toBeUndefined();
+    expect(report.warnings.some((w) => w.includes('自動化区分'))).toBe(true);
+    expect(report.warnings.some((w) => w.includes('難易度'))).toBe(true);
+  });
+
   it('CSV 数式インジェクション: = + - @ で始まるセルを無害化し、再取込で元へ戻す', () => {
     const g = counter('x');
     let p = emptyProject();
