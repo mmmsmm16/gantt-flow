@@ -31,12 +31,24 @@ export function leafDifficulty(d: TaskDetail | undefined, phase: Phase): Difficu
   return d.difficulty;
 }
 
-/** 子を持たない工程（末端）の ID。工数・難易度は末端のみが値を持つ。 */
-function leafIds(core: Core): Id[] {
+/** その工程が指定シナリオに存在するか。To-Be で廃止(removed)は As-Is のみ、新設(added)は To-Be のみ。 */
+export function taskInPhase(d: TaskDetail | undefined, phase: Phase): boolean {
+  const lc = d?.toBe?.lifecycle;
+  if (phase === 'asis') return lc !== 'added';
+  return lc !== 'removed';
+}
+
+/** その依存が指定シナリオに属するか。dep.phase 未指定=両方。 */
+export function depInPhase(phase: Phase, depPhase?: 'asis' | 'tobe'): boolean {
+  return depPhase === undefined || depPhase === phase;
+}
+
+/** 子を持たない工程（末端）の ID。工数・難易度は末端のみが値を持つ。phase で lifecycle を反映。 */
+function leafIds(core: Core, details: Record<Id, TaskDetail>, phase: Phase): Id[] {
   const hasChild = new Set<Id>();
   for (const t of Object.values(core.tasks)) if (t.parentId) hasChild.add(t.parentId);
   return Object.values(core.tasks)
-    .filter((t) => !hasChild.has(t.id))
+    .filter((t) => !hasChild.has(t.id) && taskInPhase(details[t.id], phase))
     .map((t) => t.id);
 }
 
@@ -46,7 +58,7 @@ export function totalEffortMinutes(
   details: Record<Id, TaskDetail>,
   phase: Phase,
 ): number {
-  return leafIds(core).reduce((s, id) => s + leafEffortMinutes(details[id], phase), 0);
+  return leafIds(core, details, phase).reduce((s, id) => s + leafEffortMinutes(details[id], phase), 0);
 }
 
 /**
@@ -59,10 +71,13 @@ export function criticalPathDays(
   details: Record<Id, TaskDetail>,
   phase: Phase,
 ): number {
-  const ids = Object.keys(core.tasks);
+  const ids = Object.keys(core.tasks).filter((id) => taskInPhase(details[id], phase));
+  const inPhase = new Set(ids);
   const weight = new Map<Id, number>();
   for (const id of ids) weight.set(id, leafLtDays(details[id], phase));
-  const deps = Object.values(core.dependencies);
+  const deps = Object.values(core.dependencies).filter(
+    (d) => depInPhase(phase, d.phase) && inPhase.has(d.from) && inPhase.has(d.to),
+  );
   // finish[id] = 自分の重み + 先行の最大 finish。先行なしは自分の重みだけ。
   const finish = new Map<Id, number>(ids.map((id) => [id, weight.get(id) ?? 0]));
   for (let iter = 0; iter < ids.length; iter++) {
@@ -104,7 +119,7 @@ export function diffByDifficulty(
   mode: 'count' | 'effort',
 ): DiffDist {
   const out: DiffDist = { H: 0, M: 0, L: 0 };
-  for (const id of leafIds(core)) {
+  for (const id of leafIds(core, details, phase)) {
     const diff = leafDifficulty(details[id], phase);
     if (!diff) continue;
     out[diff] += mode === 'count' ? 1 : leafEffortMinutes(details[id], phase);
@@ -128,7 +143,7 @@ export interface CompareTotals {
     count: { asis: DiffDist; tobe: DiffDist };
     effort: { asis: DiffDist; tobe: DiffDist };
   };
-  leafCount: number;
+  leafCount: { asis: number; tobe: number };
 }
 
 /** サマリ（画面1）が必要とする全集計を 1 度にまとめて返す。 */
@@ -146,6 +161,31 @@ export function computeCompare(core: Core, details: Record<Id, TaskDetail>): Com
       count: { asis: diffByDifficulty(core, details, 'asis', 'count'), tobe: diffByDifficulty(core, details, 'tobe', 'count') },
       effort: { asis: diffByDifficulty(core, details, 'asis', 'effort'), tobe: diffByDifficulty(core, details, 'tobe', 'effort') },
     },
-    leafCount: leafIds(core).length,
+    leafCount: { asis: leafIds(core, details, 'asis').length, tobe: leafIds(core, details, 'tobe').length },
   };
+}
+
+/**
+ * 指定シナリオの Core を射影する（画面4のフロー比較・As-Is/To-Be それぞれの図を描くため）。
+ * - lifecycle: As-Is は added を除外 / To-Be は removed を除外。
+ * - To-Be は toBe.assigneeId で担当（レーン）を上書き。
+ * - 依存は phase で絞り、両端が存在する依存のみ残す。
+ * 返した core を reconcileProject に渡せば、そのシナリオのフロー（レーン・矢印）が導出できる。
+ */
+export function projectScenarioCore(
+  core: Core,
+  details: Record<Id, TaskDetail>,
+  phase: Phase,
+): Core {
+  const tasks: Core['tasks'] = {};
+  for (const t of Object.values(core.tasks)) {
+    if (!taskInPhase(details[t.id], phase)) continue;
+    const toBeAssignee = phase === 'tobe' ? details[t.id]?.toBe?.assigneeId : undefined;
+    tasks[t.id] = toBeAssignee ? { ...t, assigneeId: toBeAssignee } : { ...t };
+  }
+  const dependencies: Core['dependencies'] = {};
+  for (const d of Object.values(core.dependencies)) {
+    if (depInPhase(phase, d.phase) && tasks[d.from] && tasks[d.to]) dependencies[d.id] = { ...d };
+  }
+  return { tasks, dependencies, assignees: { ...core.assignees } };
 }

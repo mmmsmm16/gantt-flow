@@ -19,6 +19,7 @@ const Dependency = z.object({
   to: z.string(),
   type: z.literal('FS'),
   scopeParentId: z.string().optional(),
+  phase: z.enum(['asis', 'tobe']).optional(),
 });
 
 const Assignee = z.object({
@@ -79,6 +80,8 @@ const TaskDetail = z.object({
       difficulty: z.enum(['H', 'M', 'L']).optional(),
       automation: z.enum(['manual', 'system', 'partial']).optional(),
       rationale: z.string().optional(),
+      lifecycle: z.enum(['added', 'removed']).optional(),
+      assigneeId: z.string().optional(),
     })
     .optional(),
 });

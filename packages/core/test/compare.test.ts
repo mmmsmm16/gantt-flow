@@ -8,6 +8,7 @@ import {
   leafEffortMinutes,
   leafDifficulty,
   computeCompare,
+  projectScenarioCore,
   HOURS_PER_DAY,
 } from '../src/compare';
 import { addTask, addDependency, updateTaskToBe, copyAsIsToToBe } from '../src/commands';
@@ -82,8 +83,55 @@ describe('compare: As-Is / To-Be の2軸集計', () => {
     const c = computeCompare(p.core, p.details);
     expect(c.effortMinutes).toEqual({ asis: 360, tobe: 330, delta: -30 });
     expect(c.ltDays).toEqual({ asis: 10, tobe: 6, delta: -4 });
-    expect(c.leafCount).toBe(4);
+    expect(c.leafCount).toEqual({ asis: 4, tobe: 4 });
     expect(c.difficulty.count.tobe).toEqual({ H: 1, M: 2, L: 1 });
+  });
+});
+
+describe('compare: 構造差分（lifecycle・依存 phase）', () => {
+  it('lifecycle added は As-Is に出ず、removed は To-Be に出ない（工数・難易度に反映）', () => {
+    const g = counter('lc');
+    let p = emptyProject();
+    for (const name of ['X', 'NEW', 'OLD']) p = addTask(p, { name, level: 'medium' }, g);
+    const id = (n: string) => taskIdByName(p, n);
+    p.details[id('X')] = { taskId: id('X'), effortMinutes: 60, difficulty: 'M' };
+    p.details[id('NEW')] = { taskId: id('NEW'), effortMinutes: 30, difficulty: 'L', toBe: { lifecycle: 'added' } };
+    p.details[id('OLD')] = { taskId: id('OLD'), effortMinutes: 120, difficulty: 'H', toBe: { lifecycle: 'removed' } };
+    // As-Is: X+OLD = 180、To-Be: X+NEW = 90
+    expect(totalEffortMinutes(p.core, p.details, 'asis')).toBe(180);
+    expect(totalEffortMinutes(p.core, p.details, 'tobe')).toBe(90);
+    expect(diffByDifficulty(p.core, p.details, 'asis', 'count')).toEqual({ H: 1, M: 1, L: 0 }); // OLD,X
+    expect(diffByDifficulty(p.core, p.details, 'tobe', 'count')).toEqual({ H: 0, M: 1, L: 1 }); // X,NEW
+  });
+
+  it('依存の phase で並行化を表現（To-Be で直列依存を外すと LT が短縮）', () => {
+    const g = counter('ph');
+    let p = emptyProject();
+    for (const name of ['A', 'B']) p = addTask(p, { name, level: 'medium' }, g);
+    const id = (n: string) => taskIdByName(p, n);
+    p.details[id('A')] = { taskId: id('A'), ltDays: 3 };
+    p.details[id('B')] = { taskId: id('B'), ltDays: 4 };
+    // As-Is 専用の直列依存 A→B（To-Be では並行＝依存なし）
+    p = addDependency(p, id('A'), id('B'), g);
+    const depId = Object.keys(p.core.dependencies)[0]!;
+    p.core.dependencies[depId]!.phase = 'asis';
+    expect(criticalPathDays(p.core, p.details, 'asis')).toBe(7); // A→B 直列
+    expect(criticalPathDays(p.core, p.details, 'tobe')).toBe(4); // 並行＝max(3,4)
+  });
+
+  it('projectScenarioCore は lifecycle/担当移動/依存phase を反映した core を返す', () => {
+    const g = counter('pc');
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'NEW', level: 'medium' }, g);
+    const id = (n: string) => taskIdByName(p, n);
+    p.details[id('NEW')] = { taskId: id('NEW'), toBe: { lifecycle: 'added' } };
+    p.details[id('A')] = { taskId: id('A'), toBe: { assigneeId: 'lane2' } };
+    const asis = projectScenarioCore(p.core, p.details, 'asis');
+    const tobe = projectScenarioCore(p.core, p.details, 'tobe');
+    expect(Object.keys(asis.tasks)).toEqual([id('A')]); // NEW は As-Is に無い
+    expect(Object.keys(tobe.tasks).sort()).toEqual([id('A'), id('NEW')].sort());
+    expect(tobe.tasks[id('A')]!.assigneeId).toBe('lane2'); // To-Be で担当移動
   });
 });
 

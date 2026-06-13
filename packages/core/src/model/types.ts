@@ -23,6 +23,8 @@ export interface Dependency {
   to: Id; // 後続
   type: DependencyType;
   scopeParentId?: Id; // 流れが属するスコープ（= from/to の共通の親）
+  /** どのシナリオに属する依存か。未指定=両方。As-Is 専用の依存を To-Be で外す（並行化）等に使う。 */
+  phase?: 'asis' | 'tobe';
 }
 
 export interface Assignee {
@@ -72,6 +74,10 @@ export interface TaskDetailToBe {
   difficulty?: Difficulty; // To-Be 業務難易度（H=ベテラン依存→L=誰でも へ下げるのが改善の主役）
   automation?: Automation; // To-Be 自動化区分
   rationale?: string; // 根拠（なぜ達成できるか＝暗黙知の形式知化の内容）
+  /** 工程のライフサイクル。未指定=維持(kept)。'added'=To-Be で新設 / 'removed'=To-Be で廃止。 */
+  lifecycle?: 'added' | 'removed';
+  /** To-Be での担当（レーン移動）。未指定=As-Is と同じ担当。 */
+  assigneeId?: Id;
 }
 
 export interface TaskDetail {
