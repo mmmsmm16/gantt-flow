@@ -212,6 +212,10 @@ export interface AppState {
   setDependencyPhase: (depId: Id, phase: 'asis' | 'tobe' | undefined) => void;
   /** To-Be 上の前工程を 1 本に設定（既存の To-Be 専用 incoming を置換）。新設工程の接続に使う。 */
   setToBePredecessor: (taskId: Id, fromId: Id | undefined) => void;
+  /** To-Be の前工程を 1 本追加（As-Is 専用依存は両方へ昇格 / 無ければ To-Be 専用で新設）。 */
+  addToBePredecessor: (taskId: Id, fromId: Id) => void;
+  /** To-Be の前工程を 1 本外す（両方→As-Is専用 / To-Be専用→削除）。As-Is は保つ。 */
+  removeToBePredecessor: (taskId: Id, fromId: Id) => void;
   addSiblingOf: (taskId: Id) => Id | undefined;
   /** クイック追加: 作成＋担当＋工数＋前工程の依存を 1 undo 単位で合成し、作成工程を選択する。
       選択中の工程と同じ粒度ならその直下（同じ親）へ挿入（addSiblingOf と同じ位置規則）。
@@ -524,6 +528,29 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         p = cAddDependency(p, fromId, taskId, () => id);
         p = cSetDependencyPhase(p, id, 'tobe');
       }
+      commit(p);
+    },
+    addToBePredecessor: (taskId, fromId) => {
+      if (fromId === taskId) return;
+      let p = get().project;
+      const existing = Object.values(p.core.dependencies).find((d) => d.from === fromId && d.to === taskId);
+      if (existing) {
+        if (existing.phase === 'asis') p = cSetDependencyPhase(p, existing.id, undefined); // As-Is専用→両方(To-Beにも出す)
+        else return; // 既に To-Be に存在（両方/tobe）
+      } else {
+        const id = uuid();
+        p = cAddDependency(p, fromId, taskId, () => id);
+        p = cSetDependencyPhase(p, id, 'tobe');
+      }
+      commit(p);
+    },
+    removeToBePredecessor: (taskId, fromId) => {
+      let p = get().project;
+      const dep = Object.values(p.core.dependencies).find((d) => d.from === fromId && d.to === taskId);
+      if (!dep) return;
+      if (dep.phase === 'tobe') p = cRemoveDependency(p, dep.id); // To-Be専用→削除
+      else if (dep.phase === undefined) p = cSetDependencyPhase(p, dep.id, 'asis'); // 両方→As-Is専用(To-Beから外す)
+      else return; // As-Is専用→To-Beには無い
       commit(p);
     },
 
