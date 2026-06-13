@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Difficulty, ProcessLevel } from '@gantt-flow/core';
 import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
-import { buildScenarioFlowSvg } from '../scenarioFlow';
+import { FlowCompareView } from './FlowCompareView';
 import { parseEffortHoursToMinutes } from '../parseEffort';
 import { useApp } from '../store';
 import { useUI } from './useUI';
@@ -97,14 +97,6 @@ export function ComparisonDialog() {
   const [flowLevel, setFlowLevel] = useState<ProcessLevel>('medium');
 
   const c = useMemo(() => computeCompare(project.core, project.details), [project]);
-  // フロー比較（画面4）の As-Is / To-Be 図。flow タブのときだけ計算。
-  const flowSvgs = useMemo(
-    () =>
-      view !== 'flow'
-        ? null
-        : { asis: buildScenarioFlowSvg(project, 'asis', flowLevel), tobe: buildScenarioFlowSvg(project, 'tobe', flowLevel) },
-    [project, view, flowLevel],
-  );
   // 構造差分の要約（新規 / 廃止 / 移動 / 並行化）。
   const struct = useMemo(() => {
     const added: string[] = [];
@@ -209,14 +201,7 @@ export function ComparisonDialog() {
                 )}
               </span>
             </div>
-            <div className="cmp-flow-pane">
-              <div className="cmp-flow-label asis">As-Is（現状）</div>
-              <div className="cmp-flow-svg" dangerouslySetInnerHTML={{ __html: flowSvgs?.asis ?? '' }} />
-            </div>
-            <div className="cmp-flow-pane">
-              <div className="cmp-flow-label tobe">To-Be（改善後）</div>
-              <div className="cmp-flow-svg" dangerouslySetInnerHTML={{ __html: flowSvgs?.tobe ?? '' }} />
-            </div>
+            <FlowCompareView project={project} level={flowLevel} />
             <p className="cmp-table-foot">
               ※ 読み取り専用。構造（廃止・担当移動・並行化）は To-Be 編集（インスペクタ）と一括入力で変更できます。配置は自動整列で都度導出します。
             </p>

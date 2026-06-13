@@ -5102,6 +5102,274 @@ input.colored-text {
   height: auto;
 }
 
+/* 画面4: フロー比較レンダラ（FlowCompareView・参照デザイン準拠） */
+.cmp-flowcmp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+}
+.cmp-flow-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.cmp-flow-controls .ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.cmp-flow-controls .ctl-label {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.cmp-flow-controls .push {
+  margin-left: auto;
+}
+.cmp-flowcmp-legend {
+  display: inline-flex;
+  gap: var(--sp-3);
+  align-items: center;
+}
+.cmp-diff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-caption);
+}
+.cmp-diff-legend .dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  border: 1.2px solid var(--line);
+}
+.cmp-diff-legend .dl.new {
+  border-color: var(--accent);
+  color: var(--accent);
+  border-style: dashed;
+}
+.cmp-diff-legend .dl.del {
+  border-color: var(--red);
+  color: var(--red);
+  border-style: dashed;
+  text-decoration: line-through;
+}
+.cmp-diff-legend .dl.move {
+  border-color: var(--amber);
+  color: var(--amber-ink);
+}
+.cmp-diff-legend .dl.unc {
+  opacity: 0.5;
+  border-style: dashed;
+}
+.cmp-flowsync {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+.cmp-strip + .cmp-strip {
+  border-top: 2px solid var(--line);
+}
+.cmp-strip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px var(--sp-3);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line-faint);
+}
+.cmp-strip-tag {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.cmp-strip-tag.asis {
+  color: var(--muted);
+  background: var(--hover);
+}
+.cmp-strip-tag.tobe {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.cmp-strip-meta {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.cmp-flowgrid-scroll {
+  max-height: 240px;
+  overflow: auto;
+  background: var(--canvas-bg);
+}
+.cmp-flowgrid {
+  position: relative;
+}
+.cmp-ruler {
+  position: absolute;
+  height: 18px;
+}
+.cmp-ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line-faint);
+}
+.cmp-ruler-tick span {
+  position: absolute;
+  top: 0;
+  left: 3px;
+  font-size: 9px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.cmp-lane-row {
+  position: absolute;
+  left: 0;
+}
+.cmp-lane-row.stripe {
+  background: var(--lane-stripe);
+}
+.cmp-lane-line {
+  position: absolute;
+  left: 0;
+  border-top: 1px solid var(--lane-line);
+}
+.cmp-lane-label {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  color: var(--muted);
+  background: var(--lane-col);
+  border-right: 1px solid var(--lane-divider);
+}
+.cmp-flow-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.cmp-cnode-wrap {
+  position: absolute;
+  overflow: visible;
+}
+.cmp-cnode {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.4px solid var(--node-task-border);
+  background: var(--node-task-bg);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: var(--fw-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cmp-cnode .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-cnode.diff-h {
+  background: color-mix(in srgb, var(--diff-h) 20%, var(--panel));
+  border-color: var(--diff-h);
+}
+.cmp-cnode.diff-m {
+  background: color-mix(in srgb, var(--diff-m) 22%, var(--panel));
+  border-color: var(--diff-m);
+}
+.cmp-cnode.diff-l {
+  background: color-mix(in srgb, var(--diff-l) 20%, var(--panel));
+  border-color: var(--diff-l);
+}
+.cmp-cnode.dim {
+  opacity: 0.4;
+  border-style: dashed;
+}
+.cmp-cnode.changed {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cmp-cnode.deleted {
+  border-style: dashed;
+  border-color: var(--red);
+  background: var(--red-fill);
+  color: var(--muted);
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+.cmp-cnode.added {
+  border-style: dashed;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cmp-cnode.moved {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 40%, transparent);
+}
+.cmp-cnode-tag {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: var(--fw-strong);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  z-index: 4;
+}
+.cmp-cnode-tag.new {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.cmp-cnode-tag.del {
+  color: #fff;
+  background: var(--red);
+}
+.cmp-cnode-tag.move {
+  color: #fff;
+  background: var(--amber);
+}
+.cmp-cnode-lt {
+  position: absolute;
+  bottom: -8px;
+  right: 2px;
+  font-size: 9.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  background: var(--panel);
+  padding: 0 3px;
+  border-radius: 3px;
+  z-index: 4;
+}
+.cmp-ghost {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.4px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.cmp-ghost span {
+  font-size: 9px;
+  color: var(--faint);
+}
+
 /* 画面2b: To-Be 一括入力タブ */
 .cmp-bulk {
   display: flex;
