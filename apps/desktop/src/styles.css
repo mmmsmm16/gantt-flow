@@ -5164,7 +5164,6 @@ input.colored-text {
 }
 .cmp-diff-legend .dl.unc {
   opacity: 0.5;
-  border-style: dashed;
 }
 .cmp-flowsync {
   border: 1px solid var(--line);
@@ -5296,8 +5295,7 @@ input.colored-text {
   border-color: var(--diff-l);
 }
 .cmp-cnode.dim {
-  opacity: 0.4;
-  border-style: dashed;
+  opacity: 0.45;
 }
 .cmp-cnode.changed {
   box-shadow: 0 0 0 2px var(--accent-soft);

@@ -10,13 +10,15 @@ type Phase = 'asis' | 'tobe';
 type Axis = 'order' | 'time';
 type DiffState = 'added' | 'deleted' | 'moved' | 'changed' | 'unchanged';
 
-const FG = { x0: 92, colW: 150, taskW: 122, taskH: 30, laneH: 58, dayW: 22, gap: 16, railW: 88, topPad: 14, timePad: 34 };
+// rowH = 1 サブ行の高さ。laneInset = レーン上端の余白。laneH(=rowH+2*laneInset) は 1 行レーンの高さ。
+const FG = { x0: 92, colW: 150, taskW: 122, taskH: 30, rowH: 42, laneInset: 8, dayW: 22, gap: 16, railW: 88, topPad: 14, timePad: 34 };
 
 interface GNode {
   id: string;
   name: string;
   lane: number;
   col: number;
+  slot: number; // レーン内のサブ行（同一レーン×同一列に複数工程が来ても重ならないよう縦に積む）
   lt: number;
   diff?: Difficulty;
   t0: number;
@@ -27,6 +29,29 @@ interface Graph {
   edges: [string, string][];
   span: number;
   cols: number;
+  laneSubrows: number[]; // レーンごとに必要なサブ行数（最大の同居数）
+}
+
+/** レーンの縦ジオメトリ（As-Is/To-Be で共有し、行が揃うように両者の最大サブ行で決める）。 */
+interface LaneGeom {
+  top: number[]; // レーン i の上端
+  height: number[]; // レーン i の高さ
+  total: number; // 全レーン合計高さ
+}
+function laneHeightOf(subrows: number): number {
+  return Math.max(1, subrows) * FG.rowH + FG.laneInset * 2;
+}
+function buildLaneGeom(lanes: string[], asisSub: number[], tobeSub: number[]): LaneGeom {
+  const top: number[] = [];
+  const height: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < lanes.length; i++) {
+    const h = laneHeightOf(Math.max(asisSub[i] ?? 1, tobeSub[i] ?? 1));
+    top.push(acc);
+    height.push(h);
+    acc += h;
+  }
+  return { top, height, total: acc };
 }
 
 function laneNameOf(sv: ScenarioView, taskId: string): string {
@@ -65,11 +90,29 @@ function computeGraph(sv: ScenarioView, phase: Phase, lanes: string[], details: 
       name: core.tasks[n.taskId]?.name ?? '',
       lane: Math.max(0, lanes.indexOf(name)),
       col: colOf.get(Math.round(n.x)) ?? 0,
+      slot: 0,
       lt: leafLtDays(details[n.taskId], phase),
       diff: leafDifficulty(details[n.taskId], phase),
       t0: 0,
     };
   });
+  // サブ行(slot)割当: 同一レーン×同一列に複数工程が来たら縦に積む（1レーン=複数行を許す）。
+  // 各レーンの必要サブ行数 = 列ごとの同居数の最大。元の y 順で安定に積む。
+  const laneSubrows: number[] = lanes.map(() => 1);
+  const byLaneCol = new Map<string, GNode[]>();
+  const yOf = new Map(taskNodes.map((n) => [n.taskId, n.y] as const));
+  for (const nd of nodes) {
+    const key = `${nd.lane}:${nd.col}`;
+    (byLaneCol.get(key) ?? byLaneCol.set(key, []).get(key)!).push(nd);
+  }
+  for (const [key, group] of byLaneCol) {
+    group.sort((a, b) => (yOf.get(a.id) ?? 0) - (yOf.get(b.id) ?? 0));
+    group.forEach((nd, i) => {
+      nd.slot = i;
+    });
+    const lane = Number(key.split(':')[0]);
+    laneSubrows[lane] = Math.max(laneSubrows[lane] ?? 1, group.length);
+  }
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   const edges: [string, string][] = [];
   for (const e of Object.values(view.edges)) {
@@ -93,12 +136,12 @@ function computeGraph(sv: ScenarioView, phase: Phase, lanes: string[], details: 
     if (!changed) break;
   }
   const span = Math.max(0, ...nodes.map((n) => n.t0 + n.lt));
-  return { nodes, byId, edges, span, cols: xs.length };
+  return { nodes, byId, edges, span, cols: xs.length, laneSubrows };
 }
 
-function rectOf(n: GNode, axis: Axis) {
+function rectOf(n: GNode, axis: Axis, geom: LaneGeom) {
   const h = FG.taskH;
-  const y = n.lane * FG.laneH + (FG.laneH - h) / 2;
+  const y = (geom.top[n.lane] ?? 0) + FG.laneInset + n.slot * FG.rowH + (FG.rowH - h) / 2;
   let x: number;
   let w: number;
   if (axis === 'time') {
@@ -126,6 +169,7 @@ function Strip({
   graph,
   asisGraph,
   lanes,
+  geom,
   phase,
   axis,
   diffColor,
@@ -140,6 +184,7 @@ function Strip({
   graph: Graph;
   asisGraph: Graph;
   lanes: string[];
+  geom: LaneGeom;
   phase: Phase;
   axis: Axis;
   diffColor: boolean;
@@ -153,7 +198,7 @@ function Strip({
 }) {
   const baseline = phase === 'asis';
   const tmode = axis === 'time';
-  const canvasH = lanes.length * FG.laneH;
+  const canvasH = geom.total;
   const topPad = tmode ? FG.timePad : FG.topPad;
   const ticks: number[] = [];
   if (tmode) for (let d = 0; d <= graph.span + 0.001; d += tickStep) ticks.push(d);
@@ -177,8 +222,8 @@ function Strip({
             </div>
           )}
           <div style={{ position: 'absolute', top: topPad, left: 0, width, height: canvasH }}>
-            {lanes.map((_, i) => (i % 2 === 1 ? <div key={`s${i}`} className="cmp-lane-row stripe" style={{ top: i * FG.laneH, height: FG.laneH, width }} /> : null))}
-            {lanes.map((_, i) => (i > 0 ? <div key={`l${i}`} className="cmp-lane-line" style={{ top: i * FG.laneH, width }} /> : null))}
+            {lanes.map((_, i) => (i % 2 === 1 ? <div key={`s${i}`} className="cmp-lane-row stripe" style={{ top: geom.top[i], height: geom.height[i], width }} /> : null))}
+            {lanes.map((_, i) => (i > 0 ? <div key={`l${i}`} className="cmp-lane-line" style={{ top: geom.top[i], width }} /> : null))}
 
             <svg className="cmp-flow-edges" width={width} height={canvasH}>
               <defs>
@@ -191,16 +236,16 @@ function Strip({
                   if (diffState[n.id] !== 'moved') return null;
                   const old = asisGraph.byId.get(n.id);
                   if (!old) return null;
-                  const nr = rectOf(n, axis);
-                  const oy = old.lane * FG.laneH + FG.laneH / 2;
+                  const nr = rectOf(n, axis, geom);
+                  const oy = rectOf(old, axis, geom).cy;
                   return <line key={`mv-${n.id}`} x1={nr.cx} y1={oy} x2={nr.cx} y2={nr.cy} stroke="var(--amber)" strokeWidth="1.4" strokeDasharray="3 3" />;
                 })}
               {graph.edges.map(([from, to]) => {
                 const ff = graph.byId.get(from);
                 const tt = graph.byId.get(to);
                 if (!ff || !tt) return null;
-                const a = rectOf(ff, axis);
-                const b = rectOf(tt, axis);
+                const a = rectOf(ff, axis, geom);
+                const b = rectOf(tt, axis, geom);
                 const sx = a.x + a.w;
                 const sy = a.cy;
                 const ty = b.cy;
@@ -218,10 +263,10 @@ function Strip({
                 if (diffState[n.id] !== 'moved') return null;
                 const old = asisGraph.byId.get(n.id);
                 if (!old) return null;
-                const nr = rectOf(n, axis);
-                const gy = old.lane * FG.laneH + (FG.laneH - FG.taskH) / 2;
+                const nr = rectOf(n, axis, geom);
+                const or = rectOf(old, axis, geom);
                 return (
-                  <div key={`gh-${n.id}`} className="cmp-ghost" style={{ left: nr.x, top: gy, width: nr.w, height: FG.taskH }}>
+                  <div key={`gh-${n.id}`} className="cmp-ghost" style={{ left: nr.x, top: or.y, width: nr.w, height: FG.taskH }}>
                     <span>元: {lanes[old.lane]}</span>
                   </div>
                 );
@@ -232,7 +277,7 @@ function Strip({
               deletedIds.map((id) => {
                 const old = asisGraph.byId.get(id);
                 if (!old) return null;
-                const r = rectOf(old, axis);
+                const r = rectOf(old, axis, geom);
                 return (
                   <div key={`rm-${id}`} className="cmp-cnode-wrap" style={{ left: r.x, top: r.y, width: r.w, height: r.h }}>
                     <span className="cmp-cnode-tag del">廃止</span>
@@ -244,7 +289,7 @@ function Strip({
               })}
 
             {graph.nodes.map((n) => {
-              const r = rectOf(n, axis);
+              const r = rectOf(n, axis, geom);
               const st = diffState[n.id];
               const box = ['cmp-cnode'];
               if (diffColor && n.diff) box.push(`diff-${n.diff.toLowerCase()}`);
@@ -271,7 +316,7 @@ function Strip({
             })}
 
             {lanes.map((name, i) => (
-              <div key={name} className="cmp-lane-label" style={{ top: i * FG.laneH, height: FG.laneH, width: FG.railW }}>
+              <div key={name} className="cmp-lane-label" style={{ top: geom.top[i], height: geom.height[i], width: FG.railW }}>
                 {name}
               </div>
             ))}
@@ -308,11 +353,12 @@ export function FlowCompareView({ project, level }: { project: Project; level: P
       else if (a && b && (a.lt !== b.lt || a.diff !== b.diff)) state[id] = 'changed';
       else state[id] = 'unchanged';
     }
-    return { lanes, asisG, tobeG, state };
+    const geom = buildLaneGeom(lanes, asisG.laneSubrows, tobeG.laneSubrows);
+    return { lanes, asisG, tobeG, state, geom };
   }, [project, level]);
 
   if (!data) return <div className="cmp-flow-hint">表示できるフローがありません。</div>;
-  const { lanes, asisG, tobeG, state } = data;
+  const { lanes, asisG, tobeG, state, geom } = data;
   const maxSpan = Math.max(asisG.span, tobeG.span, 1);
   const tickStep = niceTickStep(maxSpan);
   const width =
@@ -368,8 +414,8 @@ export function FlowCompareView({ project, level }: { project: Project; level: P
       </div>
 
       <div className="cmp-flowsync">
-        <Strip graph={asisG} asisGraph={asisG} lanes={lanes} phase="asis" axis={axis} diffColor={diffColor} diffEmph={diffEmph} diffState={state} width={width} tickStep={tickStep} scrollRef={asisRef} onScroll={sync('asis')} meta="直列・停滞を含む現状フロー" />
-        <Strip graph={tobeG} asisGraph={asisG} lanes={lanes} phase="tobe" axis={axis} diffColor={diffColor} diffEmph={diffEmph} diffState={state} width={width} tickStep={tickStep} scrollRef={tobeRef} onScroll={sync('tobe')} meta="改善後フロー（差分は To-Be 側に集約）" />
+        <Strip graph={asisG} asisGraph={asisG} lanes={lanes} geom={geom} phase="asis" axis={axis} diffColor={diffColor} diffEmph={diffEmph} diffState={state} width={width} tickStep={tickStep} scrollRef={asisRef} onScroll={sync('asis')} meta="直列・停滞を含む現状フロー" />
+        <Strip graph={tobeG} asisGraph={asisG} lanes={lanes} geom={geom} phase="tobe" axis={axis} diffColor={diffColor} diffEmph={diffEmph} diffState={state} width={width} tickStep={tickStep} scrollRef={tobeRef} onScroll={sync('tobe')} meta="改善後フロー（差分は To-Be 側に集約）" />
       </div>
     </div>
   );
