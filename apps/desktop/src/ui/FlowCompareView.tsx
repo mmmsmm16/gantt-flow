@@ -250,8 +250,21 @@ function Strip({
                 const sy = a.cy;
                 const ty = b.cy;
                 const endX = b.x - 5;
-                const vx = sy === ty ? endX : Math.max(sx + 8, b.x - 12);
-                const d = sy === ty ? `M ${sx} ${sy} L ${endX} ${ty}` : `M ${sx} ${sy} L ${vx} ${sy} L ${vx} ${ty} L ${endX} ${ty}`;
+                // 後ろ向き(手戻り): ターゲットが左 → 行外の専用レーンを U 字で迂回し、終端を右向きに
+                // して矢じりをターゲット左辺に見せる(前向き線と別の高さ＝被らない・本体にも被らない)。
+                const backward = b.x < sx;
+                let d: string;
+                if (backward) {
+                  const xExit = sx + 8;
+                  const ENTRY = Math.max(1, Math.min(8, Math.round((sx - endX) / 2)));
+                  const xEntry = endX - ENTRY; // ターゲット左辺より左 → 終端は長さ>0 の右向き
+                  const band = FG.rowH / 2; // 行間ギャップ中央＝同一行の介在ノードを確実に避ける
+                  const cy = sy <= ty ? Math.min(sy, ty) - band : Math.max(sy, ty) + band;
+                  d = `M ${sx} ${sy} L ${xExit} ${sy} L ${xExit} ${cy} L ${xEntry} ${cy} L ${xEntry} ${ty} L ${endX} ${ty}`;
+                } else {
+                  const vx = sy === ty ? endX : Math.max(sx + 8, b.x - 12);
+                  d = sy === ty ? `M ${sx} ${sy} L ${endX} ${ty}` : `M ${sx} ${sy} L ${vx} ${sy} L ${vx} ${ty} L ${endX} ${ty}`;
+                }
                 const dim = !baseline && diffEmph && diffState[from] === 'unchanged' && diffState[to] === 'unchanged';
                 return <path key={`${from}-${to}`} d={d} stroke="var(--edge)" strokeWidth="1.5" fill="none" opacity={dim ? 0.3 : 1} markerEnd={`url(#fc-arrow-${phase})`} />;
               })}

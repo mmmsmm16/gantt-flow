@@ -82,3 +82,56 @@ describe('routeEdge: 直角経路のノード回避', () => {
     expect(r.label).toEqual({ x: 260, y: 122 }); // 縦セグメントの中点
   });
 });
+
+describe('routeEdge: 後ろ向き(手戻り)エッジの U 字迂回', () => {
+  it('終端は右向き＝矢じりがターゲット左辺に入る(6点・最終セグメントが +x)', () => {
+    const r = routeEdge(R(400, 0), R(0, 200), []);
+    expect(r.points).toHaveLength(6);
+    const p = r.points;
+    // 端点(接続ハンドル)は従来どおり: ソース右辺中央 / ターゲット左辺中央
+    expect(p[0]).toEqual({ x: 520, y: 22 });
+    expect(p[5]).toEqual({ x: 0, y: 222 });
+    // 最終セグメント P4→P5 は水平の右向き(矢じりが右を向く)
+    expect(p[4]!.y).toBe(p[5]!.y);
+    expect(p[4]!.x).toBeLessThan(p[5]!.x);
+  });
+
+  it('縦の入口はターゲット左辺より左＝本体に被らない', () => {
+    const r = routeEdge(R(400, 0), R(0, 200), []);
+    const p = r.points;
+    expect(p[4]!.x).toBeLessThan(0); // x2 = target.x = 0 より左
+    // ソース本体・ターゲット本体のどちらも貫かない(被らない)
+    expect(passesThrough(p, R(400, 0))).toBe(false);
+    expect(passesThrough(p, R(0, 200))).toBe(false);
+  });
+
+  it('横断レーンは両ノードの行帯の外＝前向き線と別の高さを通る', () => {
+    const r = routeEdge(R(400, 100), R(0, 100), []); // 同一行で手戻り
+    const p = r.points;
+    const cy = p[2]!.y;
+    expect(p[2]!.y).toBe(p[3]!.y); // 横断は水平
+    // ソース/ターゲットの本体 y レンジ(100..144)の外側
+    expect(cy < 100 || cy > 144).toBe(true);
+  });
+
+  it('隣接列(間隔が狭い)でも終端は長さ>0 の右向きにクランプされる', () => {
+    const r = routeEdge(R(300, 100), R(200, 100), []);
+    const p = r.points;
+    const lastLen = p[5]!.x - p[4]!.x; // = x2 - xEntry
+    expect(lastLen).toBeGreaterThan(0);
+    expect(lastLen).toBeLessThanOrEqual(16); // STUB 以内(過剰に長い stub を作らない)
+  });
+
+  it('間に居座るノードがあっても上下の専用レーンで全回避する', () => {
+    const obstacles = [R(250, 80), R(250, 150)];
+    const r = routeEdge(R(400, 100), R(0, 120), obstacles);
+    for (const o of obstacles) expect(passesThrough(r.points, o)).toBe(false);
+  });
+
+  it('ラベルは横断レーン(中央セグメント)の中点', () => {
+    const r = routeEdge(R(400, 0), R(0, 200), []);
+    const p = r.points;
+    expect(r.label.y).toBe(p[2]!.y);
+    expect(r.label.x).toBe((p[2]!.x + p[3]!.x) / 2);
+  });
+});
