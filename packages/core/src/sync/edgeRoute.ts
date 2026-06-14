@@ -200,6 +200,12 @@ function routeBackward(
   let belowAll = obstacles.length ? Math.max(...obstacles.map((o) => o.y + o.h)) + PAD * 2 + 10 : rowHi + 24;
   if (aboveAll > rowLo) aboveAll = rowLo - 12;
   if (belowAll < rowHi) belowAll = rowHi + 12;
+  // 障害物どうしの隙間の中点も候補に加える(行帯の外に出るものだけ)。上下の全迂回より短く通れる
+  // レーンがあれば選べるようにし、無駄な大回りを避ける。最終選択は「交差数→経路長」で行う(下のループ)。
+  const yEdges = [...new Set(obstacles.flatMap((o) => [o.y - PAD, o.y + o.h + PAD]))].sort((a, b) => a - b);
+  const yGapMids: number[] = [];
+  for (let i = 0; i < yEdges.length - 1; i++) yGapMids.push((yEdges[i]! + yEdges[i + 1]!) / 2);
+  const channelCands = dedupe([aboveAll, belowAll, ...yGapMids]).filter((cy) => cy <= rowLo || cy >= rowHi);
 
   // 縦の通り道 x。出口はソース右辺より右(>= x1)、入口はターゲット左辺より左(< x2)に限定。
   const inRange = (v: number) => v >= Math.min(x1, x2) - STUB * 3 && v <= Math.max(x1, x2) + STUB * 3;
@@ -218,9 +224,8 @@ function routeBackward(
   let xEntryCands = nearest([defaultEntry, ...obstacleXs].filter((v) => inRange(v) && v < x2), defaultEntry);
   if (xEntryCands.length === 0) xEntryCands = [Math.round(defaultEntry)];
 
-  const midY = (y1 + y2) / 2;
   let best: { points: Pt[]; score: number; tie: number } | null = null;
-  for (const cy of dedupe([aboveAll, belowAll])) {
+  for (const cy of channelCands) {
     for (const xExit of xExitCands) {
       for (const xEntry of xEntryCands) {
         const pts: Pt[] = [
@@ -232,9 +237,10 @@ function routeBackward(
           { x: x2, y: y2 },
         ];
         const score = crossings(pts, obstacles);
-        // 同点: 既定の通り道に近いほど良い / レーンは遠い(分離が良い)ほど僅かに優遇。
+        // 同点(交差数が同じ)なら最短経路を選ぶ: 縦移動の短いチャネル＋既定の通り道
+        // (= 最短 stub・入口整列)。前提(被らない/矢じり右向き/入口整列)は形が保証する。
         const tie =
-          Math.abs(xExit - defaultExit) + Math.abs(xEntry - defaultEntry) - Math.abs(cy - midY) * 0.001;
+          Math.abs(cy - y1) + Math.abs(cy - y2) + Math.abs(xExit - defaultExit) + Math.abs(xEntry - defaultEntry);
         if (!best || score < best.score || (score === best.score && tie < best.tie)) {
           best = { points: pts, score, tie };
         }

@@ -144,4 +144,17 @@ describe('routeEdge: 後ろ向き(手戻り)エッジの U 字迂回', () => {
     expect(r.label.y).toBe(p[2]!.y);
     expect(r.label.x).toBe((p[2]!.x + p[3]!.x) / 2);
   });
+
+  it('前提を保ったまま、通れる最短側のレーンを選ぶ(無駄な大回りをしない)', () => {
+    // ソース/ターゲットは上の方(y=22,62)、障害物は遥か下(y=400〜)。
+    // 下へ大回り(縦移動 ~556)せず、上の短いレーン(縦移動 ~244)を通るべき。
+    const r = routeEdge(R(400, 0), R(0, 40), [R(200, 400)]);
+    const cy = r.points[2]!.y; // 横断レーンの y
+    expect(cy).toBeLessThan(0); // 両ノードより上＝短い側
+    // 障害物を貫かない(前提は維持)
+    expect(passesThrough(r.points, R(200, 400))).toBe(false);
+    // 終端は右向き(矢じりは左辺)・縦の入口は左辺より左(本体に被らない)も維持
+    expect(r.points[4]!.x).toBeLessThan(r.points[5]!.x);
+    expect(r.points[4]!.x).toBeLessThan(0);
+  });
 });
