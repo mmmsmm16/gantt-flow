@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { findView, useApp } from './store';
 import {
   isProjectIntegrityError,
@@ -9,6 +9,7 @@ import {
 import { TableView } from './TableView';
 import { FullTable } from './FullTable';
 import { FlowCanvas } from './FlowCanvas';
+import { buildScenarioFlowSvg } from './scenarioFlow';
 import { Inspector } from './Inspector';
 import {
   saveProjectToFile,
@@ -34,6 +35,7 @@ import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
 import { IssueListDialog } from './ui/IssueListDialog';
 import { SummaryDialog } from './ui/SummaryDialog';
+import { ComparisonDialog } from './ui/ComparisonDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
@@ -116,6 +118,14 @@ export function App() {
   }, [isEmpty]);
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
+  const tobeEnabled = useUI((s) => s.tobeEnabled);
+  const scenario = useUI((s) => s.scenario);
+  const setScenario = useUI((s) => s.setScenario);
+  // メインのフローを To-Be で表示中のとき、射影フローを SVG で描く（読み取り専用）。
+  const tobeFlowSvg = useMemo(
+    () => (tobeEnabled && scenario === 'tobe' ? buildScenarioFlowSvg(project, 'tobe', level, scopeParentId) : ''),
+    [tobeEnabled, scenario, project, level, scopeParentId],
+  );
   const tableWide = useUI((s) => s.tableWide);
   const flowWide = useUI((s) => s.flowWide);
   const chromeHidden = useUI((s) => s.chromeHidden);
@@ -661,6 +671,16 @@ export function App() {
           >
             <Icons.ChartBar />
           </button>
+          {tobeEnabled && (
+            <button
+              className="icon-btn"
+              onClick={() => useUI.getState().setOverlay('comparison')}
+              aria-label="改善効果サマリ（As-Is / To-Be 比較）"
+              title="改善効果サマリ（As-Is / To-Be 比較） (⌘⇧C)"
+            >
+              <Icons.Compare />
+            </button>
+          )}
         </span>
 
         <button
@@ -751,6 +771,24 @@ export function App() {
                   <span className="pane-dot flow" aria-hidden="true" />
                   工程フロー
                 </h2>
+                {tobeEnabled && (
+                  <span className="seg scenario-seg" role="group" aria-label="シナリオ">
+                    <button
+                      className={scenario === 'asis' ? 'on' : ''}
+                      onClick={() => setScenario('asis')}
+                      title="現状（As-Is）を表示・編集"
+                    >
+                      As-Is
+                    </button>
+                    <button
+                      className={scenario === 'tobe' ? 'on' : ''}
+                      onClick={() => setScenario('tobe')}
+                      title="改善後（To-Be）を読み取り専用で表示。編集はインスペクタの「To-Be」か、比較の一括入力で。"
+                    >
+                      To-Be
+                    </button>
+                  </span>
+                )}
                 <span className="seg" role="group" aria-label="粒度">
                   {LEVELS.map((l) => (
                     <button
@@ -788,7 +826,16 @@ export function App() {
                   {showIssues ? <Icons.Eye /> : <Icons.EyeOff />}
                 </button>
               </div>
-              <FlowCanvas />
+              {tobeEnabled && scenario === 'tobe' ? (
+                <div className="flow-tobe-ro" role="img" aria-label="To-Be（改善後）の工程フロー（読み取り専用）">
+                  <div className="flow-tobe-banner">
+                    To-Be（改善後）を表示中 — 読み取り専用。編集はインスペクタの「To-Be」か、比較 › 一括入力で。
+                  </div>
+                  <div className="flow-tobe-svg" dangerouslySetInnerHTML={{ __html: tobeFlowSvg }} />
+                </div>
+              ) : (
+                <FlowCanvas />
+              )}
             </section>
           )}
           {showInspector && (
@@ -816,6 +863,7 @@ export function App() {
       <HelpDialog />
       <IssueListDialog />
       <SummaryDialog />
+      <ComparisonDialog />
       <BackupsDialog />
       <SettingsDialog />
       <Tour />

@@ -14,6 +14,7 @@ import {
   type IoKind,
   type IssueTarget,
   type TaskDetailPatch,
+  type TaskDetailToBe,
   type IoItem,
   type IssueItem,
   type ImportReport,
@@ -47,6 +48,7 @@ import {
   addAssignee as cAddAssignee,
   addDependency as cAddDependency,
   removeDependency as cRemoveDependency,
+  setDependencyPhase as cSetDependencyPhase,
   addIoItem as cAddIoItem,
   removeIoItem as cRemoveIoItem,
   updateIoItem as cUpdateIoItem,
@@ -54,6 +56,8 @@ import {
   removeIssueItem as cRemoveIssueItem,
   updateIssueItem as cUpdateIssueItem,
   updateTaskDetail as cUpdateTaskDetail,
+  updateTaskToBe as cUpdateTaskToBe,
+  copyAsIsToToBe as cCopyAsIsToToBe,
   deleteTaskKeepChildren as cDeleteTaskKeepChildren,
   reorderTask as cReorderTask,
   reparentTask as cReparentTask,
@@ -204,6 +208,14 @@ export interface AppState {
   removeManyTasks: (taskIds: Id[]) => void;
   addDependency: (from: Id, to: Id) => void;
   removeDependency: (depId: Id) => void;
+  /** 依存の所属シナリオを変更（undefined=両方 / 'asis'=To-Beで解除＝並行化 / 'tobe'=To-Be専用）。 */
+  setDependencyPhase: (depId: Id, phase: 'asis' | 'tobe' | undefined) => void;
+  /** To-Be 上の前工程を 1 本に設定（既存の To-Be 専用 incoming を置換）。新設工程の接続に使う。 */
+  setToBePredecessor: (taskId: Id, fromId: Id | undefined) => void;
+  /** To-Be の前工程を 1 本追加（As-Is 専用依存は両方へ昇格 / 無ければ To-Be 専用で新設）。 */
+  addToBePredecessor: (taskId: Id, fromId: Id) => void;
+  /** To-Be の前工程を 1 本外す（両方→As-Is専用 / To-Be専用→削除）。As-Is は保つ。 */
+  removeToBePredecessor: (taskId: Id, fromId: Id) => void;
   addSiblingOf: (taskId: Id) => Id | undefined;
   /** クイック追加: 作成＋担当＋工数＋前工程の依存を 1 undo 単位で合成し、作成工程を選択する。
       選択中の工程と同じ粒度ならその直下（同じ親）へ挿入（addSiblingOf と同じ位置規則）。
@@ -228,6 +240,12 @@ export interface AppState {
   updateIssue: (taskId: Id, issueId: Id, patch: Partial<Pick<IssueItem, 'issue' | 'measure' | 'target'>>) => void;
   removeIssue: (taskId: Id, issueId: Id) => void;
   updateDetail: (taskId: Id, patch: TaskDetailPatch) => void;
+  /** To-Be 差分の部分更新（undefined のキーは削除＝現状に戻す）。 */
+  updateToBe: (taskId: Id, patch: Partial<TaskDetailToBe>) => void;
+  /** As-Is の現状値を To-Be の起点へ複製。 */
+  copyAsIsToToBe: (taskId: Id) => void;
+  /** To-Be で新設する工程(lifecycle='added')を作る。As-Is には出ない。作成 ID を返す。 */
+  addToBeTask: () => Id | undefined;
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
   moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
@@ -498,6 +516,43 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     removeDependency: (depId) => commit(cRemoveDependency(get().project, depId)),
+    setDependencyPhase: (depId, phase) => commit(cSetDependencyPhase(get().project, depId, phase)),
+    setToBePredecessor: (taskId, fromId) => {
+      let p = get().project;
+      // 既存の To-Be 専用 incoming を外す（前工程は 1 本に保つ）。
+      for (const d of Object.values(p.core.dependencies)) {
+        if (d.to === taskId && d.phase === 'tobe') p = cRemoveDependency(p, d.id);
+      }
+      if (fromId && fromId !== taskId) {
+        const id = uuid();
+        p = cAddDependency(p, fromId, taskId, () => id);
+        p = cSetDependencyPhase(p, id, 'tobe');
+      }
+      commit(p);
+    },
+    addToBePredecessor: (taskId, fromId) => {
+      if (fromId === taskId) return;
+      let p = get().project;
+      const existing = Object.values(p.core.dependencies).find((d) => d.from === fromId && d.to === taskId);
+      if (existing) {
+        if (existing.phase === 'asis') p = cSetDependencyPhase(p, existing.id, undefined); // As-Is専用→両方(To-Beにも出す)
+        else return; // 既に To-Be に存在（両方/tobe）
+      } else {
+        const id = uuid();
+        p = cAddDependency(p, fromId, taskId, () => id);
+        p = cSetDependencyPhase(p, id, 'tobe');
+      }
+      commit(p);
+    },
+    removeToBePredecessor: (taskId, fromId) => {
+      let p = get().project;
+      const dep = Object.values(p.core.dependencies).find((d) => d.from === fromId && d.to === taskId);
+      if (!dep) return;
+      if (dep.phase === 'tobe') p = cRemoveDependency(p, dep.id); // To-Be専用→削除
+      else if (dep.phase === undefined) p = cSetDependencyPhase(p, dep.id, 'asis'); // 両方→As-Is専用(To-Beから外す)
+      else return; // As-Is専用→To-Beには無い
+      commit(p);
+    },
 
     // 「次行を追加」: 同じ親・同じ粒度の兄弟を「クリック行の直下」に挿入し、新タスクの id を返す（フォーカス用）。
     addSiblingOf: (taskId) => {
@@ -677,6 +732,20 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     updateIssue: (taskId, issueId, patch) => commit(cUpdateIssueItem(get().project, taskId, issueId, patch)),
     removeIssue: (taskId, issueId) => commit(cRemoveIssueItem(get().project, taskId, issueId)),
     updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
+    updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch)),
+    copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId)),
+    addToBeTask: () => {
+      const cur = get().project;
+      const firstLarge = Object.values(cur.core.tasks).find((t) => t.level === 'large');
+      const parentId = firstLarge?.id;
+      const level: ProcessLevel = parentId ? 'medium' : 'large';
+      const assigneeId = Object.values(cur.core.assignees)[0]?.id;
+      const id = uuid();
+      let p = cAddTask(cur, { name: '新規工程', level, parentId, assigneeId, id }, uuid);
+      p = cUpdateTaskToBe(p, id, { lifecycle: 'added' });
+      commit(p);
+      return id;
+    },
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     moveNode: (nodeId, x, y) => {

@@ -92,7 +92,8 @@ export function TableView() {
   const columnVisibility = useUI((s) => s.columnVisibility);
   const toggleColumn = useUI((s) => s.toggleColumn);
 
-  const tasks = Object.values(project.core.tasks);
+  // To-Be 新設工程(toBe.lifecycle='added')は As-Is の工程表には出さない（比較の To-Be 側にのみ出る）。
+  const tasks = Object.values(project.core.tasks).filter((t) => project.details[t.id]?.toBe?.lifecycle !== 'added');
   // 折りたたみ状態は useUI に置く(コマンドパレットの全折りたたみ/全展開と共有・非マウント時も保持)。
   const collapsed = useUI((s) => s.outlineCollapsed);
   const setCollapsed = useUI((s) => s.setOutlineCollapsed);

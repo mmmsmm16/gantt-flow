@@ -11,6 +11,7 @@ import type {
   IssueItem,
   IssueTarget,
   TaskDetail,
+  TaskDetailToBe,
   Id,
 } from '../model/types';
 import type { IdGen } from '../ids';
@@ -127,6 +128,17 @@ export function addDependency(p: Project, from: Id, to: Id, idGen: IdGen): Proje
 export function removeDependency(p: Project, depId: Id): Project {
   const next = clone(p);
   delete next.core.dependencies[depId];
+  return next;
+}
+
+// 依存の所属シナリオを変更（並行化＝As-Is専用にすると To-Be では繋がらない／To-Be専用で新接続）。
+// undefined=両方。
+export function setDependencyPhase(p: Project, depId: Id, phase: 'asis' | 'tobe' | undefined): Project {
+  const next = clone(p);
+  const dep = next.core.dependencies[depId];
+  if (!dep) return next;
+  if (phase) dep.phase = phase;
+  else delete dep.phase;
   return next;
 }
 
@@ -393,6 +405,7 @@ export type TaskDetailPatch = Partial<
     | 'how'
     | 'system'
     | 'effortMinutes'
+    | 'ltDays'
     | 'note'
     | 'volume'
     | 'exception'
@@ -411,6 +424,40 @@ export function updateTaskDetail(p: Project, taskId: Id, patch: TaskDetailPatch)
   if (!next.core.tasks[taskId]) return next;
   const d = ensureDetail(next, taskId);
   Object.assign(d, patch);
+  return next;
+}
+
+// To-Be 差分の部分更新（read-merge-write）。toBe はネスト obj なので updateTaskDetail の
+// 浅いマージに混ぜると既存 toBe を丸ごと置換してしまう。専用にして既存キーを保つ。
+// patch の値が undefined のキーは toBe から削除（「現状に戻す＝差分なし」を表現できる）。
+export function updateTaskToBe(p: Project, taskId: Id, patch: Partial<TaskDetailToBe>): Project {
+  const next = clone(p);
+  if (!next.core.tasks[taskId]) return next;
+  const d = ensureDetail(next, taskId);
+  const merged: TaskDetailToBe = { ...d.toBe };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) delete (merged as Record<string, unknown>)[k];
+    else (merged as Record<string, unknown>)[k] = v;
+  }
+  d.toBe = Object.keys(merged).length > 0 ? merged : undefined;
+  return next;
+}
+
+/** As-Is の現状値を To-Be の起点へ複製（インスペクタ「現状を複製」）。既存 toBe は上書き。 */
+export function copyAsIsToToBe(p: Project, taskId: Id): Project {
+  const next = clone(p);
+  const d = next.details[taskId];
+  if (!next.core.tasks[taskId] || !d) return next;
+  next.details[taskId] = {
+    ...d,
+    toBe: {
+      effortMinutes: d.effortMinutes,
+      ltDays: d.ltDays,
+      difficulty: d.difficulty,
+      automation: d.automation,
+      rationale: d.toBe?.rationale,
+    },
+  };
   return next;
 }
 

@@ -142,7 +142,7 @@ export function HelpDialog() {
         <p className="help-foot">
           {singleKey
             ? '単キーの操作は、テキスト入力中は無効です（誤入力を防ぐため）。'
-            : 'シングルキー操作（j/k 移動・g リーダーなどの Vim 風キー）は設定で ON にできます。'}
+            : 'シングルキー操作（j/k 移動・g リーダーなどの修飾キーなしのキー）は設定で ON にできます。'}
         </p>
       </div>
     </div>

@@ -29,7 +29,8 @@ export function SummaryDialog() {
   useFocusTrap(dialogRef, open);
 
   const data = useMemo(() => {
-    const tasks = Object.values(project.core.tasks);
+    // To-Be 新設工程(toBe.lifecycle='added')は As-Is サマリに含めない。
+    const tasks = Object.values(project.core.tasks).filter((t) => project.details[t.id]?.toBe?.lifecycle !== 'added');
     const hasChild = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[]);
     const leaves = tasks.filter((t) => !hasChild.has(t.id)); // 工数は末端で集計
     // 担当別の工数（分）

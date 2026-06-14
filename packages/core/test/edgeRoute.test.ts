@@ -29,11 +29,21 @@ describe('routeEdge: 直角経路のノード回避', () => {
     expect(r.points[1]).toEqual({ x: 300, y: 122 });
   });
 
-  it('障害物なしの段違いは従来どおり中央の HVH(4点)', () => {
+  it('障害物なしの段違いは HVH(4点)・縦はターゲット手前の共通入口レーン(x2-STUB)で曲がる', () => {
     const r = routeEdge(R(0, 0), R(400, 200), []);
     expect(r.points).toHaveLength(4);
-    expect(r.points[1]!.x).toBe(260); // (120+400)/2
+    expect(r.points[1]!.x).toBe(384); // entryX = x2(400) - STUB(16) ＝ 同じ工程に入る矢印で揃う位置
     expect(r.d.startsWith('M120,22')).toBe(true);
+  });
+
+  it('同じ工程へ入る複数の矢印は同じ x(共通入口レーン)で曲がる', () => {
+    // 別々の高さ・別々の出発点から同一ターゲットへ入る 2 本。曲がる縦の x が一致すること。
+    const target = R(400, 100);
+    const a = routeEdge(R(0, 0), target, []); // 上から
+    const b = routeEdge(R(0, 200), target, []); // 下から
+    const bendX = (pts: Pt[]) => pts[pts.length - 2]!.x; // 終端の直前＝左辺へ入る縦の x
+    expect(bendX(a.points)).toBe(bendX(b.points));
+    expect(bendX(a.points)).toBe(400 - 16); // entryX
   });
 
   it('既定の縦通り道が障害物に当たるときは midX をずらして回避する', () => {
@@ -60,6 +70,16 @@ describe('routeEdge: 直角経路のノード回避', () => {
     }
   });
 
+  it('障害物が縦に連続していても、隙間や全体の上下の通り道で全回避する', () => {
+    // 行を塞ぐ A の直下に B が連続（A 直下のチャネルは B 内）。さらに横にもう一つ。
+    // 旧来の「障害物端±2PAD」だけでは抜け道が塞がれがちなケース。
+    const A = R(200, 100);
+    const B = R(200, 150);
+    const C = R(360, 100);
+    const r = routeEdge(R(0, 100), R(560, 100), [A, B, C]);
+    for (const o of [A, B, C]) expect(passesThrough(r.points, o)).toBe(false);
+  });
+
   it('後ろ向き(ターゲットが左)でも経路が返る', () => {
     const r = routeEdge(R(400, 0), R(0, 200), []);
     expect(r.points.length).toBeGreaterThanOrEqual(4);
@@ -69,6 +89,72 @@ describe('routeEdge: 直角経路のノード回避', () => {
 
   it('ラベル位置は経路の中央セグメントの中点', () => {
     const r = routeEdge(R(0, 0), R(400, 200), []);
-    expect(r.label).toEqual({ x: 260, y: 122 }); // 縦セグメントの中点
+    expect(r.label).toEqual({ x: 384, y: 122 }); // 縦セグメント(x=entryX=384)の中点
+  });
+});
+
+describe('routeEdge: 後ろ向き(手戻り)エッジの U 字迂回', () => {
+  it('終端は右向き＝矢じりがターゲット左辺に入る(6点・最終セグメントが +x)', () => {
+    const r = routeEdge(R(400, 0), R(0, 200), []);
+    expect(r.points).toHaveLength(6);
+    const p = r.points;
+    // 端点(接続ハンドル)は従来どおり: ソース右辺中央 / ターゲット左辺中央
+    expect(p[0]).toEqual({ x: 520, y: 22 });
+    expect(p[5]).toEqual({ x: 0, y: 222 });
+    // 最終セグメント P4→P5 は水平の右向き(矢じりが右を向く)
+    expect(p[4]!.y).toBe(p[5]!.y);
+    expect(p[4]!.x).toBeLessThan(p[5]!.x);
+  });
+
+  it('縦の入口はターゲット左辺より左＝本体に被らない', () => {
+    const r = routeEdge(R(400, 0), R(0, 200), []);
+    const p = r.points;
+    expect(p[4]!.x).toBeLessThan(0); // x2 = target.x = 0 より左
+    // ソース本体・ターゲット本体のどちらも貫かない(被らない)
+    expect(passesThrough(p, R(400, 0))).toBe(false);
+    expect(passesThrough(p, R(0, 200))).toBe(false);
+  });
+
+  it('横断レーンは両ノードの行帯の外＝前向き線と別の高さを通る', () => {
+    const r = routeEdge(R(400, 100), R(0, 100), []); // 同一行で手戻り
+    const p = r.points;
+    const cy = p[2]!.y;
+    expect(p[2]!.y).toBe(p[3]!.y); // 横断は水平
+    // ソース/ターゲットの本体 y レンジ(100..144)の外側
+    expect(cy < 100 || cy > 144).toBe(true);
+  });
+
+  it('隣接列(間隔が狭い)でも終端は長さ>0 の右向きにクランプされる', () => {
+    const r = routeEdge(R(300, 100), R(200, 100), []);
+    const p = r.points;
+    const lastLen = p[5]!.x - p[4]!.x; // = x2 - xEntry
+    expect(lastLen).toBeGreaterThan(0);
+    expect(lastLen).toBeLessThanOrEqual(16); // STUB 以内(過剰に長い stub を作らない)
+  });
+
+  it('間に居座るノードがあっても上下の専用レーンで全回避する', () => {
+    const obstacles = [R(250, 80), R(250, 150)];
+    const r = routeEdge(R(400, 100), R(0, 120), obstacles);
+    for (const o of obstacles) expect(passesThrough(r.points, o)).toBe(false);
+  });
+
+  it('ラベルは横断レーン(中央セグメント)の中点', () => {
+    const r = routeEdge(R(400, 0), R(0, 200), []);
+    const p = r.points;
+    expect(r.label.y).toBe(p[2]!.y);
+    expect(r.label.x).toBe((p[2]!.x + p[3]!.x) / 2);
+  });
+
+  it('前提を保ったまま、通れる最短側のレーンを選ぶ(無駄な大回りをしない)', () => {
+    // ソース/ターゲットは上の方(y=22,62)、障害物は遥か下(y=400〜)。
+    // 下へ大回り(縦移動 ~556)せず、上の短いレーン(縦移動 ~244)を通るべき。
+    const r = routeEdge(R(400, 0), R(0, 40), [R(200, 400)]);
+    const cy = r.points[2]!.y; // 横断レーンの y
+    expect(cy).toBeLessThan(0); // 両ノードより上＝短い側
+    // 障害物を貫かない(前提は維持)
+    expect(passesThrough(r.points, R(200, 400))).toBe(false);
+    // 終端は右向き(矢じりは左辺)・縦の入口は左辺より左(本体に被らない)も維持
+    expect(r.points[4]!.x).toBeLessThan(r.points[5]!.x);
+    expect(r.points[4]!.x).toBeLessThan(0);
   });
 });

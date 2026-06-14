@@ -4518,3 +4518,973 @@ input.colored-text {
     animation: none;
   }
 }
+
+/* ===== As-Is / To-Be 比較（改善効果サマリ・画面1） ===== */
+/* 業務難易度 H/M/L の色（自動化色 --auto-* と同じ値域・差分専用）。 */
+:root {
+  --diff-h: #c2603f;
+  --diff-m: #d99a2b;
+  --diff-l: #4a9d7a;
+}
+:root[data-theme='dark'] {
+  --diff-h: #d77a57;
+  --diff-m: #e8b15a;
+  --diff-l: #5cb088;
+}
+
+.cmp-modal {
+  width: min(1080px, calc(100vw - 48px));
+  max-width: none;
+}
+.cmp-modal-sub {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-regular);
+  color: var(--muted);
+  margin-left: var(--sp-2);
+}
+.cmp-tabrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0 var(--sp-2);
+}
+.cmp-tab-legend {
+  display: flex;
+  gap: var(--sp-3);
+  margin-left: auto;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.cmp-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cmp-leg .sw {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.cmp-leg .sw.asis {
+  background: var(--line-strong);
+}
+.cmp-leg .sw.tobe {
+  background: var(--accent);
+}
+
+.cmp-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.cmp-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+.cmp-lower {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: var(--sp-3);
+}
+.cmp-card {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+}
+.cmp-card.is-feature {
+  background: var(--panel);
+}
+.cmp-axis-head,
+.cmp-diff-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.cmp-card-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+.cmp-axis-head .ax-title,
+.cmp-card-title {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
+  color: var(--ink);
+}
+.cmp-axis-head .ax-sub {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.cmp-axis-note {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-caption);
+  color: var(--faint);
+  line-height: 1.6;
+}
+
+/* インスペクタ To-Be（改善後）セクション */
+.tobe-section {
+  border-top: 2px solid var(--accent-soft);
+}
+.tobe-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.tobe-head h4 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tobe-badge {
+  font-size: var(--fs-caption);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+/* 設定の機能ラベルに付ける小さな状態バッジ（例: α版）。
+   .settings-toggle span（flex/column）より詳細度を上げて inline 表示を確実にする。 */
+.settings-toggle .settings-badge {
+  display: inline-block;
+  width: auto;
+  margin-left: 6px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  line-height: 1.6;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  vertical-align: middle;
+}
+.tobe-badge.added {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.tobe-copy {
+  margin-left: auto;
+  font-size: var(--fs-caption);
+  padding: 3px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  color: var(--ink);
+  cursor: pointer;
+}
+.tobe-copy:hover {
+  background: var(--hover);
+}
+.seg.tobe-life {
+  display: inline-flex;
+  margin-bottom: var(--sp-2);
+}
+.tobe-delta {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: var(--fs-caption);
+  color: var(--ok);
+  font-variant-numeric: tabular-nums;
+}
+.tobe-dep-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 4px;
+}
+.tobe-dep-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seg.tobe-dep-seg button {
+  padding: 2px 8px;
+  font-size: var(--fs-caption);
+}
+.push {
+  margin-left: auto;
+}
+
+/* Δ ピル */
+.cmp-delta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
+  font-variant-numeric: tabular-nums;
+}
+.cmp-delta.good {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.cmp-delta.bad {
+  color: var(--red);
+  background: var(--red-fill);
+}
+.cmp-delta.flat {
+  color: var(--muted);
+  background: var(--hover);
+}
+.cmp-delta-sm {
+  font-size: var(--fs-caption);
+  padding: 1px 6px;
+}
+.cmp-delta .pct {
+  font-size: var(--fs-caption);
+  opacity: 0.85;
+}
+
+/* 主要数値 As-Is → To-Be */
+.cmp-headline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-variant-numeric: tabular-nums;
+  margin: var(--sp-1) 0 var(--sp-3);
+}
+.cmp-headline .cmp-from {
+  color: var(--muted);
+  font-size: var(--fs-title);
+}
+.cmp-headline .cmp-arrow {
+  color: var(--faint);
+}
+.cmp-headline.big .cmp-to {
+  font-size: 30px;
+  font-weight: var(--fw-strong);
+  color: var(--ink);
+  line-height: 1;
+}
+.cmp-headline .cmp-to .unit {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-regular);
+  color: var(--muted);
+  margin-left: 2px;
+}
+
+/* 比較バー */
+.cmp-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmp-bar-row {
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.cmp-bar-row.emph .cmp-bar-val {
+  font-weight: var(--fw-strong);
+  color: var(--ink);
+}
+.cmp-bar-tag {
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.cmp-bar-track {
+  height: 10px;
+  background: var(--line-faint);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cmp-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+.cmp-bar-fill.asis {
+  background: var(--line-strong);
+}
+.cmp-bar-fill.tobe {
+  background: var(--accent);
+}
+.cmp-bar-val {
+  font-size: var(--fs-label);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* 待ち内訳 */
+.cmp-wait {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmp-wait-cap {
+  display: flex;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.cmp-wait-cap .push {
+  color: var(--faint);
+}
+.cmp-split-row {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.cmp-split-track {
+  display: flex;
+  height: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--line-faint);
+}
+.cmp-split-work {
+  background: var(--accent);
+}
+.cmp-split-wait.lo {
+  background: color-mix(in srgb, var(--red) 55%, transparent);
+}
+.cmp-split-wait.hi {
+  background: var(--red);
+}
+.cmp-wait-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.cmp-wait-legend .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+  margin-right: 4px;
+}
+.cmp-wait-legend .dot.work {
+  background: var(--accent);
+}
+.cmp-wait-legend .dot.wait {
+  background: var(--red);
+}
+.cmp-good {
+  color: var(--ok);
+  font-weight: var(--fw-strong);
+}
+
+/* 難易度の積み上げ */
+.cmp-seg-sm button {
+  padding: 3px 10px;
+  font-size: var(--fs-caption);
+}
+.cmp-diff-metric {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  flex-wrap: wrap;
+}
+.cmp-diff-metric .lead {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+.cmp-diff-metric .val {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cmp-diff-metric .val .from {
+  color: var(--muted);
+  font-weight: var(--fw-regular);
+}
+.cmp-auto-row {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 6px;
+}
+.cmp-auto-track {
+  display: flex;
+  height: 18px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--line-faint);
+}
+.cmp-auto-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.cmp-auto-seg.diff-h {
+  background: var(--diff-h);
+}
+.cmp-auto-seg.diff-m {
+  background: var(--diff-m);
+}
+.cmp-auto-seg.diff-l {
+  background: var(--diff-l);
+}
+.cmp-auto-legend {
+  display: flex;
+  gap: var(--sp-3);
+  list-style: none;
+  padding: 0;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.cmp-auto-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.cmp-auto-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.cmp-auto-dot.diff-h {
+  background: var(--diff-h);
+}
+.cmp-auto-dot.diff-m {
+  background: var(--diff-m);
+}
+.cmp-auto-dot.diff-l {
+  background: var(--diff-l);
+}
+.cmp-auto-delta {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  line-height: 1.6;
+}
+.cmp-auto-delta b {
+  color: var(--ink);
+}
+
+/* 工程別の差分テーブル */
+.cmp-table-wrap {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.cmp-table-cap {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.cmp-table-scroll {
+  max-height: 280px;
+  overflow: auto;
+}
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-label);
+}
+.cmp-table th,
+.cmp-table td {
+  padding: 6px var(--sp-3);
+  text-align: left;
+  border-bottom: 1px solid var(--line-faint);
+}
+.cmp-table th {
+  position: sticky;
+  top: 0;
+  background: var(--hdr);
+  color: var(--muted);
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-caption);
+  z-index: 1;
+}
+.cmp-table td.num,
+.cmp-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cmp-table td.flow {
+  color: var(--muted);
+}
+.cmp-table td b {
+  color: var(--ink);
+  font-weight: var(--fw-strong);
+}
+.cmp-table tr.is-kept td {
+  color: var(--faint);
+}
+.cmp-cut-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.cmp-cut-track {
+  width: 56px;
+  height: 6px;
+  background: var(--line-faint);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cmp-cut-fill {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  border-radius: 999px;
+}
+.cmp-cut-zero {
+  color: var(--faint);
+}
+.cmp-table-foot {
+  padding: var(--sp-2) var(--sp-3);
+  margin: 0;
+  font-size: var(--fs-caption);
+  color: var(--faint);
+  line-height: 1.6;
+  border-top: 1px solid var(--line-faint);
+}
+
+/* 画面4: フロー比較タブ */
+.cmp-view-tabs {
+  margin-left: var(--sp-3);
+}
+.cmp-flow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+}
+.cmp-flow-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cmp-flow-diffchips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cmp-chip {
+  font-size: var(--fs-caption);
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: var(--fw-strong);
+}
+.cmp-chip.added {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.cmp-chip.removed {
+  color: var(--red);
+  background: var(--red-fill);
+}
+.cmp-chip.moved {
+  color: var(--amber-ink);
+  background: var(--amber-fill);
+}
+.cmp-chip.parallel {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.cmp-flow-hint {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.cmp-flow-pane {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas-bg);
+  overflow: hidden;
+}
+.cmp-flow-label {
+  padding: 4px var(--sp-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
+  border-bottom: 1px solid var(--line-faint);
+  background: var(--panel-2);
+}
+.cmp-flow-label.asis {
+  color: var(--muted);
+}
+.cmp-flow-label.tobe {
+  color: var(--accent);
+}
+.cmp-flow-svg {
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--sp-2);
+}
+.cmp-flow-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 画面4: フロー比較レンダラ（FlowCompareView・参照デザイン準拠） */
+.cmp-flowcmp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+}
+.cmp-flow-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.cmp-flow-controls .ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.cmp-flow-controls .ctl-label {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.cmp-flow-controls .push {
+  margin-left: auto;
+}
+.cmp-flowcmp-legend {
+  display: inline-flex;
+  gap: var(--sp-3);
+  align-items: center;
+}
+.cmp-diff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-caption);
+}
+.cmp-diff-legend .dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  border: 1.2px solid var(--line);
+}
+.cmp-diff-legend .dl.new {
+  border-color: var(--accent);
+  color: var(--accent);
+  border-style: dashed;
+}
+.cmp-diff-legend .dl.del {
+  border-color: var(--red);
+  color: var(--red);
+  border-style: dashed;
+  text-decoration: line-through;
+}
+.cmp-diff-legend .dl.move {
+  border-color: var(--amber);
+  color: var(--amber-ink);
+}
+.cmp-diff-legend .dl.unc {
+  opacity: 0.5;
+}
+.cmp-flowsync {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+.cmp-strip + .cmp-strip {
+  border-top: 2px solid var(--line);
+}
+.cmp-strip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px var(--sp-3);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line-faint);
+}
+.cmp-strip-tag {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.cmp-strip-tag.asis {
+  color: var(--muted);
+  background: var(--hover);
+}
+.cmp-strip-tag.tobe {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.cmp-strip-meta {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.cmp-flowgrid-scroll {
+  max-height: 240px;
+  overflow: auto;
+  background: var(--canvas-bg);
+}
+.cmp-flowgrid {
+  position: relative;
+}
+.cmp-ruler {
+  position: absolute;
+  height: 18px;
+}
+.cmp-ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line-faint);
+}
+.cmp-ruler-tick span {
+  position: absolute;
+  top: 0;
+  left: 3px;
+  font-size: 9px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.cmp-lane-row {
+  position: absolute;
+  left: 0;
+}
+.cmp-lane-row.stripe {
+  background: var(--lane-stripe);
+}
+.cmp-lane-line {
+  position: absolute;
+  left: 0;
+  border-top: 1px solid var(--lane-line);
+}
+.cmp-lane-label {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  color: var(--muted);
+  background: var(--lane-col);
+  border-right: 1px solid var(--lane-divider);
+}
+.cmp-flow-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.cmp-cnode-wrap {
+  position: absolute;
+  overflow: visible;
+}
+.cmp-cnode {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.4px solid var(--node-task-border);
+  background: var(--node-task-bg);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: var(--fw-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cmp-cnode .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-cnode.diff-h {
+  background: color-mix(in srgb, var(--diff-h) 20%, var(--panel));
+  border-color: var(--diff-h);
+}
+.cmp-cnode.diff-m {
+  background: color-mix(in srgb, var(--diff-m) 22%, var(--panel));
+  border-color: var(--diff-m);
+}
+.cmp-cnode.diff-l {
+  background: color-mix(in srgb, var(--diff-l) 20%, var(--panel));
+  border-color: var(--diff-l);
+}
+.cmp-cnode.dim {
+  opacity: 0.45;
+}
+.cmp-cnode.changed {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cmp-cnode.deleted {
+  border-style: dashed;
+  border-color: var(--red);
+  background: var(--red-fill);
+  color: var(--muted);
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+.cmp-cnode.added {
+  border-style: dashed;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cmp-cnode.moved {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 40%, transparent);
+}
+.cmp-cnode-tag {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: var(--fw-strong);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  z-index: 4;
+}
+.cmp-cnode-tag.new {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.cmp-cnode-tag.del {
+  color: #fff;
+  background: var(--red);
+}
+.cmp-cnode-tag.move {
+  color: #fff;
+  background: var(--amber);
+}
+.cmp-cnode-lt {
+  position: absolute;
+  bottom: -8px;
+  right: 2px;
+  font-size: 9.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  background: var(--panel);
+  padding: 0 3px;
+  border-radius: 3px;
+  z-index: 4;
+}
+.cmp-ghost {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.4px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.cmp-ghost span {
+  font-size: 9px;
+  color: var(--faint);
+}
+
+/* 画面2b: To-Be 一括入力タブ */
+.cmp-bulk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+}
+.cmp-bulk-cap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
+}
+.cmp-bulk-cap .tobe-copy {
+  margin-left: auto;
+}
+.cmp-bulk-scroll {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.cmp-bulk-table input.cmp-bulk-in,
+.cmp-bulk-table select.cmp-bulk-in {
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--ink);
+  font-size: var(--fs-label);
+  font-family: inherit;
+}
+.cmp-bulk-table input.cmp-bulk-in.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cmp-bulk-table td {
+  vertical-align: middle;
+}
+.cmp-bulk-added-cap {
+  margin-top: var(--sp-4);
+}
+.cmp-del-btn {
+  border: 1px solid var(--line-strong);
+  background: var(--btn-bg);
+  color: var(--danger);
+  border-radius: var(--radius-sm);
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cmp-del-btn:hover {
+  background: var(--danger-soft);
+}
+
+/* 画面3: シナリオ切替（メインのフロー表示） */
+.scenario-seg button.on {
+  color: var(--accent);
+}
+.flow-tobe-ro {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas-bg);
+}
+.flow-tobe-banner {
+  padding: 6px var(--sp-3);
+  font-size: var(--fs-caption);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--line);
+}
+.flow-tobe-svg {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-3);
+}
+.flow-tobe-svg svg {
+  max-width: 100%;
+  height: auto;
+}

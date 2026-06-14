@@ -93,6 +93,12 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
   ];
   if (y1 === y2 && x2 > x1 && crossings(straight, obstacles) === 0) return finish(straight);
 
+  // ---- 後ろ向き(手戻り/差し戻し): ターゲットが左にある(x2 < x1) ----
+  // 前向きの通り道(行内)に重ねると前向き矢印と被って読めないので、全障害物の上 or 下に
+  // 「専用レーン」を取って U 字で迂回する。終端セグメントは必ず右向き(xEntry < x2)にして、
+  // 矢じりがターゲット左辺に入って見えるようにする。
+  if (x2 < x1) return finish(routeBackward(source, target, obstacles, x1, y1, x2, y2));
+
   // ---- 形1: HVH(縦の通り道 midX を選ぶ) ----
   const hvh = (midX: number): Pt[] => [
     { x: x1, y: y1 },
@@ -101,20 +107,30 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
     { x: x2, y: y2 },
   ];
   const defaultMid = (x1 + x2) / 2;
+  // 同じ工程へ入る複数の矢印の「曲がる位置」を揃えるため、ターゲット手前に共通の縦レーン
+  // (entryX = x2 - STUB)を設け、同点(交差数が同じ)ならそこを優先する。これで各エッジは
+  // (entryX, y2) で曲がって左辺へ入る＝曲がり位置が一致し視覚ノイズが減る。
+  // ※ あくまで同点時の選好。ノード回避(score)が最優先なのは変わらない。HVHVH 迂回も m2=entryX で同じ。
+  const entryX = x2 - STUB;
+  // 障害物の x 端を並べ、隣り合う端の中点も通り道候補にする（＝障害物と障害物の「隙間」を通す）。
+  const xEdges = [...new Set(obstacles.flatMap((o) => [o.x - PAD, o.x + o.w + PAD]))].sort((a, b) => a - b);
+  const xGapMids: number[] = [];
+  for (let i = 0; i < xEdges.length - 1; i++) xGapMids.push((xEdges[i]! + xEdges[i + 1]!) / 2);
   const midCandidates = dedupe([
     defaultMid,
     x1 + STUB,
     x2 - STUB,
     // 区間内の障害物の左右脇を通り道の候補にする
     ...obstacles.flatMap((o) => [o.x - PAD * 2, o.x + o.w + PAD * 2]),
-  ]).filter((m) => (x2 >= x1 ? m >= x1 + 4 && m <= x2 - 4 : m <= x1 + 4 && m >= x2 - 4));
+    ...xGapMids,
+  ]).filter((m) => m >= x1 + 4 && m <= x2 - 4); // 後ろ向きは上で早期 return 済 → ここは前向き(x2>x1)のみ
   if (midCandidates.length === 0) midCandidates.push(Math.round(defaultMid));
 
   let best: { points: Pt[]; score: number; tie: number } | null = null;
   for (const m of midCandidates) {
     const pts = hvh(m);
     const score = crossings(pts, obstacles);
-    const tie = Math.abs(m - defaultMid); // 同点なら中央寄りを好む(見た目の安定)
+    const tie = Math.abs(m - entryX); // 同点なら共通の入口レーン(entryX)に寄せる＝曲がり位置を揃える
     if (!best || score < best.score || (score === best.score && tie < best.tie)) {
       best = { points: pts, score, tie };
     }
@@ -125,7 +141,13 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
   const m1 = x1 + STUB;
   const m2 = x2 - STUB;
   const ys = obstacles.flatMap((o) => [o.y - PAD * 2, o.y + o.h + PAD * 2]);
-  const channelCandidates = dedupe([y1, y2, ...ys]);
+  // 障害物の y 端の隙間中点に加え、全障害物の上/下を通る確実な迂回路（必ず横移動が clear）を候補に。
+  const yEdges = [...new Set(obstacles.flatMap((o) => [o.y - PAD, o.y + o.h + PAD]))].sort((a, b) => a - b);
+  const yGapMids: number[] = [];
+  for (let i = 0; i < yEdges.length - 1; i++) yGapMids.push((yEdges[i]! + yEdges[i + 1]!) / 2);
+  const aboveAll = obstacles.length ? Math.min(...obstacles.map((o) => o.y)) - PAD * 2 - 10 : y1;
+  const belowAll = obstacles.length ? Math.max(...obstacles.map((o) => o.y + o.h)) + PAD * 2 + 10 : y2;
+  const channelCandidates = dedupe([y1, y2, ...ys, ...yGapMids, aboveAll, belowAll]);
   for (const cy of channelCandidates) {
     const pts: Pt[] = [
       { x: x1, y: y1 },
@@ -144,4 +166,86 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
   }
 
   return finish(best!.points);
+}
+
+/**
+ * 後ろ向き(手戻り)エッジの U 字迂回経路。
+ * 全障害物 ＋ ソース/ターゲットの行帯の「外側」にレーン(channelY)を取り、行内を走る前向き
+ * 矢印と必ず別の高さを通す。縦の落とし/上げ(xExit/xEntry)は介在ノードを避ける x を選ぶ。
+ *
+ * 形(6点): ソース右辺 →右stub→ 縦↑↓ → channelY を横断 → 縦↓↑ → ターゲット左辺へ右向き進入。
+ *   P0(x1,y1) P1(xExit,y1) P2(xExit,cy) P3(xEntry,cy) P4(xEntry,y2) P5(x2,y2)
+ * 不変条件:
+ *   - xEntry < x2 ⇒ 終端 P4→P5 は右向き ⇒ 共有マーカー(orient=auto)が右を向きターゲット左辺に入る。
+ *   - xEntry はターゲット左辺より左 ⇒ 縦 P3→P4・終端がターゲット本体に被らない。
+ *   - xExit >= x1 ⇒ 出口 stub がソース本体へ戻らない。
+ *   - cy は行帯(両ノード本体を内包)の外 ⇒ 横断レーンが前向き線・両ノードと別の高さ。
+ */
+function routeBackward(
+  source: Rect,
+  target: Rect,
+  obstacles: Rect[],
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): Pt[] {
+  // 行帯はソース/ターゲット本体を必ず内包する高さにし、レーンをその外へ出す(本体クリップ防止)。
+  const BAND = Math.max(STUB, Math.max(source.h, target.h) / 2 + PAD);
+  const rowLo = Math.min(y1, y2) - BAND;
+  const rowHi = Math.max(y1, y2) + BAND;
+
+  // レーン候補: 全障害物の上 / 下(障害物が無ければ行帯の外)。行帯に食い込んだら外へ押し出す。
+  let aboveAll = obstacles.length ? Math.min(...obstacles.map((o) => o.y)) - PAD * 2 - 10 : rowLo - 24;
+  let belowAll = obstacles.length ? Math.max(...obstacles.map((o) => o.y + o.h)) + PAD * 2 + 10 : rowHi + 24;
+  if (aboveAll > rowLo) aboveAll = rowLo - 12;
+  if (belowAll < rowHi) belowAll = rowHi + 12;
+  // 障害物どうしの隙間の中点も候補に加える(行帯の外に出るものだけ)。上下の全迂回より短く通れる
+  // レーンがあれば選べるようにし、無駄な大回りを避ける。最終選択は「交差数→経路長」で行う(下のループ)。
+  const yEdges = [...new Set(obstacles.flatMap((o) => [o.y - PAD, o.y + o.h + PAD]))].sort((a, b) => a - b);
+  const yGapMids: number[] = [];
+  for (let i = 0; i < yEdges.length - 1; i++) yGapMids.push((yEdges[i]! + yEdges[i + 1]!) / 2);
+  const channelCands = dedupe([aboveAll, belowAll, ...yGapMids]).filter((cy) => cy <= rowLo || cy >= rowHi);
+
+  // 縦の通り道 x。出口はソース右辺より右(>= x1)、入口はターゲット左辺より左(< x2)に限定。
+  const inRange = (v: number) => v >= Math.min(x1, x2) - STUB * 3 && v <= Math.max(x1, x2) + STUB * 3;
+  const obstacleXs = obstacles.flatMap((o) => [o.x - PAD * 2, o.x + o.w + PAD * 2]);
+  // 既定値に近い順に最大 10 件へ絞る(縦が増えても計算量を抑える。既定は距離 0 で必ず残る)。
+  const nearest = (cands: number[], to: number): number[] =>
+    [...new Set(cands.map((v) => Math.round(v)))].sort((a, b) => Math.abs(a - to) - Math.abs(b - to)).slice(0, 10);
+
+  const defaultExit = x1 + STUB;
+  let xExitCands = nearest([defaultExit, ...obstacleXs].filter((v) => inRange(v) && v >= x1), defaultExit);
+  if (xExitCands.length === 0) xExitCands = [Math.round(defaultExit)];
+
+  // 隣接列でも終端が「長さ>0 の右向き」になるようクランプ。
+  const ENTRY = Math.max(1, Math.min(STUB, Math.round((x1 - x2) / 2) - PAD));
+  const defaultEntry = x2 - ENTRY;
+  let xEntryCands = nearest([defaultEntry, ...obstacleXs].filter((v) => inRange(v) && v < x2), defaultEntry);
+  if (xEntryCands.length === 0) xEntryCands = [Math.round(defaultEntry)];
+
+  let best: { points: Pt[]; score: number; tie: number } | null = null;
+  for (const cy of channelCands) {
+    for (const xExit of xExitCands) {
+      for (const xEntry of xEntryCands) {
+        const pts: Pt[] = [
+          { x: x1, y: y1 },
+          { x: xExit, y: y1 },
+          { x: xExit, y: cy },
+          { x: xEntry, y: cy },
+          { x: xEntry, y: y2 },
+          { x: x2, y: y2 },
+        ];
+        const score = crossings(pts, obstacles);
+        // 同点(交差数が同じ)なら最短経路を選ぶ: 縦移動の短いチャネル＋既定の通り道
+        // (= 最短 stub・入口整列)。前提(被らない/矢じり右向き/入口整列)は形が保証する。
+        const tie =
+          Math.abs(cy - y1) + Math.abs(cy - y2) + Math.abs(xExit - defaultExit) + Math.abs(xEntry - defaultEntry);
+        if (!best || score < best.score || (score === best.score && tie < best.tie)) {
+          best = { points: pts, score, tie };
+        }
+      }
+    }
+  }
+  return best!.points;
 }

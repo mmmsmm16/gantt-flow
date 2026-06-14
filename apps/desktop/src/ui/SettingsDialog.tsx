@@ -61,6 +61,8 @@ export function SettingsDialog() {
   const setSingleKey = useUI((s) => s.setSingleKey);
   const minimap = useUI((s) => s.minimap);
   const toggleMinimap = useUI((s) => s.toggleMinimap);
+  const tobeEnabled = useUI((s) => s.tobeEnabled);
+  const setTobeEnabled = useUI((s) => s.setTobeEnabled);
   const close = () => useUI.getState().setOverlay(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -140,7 +142,7 @@ export function SettingsDialog() {
                   onChange={(e) => setSingleKey(e.target.checked)}
                 />
                 <span>
-                  <strong>シングルキー操作（Vim 風）を有効にする</strong>
+                  <strong>シングルキー操作を有効にする</strong>
                   <small>
                     j/k で行移動、n で工程追加、c で接続、g t/g f で画面移動などの
                     修飾キーなしの操作を有効化します。OFF でも矢印キー・Enter・Ctrl/⌘ 系の操作は使えます。
@@ -156,6 +158,19 @@ export function SettingsDialog() {
                 <span>
                   <strong>ミニマップを表示する</strong>
                   <small>フロー右下の全体俯瞰マップ。大きな図で現在地を確認しながら移動できます。</small>
+                </span>
+              </label>
+            </section>
+
+            <section className="settings-section">
+              <h4>改善提案（α版）</h4>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={tobeEnabled} onChange={(e) => setTobeEnabled(e.target.checked)} />
+                <span>
+                  <strong>
+                    As-Is / To-Be 比較を使う<span className="settings-badge">α版</span>
+                  </strong>
+                  <small>現状(As-Is)と改善後(To-Be)を、工数とリードタイムの2軸で比較する機能。ツールバーに「比較」ボタンが出ます。まだ開発中の α 版で、仕様や表示は変わることがあります（既定オフ）。</small>
                 </span>
               </label>
             </section>

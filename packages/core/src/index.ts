@@ -14,6 +14,7 @@ export * from './sync/edgeRoute';
 export * from './history/history';
 export * from './validate';
 export * from './metrics';
+export * from './compare';
 export * from './import/importCsv';
 export * from './export/exportRows';
 export * from './sample';

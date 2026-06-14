@@ -60,6 +60,11 @@ export function Inspector() {
   const removeDependency = useApp((s) => s.removeDependency);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
   const setTaskLevel = useApp((s) => s.setTaskLevel);
+  const updateToBe = useApp((s) => s.updateToBe);
+  const copyAsIsToToBe = useApp((s) => s.copyAsIsToToBe);
+  const addToBePredecessor = useApp((s) => s.addToBePredecessor);
+  const removeToBePredecessor = useApp((s) => s.removeToBePredecessor);
+  const tobeEnabled = useUI((s) => s.tobeEnabled);
 
   if (!taskId) return null;
   const task = project.core.tasks[taskId];
@@ -470,6 +475,155 @@ export function Inspector() {
             onBlur={(e) => commitOptText(d?.regulation, e.target.value, (v) => updateDetail(taskId, { regulation: v }))}
           />
         </section>
+
+        {tobeEnabled &&
+          (() => {
+            const tb = d?.toBe;
+            const removed = tb?.lifecycle === 'removed';
+            const added = tb?.lifecycle === 'added';
+            const asisEffH = d?.effortMinutes != null ? d.effortMinutes / 60 : undefined;
+            const tobeEffH = tb?.effortMinutes != null ? tb.effortMinutes / 60 : undefined;
+            const asisLt = d?.ltDays;
+            const tobeLt = tb?.ltDays;
+            const r1 = (v: number) => Math.round(v * 10) / 10;
+            const sd = (v: number, u: string) => `${v > 0 ? '+' : '−'}${Math.abs(r1(v))}${u}`;
+            const assignees = Object.values(project.core.assignees);
+            return (
+              <section className="section tobe-section" key={`tobe-${taskId}-${JSON.stringify(tb ?? {})}`}>
+                <div className="tobe-head">
+                  <h4>To-Be（改善後）{added && <span className="tobe-badge added">新規</span>}</h4>
+                  <button className="tobe-copy" onClick={() => copyAsIsToToBe(taskId)} title="As-Is の現状値を To-Be の起点へコピー">
+                    現状を複製
+                  </button>
+                </div>
+                {!added && (
+                  <>
+                    <label>状態</label>
+                    <div className="seg tobe-life">
+                      <button className={!removed ? 'on' : ''} onClick={() => updateToBe(taskId, { lifecycle: undefined })}>維持</button>
+                      <button className={removed ? 'on' : ''} onClick={() => updateToBe(taskId, { lifecycle: 'removed' })}>廃止</button>
+                    </div>
+                  </>
+                )}
+                {!removed && (
+                  <>
+                    <div className="two-col">
+                      <div>
+                        <label>To-Be 工数（時間）</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={tobeEffH ?? ''}
+                          placeholder={asisEffH != null ? `現状 ${r1(asisEffH)}h` : '—'}
+                          onBlur={(e) =>
+                            updateToBe(taskId, {
+                              effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined,
+                            })
+                          }
+                        />
+                        {tobeEffH != null && asisEffH != null && tobeEffH !== asisEffH && (
+                          <small className="tobe-delta">{sd(tobeEffH - asisEffH, 'h')}</small>
+                        )}
+                      </div>
+                      <div>
+                        <label>To-Be リードタイム（日）</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={tobeLt ?? ''}
+                          placeholder={asisLt != null ? `現状 ${asisLt}日` : '—'}
+                          onBlur={(e) =>
+                            updateToBe(taskId, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })
+                          }
+                        />
+                        {tobeLt != null && asisLt != null && tobeLt !== asisLt && (
+                          <small className="tobe-delta">{sd(tobeLt - asisLt, '日')}</small>
+                        )}
+                      </div>
+                    </div>
+                    <div className="two-col">
+                      <div>
+                        <label>To-Be 難易度</label>
+                        <select
+                          defaultValue={tb?.difficulty ?? ''}
+                          onChange={(e) => updateToBe(taskId, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}
+                        >
+                          <option value="">（現状と同じ）</option>
+                          <option value="H">H</option>
+                          <option value="M">M</option>
+                          <option value="L">L</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label>To-Be 担当（移動）</label>
+                        <select
+                          defaultValue={tb?.assigneeId ?? ''}
+                          onChange={(e) => updateToBe(taskId, { assigneeId: e.target.value || undefined })}
+                        >
+                          <option value="">（現状と同じ）</option>
+                          {assignees.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <label>根拠（なぜ達成できるか）</label>
+                <textarea
+                  defaultValue={tb?.rationale ?? ''}
+                  rows={2}
+                  onBlur={(e) => updateToBe(taskId, { rationale: e.target.value.trim() || undefined })}
+                />
+                <label>前工程（To-Be）</label>
+                {(() => {
+                  // To-Be の前工程 = As-Is専用('asis')でない依存（両方/tobe）。直接 追加・削除できる。
+                  const tobePreds = deps.filter((dp) => dp.to === taskId && dp.phase !== 'asis');
+                  const tobePredIds = new Set(tobePreds.map((dp) => dp.from));
+                  const cands = Object.values(project.core.tasks).filter(
+                    (o) => o.id !== taskId && o.level === task.level && !tobePredIds.has(o.id),
+                  );
+                  return (
+                    <>
+                      {tobePreds.length === 0 && <p className="hint">なし（To-Be では先頭から開始）</p>}
+                      {tobePreds.map((dp) => (
+                        <div className="dep-row" key={`tobe-${dp.from}`}>
+                          <span className="dep-name">{nameOf(dp.from)}</span>
+                          <button
+                            className="x"
+                            aria-label="To-Be の前工程から外す"
+                            title="To-Be の前工程から外す（As-Is は保持＝並行化）"
+                            onClick={() => removeToBePredecessor(taskId, dp.from)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      {cands.length > 0 && (
+                        <select
+                          className="dep-add"
+                          value=""
+                          aria-label="To-Be 前工程を追加"
+                          onChange={(e) => {
+                            if (e.target.value) addToBePredecessor(taskId, e.target.value);
+                          }}
+                        >
+                          <option value="">＋ To-Be 前工程を追加…</option>
+                          {cands.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </>
+                  );
+                })()}
+              </section>
+            );
+          })()}
       </div>
     </aside>
   );
