@@ -7,3 +7,10 @@ target/
 crates/fsstore/Cargo.lock
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/Cargo.lock
+
+# design-sync (claude.ai/design 同期)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
