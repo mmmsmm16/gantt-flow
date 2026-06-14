@@ -29,11 +29,21 @@ describe('routeEdge: 直角経路のノード回避', () => {
     expect(r.points[1]).toEqual({ x: 300, y: 122 });
   });
 
-  it('障害物なしの段違いは従来どおり中央の HVH(4点)', () => {
+  it('障害物なしの段違いは HVH(4点)・縦はターゲット手前の共通入口レーン(x2-STUB)で曲がる', () => {
     const r = routeEdge(R(0, 0), R(400, 200), []);
     expect(r.points).toHaveLength(4);
-    expect(r.points[1]!.x).toBe(260); // (120+400)/2
+    expect(r.points[1]!.x).toBe(384); // entryX = x2(400) - STUB(16) ＝ 同じ工程に入る矢印で揃う位置
     expect(r.d.startsWith('M120,22')).toBe(true);
+  });
+
+  it('同じ工程へ入る複数の矢印は同じ x(共通入口レーン)で曲がる', () => {
+    // 別々の高さ・別々の出発点から同一ターゲットへ入る 2 本。曲がる縦の x が一致すること。
+    const target = R(400, 100);
+    const a = routeEdge(R(0, 0), target, []); // 上から
+    const b = routeEdge(R(0, 200), target, []); // 下から
+    const bendX = (pts: Pt[]) => pts[pts.length - 2]!.x; // 終端の直前＝左辺へ入る縦の x
+    expect(bendX(a.points)).toBe(bendX(b.points));
+    expect(bendX(a.points)).toBe(400 - 16); // entryX
   });
 
   it('既定の縦通り道が障害物に当たるときは midX をずらして回避する', () => {
@@ -79,7 +89,7 @@ describe('routeEdge: 直角経路のノード回避', () => {
 
   it('ラベル位置は経路の中央セグメントの中点', () => {
     const r = routeEdge(R(0, 0), R(400, 200), []);
-    expect(r.label).toEqual({ x: 260, y: 122 }); // 縦セグメントの中点
+    expect(r.label).toEqual({ x: 384, y: 122 }); // 縦セグメント(x=entryX=384)の中点
   });
 });
 

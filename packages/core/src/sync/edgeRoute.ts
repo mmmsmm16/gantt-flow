@@ -107,6 +107,11 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
     { x: x2, y: y2 },
   ];
   const defaultMid = (x1 + x2) / 2;
+  // 同じ工程へ入る複数の矢印の「曲がる位置」を揃えるため、ターゲット手前に共通の縦レーン
+  // (entryX = x2 - STUB)を設け、同点(交差数が同じ)ならそこを優先する。これで各エッジは
+  // (entryX, y2) で曲がって左辺へ入る＝曲がり位置が一致し視覚ノイズが減る。
+  // ※ あくまで同点時の選好。ノード回避(score)が最優先なのは変わらない。HVHVH 迂回も m2=entryX で同じ。
+  const entryX = x2 - STUB;
   // 障害物の x 端を並べ、隣り合う端の中点も通り道候補にする（＝障害物と障害物の「隙間」を通す）。
   const xEdges = [...new Set(obstacles.flatMap((o) => [o.x - PAD, o.x + o.w + PAD]))].sort((a, b) => a - b);
   const xGapMids: number[] = [];
@@ -125,7 +130,7 @@ export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRo
   for (const m of midCandidates) {
     const pts = hvh(m);
     const score = crossings(pts, obstacles);
-    const tie = Math.abs(m - defaultMid); // 同点なら中央寄りを好む(見た目の安定)
+    const tie = Math.abs(m - entryX); // 同点なら共通の入口レーン(entryX)に寄せる＝曲がり位置を揃える
     if (!best || score < best.score || (score === best.score && tie < best.tie)) {
       best = { points: pts, score, tie };
     }
