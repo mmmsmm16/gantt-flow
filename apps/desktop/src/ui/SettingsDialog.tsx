@@ -142,7 +142,7 @@ export function SettingsDialog() {
                   onChange={(e) => setSingleKey(e.target.checked)}
                 />
                 <span>
-                  <strong>シングルキー操作（Vim 風）を有効にする</strong>
+                  <strong>シングルキー操作を有効にする</strong>
                   <small>
                     j/k で行移動、n で工程追加、c で接続、g t/g f で画面移動などの
                     修飾キーなしの操作を有効化します。OFF でも矢印キー・Enter・Ctrl/⌘ 系の操作は使えます。
@@ -163,12 +163,14 @@ export function SettingsDialog() {
             </section>
 
             <section className="settings-section">
-              <h4>改善提案（実験的）</h4>
+              <h4>改善提案（α版）</h4>
               <label className="settings-toggle">
                 <input type="checkbox" checked={tobeEnabled} onChange={(e) => setTobeEnabled(e.target.checked)} />
                 <span>
-                  <strong>As-Is / To-Be 比較を使う</strong>
-                  <small>現状(As-Is)と改善後(To-Be)を、工数とリードタイムの2軸で比較する機能。ツールバーに「比較」ボタンが出ます（既定オフ・開発中）。</small>
+                  <strong>
+                    As-Is / To-Be 比較を使う<span className="settings-badge">α版</span>
+                  </strong>
+                  <small>現状(As-Is)と改善後(To-Be)を、工数とリードタイムの2軸で比較する機能。ツールバーに「比較」ボタンが出ます。まだ開発中の α 版で、仕様や表示は変わることがあります（既定オフ）。</small>
                 </span>
               </label>
             </section>

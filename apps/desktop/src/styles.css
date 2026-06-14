@@ -4646,6 +4646,21 @@ input.colored-text {
   padding: 1px 7px;
   border-radius: 999px;
 }
+/* 設定の機能ラベルに付ける小さな状態バッジ（例: α版）。
+   .settings-toggle span（flex/column）より詳細度を上げて inline 表示を確実にする。 */
+.settings-toggle .settings-badge {
+  display: inline-block;
+  width: auto;
+  margin-left: 6px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  line-height: 1.6;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  vertical-align: middle;
+}
 .tobe-badge.added {
   color: var(--accent);
   background: var(--accent-soft);
