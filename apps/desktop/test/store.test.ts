@@ -18,6 +18,45 @@ const depPairs = (s: ReturnType<typeof createAppStore>) =>
     })
     .sort();
 
+describe('reloadFromExternal（外部変更の片方向ライブ反映）', () => {
+  it('外部の更新を反映し、選択を保ち、dirty=false（保存済みベース）になる', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    s.getState().addTask('出荷');
+    const keepId = idByName(s, '受付');
+    s.getState().select(keepId);
+
+    // 外部プロセスがファイルへ書いた結果を別ストアで作る（受付/出荷 ＋ 検品 を追加）。
+    const s2 = createAppStore();
+    s2.getState().loadProject(deserializeProject(serializeProject(s.getState().project)));
+    s2.getState().addTask('検品');
+    const externalOnDisk = deserializeProject(serializeProject(s2.getState().project));
+
+    s.getState().reloadFromExternal(externalOnDisk);
+
+    expect(Object.values(s.getState().project.core.tasks).map((t) => t.name).sort()).toEqual(
+      ['出荷', '受付', '検品'],
+    );
+    expect(s.getState().selectedTaskId).toBe(keepId); // 残っている選択は維持
+    expect(s.getState().dirty).toBe(false); // 外部反映後は保存済み扱い
+    expect(s.getState().canUndo).toBe(false); // undo 履歴はリセット
+  });
+
+  it('選択中の工程が外部更新で消えていたら選択は解除される', () => {
+    const s = createAppStore();
+    s.getState().addTask('一時');
+    const gone = idByName(s, '一時');
+    s.getState().select(gone);
+
+    const s2 = createAppStore(); // 空（= 一時工程は無い）
+    const external = deserializeProject(serializeProject(s2.getState().project));
+    s.getState().reloadFromExternal(external);
+
+    expect(s.getState().selectedTaskId).toBeUndefined();
+    expect(s.getState().dirty).toBe(false);
+  });
+});
+
 describe('app store（command → reconcile → history）', () => {
   it('作業追加でフローにノードが出て、undo/redo できる', () => {
     const s = createAppStore();

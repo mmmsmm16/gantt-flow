@@ -295,6 +295,9 @@ export interface AppState {
    *（保存処理中に入った編集は未保存のまま）。省略時は現在の状態を保存済みとする。 */
   markSaved: (saved?: Project) => void;
   loadProject: (project: Project) => void;
+  /** 外部（MCP/AI など別プロセス）でファイルが更新されたときの再読込。
+   *  現在のビュー(level/scope)と選択を可能な限り保ったまま、保存済みベースとして差し替える。 */
+  reloadFromExternal: (project: Project) => void;
   importCsvText: (text: string) => ImportReport;
   importRows: (rows: string[][]) => ImportReport;
   newProject: () => void;
@@ -1225,6 +1228,19 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     loadProject: (project) => {
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId);
+    },
+    reloadFromExternal: (project) => {
+      // 現在見ているビューが新ファイルにも在れば維持（無ければ先頭ビューへフォールバック）。
+      const { level, scopeParentId, selectedTaskId } = get();
+      const keepView = project.flow.byLevel.some(
+        (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
+      );
+      const first = project.flow.byLevel[0];
+      const lv = keepView ? level : first?.level ?? 'medium';
+      const sc = keepView ? scopeParentId : first?.scopeParentId;
+      adopt(project, lv, sc); // 保存済みベース（dirty=false）。undo 履歴はリセットされる。
+      // 選択していた工程が残っていれば選択を復元（ハイライト/インスペクタの飛びを抑える）。
+      if (selectedTaskId && project.core.tasks[selectedTaskId]) set({ selectedTaskId });
     },
     restoreProject: (project) => {
       const first = project.flow.byLevel[0];
