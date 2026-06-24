@@ -3,7 +3,7 @@ import { createAppStore } from '../src/store';
 import { prevCandidates, buildPrevCandidateIndex, collectIoNames } from '../src/suggestions';
 
 describe('suggestions: prevCandidates', () => {
-  it('同じ親・同じ粒度の兄弟だけが候補になり、既存の前後関係(両向き)は除外される', () => {
+  it('同じ粒度の工程が候補になり、既存の前後関係(両向き)・粒度違いは除外される', () => {
     const s = createAppStore();
     s.getState().addTask('A');
     s.getState().addTask('B');
@@ -28,17 +28,20 @@ describe('suggestions: prevCandidates', () => {
     expect(prevCandidates(s.getState().project, a.id)).toHaveLength(0);
   });
 
-  it('親が違う工程は候補に出ない', () => {
+  it('同じ粒度なら別の親グループの工程も候補に出る（粒度跨ぎは出ない）', () => {
     const s = createAppStore();
     s.getState().addRootTask('large');
     const l1 = Object.values(s.getState().project.core.tasks)[0]!;
-    s.getState().addChildTask(l1.id);
-    s.getState().addChildTask(l1.id);
-    s.getState().addRootTask('medium'); // ルート直下の中工程(親が違う)
+    s.getState().addChildTask(l1.id); // 中工程(親=l1)
+    s.getState().addChildTask(l1.id); // 中工程(親=l1)
+    const rootMediumId = s.getState().addRootTask('medium')!; // ルート直下の中工程(親が違う)
     const children = Object.values(s.getState().project.core.tasks).filter((t) => t.parentId === l1.id);
     expect(children).toHaveLength(2);
     const cands = prevCandidates(s.getState().project, children[0]!.id);
-    expect(cands.map((t) => t.id)).toEqual([children[1]!.id]); // 兄弟のみ
+    // 兄弟(children[1]) と 別グループの中工程(rootMedium) の両方が同粒度候補に出る（仕様拡大）
+    expect(cands.map((t) => t.id).sort()).toEqual([children[1]!.id, rootMediumId].sort());
+    // 大工程(l1)は粒度が違うので候補に出ない
+    expect(cands.map((t) => t.id)).not.toContain(l1.id);
   });
 });
 
@@ -73,6 +76,18 @@ describe('suggestions: buildPrevCandidateIndex（前工程候補の前計算）'
     for (const id of Object.keys(p.core.tasks)) {
       expect(candidatesFor(id).map((t) => t.id)).toEqual(prevCandidates(p, id).map((t) => t.id));
     }
+  });
+
+  it('別の親グループの同粒度工程もインデックスの候補に含まれる（widening が前計算側にも効く）', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('large');
+    const l1 = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().addRootTask('large');
+    const l2 = Object.values(s.getState().project.core.tasks).filter((t) => t.level === 'large')[1]!;
+    const a1 = s.getState().addChildTask(l1.id)!; // 中工程(親=l1)
+    const b1 = s.getState().addChildTask(l2.id)!; // 中工程(親=l2・別グループ)
+    const candidatesFor = buildPrevCandidateIndex(s.getState().project);
+    expect(candidatesFor(a1).map((t) => t.id)).toContain(b1);
   });
 
   it('存在しない工程は空配列（prevCandidates と同じ）', () => {

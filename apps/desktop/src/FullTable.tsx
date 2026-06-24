@@ -7,7 +7,8 @@ import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dep
 import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
-import { parseEffortHoursToMinutes } from './parseEffort';
+import { PrevCandidateOptions } from './PrevCandidateOptions';
+import { validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
@@ -331,11 +332,19 @@ export function FullTable() {
     'name',
     ...FT_COLUMNS.filter((c) => c.cursorable && vis(c.key)).map((c) => c.key),
   ];
+  // 末尾ゴースト行: 最終行と同じ親・粒度で新規工程を起こし、その作業名入力へフォーカス（連続入力）。
+  const addGhostRow = () => {
+    const last = rows[rows.length - 1];
+    if (!last) return;
+    const nid = addSiblingOf(last.id);
+    if (nid) setFocusTask(nid);
+  };
   const { colIdx, editNavKeyDown } = useRowSelectionKeys({
     enabled: activePane === 'table',
     orderedIds: rows.map((t) => t.id),
     columns: cursorColumns,
     beginEdit: (id) => setFocusTask(id), // 自粒度の作業名入力へ(未描画なら描画数を広げて待つ)
+    onEditNavPastEnd: addGhostRow, // 最終行で Enter 下移動 → 末尾に新規行を起こす
   });
   const cursorCol = cursorColumns[colIdx];
   const cellCursorCls = (taskId: Id, key: string) =>
@@ -735,11 +744,10 @@ export function FullTable() {
                             onChange={(e) => e.target.value && addDependency(e.target.value, t.id)}
                           >
                             <option value="">＋</option>
-                            {prevCands.map((o) => (
-                              <option key={o.id} value={o.id}>
-                                {o.name}
-                              </option>
-                            ))}
+                            <PrevCandidateOptions
+                              candidates={prevCands}
+                              parentName={(pid) => (pid ? (byId[pid]?.name ?? '別グループ') : '最上位')}
+                            />
                           </select>
                         )}
                       </div>
@@ -765,14 +773,15 @@ export function FullTable() {
                           aria-label="工数（時間）"
                           key={`eff-${d?.effortMinutes ?? ''}`}
                           onBlur={(e) => {
-                            const minutes = parseEffortHoursToMinutes(e.target.value);
-                            if (minutes === null) {
-                              // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す（インスペクタと同じ規約）。
-                              e.target.value = d?.effortMinutes != null ? String(d.effortMinutes / 60) : '';
-                              useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                            const res = validateEffort(e.target.value);
+                            if (!res.ok) {
+                              // 不正値（数値でない・負・無限大）: 打った文字は残し、セルを不正表示にして
+                              // commit だけブロックする（無音で値を破棄せず、修正を促す）。
+                              markEffortInvalid(e.target, res.message);
                               return;
                             }
-                            if (minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: minutes });
+                            clearEffortInvalid(e.target);
+                            if (res.minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
                           }}
                         />
                       )}
@@ -906,6 +915,13 @@ export function FullTable() {
               </tr>
             );
           })}
+          {/* 末尾ゴースト行: Excel 流に「一番下の空行へ直接入力」できる入口。絞り込み中・逐次レンダ
+              の途中は出さない（追加行がフィルタに合致しない・末尾でない混乱を避ける）。 */}
+          {!hasMore && !filterActive && rows.length > 0 && (
+            <tr className="ft-ghost" onClick={addGhostRow}>
+              <td colSpan={visibleCols.length}>＋ 新しい工程…</td>
+            </tr>
+          )}
         </tbody>
       </table>
       {filterActive && rows.length === 0 && (

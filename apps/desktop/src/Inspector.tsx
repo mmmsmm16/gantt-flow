@@ -3,8 +3,9 @@ import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLeve
 import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
-import { parseEffortHoursToMinutes } from './parseEffort';
+import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
 import { collectIoNames, prevCandidates } from './suggestions';
+import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
 
 // 色スウォッチの 1 行(塗り/文字色で共用)。選択中は枠で強調、「なし」で解除。
@@ -215,14 +216,14 @@ export function Inspector() {
               placeholder="h"
               defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
               onBlur={(e) => {
-                const minutes = parseEffortHoursToMinutes(e.target.value);
-                if (minutes === null) {
-                  // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す。
-                  e.target.value = d?.effortMinutes != null ? String(d.effortMinutes / 60) : '';
-                  useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                const res = validateEffort(e.target.value);
+                if (!res.ok) {
+                  // 不正値: 打った文字は残し、セルを不正表示にして commit だけブロック（修正を促す）。
+                  markEffortInvalid(e.target, res.message);
                   return;
                 }
-                if (minutes !== d?.effortMinutes) updateDetail(taskId, { effortMinutes: minutes });
+                clearEffortInvalid(e.target);
+                if (res.minutes !== d?.effortMinutes) updateDetail(taskId, { effortMinutes: res.minutes });
               }}
             />
           )}
@@ -261,11 +262,10 @@ export function Inspector() {
               }}
             >
               <option value="">＋ 前工程を追加…</option>
-              {depCandidates.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
+              <PrevCandidateOptions
+                candidates={depCandidates}
+                parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
+              />
             </select>
           )}
 
@@ -295,11 +295,10 @@ export function Inspector() {
               }}
             >
               <option value="">＋ 次工程を追加…</option>
-              {depCandidates.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
+              <PrevCandidateOptions
+                candidates={depCandidates}
+                parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
+              />
             </select>
           )}
         </section>

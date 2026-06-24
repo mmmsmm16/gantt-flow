@@ -7,3 +7,31 @@ export function parseEffortHoursToMinutes(raw: string): number | undefined | nul
   const minutes = Math.round(Number(raw) * 60);
   return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
 }
+
+export const EFFORT_RULE_MESSAGE = '工数は 0 以上の数値（時間）で入力してください';
+
+// 工数入力の検証結果。ビュー側はこれで「値を残したまま不正表示し、commit だけブロック」を統一実装する。
+// ok=true のとき minutes は確定値（空欄は undefined＝解除）。ok=false は不正値で commit しない。
+export type EffortValidation =
+  | { ok: true; minutes: number | undefined }
+  | { ok: false; message: string };
+
+export function validateEffort(raw: string): EffortValidation {
+  const minutes = parseEffortHoursToMinutes(raw);
+  if (minutes === null) return { ok: false, message: EFFORT_RULE_MESSAGE };
+  return { ok: true, minutes };
+}
+
+// 工数セルを不正表示にする（値は残し、aria-invalid と .invalid を付与、title に理由）。
+// 表・全項目表・インスペクタの3箇所で同じ挙動にするための共通ヘルパ。
+export function markEffortInvalid(input: HTMLInputElement, message: string): void {
+  input.setAttribute('aria-invalid', 'true');
+  input.classList.add('invalid');
+  input.title = message;
+}
+
+export function clearEffortInvalid(input: HTMLInputElement): void {
+  input.removeAttribute('aria-invalid');
+  input.classList.remove('invalid');
+  input.title = '';
+}

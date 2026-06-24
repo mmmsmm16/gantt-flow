@@ -249,8 +249,8 @@ export interface AppState {
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
   moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
-  /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。 */
-  addTaskAt: (x: number, y: number) => void;
+  /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。作成 ID を返す。 */
+  addTaskAt: (x: number, y: number) => Id | undefined;
   /** 並行工程を追加（前工程のみコピー）。フロー上は基準ノードの直下の空きへ配置。1 undo。 */
   addParallel: (taskId: Id) => Id | undefined;
   /** 既存工程を基準工程と並行にする（依存を付け替え、旧チェーンは直結で修復）。1 undo。 */
@@ -261,6 +261,10 @@ export interface AppState {
   /** 矢印の途中に工程を挿入（A→B を A→新規→B に分割）。導出エッジは依存を分割し、
       pinned エッジは 2 本に張り直す。作成 ID を返す。1 undo 単位。 */
   insertTaskOnEdge: (edgeId: Id) => Id | undefined;
+  /** 接続ドラッグを空白で離したとき: ドロップ位置に工程を新規作成し、起点からの接続まで
+      1 undo で行う。起点が工程ノードなら依存（前後関係）、制御ノード等なら pinned エッジ。
+      作成 ID を返す（直後にその場リネームを開始する用途）。 */
+  connectToNew: (sourceNodeId: FlowNodeId, x: number, y: number) => Id | undefined;
   /** 制御ノードを追加。x,y を渡せばその位置（例: 画面中央）に置く。省略時は左上に段積み。 */
   addControlNode: (control: ControlKind, x?: number, y?: number) => void;
   /** 付箋を追加。x,y を渡せばその位置に置く。省略時は既定位置に段積み。 */
@@ -817,6 +821,50 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       }
       history.push(p);
       sync({ selectedTaskId: newId });
+      return newId;
+    },
+
+    // 接続ドラッグを空白で離したとき: ドロップ位置に工程を作成し、起点から接続する。
+    // 工程ノード起点なら依存（前後関係＝同粒度。reconcile で導出エッジが張られる）、制御ノード
+    // 等の起点なら pinned エッジ。作成・接続・配置を 1 スナップショットに集約（addTaskAt と同じ
+    // 「1 操作 = 1 undo」パターン）。
+    connectToNew: (sourceNodeId, x, y) => {
+      const { level, scopeParentId } = get();
+      const cur = get().project;
+      const view0 = findView(cur, level, scopeParentId);
+      const sNode = view0?.nodes[sourceNodeId];
+      if (!sNode) return undefined;
+      const laneOrder = view0 ? nearestLaneOrder(view0.lanes, y) : 0;
+      const lane = view0
+        ? Object.values(view0.lanes).find((l) => l.order === laneOrder)
+        : undefined;
+      // 起点が工程ノードなら同粒度の依存にできる。それ以外（制御ノード等）は pinned エッジ。
+      const isTaskSource = sNode.kind === 'task' && !!cur.core.tasks[sNode.taskId];
+      const newId = uuid();
+      let p = cAddTask(
+        cur,
+        { name: '新規工程', level, parentId: scopeParentId, assigneeId: lane?.assigneeId, id: newId },
+        uuid,
+      );
+      // 依存は reconcile の前に張り、導出エッジを新 id で生成させる（addTaskNextTo と同手順）。
+      if (isTaskSource) p = cAddDependency(p, sNode.taskId, newId, uuid);
+      p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
+      const view = findView(p, level, scopeParentId);
+      const node = view
+        ? Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === newId)
+        : undefined;
+      if (node) {
+        node.x = Math.round(x);
+        node.y = Math.round(y);
+      }
+      // 制御ノード等の起点は依存にならないので pinned エッジを直書き（connect と同じ規約）。
+      if (!isTaskSource && view && node) {
+        const eid = uuid();
+        view.edges[eid] = { id: eid, source: sourceNodeId, target: node.id, pinned: true, role: 'flow' };
+      }
+      history.push(p);
+      sync({ selectedTaskId: newId });
+      return newId;
     },
 
     // 並行工程を追加。コマンド適用 → reconcile でノード生成 → 基準ノードの直下へ上書き →

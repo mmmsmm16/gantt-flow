@@ -26,6 +26,9 @@ export interface RowSelectionOpts {
   toggleCollapse?: (taskId: Id) => void;
   /** クイックフィルタの検索ボックスへフォーカス(アウトラインのみ。Ctrl/⌘+F)。 */
   openFind?: () => boolean;
+  /** 最終行で編集中に Enter 下移動したとき(移動先なし)に呼ぶ。末尾ゴースト行へ新規工程を
+      起こして連続入力させる用途。未指定なら従来どおり確定して選択モードへ戻る。 */
+  onEditNavPastEnd?: () => void;
 }
 
 export function scrollRowIntoView(taskId: Id): void {
@@ -154,8 +157,10 @@ function handleEditNav(
     (id, key) => focusCell(id, key, true),
   );
   if (!moved) {
-    // 端で移動先が無い Enter は従来どおり確定して選択モードへ(Tab はその場に留まる)。
-    if (e.key === 'Enter') t.blur();
+    // 端で移動先が無い Enter: 末尾ゴースト行ハンドラがあれば新規工程を起こして連続入力、
+    // 無ければ従来どおり確定して選択モードへ(Tab はその場に留まる)。
+    if (e.key === 'Enter' && dir === 'down' && o.onEditNavPastEnd) o.onEditNavPastEnd();
+    else if (e.key === 'Enter') t.blur();
     return;
   }
   // 選択と列カーソルを移動先へ追従させる(Esc で選択モードへ戻った直後の j/k・h/l と一致)。

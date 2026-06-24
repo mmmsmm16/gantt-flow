@@ -60,6 +60,7 @@ export function FlowCanvas() {
   const addTaskAt = useApp((s) => s.addTaskAt);
   const addTaskNextTo = useApp((s) => s.addTaskNextTo);
   const connect = useApp((s) => s.connect);
+  const connectToNew = useApp((s) => s.connectToNew);
   const addParallel = useApp((s) => s.addParallel);
   const makeParallelTo = useApp((s) => s.makeParallelTo);
   const addControlNode = useApp((s) => s.addControlNode);
@@ -307,7 +308,8 @@ export function FlowCanvas() {
       if ((e.target as HTMLElement).classList.contains('edge-hit')) return;
     }
     const p = relPoint(e);
-    addTaskAt(p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
+    const id = addTaskAt(p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
+    if (id) setEditingTaskId(id); // 作成直後にその場リネーム（「新規工程」の量産を防ぐ）
   };
 
   const relPoint = (e: { clientX: number; clientY: number }) => {
@@ -432,6 +434,7 @@ export function FlowCanvas() {
       const p = relPoint(e);
       setConn((c) => (c ? { ...c, x: p.x, y: p.y } : c));
     };
+    const from = conn.from; // ドラッグ中は不変（x/y のみ更新される）
     const onUp = (e: PointerEvent) => {
       const p = relPoint(e);
       const target = Object.values(view.nodes).find((n) => {
@@ -440,10 +443,14 @@ export function FlowCanvas() {
         const s = nodeSize(n);
         return p.x >= n.x && p.x <= n.x + s.w && p.y >= n.y && p.y <= n.y + s.h;
       });
-      setConn((c) => {
-        if (c && target && target.id !== c.from) connect(c.from, target.id);
-        return null;
-      });
+      if (target && target.id !== from) {
+        connect(from, target.id);
+      } else if (!target) {
+        // 空白で離した: ドロップ位置に工程を作成して起点から接続 → 直後にその場リネーム。
+        const newId = connectToNew(from, p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
+        if (newId) setEditingTaskId(newId);
+      }
+      setConn(null);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -451,7 +458,7 @@ export function FlowCanvas() {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [conn, view, connect]);
+  }, [conn, view, connect, connectToNew]);
 
   // 選択中の工程が変わったら、対応するフローノードが画面外のとき視点を寄せる（表→フロー追従）。
   // 'nearest' なので見えている間はスクロールしない＝フロー側の操作で既に見えている時は動かない。
@@ -677,8 +684,7 @@ export function FlowCanvas() {
         }
         const c = viewportCenter();
         if (!c) return false;
-        addTaskAt(c.x - SIZE.task.w / 2, c.y - SIZE.task.h / 2);
-        const newId = useApp.getState().selectedTaskId; // addTaskAt は ID を返さない代わりに作成工程を選択する
+        const newId = addTaskAt(c.x - SIZE.task.w / 2, c.y - SIZE.task.h / 2);
         if (newId) setEditingTaskId(newId);
         return true;
       }
@@ -902,11 +908,18 @@ export function FlowCanvas() {
     return '';
   };
 
-  const startConnect = (n: FlowNode, e: React.PointerEvent) => {
+  const startConnect = (n: FlowNode, e: React.PointerEvent, edge: 'top' | 'right' | 'bottom' | 'left' = 'right') => {
     e.stopPropagation();
     const p = posOf(n);
     const s = nodeSize(n);
-    setConn({ from: n.id, fx: p.x + s.w, fy: p.y + s.h / 2, x: p.x + s.w, y: p.y + s.h / 2 });
+    // 開始辺の中点からプレビュー線を引く（確定後の経路は routeEdge が再計算＝従来どおり右辺起点）。
+    const mid = {
+      top: { x: p.x + s.w / 2, y: p.y },
+      right: { x: p.x + s.w, y: p.y + s.h / 2 },
+      bottom: { x: p.x + s.w / 2, y: p.y + s.h },
+      left: { x: p.x, y: p.y + s.h / 2 },
+    }[edge];
+    setConn({ from: n.id, fx: mid.x, fy: mid.y, x: mid.x, y: mid.y });
   };
 
   // 接続ドラッグ中の「落とせる相手」＝工程/制御ノード（自分以外）。落下受付(onUp)と同じ条件。
@@ -1042,8 +1055,10 @@ export function FlowCanvas() {
           onClick={() => {
             const k = nodes.filter((n) => n.kind === 'task').length;
             const c = viewportCenter();
-            if (c) addTaskAt(c.x - SIZE.task.w / 2 + (k % 5) * 20, c.y - SIZE.task.h / 2 + (k % 5) * 16);
-            else addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
+            const id = c
+              ? addTaskAt(c.x - SIZE.task.w / 2 + (k % 5) * 20, c.y - SIZE.task.h / 2 + (k % 5) * 16)
+              : addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
+            if (id) setEditingTaskId(id); // 追加直後にその場リネーム
           }}
         >
           <Icons.BoxPlus />
@@ -1225,6 +1240,13 @@ export function FlowCanvas() {
               className={`edge connecting${dropTargetId ? ' on-target' : ''}`}
               markerEnd="url(#arrow)"
             />
+          )}
+
+          {/* 空白上では「＋ 新しい工程」を予告（離すと作成＆接続される） */}
+          {conn && connEnd && !dropTargetId && (
+            <text x={connEnd.cx + 12} y={connEnd.cy - 10} className="conn-ghost">
+              ＋ 新しい工程
+            </text>
           )}
 
           {/* キーボード接続モード: 起点 → 現候補のプレビュー矢印 */}
@@ -1573,13 +1595,15 @@ export function FlowCanvas() {
                   </button>
                 </>
               )}
-              {connectable && (
-                <span
-                  className="handle"
-                  title="ドラッグして他の工程へ矢印を引く（前後関係を登録）"
-                  onPointerDown={(e) => startConnect(n, e)}
-                />
-              )}
+              {connectable &&
+                (['top', 'right', 'bottom', 'left'] as const).map((edge) => (
+                  <span
+                    key={edge}
+                    className={`handle handle-${edge}`}
+                    title="ドラッグして他の工程へ矢印を引く（空白で離すと新規工程を作成）"
+                    onPointerDown={(e) => startConnect(n, e, edge)}
+                  />
+                ))}
               {deletable && (
                 <button
                   className="del"

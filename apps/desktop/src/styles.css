@@ -4269,6 +4269,81 @@ kbd {
   transform: translateY(-50%) scale(1.18);
 }
 
+/* 四辺の接続ハンドル: hover で各辺中央に表示し、逆向き・上下方向の接続も引けることを示す。
+   確定後の経路は routeEdge が再計算するため、開始辺はプレビューの見た目のみに効く。 */
+.handle-right {
+  right: -7px;
+  left: auto;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+.handle-left {
+  left: -7px;
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+.handle-top {
+  top: -7px;
+  bottom: auto;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+.handle-bottom {
+  bottom: -7px;
+  top: auto;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+.handle-right:hover,
+.handle-left:hover {
+  transform: translateY(-50%) scale(1.18);
+}
+.handle-top:hover,
+.handle-bottom:hover {
+  transform: translateX(-50%) scale(1.18);
+}
+
+/* 不正な工数入力: 値は残したまま赤リング＋薄赤背景で知らせ、commit だけをブロックする
+   （無音で打った文字を破棄しない。表・全項目表・インスペクタ共通）。 */
+input.invalid,
+input[aria-invalid='true'] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-soft);
+  background: var(--danger-soft);
+}
+
+/* 表末尾のゴースト行: Excel 流に「一番下の空行へ直接入力」できる入口。薄字＋ホバーで強調。 */
+.ft-ghost > td,
+.outline-ghost > td {
+  color: var(--faint);
+  cursor: text;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.ft-ghost:hover > td,
+.outline-ghost:hover > td {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
+/* 接続ドラッグを空白へ向けたときの「＋ 新しい工程」予告チップ */
+.conn-ghost {
+  fill: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--canvas-bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* =========================================================================
    工程カラー: 表のドット / 文字色 / インスペクタのスウォッチ
    ========================================================================= */
