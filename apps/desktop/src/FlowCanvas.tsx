@@ -841,6 +841,7 @@ export function FlowCanvas() {
         const tn = targetId ? view.nodes[targetId] : undefined;
         const taskId = tn?.kind === 'task' ? tn.taskId : selectedTaskId;
         if (!taskId || !project.core.tasks[taskId]) return false;
+        if (isMilestone(project.core, taskId)) return false; // マイルストーンに I/O は付けない
         void addIoPrompt(taskId, action === 'flow.addInput' ? 'inputs' : 'outputs');
         return true;
       }
@@ -864,7 +865,10 @@ export function FlowCanvas() {
       }
       case 'flow.connect': {
         const fromId = keyTargets()[0];
-        return fromId ? startKbConnect(fromId) : false;
+        if (!fromId) return false;
+        const fn = view.nodes[fromId];
+        if (fn?.kind === 'task' && isMilestone(project.core, fn.taskId)) return false; // マイルストーンからは接続しない
+        return startKbConnect(fromId);
       }
       case 'flow.addParallel': {
         // 選択中の工程の並行工程を追加(前工程を写して直下へ。store が配置まで行う)。
@@ -2173,6 +2177,28 @@ export function FlowCanvas() {
           if (!n) return null;
           if (n.kind === 'task') {
             const taskId = n.taskId;
+            // マイルストーンは菱形のみで I/O・接続・固定の概念を持たない（無効ノードに紐づく浮遊アイコン等を防ぐ）。
+            // メニューを 名前を変更/表で表示/複製/削除 に絞る。
+            if (isMilestone(project.core, taskId)) {
+              return (
+                <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                  <ContextItem label="名前を変更" action="flow.rename" onClick={() => setEditingTaskId(taskId)} />
+                  <ContextItem label="複製" onClick={() => duplicateTask(taskId)} />
+                  <ContextItem label="表で表示" onClick={() => revealTask(taskId)} />
+                  <div className="menu-sep" role="separator" />
+                  <ContextItem
+                    label="工程を削除"
+                    action="flow.delete"
+                    danger
+                    onClick={() =>
+                      void confirmRemoveTasks([taskId]).then((ok) => {
+                        if (ok) select(undefined); // キーボード削除（flow.delete）と同じ後始末
+                      })
+                    }
+                  />
+                </FlowContextMenu>
+              );
+            }
             return (
               <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
                 <ContextItem label="名前を変更" action="flow.rename" onClick={() => setEditingTaskId(taskId)} />

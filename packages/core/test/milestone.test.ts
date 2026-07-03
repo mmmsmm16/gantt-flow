@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { addTask, addDependency, deleteTask, deleteTaskKeepChildren, reparentTask } from '../src/commands';
+import {
+  addTask,
+  addDependency,
+  addParallelTask,
+  makeParallel,
+  deleteTask,
+  deleteTaskKeepChildren,
+  reparentTask,
+} from '../src/commands';
 import { computeCodes } from '../src/codes';
 import { isMilestone } from '../src/milestone';
 import { ProjectSchema } from '../src/model/schema';
@@ -89,6 +97,26 @@ describe('milestone core', () => {
     expect(codes[taskIdByName(p, 'A')]).toBe('1');
     expect(codes[taskIdByName(p, 'B')]).toBe('2');
     expect(codes[taskIdByName(p, 'C')]).toBe('3'); // MS がいても 3（4 にならない）
+  });
+
+  it('addParallelTask は MS を基準にすると no-op', () => {
+    const { p, g } = base();
+    const ms = taskIdByName(p, '節目');
+    const before = Object.keys(p.core.tasks).length;
+    const p2 = addParallelTask(p, ms, g);
+    expect(Object.keys(p2.core.tasks).length).toBe(before);
+  });
+
+  it('makeParallel は MS が対象/基準のどちらでも no-op', () => {
+    const { p, g } = base();
+    const ms = taskIdByName(p, '節目');
+    const a = taskIdByName(p, 'A');
+    const c = taskIdByName(p, 'C');
+    const depsBefore = Object.keys(p.core.dependencies).length;
+    const p2 = makeParallel(p, ms, a, g); // MS を対象にする
+    expect(Object.keys(p2.core.dependencies).length).toBe(depsBefore);
+    const p3 = makeParallel(p, c, ms, g); // MS を基準にする
+    expect(Object.keys(p3.core.dependencies).length).toBe(depsBefore);
   });
 
   it('kind なしの既存データはそのまま Zod を通る（後方互換）', () => {

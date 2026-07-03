@@ -153,6 +153,7 @@ export function setDependencyPhase(p: Project, depId: Id, phase: 'asis' | 'tobe'
 export function addParallelTask(p: Project, refId: Id, idGen: IdGen, newId?: Id): Project {
   const ref = p.core.tasks[refId];
   if (!ref) return clone(p);
+  if (isMilestone(p.core, refId)) return clone(p); // MS を基準に並行工程は作らない
   const id = newId ?? idGen();
   let next = addTask(
     p,
@@ -180,6 +181,7 @@ export function makeParallel(p: Project, taskId: Id, baseId: Id, idGen: IdGen): 
   const task = p.core.tasks[taskId];
   const base = p.core.tasks[baseId];
   if (taskId === baseId || !task || !base || task.level !== base.level) return clone(p);
+  if (isMilestone(p.core, taskId) || isMilestone(p.core, baseId)) return clone(p); // MS は並行化の対象/基準にしない
 
   // ① B の旧 前/後 を収集
   const deps0 = Object.values(p.core.dependencies);
