@@ -173,4 +173,92 @@ describe('deriveMilestoneGuides', () => {
     expect(msGuide.x).toBe(expectedX);
     expect(msGuide.x).toBe(zNode.x + SIZE.task.w + 40);
   });
+
+  // v2: 粒度非依存化（docs/superpowers/specs/2026-07-04-milestone-design.md §v2）
+  // 対象工程がこのビューに居ないとき、代表ノードへ自動変換して縦線の x を決める。
+  describe('v2: 粒度非依存化（代表ノードへの自動変換）', () => {
+    it('①小ビュー: 対象(中)工程の子孫（この小ビューで見えているノード群）の右端最大 + 40', () => {
+      const g = counter();
+      const n = counter('n');
+      let p = emptyProject();
+      p = addTask(p, { name: 'M', level: 'medium' }, g);
+      const mId = taskIdByName(p, 'M');
+      p = addTask(p, { name: 'S1', level: 'small', parentId: mId }, g);
+      p = addTask(p, { name: 'S2', level: 'small', parentId: mId }, g);
+      // MS はこのビュー自身の粒度（小）で作る（reconcileFlow 未変更のまま、自ノードは通常通り存在させる）。
+      p = addTask(p, { name: 'MS', level: 'small', kind: 'milestone' }, g);
+      // 入依存: M(中) → MS(小)。MS 依存は同一レベル前提の対象外（spec v2）。
+      p = addDependency(p, mId, taskIdByName(p, 'MS'), g);
+
+      const res = reconcileFlow(p.core, p.details, emptyView('small'), n);
+      const guides = deriveMilestoneGuides(p.core, res.view);
+      const msGuide = guides.find((gd) => gd.taskId === taskIdByName(p, 'MS'))!;
+      expect(msGuide.bound).toBe(true);
+
+      const nodes = taskNodes(res.view);
+      const s1 = nodes.find((nd) => nd.taskId === taskIdByName(p, 'S1'))!;
+      const s2 = nodes.find((nd) => nd.taskId === taskIdByName(p, 'S2'))!;
+      // M 自身のノードはこの小ビューには存在しない
+      expect(nodes.find((nd) => nd.taskId === mId)).toBeUndefined();
+
+      const expectedX = Math.max(s1.x + SIZE.task.w, s2.x + SIZE.task.w) + 40;
+      expect(msGuide.x).toBe(expectedX);
+    });
+
+    it('②大ビュー: 対象(小)工程の大祖先ノードの右端 + 40', () => {
+      const g = counter();
+      const n = counter('n');
+      let p = emptyProject();
+      p = addTask(p, { name: 'L', level: 'large' }, g);
+      const lId = taskIdByName(p, 'L');
+      p = addTask(p, { name: 'M', level: 'medium', parentId: lId }, g);
+      const mId = taskIdByName(p, 'M');
+      p = addTask(p, { name: 'S1', level: 'small', parentId: mId }, g);
+      // MS は大ビュー自身の粒度（大）で作る。
+      p = addTask(p, { name: 'MS', level: 'large', kind: 'milestone' }, g);
+      // 入依存: S1(小) → MS(大)。
+      p = addDependency(p, taskIdByName(p, 'S1'), taskIdByName(p, 'MS'), g);
+
+      const res = reconcileFlow(p.core, p.details, emptyView('large'), n);
+      const guides = deriveMilestoneGuides(p.core, res.view);
+      const msGuide = guides.find((gd) => gd.taskId === taskIdByName(p, 'MS'))!;
+      expect(msGuide.bound).toBe(true);
+
+      const nodes = taskNodes(res.view);
+      const lNode = nodes.find((nd) => nd.taskId === lId)!;
+      // S1・M 自身のノードはこの大ビューには存在しない
+      expect(nodes.find((nd) => nd.taskId === taskIdByName(p, 'S1'))).toBeUndefined();
+      expect(nodes.find((nd) => nd.taskId === mId)).toBeUndefined();
+
+      expect(msGuide.x).toBe(lNode.x + SIZE.task.w + 40);
+    });
+
+    it('③混在: 直接可視の対象 と 代表へ変換される対象 の max', () => {
+      const g = counter();
+      const n = counter('n');
+      let p = emptyProject();
+      // T1: このビュー(中)に直接存在する対象工程
+      p = addTask(p, { name: 'T1', level: 'medium' }, g);
+      // P(大) の子 C(中) はこの中ビューに直接見える → P の代表ノードになる
+      p = addTask(p, { name: 'P', level: 'large' }, g);
+      const pId = taskIdByName(p, 'P');
+      p = addTask(p, { name: 'C', level: 'medium', parentId: pId }, g);
+      p = addTask(p, { name: 'MS', level: 'medium', kind: 'milestone' }, g);
+      p = addDependency(p, taskIdByName(p, 'T1'), taskIdByName(p, 'MS'), g);
+      p = addDependency(p, pId, taskIdByName(p, 'MS'), g); // P(大) → MS(中)
+
+      const res = reconcileFlow(p.core, p.details, emptyView('medium'), n);
+      const guides = deriveMilestoneGuides(p.core, res.view);
+      const msGuide = guides.find((gd) => gd.taskId === taskIdByName(p, 'MS'))!;
+      expect(msGuide.bound).toBe(true);
+
+      const nodes = taskNodes(res.view);
+      const t1 = nodes.find((nd) => nd.taskId === taskIdByName(p, 'T1'))!;
+      const c = nodes.find((nd) => nd.taskId === taskIdByName(p, 'C'))!;
+      expect(nodes.find((nd) => nd.taskId === pId)).toBeUndefined();
+
+      const expectedX = Math.max(t1.x + SIZE.task.w, c.x + SIZE.task.w) + 40;
+      expect(msGuide.x).toBe(expectedX);
+    });
+  });
 });
