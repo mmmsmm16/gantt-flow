@@ -11,7 +11,7 @@ type Op = { kind: number; a: number; b: number; s: string };
 function applyOp(p: Project, op: Op): Project {
   const ids = Object.keys(p.core.tasks);
   const pick = (k: number) => ids[k % Math.max(1, ids.length)];
-  switch (op.kind % 6) {
+  switch (op.kind % 7) {
     case 0:
       return addTask(p, { name: op.s || 'T', level: 'medium' }, uuid);
     case 1:
@@ -24,13 +24,15 @@ function applyOp(p: Project, op: Op): Project {
       return ids.length ? deleteTask(p, pick(op.a)!) : p;
     case 5:
       return ids.length ? renameTask(p, pick(op.a)!, op.s || 'R') : p;
+    case 6:
+      return addTask(p, { name: op.s || 'MS', level: 'medium', kind: 'milestone' }, uuid);
     default:
       return p;
   }
 }
 
 const opArb = fc.record({
-  kind: fc.nat(5),
+  kind: fc.nat(6),
   a: fc.nat(99),
   b: fc.nat(99),
   s: fc.string({ maxLength: 4 }),

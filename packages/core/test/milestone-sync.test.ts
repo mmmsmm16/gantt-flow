@@ -184,4 +184,33 @@ describe('マイルストーンの同期隔離', () => {
     // MS ノードに触れる導出エッジは無い
     expect(edges.some((e) => e.source === msNode.id || e.target === msNode.id)).toBe(false);
   });
+
+  it('⑧ 手動 pinned エッジ（A→MS）は 2 回の再同期後も残り、以降は冪等', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'MS', level: 'medium', kind: 'milestone' }, g);
+
+    const res = reconcileFlow(p.core, p.details, emptyView(), n);
+    const aNodeId = taskNodeOf(res.view, taskIdByName(p, 'A')).id;
+    const msNodeId = taskNodeOf(res.view, taskIdByName(p, 'MS')).id;
+
+    res.view.edges['user-e'] = {
+      id: 'user-e',
+      source: aNodeId,
+      target: msNodeId,
+      pinned: true,
+      role: 'flow',
+    };
+
+    const r2 = reconcileFlow(p.core, p.details, res.view, n);
+    expect(r2.view.edges['user-e']).toEqual(res.view.edges['user-e']);
+
+    const r3 = reconcileFlow(p.core, p.details, r2.view, n);
+    expect(r3.view.edges['user-e']).toEqual(res.view.edges['user-e']);
+    expect(r3.view).toEqual(r2.view);
+    expect(r3.report.added).toHaveLength(0);
+    expect(r3.report.removed).toHaveLength(0);
+  });
 });
