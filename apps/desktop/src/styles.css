@@ -5722,3 +5722,9 @@ input.colored-text {
   max-width: 100%;
   height: auto;
 }
+
+/* アウトライン表: 一括選択でマークされた行（単一選択 .selected とは別の淡い強調・
+   全項目表の .ft tr.marked と同系）。行の背景は td に敷く。 */
+.grid tbody tr.marked > td {
+  background: var(--accent-soft);
+}

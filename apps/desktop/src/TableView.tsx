@@ -9,6 +9,7 @@ import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
+import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
 import { revealTask, confirmRemoveTasks } from './taskOps';
 import { isImeKeyEvent } from './keymap';
@@ -154,9 +155,16 @@ export function TableView() {
 
   const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
-  // 行クリック/編集開始は工程へジャンプ(選択＋粒度同期＋詳細パネル)。
+  // 行クリック(通常＝工程へジャンプ＝選択＋粒度同期＋詳細パネル、Ctrl/⌘＝トグル、Shift＝範囲)と
+  // 一括操作は全項目表と共有のフックに集約。範囲は表示中の行(rows・折りたたみ配下は除外)内で解決。
   // スコープ追従の規則はパレット等と共通の revealTask(taskOps.ts)に集約。
-  const openRow = (t: ProcessTask) => revealTask(t.id);
+  const {
+    marked,
+    onRowClick,
+    clear: clearMarked,
+    bulkAssign,
+    bulkDelete,
+  } = useRowMultiSelect({ orderedIds: rows.map((r) => r.task.id), onActivate: revealTask });
 
   // 行選択モード(編集外のキーボード操作)。j/k=行移動・h/l=列カーソル・Enter=セル編集 などは
   // useGlobalHotkeys → 'table' コンテキスト経由でここに届く。
@@ -307,6 +315,14 @@ export function TableView() {
             />
           ))}
         </Menu>
+        {marked.size > 0 && (
+          <span className="ft-bulk" role="group" aria-label="一括操作">
+            <strong>{marked.size}件選択中</strong>
+            <button onClick={bulkAssign}>担当を一括設定</button>
+            <button className="danger" onClick={bulkDelete}>まとめて削除</button>
+            <button className="ft-bulk-clear" onClick={clearMarked}>選択解除</button>
+          </span>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -369,10 +385,11 @@ export function TableView() {
                       hasChildren ? 'is-parent' : '',
                       depth > 0 ? 'is-child' : '',
                       ms ? 'is-milestone' : '',
+                      marked.has(t.id) ? 'marked' : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    onClick={() => openRow(t)}
+                    onClick={(e) => onRowClick(e, t.id)}
                     onDragOver={(e) => {
                       if (!dragId || dragId === t.id) return;
                       e.preventDefault();

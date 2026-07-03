@@ -15,6 +15,7 @@ import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
+import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
@@ -174,7 +175,6 @@ export function FullTable() {
   const addRootTask = useApp((s) => s.addRootTask);
   const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
-  const setAssigneeManyByName = useApp((s) => s.setAssigneeManyByName);
   const duplicateTask = useApp((s) => s.duplicateTask);
   const pasteRowsAsTasks = useApp((s) => s.pasteRowsAsTasks);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
@@ -198,9 +198,6 @@ export function FullTable() {
   // 複合セル（課題/入出力）へ追加した直後、その新しい入力欄へフォーカス＆全選択する対象。
   // 追加 op の直後に {taskId, cell} を立て、再描画後に当該セルの最後の入力へ寄せる。
   const [addFocus, setAddFocus] = useState<{ taskId: Id; cell: string } | null>(null);
-  // 一括操作のための行マーク（複数選択）。Ctrl/⌘+クリックでトグル、Shift+クリックで範囲。
-  const [marked, setMarked] = useState<Set<Id>>(new Set());
-  const [anchor, setAnchor] = useState<Id | null>(null);
   // 逐次レンダリング: 現在描画している行数（センチネルが見えたら増やす）。
   const [renderCount, setRenderCount] = useState(ROW_CHUNK);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -399,49 +396,15 @@ export function FullTable() {
     return () => cancelAnimationFrame(raf);
   }, [selectedTaskId]);
 
-  // 行クリック: 通常＝単一選択（インスペクタ）、Ctrl/⌘＝トグル、Shift＝アンカーからの範囲選択。
-  const onRowClick = (e: React.MouseEvent, t: ProcessTask) => {
-    if (e.shiftKey && anchor) {
-      const ids = rows.map((r) => r.id);
-      const a = ids.indexOf(anchor);
-      const b = ids.indexOf(t.id);
-      if (a >= 0 && b >= 0) {
-        const [lo, hi] = a < b ? [a, b] : [b, a];
-        const next = new Set(marked);
-        for (let i = lo; i <= hi; i++) next.add(ids[i]!);
-        setMarked(next);
-      }
-      return;
-    }
-    if (e.ctrlKey || e.metaKey) {
-      const next = new Set(marked);
-      if (next.has(t.id)) next.delete(t.id);
-      else next.add(t.id);
-      setMarked(next);
-      setAnchor(t.id);
-      return;
-    }
-    setMarked(new Set()); // 通常クリックは一括選択を解除
-    setAnchor(t.id);
-    select(t.id);
-  };
-
-  const clearMarked = () => setMarked(new Set());
-  const bulkAssign = async () => {
-    const name = await useUI.getState().promptText({
-      title: '担当を一括設定',
-      message: `選択中の ${marked.size} 件の担当を変更します（空欄で未割当）。`,
-      placeholder: '担当（部門 / 個人）',
-      confirmLabel: '設定',
-    });
-    if (name === null) return;
-    setAssigneeManyByName([...marked], name);
-    clearMarked();
-  };
-  const bulkDelete = async () => {
-    const ok = await confirmRemoveTasks([...marked]);
-    if (ok) clearMarked();
-  };
+  // 行クリック（通常＝単一選択、Ctrl/⌘＝トグル、Shift＝範囲）と一括操作は共有フックに集約。
+  // 範囲は表示順（ソート・絞り込み反映済み）の rows 内で解決する。
+  const {
+    marked,
+    onRowClick,
+    clear: clearMarked,
+    bulkAssign,
+    bulkDelete,
+  } = useRowMultiSelect({ orderedIds: rows.map((r) => r.id), onActivate: select });
 
   // クリップボード（Excel/表計算）の各行を工程として一括追加。タブ区切り [作業名, 担当?]。
   const onPasteRows = async () => {
@@ -993,7 +956,7 @@ export function FullTable() {
                 key={t.id}
                 data-taskid={t.id}
                 className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}${marked.has(t.id) ? ' marked' : ''}${ms ? ' is-milestone' : ''}`}
-                onClick={(e) => onRowClick(e, t)}
+                onClick={(e) => onRowClick(e, t.id)}
               >
                 {visibleCols.map(cell)}
               </tr>

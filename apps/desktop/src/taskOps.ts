@@ -1,5 +1,6 @@
 // 工程に対する UI 横断の手続き。store（ドメイン）と useUI（ダイアログ/パネル）をまたぐ操作を
 // ここに集約し、各ビュー（表・フロー・パレット等）での重複実装を防ぐ。
+import { isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 
@@ -40,5 +41,28 @@ export async function confirmRemoveTasks(taskIds: string[]): Promise<boolean> {
   const app = useApp.getState();
   if (single) app.removeTask(single.id);
   else app.removeManyTasks(targets);
+  return true;
+}
+
+/**
+ * 担当の一括設定。プロンプトで担当名を尋ね（空欄＝未割当）、変更を適用したら true を返す。
+ * マイルストーンは担当を持たないため対象から除外する（対象が 0 件なら案内トーストを出す）。
+ * キャンセル・対象なしは false。選択の解除などは呼び出し側で行う。
+ */
+export async function bulkSetAssignee(taskIds: string[]): Promise<boolean> {
+  const core = useApp.getState().project.core;
+  const targets = taskIds.filter((id) => core.tasks[id] && !isMilestone(core, id));
+  if (targets.length === 0) {
+    useUI.getState().toast('担当を設定できる工程が選択されていません。', 'info');
+    return false;
+  }
+  const name = await useUI.getState().promptText({
+    title: '担当を一括設定',
+    message: `選択中の ${targets.length} 件の担当を変更します（空欄で未割当）。`,
+    placeholder: '担当（部門 / 個人）',
+    confirmLabel: '設定',
+  });
+  if (name === null) return false;
+  useApp.getState().setAssigneeManyByName(targets, name);
   return true;
 }
