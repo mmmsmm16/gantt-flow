@@ -89,6 +89,7 @@ export function TableView() {
   const moveTaskDown = useApp((s) => s.moveTaskDown);
   const dropTask = useApp((s) => s.dropTask);
   const addDependency = useApp((s) => s.addDependency);
+  const removeDependency = useApp((s) => s.removeDependency);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
@@ -539,40 +540,47 @@ export function TableView() {
                     </td>
                     {columnVisibility.prev && (
                     <td className="c-prev" onClick={(e) => e.stopPropagation()}>
-                      {preds.length > 0 && (
-                        <span
-                          className="prev-names"
-                          title={preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
-                        >
-                          {preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
-                        </span>
-                      )}
-                      {(bridgePreds[t.id] ?? []).map((fromId) => (
-                        <span
-                          key={`br-${fromId}`}
-                          className="prev-names derived"
-                          title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ・解除は大工程側の接続を削除）"
-                        >
-                          ⤷ {project.core.tasks[fromId]?.name ?? ''}
-                        </span>
-                      ))}
-                      {candidates.length > 0 && (
-                        <select
-                          className={`prev-add${cellCursorCls(t.id, 'prev')}`}
-                          data-cell="prev"
-                          value=""
-                          aria-label="前工程を追加"
-                          onChange={(e) => {
-                            if (e.target.value) addDependency(e.target.value, t.id);
-                          }}
-                        >
-                          <option value="">＋前工程</option>
-                          <PrevCandidateOptions
-                            candidates={candidates}
-                            parentName={(pid) => (pid ? (project.core.tasks[pid]?.name ?? '別グループ') : '最上位')}
-                          />
-                        </select>
-                      )}
+                      <div className="ft-prev">
+                        {preds.map((dep) => (
+                          <span className="ft-pill" key={dep.id}>
+                            {project.core.tasks[dep.from]?.name ?? ''}
+                            <button
+                              className="ft-x"
+                              aria-label="前工程を解除"
+                              title="前工程を解除"
+                              onClick={() => removeDependency(dep.id)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        {(bridgePreds[t.id] ?? []).map((fromId) => (
+                          <span
+                            key={`br-${fromId}`}
+                            className="ft-pill derived"
+                            title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ・解除は大工程側の接続を削除）"
+                          >
+                            ⤷ {project.core.tasks[fromId]?.name ?? ''}
+                          </span>
+                        ))}
+                        {candidates.length > 0 && (
+                          <select
+                            className={`prev-add${cellCursorCls(t.id, 'prev')}`}
+                            data-cell="prev"
+                            value=""
+                            aria-label="前工程を追加"
+                            onChange={(e) => {
+                              if (e.target.value) addDependency(e.target.value, t.id);
+                            }}
+                          >
+                            <option value="">＋前工程</option>
+                            <PrevCandidateOptions
+                              candidates={candidates}
+                              parentName={(pid) => (pid ? (project.core.tasks[pid]?.name ?? '別グループ') : '最上位')}
+                            />
+                          </select>
+                        )}
+                      </div>
                     </td>
                     )}
                     {columnVisibility.effort && (
