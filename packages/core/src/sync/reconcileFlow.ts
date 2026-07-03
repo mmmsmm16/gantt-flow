@@ -18,6 +18,7 @@ import type {
 import type { IdGen } from '../ids';
 import { placeInputDoc, placeOutputDoc, placeClear, obstaclesFor } from './autoPlace';
 import { laneTaskBaseY } from './lanes';
+import { isMilestone } from '../milestone';
 
 export interface SyncReport {
   added: FlowNodeId[]; // 自動追加したノード
@@ -46,7 +47,9 @@ export interface ParentBridge {
 
 /** 指定粒度の子タスクに対して、親レベルの依存から導出されるブリッジ接続を返す(純関数)。 */
 export function deriveParentBridges(core: Core, level: ProcessLevel): ParentBridge[] {
-  const kids = Object.values(core.tasks).filter((t) => t.level === level);
+  // MS は橋の端点候補から除外する。並び順の先頭/末尾が MS だと橋の端点が MS ノードに
+  // なってしまうため（MS は流れの節目マーカーで、依存の橋渡し役にはしない）。
+  const kids = Object.values(core.tasks).filter((t) => t.level === level && !isMilestone(core, t.id));
   const byParent = new Map<Id, typeof kids>();
   for (const t of kids) {
     if (!t.parentId) continue;
@@ -267,6 +270,13 @@ export function reconcileFlow(
   // 直接依存が張った端点対。同じ対に解決されたブリッジは張らない（同一区間の二重矢印防止）。
   const directPairs = new Set<string>();
   for (const d of depsInScope) {
+    // MS に触れる依存は導出エッジを張らない（MS は流れの節目マーカーで前後を繋がない）。
+    // 過去に張られていた導出エッジがあれば撤去する（種別変更に追従＝自己修復）。
+    if (isMilestone(core, d.to) || isMilestone(core, d.from)) {
+      const ex = derivedByDep.get(d.id);
+      if (ex && !ex.pinned) delete next.edges[ex.id]; // pinned は 5a と同様に消さない
+      continue;
+    }
     const s = nodeIdByTask.get(d.from);
     const t = nodeIdByTask.get(d.to);
     if (!s || !t) continue;
@@ -286,6 +296,14 @@ export function reconcileFlow(
   // 5c. 全体スコープの大またぎブリッジ（親の依存 1 本 ⇄ 子の末端→先頭エッジ 1 本）。
   //     直接依存と同じ端点対に解決された場合は直接依存のエッジを優先し、ブリッジ側は出さない。
   for (const br of bridges) {
+    // 由来の親依存が MS に触れるなら橋を張らない（自己修復込み）。deriveParentBridges 側で
+    // MS の子は端点候補から除外済みだが、由来依存側でも二重に防ぐ。
+    const via = core.dependencies[br.depId];
+    if (via && (isMilestone(core, via.from) || isMilestone(core, via.to))) {
+      const ex = derivedByDep.get(br.depId);
+      if (ex && !ex.pinned) delete next.edges[ex.id]; // pinned は 5a と同様に消さない
+      continue;
+    }
     const duplicatesDirect = directPairs.has(`${br.from}->${br.to}`);
     const existing = derivedByDep.get(br.depId);
     if (existing) {
