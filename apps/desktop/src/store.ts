@@ -66,6 +66,7 @@ import {
   isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
+import { useUI } from './ui/useUI';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
 const LEVELS: ProcessLevel[] = ['large', 'medium', 'small', 'detail'];
@@ -325,6 +326,31 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
   // 未保存検知: 最後に保存/開いた時点の Project 参照。現在がこれと異なれば dirty。
   let savedRef: Project | null = history.current();
 
+  // undo/redo の「何をしたか」ラベル。history と同じ増減を平行配列でミラーする（Project の
+  // コピーは持たない＝メモリ増は文字列ぶんのみ）。labels[i] = 状態 i を生んだ操作のラベル。
+  const LABEL_FALLBACK = '編集';
+  let labels: (string | undefined)[] = [undefined];
+  let labelCursor = 0;
+  // history.push の直後に呼ぶ（history.size() は上限プルーニング後の実サイズ）。
+  const recordLabel = (label?: string) => {
+    labels = labels.slice(0, labelCursor + 1);
+    labels.push(label);
+    labelCursor = labels.length - 1;
+    const over = labels.length - history.size(); // history 側が古い方から捨てた分に追従
+    if (over > 0) {
+      labels = labels.slice(over);
+      labelCursor -= over;
+    }
+  };
+  const pushHistory = (p: Project, label?: string) => {
+    history.push(p);
+    recordLabel(label);
+  };
+  const resetLabels = () => {
+    labels = [undefined];
+    labelCursor = 0;
+  };
+
   const sync = (extra: Partial<AppState> = {}) =>
     set({
       project: history.current(),
@@ -334,12 +360,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       ...extra,
     });
 
-  // core/details を変えるコマンド: 現在ビューを保証 → reconcile → 履歴 push（1 undo 単位）
-  const commit = (p: Project) => {
+  // core/details を変えるコマンド: 現在ビューを保証 → reconcile → 履歴 push（1 undo 単位）。
+  // label は undo/redo のフィードバック用（省略時は「編集」フォールバック）。
+  const commit = (p: Project, label?: string) => {
     const { level, scopeParentId } = get();
     const withView = ensureLevelView(p, level, scopeParentId);
     const { project: reconciled, reports } = reconcileProjectWithReport(withView, uuid);
-    history.push(reconciled);
+    pushHistory(reconciled, label);
     // 表側編集の同期で現在ビューに自動追加されたノードを記録（フロー側の一時ハイライト）。
     // 追加が無い編集では更新しない＝seq が進まず、前回のフラッシュを光らせ直さない。
     const added =
@@ -358,13 +385,16 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
   // 現在ビューのオーバーレイ（制御ノード/コメント/手動エッジ等）を直接編集して履歴に積む。
   // fn が false を返したら「変更なし」として履歴に積まない（no-op で履歴を汚さない）。
-  const editView = (fn: (view: FlowLevelView, project: Project) => void | false) => {
+  const editView = (
+    fn: (view: FlowLevelView, project: Project) => void | false,
+    label?: string,
+  ) => {
     const { level, scopeParentId } = get();
     const p = structuredClone(get().project);
     const view = findView(p, level, scopeParentId);
     if (!view) return;
     if (fn(view, p) === false) return;
-    history.push(p);
+    pushHistory(p, label);
     sync();
   };
 
@@ -375,6 +405,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     clearLastCommand();
     const reconciled = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
     history.reset(reconciled);
+    resetLabels(); // 新プロジェクトの履歴＝undo/redo ラベルもリセット
     savedRef = dirtyAfter ? null : reconciled; // 開く/新規=保存済みベース、取込=未保存
     set({
       project: reconciled,
@@ -423,13 +454,18 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
   };
 
   // reparent は実質変化があるときだけコミット（深さ超過・循環などの no-op で履歴を汚さない）。
-  const commitReparent = (taskId: Id, newParentId: Id | undefined, index?: number) => {
+  const commitReparent = (
+    taskId: Id,
+    newParentId: Id | undefined,
+    index?: number,
+    label?: string,
+  ) => {
     const cur = get().project;
     const applied = cReparentTask(cur, taskId, newParentId, index);
     const a = cur.core.tasks[taskId];
     const b = applied.core.tasks[taskId];
     if (a && b && (a.parentId !== b.parentId || a.level !== b.level || a.order !== b.order)) {
-      commit(applied);
+      commit(applied, label);
     }
   };
 
@@ -452,12 +488,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           { name: name || '新規作業', level: get().level, parentId: get().scopeParentId },
           uuid,
         ),
+        '工程を追加',
       ),
 
     addRootTask: (level) => {
       // 空名で作り、UI 側が追加直後に選択＋名前を即編集する（キーボード n=addSiblingOf と挙動統一）。
       const id = uuid();
-      commit(cAddTask(get().project, { name: '', level, parentId: undefined, id }, uuid));
+      commit(cAddTask(get().project, { name: '', level, parentId: undefined, id }, uuid), '工程を追加');
       return id;
     },
 
@@ -466,7 +503,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (!parent) return undefined;
       const childLevel = LEVELS[RANK[parent.level] + 1] ?? 'detail';
       const id = uuid();
-      commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId, id }, uuid));
+      commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId, id }, uuid), '工程を追加');
       return id;
     },
 
@@ -499,31 +536,32 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           node.x = 80 + k * 40;
         }
       }
-      history.push(p);
+      pushHistory(p, 'マイルストーンを追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
 
     // 削除は配下を残す（子は祖父へ昇格し、依存は維持）。
     removeTask: (taskId) => {
+      const name = get().project.core.tasks[taskId]?.name?.trim() || '工程';
       const p = cDeleteTaskKeepChildren(get().project, taskId);
       clearScopeIfRemoved(p);
-      commit(p);
+      commit(p, `工程『${name}』を削除`);
     },
 
-    setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level)),
-    setTaskCode: (taskId, code) => commit(cSetTaskCode(get().project, taskId, code)),
+    setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level), '粒度を変更'),
+    setTaskCode: (taskId, code) => commit(cSetTaskCode(get().project, taskId, code), '工程Noを変更'),
 
-    renameTask: (taskId, name) => commit(cRenameTask(get().project, taskId, name)),
+    renameTask: (taskId, name) => commit(cRenameTask(get().project, taskId, name), '作業名を変更'),
 
     setAssigneeByName: (taskId, name) => {
       const trimmed = name.trim();
       if (!trimmed) {
-        commit(cSetAssignee(get().project, taskId, undefined));
+        commit(cSetAssignee(get().project, taskId, undefined), '担当を変更');
         return;
       }
       const { project: p, assigneeId } = ensureAssigneeId(get().project, trimmed);
-      commit(cSetAssignee(p, taskId, assigneeId));
+      commit(cSetAssignee(p, taskId, assigneeId), '担当を変更');
     },
 
     setAssigneeManyByName: (taskIds, name) => {
@@ -540,7 +578,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           changed = true;
         }
       }
-      if (changed) commit(p);
+      if (changed) commit(p, '担当を変更');
     },
 
     removeManyTasks: (taskIds) => {
@@ -554,7 +592,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       }
       if (changed) {
         clearScopeIfRemoved(p);
-        commit(p);
+        commit(p, '工程を削除');
       }
     },
 
@@ -565,11 +603,12 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const tasks = get().project.core.tasks;
       if (!tasks[from] || !tasks[to]) return;
       if (hasDependency(from, to)) return; // 既存の依存への再接続は no-op
-      commit(cAddDependency(get().project, from, to, uuid));
+      commit(cAddDependency(get().project, from, to, uuid), '前工程を追加');
     },
 
-    removeDependency: (depId) => commit(cRemoveDependency(get().project, depId)),
-    setDependencyPhase: (depId, phase) => commit(cSetDependencyPhase(get().project, depId, phase)),
+    removeDependency: (depId) => commit(cRemoveDependency(get().project, depId), '前工程を削除'),
+    setDependencyPhase: (depId, phase) =>
+      commit(cSetDependencyPhase(get().project, depId, phase), '前後関係を変更'),
     setToBePredecessor: (taskId, fromId) => {
       let p = get().project;
       // 既存の To-Be 専用 incoming を外す（前工程は 1 本に保つ）。
@@ -581,7 +620,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         p = cAddDependency(p, fromId, taskId, () => id);
         p = cSetDependencyPhase(p, id, 'tobe');
       }
-      commit(p);
+      commit(p, '前工程を変更');
     },
     addToBePredecessor: (taskId, fromId) => {
       if (fromId === taskId) return;
@@ -595,7 +634,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         p = cAddDependency(p, fromId, taskId, () => id);
         p = cSetDependencyPhase(p, id, 'tobe');
       }
-      commit(p);
+      commit(p, '前工程を追加');
     },
     removeToBePredecessor: (taskId, fromId) => {
       let p = get().project;
@@ -604,7 +643,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (dep.phase === 'tobe') p = cRemoveDependency(p, dep.id); // To-Be専用→削除
       else if (dep.phase === undefined) p = cSetDependencyPhase(p, dep.id, 'asis'); // 両方→As-Is専用(To-Beから外す)
       else return; // As-Is専用→To-Beには無い
-      commit(p);
+      commit(p, '前工程を削除');
     },
 
     // 「次行を追加」: 同じ親・同じ粒度の兄弟を「クリック行の直下」に挿入し、新タスクの id を返す（フォーカス用）。
@@ -617,7 +656,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const sibs = siblingsOf(taskId, p);
       const idx = sibs.findIndex((o) => o.id === taskId);
       if (idx >= 0) p = cReorderTask(p, newId, idx + 1); // クリック行の直下へ
-      commit(p);
+      commit(p, '工程を追加');
       return newId;
     },
 
@@ -650,7 +689,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (opts.predecessorId && p.core.tasks[opts.predecessorId]) {
         p = cAddDependency(p, opts.predecessorId, newId, uuid);
       }
-      commit(p);
+      commit(p, '工程を追加');
       set({ selectedTaskId: newId });
       return newId;
     },
@@ -696,7 +735,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const iss of d.issues ?? [])
           p = cAddIssueItem(p, newId, { issue: iss.issue, measure: iss.measure }, uuid);
       }
-      commit(p);
+      commit(p, '工程を複製');
       set({ selectedTaskId: newId });
       return newId;
     },
@@ -723,24 +762,25 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           p = cSetAssignee(r.project, nid, r.assigneeId);
         }
       }
-      if (count) commit(p);
+      if (count) commit(p, '工程を貼り付け');
       return count;
     },
 
     moveTaskUp: (taskId) => {
       const sibs = siblingsOf(taskId);
       const idx = sibs.findIndex((t) => t.id === taskId);
-      if (idx > 0) commit(cReorderTask(get().project, taskId, idx - 1));
+      if (idx > 0) commit(cReorderTask(get().project, taskId, idx - 1), '順序を変更');
     },
     moveTaskDown: (taskId) => {
       const sibs = siblingsOf(taskId);
       const idx = sibs.findIndex((t) => t.id === taskId);
-      if (idx >= 0 && idx < sibs.length - 1) commit(cReorderTask(get().project, taskId, idx + 1));
+      if (idx >= 0 && idx < sibs.length - 1)
+        commit(cReorderTask(get().project, taskId, idx + 1), '順序を変更');
     },
     indentTask: (taskId) => {
       const sibs = siblingsOf(taskId);
       const idx = sibs.findIndex((t) => t.id === taskId);
-      if (idx > 0) commitReparent(taskId, sibs[idx - 1]!.id); // 直前の兄弟の子へ
+      if (idx > 0) commitReparent(taskId, sibs[idx - 1]!.id, undefined, '階層を変更'); // 直前の兄弟の子へ
     },
     outdentTask: (taskId) => {
       const t = get().project.core.tasks[taskId];
@@ -749,7 +789,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (!parent) return;
       const gpSibs = siblingsOf(parent.id);
       const parentIdx = gpSibs.findIndex((o) => o.id === parent.id);
-      commitReparent(taskId, parent.parentId, parentIdx + 1); // 親の直後（祖父母の子）へ
+      commitReparent(taskId, parent.parentId, parentIdx + 1, '階層を変更'); // 親の直後（祖父母の子）へ
     },
     dropTask: (dragId, targetId, mode) => {
       if (dragId === targetId) return;
@@ -757,7 +797,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const target = get().project.core.tasks[targetId];
       if (!drag || !target) return;
       if (mode === 'child') {
-        commitReparent(dragId, targetId);
+        commitReparent(dragId, targetId, undefined, '移動');
         return;
       }
       const targetParent = target.parentId;
@@ -766,28 +806,32 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if ((drag.parentId ?? undefined) === (targetParent ?? undefined)) {
         const di = sibs.findIndex((o) => o.id === dragId); // 同一グループ → 並べ替え
         const tiPost = di < ti ? ti - 1 : ti;
-        commit(cReorderTask(get().project, dragId, mode === 'after' ? tiPost + 1 : tiPost));
+        commit(cReorderTask(get().project, dragId, mode === 'after' ? tiPost + 1 : tiPost), '順序を変更');
       } else {
-        commitReparent(dragId, targetParent, mode === 'after' ? ti + 1 : ti); // 別グループ → 移動
+        commitReparent(dragId, targetParent, mode === 'after' ? ti + 1 : ti, '移動'); // 別グループ → 移動
       }
     },
 
     addIo: (taskId, io, name) => {
       const lv = get().project.core.tasks[taskId]?.level;
       const kind: IoKind = lv === 'small' || lv === 'detail' ? 'info' : 'doc';
-      commit(cAddIoItem(get().project, taskId, io, { name: name || '帳票', kind }, uuid));
+      commit(cAddIoItem(get().project, taskId, io, { name: name || '帳票', kind }, uuid), '入出力を追加');
     },
-    updateIo: (taskId, ioId, patch) => commit(cUpdateIoItem(get().project, taskId, ioId, patch)),
-    removeIo: (taskId, ioId) => commit(cRemoveIoItem(get().project, taskId, ioId)),
+    updateIo: (taskId, ioId, patch) =>
+      commit(cUpdateIoItem(get().project, taskId, ioId, patch), '入出力を変更'),
+    removeIo: (taskId, ioId) => commit(cRemoveIoItem(get().project, taskId, ioId), '入出力を削除'),
 
-    addIssue: (taskId, text) => commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid)),
+    addIssue: (taskId, text) =>
+      commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid), '課題を追加'),
     addIssueWithMeasure: (taskId, measure) =>
-      commit(cAddIssueItem(get().project, taskId, { issue: '', measure }, uuid)),
-    updateIssue: (taskId, issueId, patch) => commit(cUpdateIssueItem(get().project, taskId, issueId, patch)),
-    removeIssue: (taskId, issueId) => commit(cRemoveIssueItem(get().project, taskId, issueId)),
-    updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
-    updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch)),
-    copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId)),
+      commit(cAddIssueItem(get().project, taskId, { issue: '', measure }, uuid), '課題を追加'),
+    updateIssue: (taskId, issueId, patch) =>
+      commit(cUpdateIssueItem(get().project, taskId, issueId, patch), '課題を変更'),
+    removeIssue: (taskId, issueId) =>
+      commit(cRemoveIssueItem(get().project, taskId, issueId), '課題を削除'),
+    updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch), '詳細を編集'),
+    updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch), 'To-Beを編集'),
+    copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId), 'To-Beに複製'),
     addToBeTask: () => {
       const cur = get().project;
       const firstLarge = Object.values(cur.core.tasks).find((t) => t.level === 'large');
@@ -797,7 +841,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const id = uuid();
       let p = cAddTask(cur, { name: '新規工程', level, parentId, assigneeId, id }, uuid);
       p = cUpdateTaskToBe(p, id, { lifecycle: 'added' });
-      commit(p);
+      commit(p, '工程を追加');
       return id;
     },
 
@@ -822,13 +866,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const task = p.core.tasks[node.taskId];
         if (lane?.assigneeId && task && task.assigneeId !== lane.assigneeId) {
           task.assigneeId = lane.assigneeId; // 逆同期: レーン → 担当
-          history.push(reconcileProject(p, uuid));
+          pushHistory(reconcileProject(p, uuid), 'レーン移動で担当を変更');
           // 書き戻った工程を記録（表側の担当セルの一時ハイライト）。
           sync({ lastAssigneeSync: { ids: [node.taskId], seq: get().lastAssigneeSync.seq + 1 } });
           return p.core.assignees[lane.assigneeId]?.name; // 新しい担当名を返す（UI 通知用）
         }
       }
-      history.push(p);
+      pushHistory(p, 'ノードを移動');
       sync();
       return undefined;
     },
@@ -864,7 +908,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           }
         }
         if (!changed) return false;
-      });
+      }, 'ノードを移動');
     },
 
     // フロー上で工程を新規作成 → ドロップ位置のレーン(担当)へ。1 操作 = 1 undo（作成と配置を 1 スナップショットに集約）。
@@ -891,7 +935,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         node.x = Math.round(x);
         node.y = Math.round(y);
       }
-      history.push(p);
+      pushHistory(p, '工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -934,7 +978,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const eid = uuid();
         view.edges[eid] = { id: eid, source: sourceNodeId, target: node.id, pinned: true, role: 'flow' };
       }
-      history.push(p);
+      pushHistory(p, '工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -957,7 +1001,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         newNode.x = pos.x;
         newNode.y = pos.y;
       }
-      history.push(p);
+      pushHistory(p, '並行工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -994,7 +1038,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         node.x = pos.x;
         node.y = pos.y;
       }
-      history.push(p);
+      pushHistory(p, '工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -1016,7 +1060,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         node.x = pos.x;
         node.y = pos.y;
       }
-      history.push(p);
+      pushHistory(p, '並行化');
       sync();
     },
 
@@ -1119,7 +1163,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           if (derived) derived.label = edge.label;
         }
       }
-      history.push(p);
+      pushHistory(p, '工程を挿入');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -1133,7 +1177,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const px = x != null ? Math.round(x) + (k % 5) * 18 : 420 + k * 28;
         const py = y != null ? Math.round(y) + (k % 5) * 14 : 44 + k * 18;
         view.nodes[id] = { id, kind: 'control', control, x: px, y: py };
-      }),
+      }, '制御ノードを追加'),
     addComment: (text, x, y) =>
       editView((view) => {
         const id = uuid();
@@ -1141,14 +1185,14 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const px = x != null ? Math.round(x) + (k % 5) * 18 : 420;
         const py = y != null ? Math.round(y) + (k % 5) * 14 : 320 + k * 24;
         view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: px, y: py };
-      }),
+      }, 'メモを追加'),
     updateComment: (nodeId, text) =>
       editView((view) => {
         const n = view.nodes[nodeId];
         const t = text || 'メモ'; // 空は addComment と同じ既定文言（見えない白付箋を作らない）
         if (!n || n.kind !== 'comment' || n.text === t) return false;
         n.text = t;
-      }),
+      }, 'メモを編集'),
     tidyFlow: (selectedIds) =>
       editView((view, p) => {
         // 部分整列: 選択した工程ノード以外を固定扱い（位置・レーン高さを保つ）。
@@ -1162,7 +1206,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           );
         }
         p.flow.byLevel[p.flow.byLevel.indexOf(view)] = tidyFlowView(p.core, p.details, view, keepFixed);
-      }),
+      }, '自動整列'),
     setLaneHeight: (laneId, height) =>
       editView((view) => {
         const lane = view.lanes[laneId];
@@ -1176,7 +1220,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const n of Object.values(view.nodes)) {
           if (n.y >= threshold) n.y += delta;
         }
-      }),
+      }, 'レーン高さを変更'),
     moveLane: (laneId, dir) =>
       editView((view) => {
         // レーン幾何は laneLayout（唯一の正）から取る。boxes は order 昇順。
@@ -1195,7 +1239,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const tmp = U.lane.order;
         U.lane.order = D.lane.order;
         D.lane.order = tmp;
-      }),
+      }, 'レーンを入れ替え'),
     // 矢印接続。両端が工程ノードなら「依存（前後関係）」をコアに作る→工程表へ反映。
     // 制御ノード等を含む接続は従来どおり pinned な図固有エッジ（reconcile で消えない）。
     connect: (source, target) => {
@@ -1211,7 +1255,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         // （全体スコープのビューで描画される）。粒度が違う接続は従来どおり pinned エッジ。
         if (from && to && from.level === to.level) {
           if (!hasDependency(sNode.taskId, tNode.taskId)) {
-            commit(cAddDependency(get().project, sNode.taskId, tNode.taskId, uuid));
+            commit(cAddDependency(get().project, sNode.taskId, tNode.taskId, uuid), '前工程を追加');
           }
           return;
         }
@@ -1222,13 +1266,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       editView((v) => {
         const id = uuid();
         v.edges[id] = { id, source, target, pinned: true, role: 'flow' };
-      });
+      }, '接続を追加');
     },
     toggleNodePin: (nodeId) =>
       editView((view) => {
         const n = view.nodes[nodeId];
         if (n && n.kind === 'task') n.pinned = !n.pinned;
-      }),
+      }, '固定を切替'),
     // 既存エッジの端点付け替え。導出エッジ＝依存(from/to)の付け替え、手動エッジ＝端点の差し替え。
     reconnectEdge: (edgeId, end, newNodeId) => {
       const { level, scopeParentId } = get();
@@ -1248,10 +1292,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const newTo = end === 'target' ? newNode.taskId : dep.to;
         if (newFrom === newTo) return;
         if (hasDependency(newFrom, newTo)) {
-          commit(cRemoveDependency(get().project, dep.id)); // 既存と重複 → 旧を畳むだけ
+          commit(cRemoveDependency(get().project, dep.id), '前後関係を変更'); // 既存と重複 → 旧を畳むだけ
           return;
         }
-        commit(cAddDependency(cRemoveDependency(get().project, dep.id), newFrom, newTo, uuid));
+        commit(cAddDependency(cRemoveDependency(get().project, dep.id), newFrom, newTo, uuid), '前後関係を変更');
         return;
       }
       // 手動（pinned）エッジ: 端点を差し替え（同一接続が既にあれば no-op）。
@@ -1268,7 +1312,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         if (!e) return false;
         if (end === 'source') e.source = newNodeId;
         else e.target = newNodeId;
-      });
+      }, '接続を変更');
     },
     renameAssignee: (assigneeId, name) => {
       const trimmed = name.trim();
@@ -1277,13 +1321,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const p = structuredClone(get().project);
       const a = p.core.assignees[assigneeId];
       if (a) a.name = trimmed; // reconcile でレーン名(title)・各工程の担当表示へ反映
-      commit(p);
+      commit(p, '担当名を変更');
     },
     setEdgeLabel: (edgeId, label) =>
       editView((view) => {
         const e = view.edges[edgeId];
         if (e) e.label = label || undefined;
-      }),
+      }, 'ラベルを変更'),
     deleteFlowNode: (nodeId) =>
       editView((view) => {
         const n = view.nodes[nodeId];
@@ -1292,7 +1336,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const e of Object.values(view.edges)) {
           if (e.source === nodeId || e.target === nodeId) delete view.edges[e.id];
         }
-      }),
+      }, 'ノードを削除'),
     deleteFlowNodes: (nodeIds) =>
       editView((view) => {
         const set = new Set(nodeIds);
@@ -1304,19 +1348,19 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const e of Object.values(view.edges)) {
           if (set.has(e.source) || set.has(e.target)) delete view.edges[e.id];
         }
-      }),
+      }, 'ノードを削除'),
     deleteEdge: (edgeId) => {
       const view = findView(get().project, get().level, get().scopeParentId);
       const edge = view?.edges[edgeId];
       // 導出エッジは元の依存（前後関係）を消す＝表にも反映し再同期でも復活しない。
       // 手動（pinned）エッジは図からのみ取り除く。
       if (edge?.derivedFromDependencyId) {
-        commit(cRemoveDependency(get().project, edge.derivedFromDependencyId));
+        commit(cRemoveDependency(get().project, edge.derivedFromDependencyId), '前工程を削除');
         return;
       }
       editView((v) => {
         delete v.edges[edgeId];
-      });
+      }, 'エッジを削除');
     },
 
     select: (taskId) => set({ selectedTaskId: taskId }),
@@ -1336,10 +1380,22 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     toggleIssues: () => set({ showIssues: !get().showIssues }),
 
     undo: () => {
-      if (history.undo()) sync();
+      // 取り消す操作＝いまの先頭(labelCursor 位置)のラベル。undo 成功後にカーソルを 1 戻す。
+      const undone = labels[labelCursor];
+      if (history.undo()) {
+        labelCursor -= 1;
+        sync();
+        useUI.getState().toast(`元に戻しました: ${undone ?? LABEL_FALLBACK}`);
+      }
     },
     redo: () => {
-      if (history.redo()) sync();
+      if (history.redo()) {
+        labelCursor += 1;
+        // やり直す操作＝進めた先(新しい labelCursor 位置)のラベル。
+        const redone = labels[labelCursor];
+        sync();
+        useUI.getState().toast(`やり直しました: ${redone ?? LABEL_FALLBACK}`);
+      }
     },
     markSaved: (saved) => {
       const target = saved ?? history.current();

@@ -4,6 +4,7 @@
 // このタブの復旧データが消されない（dirty 解消時はそのプロジェクトの分だけ消す）。
 import { serializeProject, deserializeProject, type Project } from '@gantt-flow/core';
 import { useApp } from './store';
+import { useUI } from './ui/useUI';
 
 const PREFIX = 'gf-autosave-v1:'; // プロジェクト ID ごとのエントリ
 const LEGACY_KEY = 'gf-autosave-v1'; // 旧形式（単一キー・生 JSON）。読み取りのみ対応
@@ -110,8 +111,10 @@ function write(p: Project): void {
   try {
     localStorage.setItem(keyFor(p), JSON.stringify({ at: Date.now(), json: serializeProject(p) } satisfies Entry));
     prune(keyFor(p));
+    useUI.getState().notePersistOk('autosave'); // 直近成功時刻を更新(StatusBar 表示)
   } catch {
-    /* 容量超過/不可は無視（自動復旧はベストエフォート） */
+    // 退避失敗(容量超過/localStorage 不可)を可視化する。編集は妨げない(fail-open)。
+    useUI.getState().notePersistFailure('autosave');
   }
 }
 

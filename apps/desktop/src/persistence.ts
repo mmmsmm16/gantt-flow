@@ -18,6 +18,23 @@ import {
   type AcquireResult,
 } from '@gantt-flow/core';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
+import { useUI, type LockUiState } from './ui/useUI';
+
+// 助言ロックの状態変化・更新失敗を UI へ伝える(沈黙させない)。UI 未初期化でも落とさない(fail-open)。
+function notifyLock(state: LockUiState | null): void {
+  try {
+    useUI.getState().setLockState(state);
+  } catch {
+    /* UI ストア未初期化などは無視 */
+  }
+}
+function reportLockFailure(): void {
+  try {
+    useUI.getState().notePersistFailure('lock');
+  } catch {
+    /* 無視 */
+  }
+}
 
 // File System Access API は一部ブラウザのみ。lib.dom に未収録のため使う範囲だけ最小宣言する
 //（既存の lib 型と衝突しないよう独自名で定義）。
@@ -146,13 +163,19 @@ function beginHolding(path: string, owner: LockInfo): void {
   lockPath = path;
   lockOwner = owner;
   installUnloadHook();
+  notifyLock('holding'); // 編集ロック保持中(StatusBar 表示)
   heartbeatTimer = setInterval(() => {
     if (!lockPath || !lockOwner) return;
     lockOwner = { ...lockOwner, heartbeatAt: Date.now() };
     // Rust 側は保持者(sessionId)が一致しない限り上書きを拒否して Err を返す。
     // 失敗＝ロックを失った（奪取された等）か IO 不調なので、ハートビートを止めて
     // 他セッションの正当なロックを乱さない（助言ロックの安全側）。
-    void invoke('refresh_lock', { path: lockPath, owner: lockOwner }).catch(() => stopHeartbeat());
+    void invoke('refresh_lock', { path: lockPath, owner: lockOwner }).catch(() => {
+      // 沈黙させない: ロック更新の失敗を可視化し、読み取り専用扱いへ落とす（編集は妨げない）。
+      stopHeartbeat();
+      notifyLock('readonly');
+      reportLockFailure();
+    });
   }, LOCK_REFRESH_MS);
 }
 
@@ -228,6 +251,7 @@ export function forgetFileHandle(): void {
   filePath = null;
   lastKnownMtime = null;
   lastSeenExternalMtime = null;
+  notifyLock(null); // 保存先を忘れる＝ロック表示も消す
   void releaseHeldLock();
 }
 
@@ -599,6 +623,7 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
       if (lock.status === 'cancelled') return null; // 開くのをやめる（今の状態・旧ロックは変えない）
       await releaseHeldLock(); // 前に開いていたファイルのロックを返す
       if (lock.status === 'locked') beginHolding(path, lock.owner);
+      else notifyLock('readonly'); // ロック未取得のまま続行＝読み取り専用として明示する
     }
     fileHandle = null;
     filePath = path;

@@ -5728,3 +5728,14 @@ input.colored-text {
 .grid tbody tr.marked > td {
   background: var(--accent-soft);
 }
+
+/* ステータスバー: 永続化の健全性（自動保存の直近成功時刻・助言ロック状態）。
+   正常時は控えめ（muted）、失敗/読み取り専用のみ警告色で目立たせる（沈黙する失敗の可視化）。 */
+.st-autosave,
+.st-lock {
+  color: var(--muted);
+}
+.st-autosave.is-failed,
+.st-lock.is-readonly {
+  color: var(--danger);
+}

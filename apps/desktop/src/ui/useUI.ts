@@ -91,6 +91,16 @@ export interface ToastItem {
   tone: ToastTone;
 }
 
+// 永続化(自動保存/世代バックアップ/助言ロック)の健全性。沈黙する失敗を可視化するための共有状態。
+export type PersistKind = 'autosave' | 'backup' | 'lock';
+// 助言ロックの表示状態: holding=このセッションが編集ロックを保持 / readonly=取得できず読み取り専用。
+export type LockUiState = 'holding' | 'readonly';
+const PERSIST_FAIL_MESSAGE: Record<PersistKind, string> = {
+  autosave: '自動保存に失敗しました（空き容量をご確認ください）。編集は続けられます。',
+  backup: 'バックアップの保存に失敗しました（空き容量をご確認ください）。',
+  lock: '編集ロックを更新できませんでした（別の場所で同時に開いていないかご確認ください）。',
+};
+
 export interface ConfirmOpts {
   title?: string;
   message: string;
@@ -241,6 +251,19 @@ interface UIState {
   toasts: ToastItem[];
   toast: (message: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
+
+  /** 直近の自動保存(localStorage への未保存退避)が成功した時刻(epoch ms)。null=まだ成功なし。 */
+  lastAutosaveAt: number | null;
+  /** 直近の永続化失敗(自動保存/バックアップ/ロック更新)。null=正常。StatusBar とトーストの元。 */
+  persistFailure: { kind: PersistKind; at: number } | null;
+  /** 助言ロックの表示状態(holding/readonly)。null=ファイル未割当(新規/取込/ブラウザ)。 */
+  lockState: LockUiState | null;
+  /** 永続化の成功を記録(autosave は時刻を更新、同種の失敗表示が残っていれば解除)。 */
+  notePersistOk: (kind: PersistKind) => void;
+  /** 永続化の失敗を記録。状態が変わったときだけトーストを1回出す(リトライ連打でスパムしない)。 */
+  notePersistFailure: (kind: PersistKind) => void;
+  /** 助言ロックの表示状態を反映する(persistence 層から呼ぶ)。 */
+  setLockState: (state: LockUiState | null) => void;
 }
 
 const initialTheme = readInitialTheme();
@@ -514,4 +537,20 @@ export const useUI = create<UIState>((set, get) => ({
     set({ toasts: [...get().toasts, { id, message, tone }] });
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+
+  lastAutosaveAt: null,
+  persistFailure: null,
+  lockState: null,
+  notePersistOk: (kind) =>
+    set((s) => ({
+      lastAutosaveAt: kind === 'autosave' ? Date.now() : s.lastAutosaveAt,
+      // 同種の失敗表示が残っていれば「回復した」ものとして解除する。
+      persistFailure: s.persistFailure?.kind === kind ? null : s.persistFailure,
+    })),
+  notePersistFailure: (kind) => {
+    // 状態変化時のみ 1 回トースト(同種の連続失敗＝リトライではスパムしない)。
+    if (get().persistFailure?.kind !== kind) get().toast(PERSIST_FAIL_MESSAGE[kind], 'error');
+    set({ persistFailure: { kind, at: Date.now() } });
+  },
+  setLockState: (lockState) => set({ lockState }),
 }));
