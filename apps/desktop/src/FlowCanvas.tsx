@@ -14,7 +14,6 @@ import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 import {
   SIZE,
   deriveBands,
-  derivePhaseStrip,
   ioIconRect,
   IO_ICON,
   issueLineTarget,
@@ -126,7 +125,6 @@ export function FlowCanvas() {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const laneRailRef = useRef<HTMLDivElement>(null); // 担当ラベルの固定レール（横スクロールで左端に貼り付く）
-  const phaseRailRef = useRef<HTMLDivElement>(null); // フェーズ帯（縦スクロールで上端に貼り付く）
   // ノードを掴んだ画面座標と「実際に動かしたか」。ドラッグ移動後の click では選択（詳細パネル）を出さない。
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
@@ -470,8 +468,6 @@ export function FlowCanvas() {
     const pin = () => {
       const rail = laneRailRef.current;
       if (rail) rail.style.transform = `translateX(${scroller.scrollLeft}px)`;
-      const prail = phaseRailRef.current;
-      if (prail) prail.style.transform = `translateY(${scroller.scrollTop}px)`;
     };
     pin();
     scroller.addEventListener('scroll', pin, { passive: true });
@@ -612,7 +608,6 @@ export function FlowCanvas() {
   if (!showIssues) nodes = nodes.filter((n) => n.kind !== 'issue');
   const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
   const bands = deriveBands(project.core, view);
-  const phases = derivePhaseStrip(project.core, view);
   const divNodes = nodes.filter((n) => n.kind !== 'doc');
 
   // レーン幾何（可変高さ）。確定済みの高さで描画し、リサイズ中は破線ガイドだけ動かす
@@ -1971,20 +1966,6 @@ export function FlowCanvas() {
                     }}
                   />
                 )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {phases.length > 0 && (
-          <div className="phase-rail" ref={phaseRailRef} style={{ width: CANVAS_W * scale }}>
-            {phases.map((p, i) => (
-              <div
-                key={p.taskId}
-                className={`phase-seg${i % 2 ? ' phase-seg-alt' : ''}`}
-                style={{ left: p.x * scale, width: p.width * scale }}
-              >
-                <span className="phase-seg-label">{p.label}</span>
               </div>
             ))}
           </div>

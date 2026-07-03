@@ -1161,39 +1161,6 @@ button.danger:hover {
   pointer-events: none; /* ラベル/グリップだけ操作可 */
   will-change: transform;
 }
-/* フェーズ帯: キャンバス上端に大工程ごとの横帯（縦スクロールで貼り付き）。band と同じ配色系。 */
-.phase-rail {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 24px;
-  z-index: 5; /* lane-rail(4) より上・ノードには干渉しない（pointer-events none） */
-  pointer-events: none;
-  will-change: transform;
-}
-.phase-seg {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  overflow: hidden;
-  white-space: nowrap;
-  border-bottom: 2px solid color-mix(in srgb, var(--lvl-large) 55%, var(--band-stroke));
-  background: color-mix(in srgb, var(--lvl-large) 18%, transparent);
-  border-radius: 0 0 8px 8px;
-}
-.phase-seg-alt {
-  background: color-mix(in srgb, var(--lvl-large) 9%, transparent);
-}
-.phase-seg-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
 .lane-label {
   position: absolute;
   left: 0;
