@@ -1,6 +1,7 @@
 // 入力補完（オートコンプリート）の候補集め。プロジェクト全体から重複なく集約する。
 // 同じ帳票が複数工程に登場するのが業務フローの常なので、表記ゆれ（受注伝票 vs 受注表）を防ぐ。
 import type { Project, ProcessTask, Id } from '@gantt-flow/core';
+import { isMilestone } from '@gantt-flow/core';
 
 // すべての I/O（帳票/情報）の名称を、出現頻度の高い順に重複なく返す。
 export function collectIoNames(project: Project): string[] {
@@ -17,6 +18,11 @@ export function collectIoNames(project: Project): string[] {
 // 「前工程」に設定できる候補。同じ粒度の工程（別の親グループも可）のうち、既に前後関係
 // (どちら向きでも)が張られているものを除外して order 順に返す(表セレクトとパレットの引数
 // コマンドで共用)。粒度跨ぎは従来どおり除外＝大工程の接続から導出されるブリッジに委ねる。
+// マイルストーン(kind==='milestone')は「工程→MS」の一方向しか依存を張れない
+// （commands/index.ts の isMilestone ガードで MS からの出依存は無視される）ため、
+// MS を"他工程の前工程"候補には出さない。MS 自身の前工程セレクトは対象外＝呼び出し側
+// (taskId が MS)であれば通常工程を候補として返してよく、これは候補側(o)のみを絞る
+// ここのフィルタでは影響を受けない。
 export function prevCandidates(project: Project, taskId: Id): ProcessTask[] {
   const t = project.core.tasks[taskId];
   if (!t) return [];
@@ -28,6 +34,7 @@ export function prevCandidates(project: Project, taskId: Id): ProcessTask[] {
       (o) =>
         o.id !== taskId &&
         o.level === t.level &&
+        !isMilestone(project.core, o.id) &&
         !predIds.has(o.id) &&
         !succIds.has(o.id),
     )
@@ -67,9 +74,13 @@ export function buildPrevCandidateIndex(project: Project): (taskId: Id) => Proce
     linked.add(`${d.to}\u0000${d.from}`);
   }
   // 同じ粒度のグループ（親は問わない）に分け、prevCandidates と同じ順(order→id)に整列しておく。
+  // マイルストーンは prevCandidates 同様「他工程の前工程」候補にはしない＝候補側の母集団
+  // であるグループ構築時点で除外する（MS 自身が taskId としてこのグループを引く場合は
+  // 通常工程だけが返る＝MS の前工程セレクトは従来どおり機能する）。
   const groups = new Map<string, ProcessTask[]>();
   const groupKey = (t: ProcessTask) => `${t.level}`;
   for (const t of Object.values(project.core.tasks)) {
+    if (isMilestone(project.core, t.id)) continue;
     const key = groupKey(t);
     const arr = groups.get(key);
     if (arr) arr.push(t);

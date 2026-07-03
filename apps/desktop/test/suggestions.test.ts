@@ -43,6 +43,26 @@ describe('suggestions: prevCandidates', () => {
     // 大工程(l1)は粒度が違うので候補に出ない
     expect(cands.map((t) => t.id)).not.toContain(l1.id);
   });
+
+  it('マイルストーンは他工程の前工程候補に出ない（工程→MS の一方向しか依存を張れないため）。MS 自身の前工程候補には通常工程が引き続き出る', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const byName = (name: string) =>
+      Object.values(s.getState().project.core.tasks).find((t) => t.name === name)!;
+    const a = byName('A');
+    const msId = s.getState().addMilestone()!;
+    // 粒度を A/B と揃える(MS は追加時の level を引き継ぐので通常は同じになるが明示しておく)。
+    s.getState().setTaskLevel(msId, a.level);
+
+    // A の前工程候補に MS は出ない(選んでも addDependency が無視される混乱を防ぐ)。
+    expect(prevCandidates(s.getState().project, a.id).map((t) => t.id)).not.toContain(msId);
+
+    // MS 自身の前工程候補(対象工程を選ぶセレクト)には通常工程 A・B が引き続き出る。
+    const msCands = prevCandidates(s.getState().project, msId).map((t) => t.id);
+    expect(msCands).toContain(a.id);
+    expect(msCands).toContain(byName('B').id);
+  });
 });
 
 // 意味の単一ソースは prevCandidates。前計算インデックスはその等価実装であることを
@@ -88,6 +108,23 @@ describe('suggestions: buildPrevCandidateIndex（前工程候補の前計算）'
     const b1 = s.getState().addChildTask(l2.id)!; // 中工程(親=l2・別グループ)
     const candidatesFor = buildPrevCandidateIndex(s.getState().project);
     expect(candidatesFor(a1).map((t) => t.id)).toContain(b1);
+  });
+
+  it('マイルストーンは前計算インデックスでも他工程の前工程候補から除外される（prevCandidates と一致）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = Object.values(s.getState().project.core.tasks).find((t) => t.name === 'A')!;
+    const msId = s.getState().addMilestone()!;
+    s.getState().setTaskLevel(msId, a.level);
+
+    const p = s.getState().project;
+    const candidatesFor = buildPrevCandidateIndex(p);
+    expect(candidatesFor(a.id).map((t) => t.id)).not.toContain(msId);
+    expect(candidatesFor(a.id).map((t) => t.id)).toEqual(prevCandidates(p, a.id).map((t) => t.id));
+    // MS 自身の候補には通常工程が出る
+    expect(candidatesFor(msId).map((t) => t.id)).toEqual(prevCandidates(p, msId).map((t) => t.id));
+    expect(candidatesFor(msId).length).toBeGreaterThan(0);
   });
 
   it('存在しない工程は空配列（prevCandidates と同じ）', () => {
