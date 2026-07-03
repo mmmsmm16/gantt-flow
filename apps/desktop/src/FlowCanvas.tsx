@@ -1983,7 +1983,6 @@ export function FlowCanvas() {
                 key={p.taskId}
                 className={`phase-seg${i % 2 ? ' phase-seg-alt' : ''}`}
                 style={{ left: p.x * scale, width: p.width * scale }}
-                title={`フェーズ: ${p.label}`}
               >
                 <span className="phase-seg-label">{p.label}</span>
               </div>
