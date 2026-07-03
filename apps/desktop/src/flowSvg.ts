@@ -3,6 +3,7 @@
 import {
   SIZE,
   deriveBands,
+  derivePhaseStrip,
   ioIconRect,
   IO_ICON,
   issueLineTarget,
@@ -69,6 +70,19 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   // 負側にはみ出した分は少し余白を足す（はみ出しが無ければ従来どおり原点 0,0）。
   if (minX < 0) minX -= 12;
   if (minY < 0) minY -= 12;
+
+  // フェーズ帯: 画像上端に大工程ごとの横帯を出す（画面の phase-rail と同じ導出）。
+  const phases = derivePhaseStrip(project.core, view);
+  const STRIP_H = 22;
+  let stripY = 0;
+  if (phases.length) {
+    for (const p of phases) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x + p.width);
+    }
+    stripY = minY - STRIP_H - 6;
+    minY = stripY - 6;
+  }
   const width = maxX - minX;
   const height = maxY - minY;
 
@@ -80,6 +94,15 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   parts.push(
     `<defs><marker id="a" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="${FLOW_LIGHT.arrow}"/></marker></defs>`,
   );
+
+  for (const [i, p] of phases.entries()) {
+    parts.push(
+      `<rect x="${p.x}" y="${stripY}" width="${p.width}" height="${STRIP_H}" rx="4" fill="${FLOW_LIGHT.band}" fill-opacity="${i % 2 ? 0.1 : 0.18}"/>`,
+    );
+    parts.push(
+      `<text x="${p.x + 6}" y="${stripY + 15}" font-size="11" font-weight="600" fill="${FLOW_LIGHT.bandLabel}">${esc(p.label)}</text>`,
+    );
+  }
 
   // bands（メンバー工程の範囲に収め、深いほど太線で外側を包む）
   for (const b of deriveBands(project.core, view)) {
