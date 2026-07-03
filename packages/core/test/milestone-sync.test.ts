@@ -2,7 +2,7 @@
 // 導出エッジ・自動整列（tidy）・親範囲バンドからは不可視として扱う。counter 2 系統（g=コマンド／
 // n=reconcile 発番）で決定論。
 import { describe, it, expect } from 'vitest';
-import { addTask, addAssignee, addDependency } from '../src/commands';
+import { addTask, addAssignee, addDependency, removeDependency } from '../src/commands';
 import { reconcileFlow } from '../src/sync/reconcileFlow';
 import { tidyFlowView } from '../src/sync/tidy';
 import { deriveBands } from '../src/sync/bands';
@@ -307,5 +307,41 @@ describe('マイルストーンの粒度非依存化（v2）', () => {
 
     expect(hasTaskNode(scoped.view, msId)).toBe(false);
     expect(hasTaskNode(all.view, msId)).toBe(true);
+  });
+
+  it('⑬ 遷移: 依存経由のみで可視な MS が、依存撤去 → 再同期で撤去される（1 回だけ）。以降は冪等', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'P1', level: 'large' }, g); // スコープ対象（対象工程 A の親）
+    p = addTask(p, { name: 'P2', level: 'large' }, g); // MS の構造上の親（P1 スコープの外）
+    const p1 = taskIdByName(p, 'P1');
+    const p2 = taskIdByName(p, 'P2');
+    p = addTask(p, { name: 'A', level: 'medium', parentId: p1 }, g); // 対象工程は P1 配下
+    p = addTask(p, { name: 'MS', level: 'medium', parentId: p2, kind: 'milestone' }, g); // 構造上は P2 配下
+    p = addDependency(p, taskIdByName(p, 'A'), taskIdByName(p, 'MS'), g); // A→MS：依存のみで P1 スコープに現れる
+
+    const msId = taskIdByName(p, 'MS');
+    const depId = Object.values(p.core.dependencies).find(
+      (d) => d.from === taskIdByName(p, 'A') && d.to === msId,
+    )!.id;
+
+    // ① P1 スコープでは構造では現れないが、A→MS の依存経由でノードが存在する
+    const r1 = reconcileFlow(p.core, p.details, emptyView('medium', p1), n);
+    expect(hasTaskNode(r1.view, msId)).toBe(true);
+    const msNodeId = taskNodeOf(r1.view, msId).id;
+
+    // ② 依存を撤去 → 同じ view を再同期 → MS ノードだけが撤去される（report.removed に 1 回のみ）
+    p = removeDependency(p, depId);
+    const r2 = reconcileFlow(p.core, p.details, r1.view, n);
+    expect(hasTaskNode(r2.view, msId)).toBe(false);
+    expect(r2.report.removed).toEqual([msNodeId]);
+    expect(r2.report.added).toHaveLength(0);
+
+    // ③ 3 回目は冪等（view 等値・added/removed 空）
+    const r3 = reconcileFlow(p.core, p.details, r2.view, n);
+    expect(r3.view).toEqual(r2.view);
+    expect(r3.report.added).toHaveLength(0);
+    expect(r3.report.removed).toHaveLength(0);
   });
 });
