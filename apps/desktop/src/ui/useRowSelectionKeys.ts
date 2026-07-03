@@ -144,10 +144,39 @@ export function resolveEditNavTarget(
   return null;
 }
 
+// Tab・Shift+Tab(dir='right'/'left')専用の移動先解決。まず resolveEditNavTarget で同じ行内を
+// 辿り(select 等の編集不可セルはスキップ)、行末/行頭で尽きたら次/前の行へ折返し、その行の
+// 先頭(Tab)/末尾(Shift+Tab)列から編集可能セルを探す(そこも編集不可なら resolveEditNavTarget の
+// up/down と同じ規約でさらに次/前の行へスキップして進む)。どこにも見つからなければ null を返す
+// (= 表の端での正真正銘の行き止まり。呼び出し側はネイティブの Tab を素通りさせる規約)。
+export function resolveTabWrapTarget(
+  grid: { orderedIds: readonly Id[]; columns: readonly string[] },
+  from: { taskId: Id; colKey: string },
+  dir: Extract<EditNavDir, 'left' | 'right'>,
+  tryFocus: (taskId: Id, colKey: string) => boolean,
+): { taskId: Id; colKey: string } | null {
+  const sameRow = resolveEditNavTarget(grid, from, dir, tryFocus);
+  if (sameRow) return sameRow;
+  const r = grid.orderedIds.indexOf(from.taskId);
+  if (r < 0) return null;
+  const rowStep = dir === 'right' ? 1 : -1;
+  const colOrder = dir === 'right' ? grid.columns : [...grid.columns].reverse();
+  for (let i = r + rowStep; i >= 0 && i < grid.orderedIds.length; i += rowStep) {
+    const id = grid.orderedIds[i]!;
+    for (const key of colOrder) {
+      if (tryFocus(id, key)) return { taskId: id, colKey: key };
+    }
+  }
+  return null;
+}
+
 // 編集中(セル内入力)の Enter/Tab ナビゲーション(Excel 風)。アウトラインと全項目表で共通の規約:
 //  Enter=確定して同列の下セルへ / Shift+Enter=上へ / Tab・Shift+Tab=確定して右/左の編集可能セルへ。
 //  確定は各入力の onBlur コミットに任せる(フォーカス移動で blur が走る)。textarea の Enter は
 //  改行を優先して奪わない(行追加は Ctrl+Enter のまま)。select・チップ等で入力が無いセルはスキップ。
+//  Tab は行末/行頭で次/前の行へ折返す(resolveTabWrapTarget)。表の端で本当に移動先が無い
+//  ときだけ preventDefault せずネイティブ Tab に委ね、表の外へ普通に抜けられるようにする
+//  (Help の「Tab: 確定して右のセルへ」と矛盾しないよう、列端で無反応のまま固まらせない)。
 function handleEditNav(
   e: ReactKeyboardEvent,
   o: RowSelectionOpts,
@@ -162,21 +191,36 @@ function handleEditNav(
   const colKey = t.closest('[data-cell]')?.getAttribute('data-cell');
   const taskId = t.closest('tr[data-taskid]')?.getAttribute('data-taskid');
   if (!colKey || !taskId) return; // 表のセル外(ヘッダの検索ボックス等)は対象外
+  const grid = { orderedIds: o.orderedIds, columns: o.columns };
+  const from = { taskId, colKey };
+  const tryFocus = (id: Id, key: string) => focusCell(id, key, true);
+
+  if (e.key === 'Tab') {
+    const dir: Extract<EditNavDir, 'left' | 'right'> = e.shiftKey ? 'left' : 'right';
+    const moved = resolveTabWrapTarget(grid, from, dir, tryFocus);
+    if (!moved) {
+      // 表の端で本当に移動先が無い(最終行の最終セル・先頭行の先頭セル)。preventDefault せず
+      // ネイティブ Tab に委ねる(移動先の入力の blur で自然に確定される。手動 blur は
+      // ネイティブのタブ順計算を狂わせうるため呼ばない)。
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation(); // blur 後にグローバルの Tab(table.indent/outdent)を誤発火させない
+    if (moved.taskId !== taskId) useApp.getState().select(moved.taskId);
+    const ci = o.columns.indexOf(moved.colKey);
+    if (ci >= 0) setColIdx(ci);
+    return;
+  }
+
   e.preventDefault();
   e.stopPropagation(); // blur 後にグローバルの Enter(table.edit)を再発火させない
-  const dir: EditNavDir =
-    e.key === 'Enter' ? (e.shiftKey ? 'up' : 'down') : e.shiftKey ? 'left' : 'right';
-  const moved = resolveEditNavTarget(
-    { orderedIds: o.orderedIds, columns: o.columns },
-    { taskId, colKey },
-    dir,
-    (id, key) => focusCell(id, key, true),
-  );
+  const dir: EditNavDir = e.shiftKey ? 'up' : 'down';
+  const moved = resolveEditNavTarget(grid, from, dir, tryFocus);
   if (!moved) {
     // 端で移動先が無い Enter: 末尾ゴースト行ハンドラがあれば新規工程を起こして連続入力、
-    // 無ければ従来どおり確定して選択モードへ(Tab はその場に留まる)。
-    if (e.key === 'Enter' && dir === 'down' && o.onEditNavPastEnd) o.onEditNavPastEnd();
-    else if (e.key === 'Enter') t.blur();
+    // 無ければ従来どおり確定して選択モードへ。
+    if (dir === 'down' && o.onEditNavPastEnd) o.onEditNavPastEnd();
+    else t.blur();
     return;
   }
   // 選択と列カーソルを移動先へ追従させる(Esc で選択モードへ戻った直後の j/k・h/l と一致)。
