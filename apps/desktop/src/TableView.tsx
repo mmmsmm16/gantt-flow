@@ -419,19 +419,23 @@ export function TableView() {
                       {ms ? <span className="ms-cell-blank">—</span> : codes[t.id]}
                     </td>
                     <td className="c-level" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        className={`lvl lvl-${t.level}${cellCursorCls(t.id, 'level')}`}
-                        data-cell="level"
-                        value={t.level}
-                        aria-label="粒度"
-                        onChange={(e) => setTaskLevel(t.id, e.target.value as ProcessLevel)}
-                      >
-                        {LEVEL_OPTS.map((l) => (
-                          <option key={l.key} value={l.key}>
-                            {l.label}
-                          </option>
-                        ))}
-                      </select>
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは粒度を持ちません">—</span>
+                      ) : (
+                        <select
+                          className={`lvl lvl-${t.level}${cellCursorCls(t.id, 'level')}`}
+                          data-cell="level"
+                          value={t.level}
+                          aria-label="粒度"
+                          onChange={(e) => setTaskLevel(t.id, e.target.value as ProcessLevel)}
+                        >
+                          {LEVEL_OPTS.map((l) => (
+                            <option key={l.key} value={l.key}>
+                              {l.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
                     <td className="c-name">
                       <TreeGuides depth={depth} ancestorLines={ancestorLines} isLast={isLast} />

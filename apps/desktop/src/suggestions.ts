@@ -23,17 +23,20 @@ export function collectIoNames(project: Project): string[] {
 // MS を"他工程の前工程"候補には出さない。MS 自身の前工程セレクトは対象外＝呼び出し側
 // (taskId が MS)であれば通常工程を候補として返してよく、これは候補側(o)のみを絞る
 // ここのフィルタでは影響を受けない。
+// v2（粒度非依存化）: taskId 自身が MS のときは対象工程（前工程）候補の粒度を問わない
+// （全レベル・全スコープの通常工程が候補）。通常工程 taskId の挙動（同粒度限定）は変えない。
 export function prevCandidates(project: Project, taskId: Id): ProcessTask[] {
   const t = project.core.tasks[taskId];
   if (!t) return [];
   const deps = Object.values(project.core.dependencies);
   const predIds = new Set(deps.filter((d) => d.to === taskId).map((d) => d.from));
   const succIds = new Set(deps.filter((d) => d.from === taskId).map((d) => d.to));
+  const targetIsMilestone = isMilestone(project.core, taskId);
   return Object.values(project.core.tasks)
     .filter(
       (o) =>
         o.id !== taskId &&
-        o.level === t.level &&
+        (targetIsMilestone || o.level === t.level) &&
         !isMilestone(project.core, o.id) &&
         !predIds.has(o.id) &&
         !succIds.has(o.id),
@@ -79,8 +82,12 @@ export function buildPrevCandidateIndex(project: Project): (taskId: Id) => Proce
   // 通常工程だけが返る＝MS の前工程セレクトは従来どおり機能する）。
   const groups = new Map<string, ProcessTask[]>();
   const groupKey = (t: ProcessTask) => `${t.level}`;
+  // v2（粒度非依存化）: taskId 自身が MS のときの母集団は全レベル・全スコープの通常工程
+  // （下の groups とは別に、レベル不問の1本を用意しておく）。
+  const allNonMilestone: ProcessTask[] = [];
   for (const t of Object.values(project.core.tasks)) {
     if (isMilestone(project.core, t.id)) continue;
+    allNonMilestone.push(t);
     const key = groupKey(t);
     const arr = groups.get(key);
     if (arr) arr.push(t);
@@ -88,6 +95,7 @@ export function buildPrevCandidateIndex(project: Project): (taskId: Id) => Proce
   }
   for (const arr of groups.values())
     arr.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  allNonMilestone.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   // 同じプロジェクト状態への問い合わせは再レンダーのたびに行ごとへ繰り返されるため、
   // 結果を id 別にメモ化する(インデックス自体はコミット時に作り直す前提)。
   const cache = new Map<Id, ProcessTask[]>();
@@ -96,9 +104,8 @@ export function buildPrevCandidateIndex(project: Project): (taskId: Id) => Proce
     if (hit) return hit;
     const t = project.core.tasks[taskId];
     if (!t) return [];
-    const out = (groups.get(groupKey(t)) ?? []).filter(
-      (o) => o.id !== taskId && !linked.has(`${o.id}\u0000${taskId}`),
-    );
+    const pool = isMilestone(project.core, taskId) ? allNonMilestone : (groups.get(groupKey(t)) ?? []);
+    const out = pool.filter((o) => o.id !== taskId && !linked.has(`${o.id}\u0000${taskId}`));
     cache.set(taskId, out);
     return out;
   };
