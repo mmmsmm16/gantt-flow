@@ -2,11 +2,24 @@
   "permissions": {
     "allow": [
       "Bash(npm test:*)",
-      "Bash(npm run typecheck:*)",
-      "Bash(npm run test:*)",
+      "Bash(npm run:*)",
       "Bash(cargo test:*)",
       "Bash(cargo clippy:*)",
-      "Bash(cargo fmt:*)"
+      "Bash(cargo fmt:*)",
+      "Bash(git fetch:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/post-edit-check.mjs"
+          }
+        ]
+      }
     ]
   }
 }
