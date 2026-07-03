@@ -3,6 +3,7 @@
 import {
   SIZE,
   deriveBands,
+  deriveMilestoneGuides,
   ioIconRect,
   IO_ICON,
   issueLineTarget,
@@ -30,6 +31,11 @@ const esc = (s: string) =>
 
 export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   const nodes = Object.values(view.nodes);
+  // マイルストーン縦線（上部余白の菱形＋レーンを貫く破線）。導出は画面 FlowCanvas と共有＝一致を保証。
+  const msGuides = deriveMilestoneGuides(project.core, view);
+  const msTaskIds = new Set(msGuides.map((g) => g.taskId));
+  // マイルストーンのタスクノードはレーン内に描かない（菱形で表す）。
+  const isMs = (n: FlowNode) => n.kind === 'task' && msTaskIds.has(n.taskId);
 
   // レーン幾何（可変高さ）。担当レーンが無いビューはスイムレーンを描かない。
   const BAND_TOP = 24;
@@ -51,7 +57,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     maxY = Math.max(maxY, r.y + r.h + 60);
   };
   for (const n of nodes) {
-    if (n.kind === 'doc') continue; // I/O はタスクへ集約表示（下で算入）
+    if (n.kind === 'doc' || isMs(n)) continue; // I/O はタスクへ集約 / MS は菱形で別描画
     grow({ x: n.x, y: n.y, ...nodeSize(n) });
     if (n.kind === 'task') {
       const d = project.details[n.taskId];
@@ -66,6 +72,13 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
   if (hasLanes) maxY = Math.max(maxY, laneBottom + 40);
+  // マイルストーンがあるときは上部に菱形の余白を取り、縦線＋ラベルが収まる幅まで右へ広げる。
+  const MS_CY = -20; // 菱形の中心 y（レーン上の余白）
+  const msLineBottom = hasLanes ? laneBottom : maxY - 40;
+  if (msGuides.length) {
+    minY = Math.min(minY, MS_CY - 16);
+    for (const g of msGuides) maxX = Math.max(maxX, g.x + 120);
+  }
   // 負側にはみ出した分は少し余白を足す（はみ出しが無ければ従来どおり原点 0,0）。
   if (minX < 0) minX -= 12;
   if (minY < 0) minY -= 12;
@@ -123,9 +136,25 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
+  // マイルストーン: レーンを貫く縦破線＋上部余白の琥珀の菱形（回転した角丸四角）＋ラベル。
+  // 導出は画面 FlowCanvas と共有（deriveMilestoneGuides）＝ WYSIWYG。
+  for (const g of msGuides) {
+    parts.push(
+      `<line x1="${g.x}" y1="${MS_CY + 12}" x2="${g.x}" y2="${msLineBottom}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.55"/>`,
+    );
+    parts.push(
+      `<rect x="${g.x - 10}" y="${MS_CY - 10}" width="20" height="20" rx="4" transform="rotate(45 ${g.x} ${MS_CY})" fill="${FLOW_LIGHT.ms.fill}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.6"/>`,
+    );
+    if (g.label) {
+      parts.push(
+        `<text x="${g.x + 16}" y="${MS_CY + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.ms.text}">${esc(g.label)}</text>`,
+      );
+    }
+  }
+
   // edges: 直角コネクタ。他ノードと重ならない通り道を routeEdge が選ぶ(画面と同一ロジック)。
   const edgeObstacles = nodes
-    .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+    .filter((n) => (n.kind === 'task' || n.kind === 'control' || n.kind === 'comment') && !isMs(n))
     .map((n) => ({ id: n.id, x: n.x, y: n.y, w: nodeSize(n).w, h: nodeSize(n).h }));
   for (const e of Object.values(view.edges)) {
     const s = view.nodes[e.source];
@@ -168,6 +197,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
 
   // nodes
   for (const n of nodes) {
+    if (isMs(n)) continue; // マイルストーンは菱形で別描画（レーン内には出さない）
     const s = nodeSize(n);
     const cx = n.x + s.w / 2;
     if (n.kind === 'task') {
@@ -254,7 +284,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     });
   };
   for (const n of nodes) {
-    if (n.kind !== 'task') continue;
+    if (n.kind !== 'task' || isMs(n)) continue;
     const d = project.details[n.taskId];
     const inputs = d?.inputs ?? [];
     const plain = inputs.filter((it) => !it.source?.trim());

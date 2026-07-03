@@ -3388,6 +3388,48 @@ kbd {
   width: 0;
   border-left: 1px dashed var(--accent-strong);
 }
+/* マイルストーン: レーン上の余白に琥珀の菱形＋全レーンを貫く縦破線（対象工程の右端に追従）。
+   .ms-guide は .flow-scale 全面を覆うが透明・非操作（菱形だけが pointer-events を持つ）。
+   spec: docs/superpowers/specs/2026-07-04-milestone-design.md §デスクトップ描画・UI */
+.ms-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ms-guide-line {
+  position: absolute;
+  width: 0;
+  border-left: 1.5px dashed var(--amber);
+  opacity: 0.55;
+}
+.ms-diamond {
+  position: absolute;
+  z-index: 6;
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  background: var(--amber-fill);
+  border: 1.6px solid var(--amber);
+  transform: rotate(45deg);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ms-diamond.draggable {
+  cursor: grab;
+}
+.ms-diamond.selected {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 45%, transparent);
+}
+.ms-label {
+  position: absolute;
+  z-index: 6;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  color: var(--amber-ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .palette-sep {
   width: 1px;
   height: 18px;

@@ -14,6 +14,8 @@ import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 import {
   SIZE,
   deriveBands,
+  deriveMilestoneGuides,
+  isMilestone,
   ioIconRect,
   IO_ICON,
   issueLineTarget,
@@ -167,6 +169,8 @@ export function FlowCanvas() {
   const lastPointerRef = useRef<{ x: number; y: number; alt: boolean } | null>(null);
   // B3: 選択エッジの端点ドラッグ（再接続）。x/y はプレビュー終点（論理座標）。
   const [edgeDrag, setEdgeDrag] = useState<{ edgeId: string; end: 'source' | 'target'; x: number; y: number } | null>(null);
+  // 未紐付けマイルストーンの菱形を横ドラッグ中のプレビュー x（モデル座標。確定は pointerup で moveNode）。
+  const [msDrag, setMsDrag] = useState<{ taskId: string; x: number } | null>(null);
 
   const stopAutoScroll = () => {
     if (autoScrollRef.current) {
@@ -608,7 +612,14 @@ export function FlowCanvas() {
   if (!showIssues) nodes = nodes.filter((n) => n.kind !== 'issue');
   const lanes = Object.values(view.lanes).sort((a, b) => a.order - b.order);
   const bands = deriveBands(project.core, view);
-  const divNodes = nodes.filter((n) => n.kind !== 'doc');
+  // マイルストーン縦線（上部余白の菱形＋レーンを貫く破線）。導出は画像出力 flowSvg と共有。
+  const msGuides = deriveMilestoneGuides(project.core, view);
+  // マイルストーンのタスクノードはレーン内に通常ノードとして描かない（上部余白の菱形が代わり）。
+  // doc は I/O 集約アイコン（SVG）で描くため div ノードから除外。型ガードで doc を型からも外す。
+  const divNodes = nodes.filter(
+    (n): n is Exclude<FlowNode, { kind: 'doc' }> =>
+      n.kind !== 'doc' && !(n.kind === 'task' && isMilestone(project.core, n.taskId)),
+  );
 
   // レーン幾何（可変高さ）。確定済みの高さで描画し、リサイズ中は破線ガイドだけ動かす
   // （ドラッグ中にレーンとノードがズレて見えるのを避け、確定時にまとめて反映）。
@@ -634,6 +645,42 @@ export function FlowCanvas() {
       setLaneHeight(box.lane.id, h);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  // マイルストーンの菱形を選択（クリック）／未紐付け時は横ドラッグで対象ノードの x を更新（y は不変）。
+  // bound（対象工程あり）のときは縦線 x が工程に自動追従するためドラッグ無効＝クリックで選択のみ。
+  const selectMs = (taskId: string) => {
+    select(taskId);
+    setSel(null);
+    setMultiSel(new Set());
+  };
+  const startMsDrag = (g: { taskId: string; bound: boolean }, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    if (g.bound) return; // 追従中はドラッグしない（クリック選択は onClick 側で処理）
+    e.stopPropagation();
+    e.preventDefault();
+    const node = Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === g.taskId);
+    if (!node) return;
+    const startX = e.clientX;
+    const baseX = node.x;
+    let moved = false;
+    setMsDrag({ taskId: g.taskId, x: baseX });
+    const xAt = (ev: PointerEvent) => Math.max(0, baseX + (ev.clientX - startX) / scale);
+    const onMove = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - startX) > 3) moved = true;
+      setMsDrag({ taskId: g.taskId, x: xAt(ev) });
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      const nx = xAt(ev);
+      setMsDrag(null);
+      // 横方向の平行移動のみ（y 不変）。moveNodesBy はレーン再割当をしない＝MS に担当が付かない。
+      if (moved) moveNodesBy([node.id], Math.round(nx) - baseX, 0);
+      else selectMs(g.taskId); // 動かさなければクリック＝選択
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -1290,6 +1337,40 @@ export function FlowCanvas() {
             </span>
           </div>
         ))}
+
+        {/* マイルストーン: 上部余白の琥珀の菱形＋レーンを貫く縦破線（対象工程の右端に自動追従）。
+            未紐付け（!bound）のときだけ菱形を横ドラッグして位置を決められる。導出は flowSvg と共有。 */}
+        {msGuides.map((g) => {
+          const gx = msDrag && msDrag.taskId === g.taskId ? msDrag.x : g.x;
+          const isSel = g.taskId === selectedTaskId;
+          return (
+            <div key={`ms-${g.taskId}`} className="ms-guide">
+              <div className="ms-guide-line" style={{ left: gx, top: 0, height: lanesBottomY }} />
+              <div
+                className={`ms-diamond${isSel ? ' selected' : ''}${g.bound ? '' : ' draggable'}`}
+                style={{ left: gx - 13, top: 3 }}
+                role="button"
+                tabIndex={0}
+                aria-label={`マイルストーン: ${g.label || '（無題）'}`}
+                title={g.bound ? g.label : `${g.label}（ドラッグで位置を調整）`}
+                onPointerDown={(e) => startMsDrag(g, e)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (g.bound) selectMs(g.taskId); // 未紐付けは startMsDrag が選択も担う
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectMs(g.taskId);
+                  }
+                }}
+              />
+              <span className="ms-label" style={{ left: gx + 16, top: 4 }}>
+                {g.label}
+              </span>
+            </div>
+          );
+        })}
 
         {/* 担当ラベルは .flow-scale の外（lane-rail）に置き、横スクロールでも左端に固定する。 */}
 
