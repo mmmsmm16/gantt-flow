@@ -28,6 +28,7 @@ import {
   startExternalWatch,
   stopExternalWatch,
   acknowledgeExternalChange,
+  isEmptyProjectForOutput,
 } from './persistence';
 import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
@@ -210,6 +211,8 @@ export function App() {
   // 保存の再入ガード: 保存中の Ctrl+S 連打やパレットからの多重起動を無視する
   //（persistence 側でも直列化されるが、競合ダイアログ等の多重表示をここで防ぐ）。
   const savingRef = useRef(false);
+  // 明示保存の実行中を保存ボタンに出す（完了は既存の成功/失敗トーストが担うので開始側だけ）。
+  const [saving, setSaving] = useState(false);
   const doSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
     // 保存した内容そのものを markSaved に渡す（書き込み待ちの間の編集を保存済み扱いにしない）。
     const snapshot = useApp.getState().project;
@@ -254,10 +257,12 @@ export function App() {
   const onSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
     if (savingRef.current) return; // 保存中の再実行は無視（完了後に改めて保存してもらう）
     savingRef.current = true;
+    setSaving(true);
     try {
       await doSave(opts);
     } finally {
       savingRef.current = false;
+      setSaving(false);
     }
   };
   const onSaveAs = () => onSave({ saveAs: true });
@@ -294,12 +299,15 @@ export function App() {
       }
     } catch (err) {
       if (isSchemaVersionTooNewError(err) || isProjectIntegrityError(err)) {
-        void useUI.getState().confirm({
+        // 開けなかったときの復元導線: 「バックアップから復元」を選べば既存の BackupsDialog を開くだけ
+        // （このファイルが壊れていても、この端末に残る直近世代から復旧できる）。
+        const restore = await useUI.getState().confirm({
           title: 'ファイルを開けませんでした',
           message: err.message,
-          confirmLabel: '閉じる',
-          hideCancel: true,
+          confirmLabel: 'バックアップから復元',
+          cancelLabel: '閉じる',
         });
+        if (restore) useUI.getState().setOverlay('backups');
       } else {
         useUI.getState().toast('ファイルを開けませんでした（形式が不正です）。', 'error');
       }
@@ -411,27 +419,42 @@ export function App() {
       }
     } catch (err) {
       // onOpen と同様、版違い・参照整合性のエラーは具体的なメッセージをダイアログで伝える。
+      // 「バックアップから復元」を選べば既存の BackupsDialog を開くだけ（復元導線）。
       if (isSchemaVersionTooNewError(err) || isProjectIntegrityError(err)) {
-        void useUI.getState().confirm({
+        const restore = await useUI.getState().confirm({
           title: 'ファイルを開けませんでした',
           message: err.message,
-          confirmLabel: '閉じる',
-          hideCancel: true,
+          confirmLabel: 'バックアップから復元',
+          cancelLabel: '閉じる',
         });
+        if (restore) useUI.getState().setOverlay('backups');
       } else {
         useUI.getState().toast('ファイルを開けませんでした。', 'error');
       }
     }
   };
-  const onExportExcel = () => {
+  // 工程 0 件のまま無警告で出力/印刷が成功してしまうのを防ぐ（UX16位以下）。
+  // 判定は persistence.isEmptyProjectForOutput（純関数）に任せ、ここでは確認ダイアログの表示だけ。
+  const confirmEmptyOutput = async (): Promise<boolean> => {
+    if (!isEmptyProjectForOutput(useApp.getState().project)) return true;
+    return useUI.getState().confirm({
+      message: '工程がありません。空のまま出力しますか？',
+      confirmLabel: '出力する',
+      cancelLabel: 'キャンセル',
+    });
+  };
+  const onExportExcel = async () => {
+    if (!(await confirmEmptyOutput())) return;
     const n = exportExcelFile(useApp.getState().project);
     useUI.getState().toast(`出力しました（${n}）`, 'success');
   };
-  const onExportCsv = () => {
+  const onExportCsv = async () => {
+    if (!(await confirmEmptyOutput())) return;
     const n = exportCsvFile(useApp.getState().project);
     useUI.getState().toast(`出力しました（${n}）`, 'success');
   };
-  const onExportSvg = () => {
+  const onExportSvg = async () => {
+    if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
     if (view) {
@@ -440,6 +463,7 @@ export function App() {
     }
   };
   const onExportPng = async () => {
+    if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
     if (!view) return;
@@ -450,7 +474,8 @@ export function App() {
       useUI.getState().toast('PNG の出力に失敗しました。', 'error');
     }
   };
-  const onPrint = () => {
+  const onPrint = async () => {
+    if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
     printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
   };
@@ -630,10 +655,11 @@ export function App() {
           <button
             className={`icon-btn${dirty ? ' has-unsaved' : ''}`}
             onClick={() => onSave()}
-            aria-label={dirty ? '保存（未保存の変更あり）' : '保存'}
-            title="保存 (Ctrl+S)"
+            disabled={saving}
+            aria-label={saving ? '保存中…' : dirty ? '保存（未保存の変更あり）' : '保存'}
+            title={saving ? '保存中…' : '保存 (Ctrl+S)'}
           >
-            <Icons.Save />
+            {saving ? <span className="icon-spinner" aria-hidden="true" /> : <Icons.Save />}
           </button>
         </span>
 

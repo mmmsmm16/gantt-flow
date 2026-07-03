@@ -91,6 +91,47 @@ export interface ToastItem {
   tone: ToastTone;
 }
 
+// トーストの自動消去までの時間(ms)。error はやや長め＝読み切る前に消えないよう猶予を足す。
+export const TOAST_DURATION_MS: Record<ToastTone, number> = {
+  info: 4200,
+  success: 4200,
+  error: 6000,
+};
+
+// hover で一時停止できるトースト用タイマー。DOM 非依存の純粋実装（vi.useFakeTimers で直接テスト可能）。
+// pause: 残り時間を覚えて止める / resume: 残り時間から再開 / cancel: 二度と発火しない(アンマウント用)。
+export interface PausableTimer {
+  pause: () => void;
+  resume: () => void;
+  cancel: () => void;
+}
+export function createPausableTimer(ms: number, onDone: () => void): PausableTimer {
+  let remaining = ms;
+  let armedAt = 0;
+  let handle: ReturnType<typeof setTimeout> | null = null;
+  const arm = () => {
+    armedAt = Date.now();
+    handle = setTimeout(onDone, remaining);
+  };
+  arm();
+  return {
+    pause: () => {
+      if (handle == null) return;
+      clearTimeout(handle);
+      handle = null;
+      remaining = Math.max(0, remaining - (Date.now() - armedAt));
+    },
+    resume: () => {
+      if (handle != null) return;
+      arm();
+    },
+    cancel: () => {
+      if (handle != null) clearTimeout(handle);
+      handle = null;
+    },
+  };
+}
+
 // 永続化(自動保存/世代バックアップ/助言ロック)の健全性。沈黙する失敗を可視化するための共有状態。
 export type PersistKind = 'autosave' | 'backup' | 'lock';
 // 助言ロックの表示状態: holding=このセッションが編集ロックを保持 / readonly=取得できず読み取り専用。

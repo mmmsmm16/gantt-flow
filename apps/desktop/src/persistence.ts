@@ -440,6 +440,12 @@ export function localDateYmd(d = new Date()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// 出力/印刷アクション前の確認要否（工程 0 件の無警告出力を防ぐ・UX16位以下）。
+// 呼び出し側（App）が useUI.confirm() で実際の確認を出す。ここは判定だけの純関数。
+export function isEmptyProjectForOutput(project: Project): boolean {
+  return Object.keys(project.core.tasks).length === 0;
+}
+
 export function exportCsvFile(project: Project): string {
   const name = `${safeName(project.meta.title)}.csv`;
   download(name, '﻿' + projectToCsv(project), 'text/csv;charset=utf-8');

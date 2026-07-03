@@ -2820,6 +2820,22 @@ kbd {
   }
 }
 
+/* 保存ボタンの「保存中…」進行表示（明示保存の実行中だけ。完了は既存トーストが担う） */
+.icon-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: busy-spin 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-spinner {
+    animation-duration: 2s;
+  }
+}
+
 /* 使い方ツアー（コーチマーク）。ページ操作を妨げない: レイヤは素通し、カードだけ操作可能 */
 .tour-layer {
   position: fixed;
