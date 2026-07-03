@@ -453,6 +453,14 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     if (scope && !p.core.tasks[scope]) set({ scopeParentId: undefined });
   };
 
+  // 削除で現在の選択工程が消えていたら選択を解除する。commit 後に呼ぶ（現在の project を基準に
+  // 判定）。選択が実在しないと App の showInspector が空の詳細ペインを開いたまま固着し、分割画面
+  // からフローペインが消える（H-2）。App 側の存在チェックと二重化して確実に解消する。
+  const clearSelectionIfRemoved = () => {
+    const sel = get().selectedTaskId;
+    if (sel && !get().project.core.tasks[sel]) set({ selectedTaskId: undefined });
+  };
+
   // reparent は実質変化があるときだけコミット（深さ超過・循環などの no-op で履歴を汚さない）。
   const commitReparent = (
     taskId: Id,
@@ -493,8 +501,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
     addRootTask: (level) => {
       // 空名で作り、UI 側が追加直後に選択＋名前を即編集する（キーボード n=addSiblingOf と挙動統一）。
+      const wasEmpty = Object.keys(get().project.core.tasks).length === 0;
       const id = uuid();
       commit(cAddTask(get().project, { name: '', level, parentId: undefined, id }, uuid), '工程を追加');
+      // 初回導線: 空プロジェクトで最初の工程を作った瞬間、その粒度をフロー表示粒度へ追従させる。
+      // 既定は medium なので「＋大工程」で始めても大ノードがフローに出ない問題を防ぐ。
+      // 既存プロジェクト（工程あり）では追従しない＝手動配置・現在の粒度を勝手に切り替えて驚かせない。
+      if (wasEmpty && level !== get().level) get().setLevel(level);
       return id;
     },
 
@@ -547,6 +560,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const p = cDeleteTaskKeepChildren(get().project, taskId);
       clearScopeIfRemoved(p);
       commit(p, `工程『${name}』を削除`);
+      clearSelectionIfRemoved();
     },
 
     setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level), '粒度を変更'),
@@ -593,6 +607,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (changed) {
         clearScopeIfRemoved(p);
         commit(p, '工程を削除');
+        clearSelectionIfRemoved();
       }
     },
 

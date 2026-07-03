@@ -153,7 +153,10 @@ export function App() {
   // 案A: インスペクタ(詳細)はオンデマンド。3ペインは作らず、最大2ペイン。
   // 分割で詳細を開いたら「いま操作中のペイン(activePane)＋詳細」にして反対側を隠す。
   // 表のみ/フローのみ＋詳細はそのまま2ペイン。閉じれば元のレイアウトへ戻る。
-  const showInspector = !fullMode && !!selectedTaskId && inspectorOpen;
+  // 選択工程が実在するときだけ詳細を開く（削除直後に選択が残ると、空の詳細ペインが開いたまま
+  // 固着し、分割表示でフローペインが消えてしまう＝H-2。store 側の選択解除と二重で防ぐ）。
+  const showInspector =
+    !fullMode && !!selectedTaskId && !!project.core.tasks[selectedTaskId] && inspectorOpen;
   const collapseForInspector = showInspector && paneLayout === 'split';
   const showTable = !flowWide && !(collapseForInspector && activePane === 'flow');
   const showFlow = !tableWide && !fullMode && !(collapseForInspector && activePane === 'table');

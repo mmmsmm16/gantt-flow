@@ -13,6 +13,9 @@ interface Step {
   selectors: string[];
   title: string;
   body: string;
+  // 先頭候補（具体要素）が実在せずフォールバックへ落ちたときに差し替える正直な文言。
+  // 例: 現在の粒度に工程ノードが 1 つも無いとき、「ここに反映される」とは言い切らない。
+  emptyBody?: string;
 }
 
 // 各ステップの先頭は「具体的な要素」。見つからなければ後続のフォールバックへ落ちる。
@@ -26,6 +29,10 @@ export const TOUR_STEPS: Step[] = [
     selectors: ['.node.task', '.flow-canvas', '.flow-pane'],
     title: '2. フローに自動同期',
     body: '表の編集は、この工程ノードへ即座に反映されます。ノードはドラッグで動かせ、配置は編集後も保持されます。',
+    // このビューにまだ工程ノードが無いとき（表示中の粒度に対象工程が無い等）は、
+    // 実在しないノードを指して「即座に反映」と言わず、出し方を案内する。
+    emptyBody:
+      '表で作った工程は、この領域に工程ノードとして自動で現れます。今は表示中の粒度に工程が無いため空です。上の「大／中／小」で粒度を切り替えると表示されます。',
   },
   {
     selectors: ['.flow-palette .add-task', '.flow-palette', '.flow-pane'],
@@ -60,13 +67,14 @@ export function shouldStartTourOnFirstTask(opts: { pending: boolean; done: boole
   return opts.pending && !opts.done;
 }
 
-// 候補セレクタを先頭から探索。見つかった実在要素を返す（無ければ null）。
-function locate(selectors: string[]): Element | null {
-  for (const sel of selectors) {
-    const el = document.querySelector(sel);
-    if (el) return el;
+// 候補セレクタを先頭から探索。見つかった実在要素と、それが「先頭候補（具体要素）」だったかを返す。
+// isPrimary=false は先頭候補が無くフォールバックへ落ちた＝正直な文言に差し替える合図。
+function locate(selectors: string[]): { el: Element | null; isPrimary: boolean } {
+  for (let i = 0; i < selectors.length; i++) {
+    const el = document.querySelector(selectors[i]!);
+    if (el) return { el, isPrimary: i === 0 };
   }
-  return null;
+  return { el: null, isPrimary: false };
 }
 
 function sameRect(a: DOMRect | null, b: DOMRect | null): boolean {
@@ -79,6 +87,9 @@ export function Tour() {
   const step = useUI((s) => s.tourStep);
   const setStep = useUI((s) => s.setTourStep);
   const [rect, setRect] = useState<DOMRect | null>(null);
+  // 先頭候補（具体要素）が実在するか。false（フォールバック）なら emptyBody へ差し替える。
+  // 初期値 true＝ノードがある通常経路で一瞬 emptyBody をちらつかせない（初回導線は粒度追従で出る）。
+  const [primaryFound, setPrimaryFound] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   const [cardStyle, setCardStyle] = useState<React.CSSProperties>({
     left: '50%',
@@ -96,9 +107,10 @@ export function Tour() {
       return undefined;
     }
     const update = () => {
-      const el = locate(cur.selectors);
+      const { el, isPrimary } = locate(cur.selectors);
       const next = el ? el.getBoundingClientRect() : null;
       setRect((prev) => (sameRect(prev, next) ? prev : next));
+      setPrimaryFound((prev) => (prev === isPrimary ? prev : isPrimary));
     };
     update();
     window.addEventListener('resize', update);
@@ -144,6 +156,9 @@ export function Tour() {
     else setStep(step + 1);
   };
 
+  // 先頭候補（具体要素）が無くフォールバックへ落ちたステップでは、正直な文言へ差し替える。
+  const body = cur.emptyBody && !primaryFound ? cur.emptyBody : cur.body;
+
   return (
     <div className="tour-layer" role="dialog" aria-label="使い方ツアー">
       {rect && (
@@ -154,7 +169,7 @@ export function Tour() {
       )}
       <div className="tour-card" ref={cardRef} style={cardStyle}>
         <h4>{cur.title}</h4>
-        <p>{cur.body}</p>
+        <p>{body}</p>
         <div className="tour-foot">
           <span className="tour-dots" aria-label={`ステップ ${step + 1} / ${TOUR_STEPS.length}`}>
             {TOUR_STEPS.map((_, i) => (

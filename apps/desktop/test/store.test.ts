@@ -881,6 +881,86 @@ describe('app store（command → reconcile → history）', () => {
   });
 });
 
+describe('再監査H-1: 初回導線でフロー表示粒度が最初の工程の粒度に追従する', () => {
+  it('空プロジェクトで addRootTask(large) すると表示粒度が大へ追従し、大ノードがフローに出る', () => {
+    const s = createAppStore();
+    expect(s.getState().level).toBe('medium'); // 既定粒度
+    const id = s.getState().addRootTask('large');
+    expect(id).toBeTruthy();
+    expect(s.getState().level).toBe('large'); // 初回だけ新工程の粒度へ追従
+    // 追従先の大ビューに、作った大工程のノードが実在する（「大を作ってもフローに出ない」の解消）。
+    const view = findView(s.getState().project, 'large', undefined)!;
+    expect(Object.values(view.nodes).some((n) => n.kind === 'task' && n.taskId === id!)).toBe(true);
+  });
+
+  it('同じ粒度で作るなら追従は無害（medium のまま）', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('medium');
+    expect(s.getState().level).toBe('medium');
+  });
+
+  it('既存プロジェクト（工程あり）では粒度を勝手に切り替えない＝手動配置・現在の粒度を尊重', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付'); // medium の工程が既にある＝空でない
+    expect(s.getState().level).toBe('medium');
+    s.getState().addRootTask('large'); // 2 件目は初回導線ではない
+    expect(s.getState().level).toBe('medium'); // 追従しない
+  });
+});
+
+describe('再監査H-2: 選択工程の削除で選択と詳細ペインが固着しない', () => {
+  // App.tsx の詳細ペイン表示条件（belt）を純粋述語として再現し、選択が実在するときだけ true。
+  const showInspectorLike = (s: ReturnType<typeof createAppStore>) => {
+    const st = s.getState();
+    const sel = st.selectedTaskId;
+    return !!sel && !!st.project.core.tasks[sel];
+  };
+
+  it('removeTask: 選択中の工程を削除すると selectedTaskId が解除される（suspenders）', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = idByName(s, '受付');
+    s.getState().select(id);
+    expect(showInspectorLike(s)).toBe(true);
+    s.getState().removeTask(id);
+    expect(s.getState().selectedTaskId).toBeUndefined();
+    expect(showInspectorLike(s)).toBe(false);
+  });
+
+  it('removeTask: 別の工程を選択中なら選択は維持される', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    s.getState().select(b);
+    s.getState().removeTask(a);
+    expect(s.getState().selectedTaskId).toBe(b); // 消えていない選択はそのまま
+  });
+
+  it('removeManyTasks: 選択中を含む一括削除で選択が解除される', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    s.getState().select(a);
+    s.getState().removeManyTasks([a, b]);
+    expect(s.getState().selectedTaskId).toBeUndefined();
+    expect(showInspectorLike(s)).toBe(false);
+  });
+
+  it('belt: 選択が消えた工程を指していても存在チェックで詳細ペインは開かない', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = idByName(s, '受付');
+    s.getState().removeTask(id);
+    s.getState().select(id); // store の自動解除を経ずに stale な id を選択し直す
+    expect(s.getState().selectedTaskId).toBe(id); // 選択自体は入る
+    expect(showInspectorLike(s)).toBe(false); // が、実在しないので開かない（App 側の belt）
+  });
+});
+
 describe('UX#6: ノード負座標のクランプと救出', () => {
   it('moveNode は確定時に x/y を 0 未満へクランプする（プレビュー中の負座標は問わない）', () => {
     const s = createAppStore();
