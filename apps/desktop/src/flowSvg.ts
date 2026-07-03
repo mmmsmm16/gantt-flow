@@ -9,6 +9,7 @@ import {
   issueLineTarget,
   issuePrimaryIds,
   laneLayout,
+  lanesBottom,
   nodeSize,
   routeEdge,
   sourceChipLayout,
@@ -37,12 +38,15 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   // マイルストーンのタスクノードはレーン内に描かない（菱形で表す）。
   const isMs = (n: FlowNode) => n.kind === 'task' && msTaskIds.has(n.taskId);
 
-  // レーン幾何（可変高さ）。担当レーンが無いビューはスイムレーンを描かない。
+  // レーン幾何（可変高さ）。担当（assignee）由来のレーンが無いビュー（大/全体）は
+  // スイムレーンを描かない。それ以外の粒度は工程（＝レーン）が 0 件の空プロジェクトでも
+  // 器（ラベル列・帯の枠）は常に描く＝ hasLanes は画面 FlowCanvas と同じ「lanes が
+  // 定義され得るビューか」で判定し、実際の件数には左右されない。
   const BAND_TOP = 24;
   const LABEL_W = 96;
   const boxes = laneLayout(view.lanes);
-  const hasLanes = boxes.length > 0;
-  const laneBottom = hasLanes ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP;
+  const hasLanes = view.level !== 'large';
+  const laneBottom = hasLanes ? lanesBottom(view.lanes, BAND_TOP) : BAND_TOP;
 
   // 図の範囲。入力 I/O アイコンや出所チップは工程の左上・真上へはみ出すため、
   // 正方向(max)だけでなく負方向(min)へも広げる（viewBox を 0,0 に固定すると切れる）。

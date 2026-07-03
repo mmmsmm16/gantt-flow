@@ -802,17 +802,22 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
+    // x/y は 0 未満へクランプする（負座標へ落ちると全体表示のスクロールは 0 未満にできず、
+    // 二度と画面内へ戻せなくなるため。ドラッグ中のプレビュー/スナップガイドはそのまま＝
+    // 確定時にのみ境界で止める）。
     moveNode: (nodeId, x, y) => {
       const { level, scopeParentId } = get();
       const p = structuredClone(get().project);
       const view = findView(p, level, scopeParentId);
       const node = view?.nodes[nodeId];
       if (!view || !node) return;
-      node.x = x;
-      node.y = y;
+      const cx = Math.max(0, x);
+      const cy = Math.max(0, y);
+      node.x = cx;
+      node.y = cy;
 
       if (node.kind === 'task') {
-        const laneOrder = nearestLaneOrder(view.lanes, y);
+        const laneOrder = nearestLaneOrder(view.lanes, cy);
         const lane = Object.values(view.lanes).find((l) => l.order === laneOrder);
         const task = p.core.tasks[node.taskId];
         if (lane?.assigneeId && task && task.assigneeId !== lane.assigneeId) {
@@ -830,15 +835,31 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
     // 複数ノードをまとめて平行移動（範囲選択した要素を一括ドラッグ）。
     // レーン再割当（逆同期）はしない＝選択をそのままずらす素直な挙動。1 undo 単位。
+    // 剛体移動として 0 未満へは行かせない: 個別クランプだと選択の一部だけ壁で止まり
+    // 相対配置が歪むため、選択全体の最小 x/y が 0 を下回らないよう移動量そのものを
+    // 削って揃える（全体表示の負座標救出＝fitView からも同じ関数を使う）。
     moveNodesBy: (nodeIds, dx, dy) => {
       if ((dx === 0 && dy === 0) || nodeIds.length === 0) return;
       editView((view) => {
+        let minX = Infinity;
+        let minY = Infinity;
+        for (const id of nodeIds) {
+          const n = view.nodes[id];
+          if (n) {
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+          }
+        }
+        if (!Number.isFinite(minX)) return false; // 対象ノードが1つも無い
+        const cdx = minX + dx < 0 ? -minX : dx;
+        const cdy = minY + dy < 0 ? -minY : dy;
+        if (cdx === 0 && cdy === 0) return false;
         let changed = false;
         for (const id of nodeIds) {
           const n = view.nodes[id];
           if (n) {
-            n.x = Math.round(n.x + dx);
-            n.y = Math.round(n.y + dy);
+            n.x = Math.max(0, Math.round(n.x + cdx));
+            n.y = Math.max(0, Math.round(n.y + cdy));
             changed = true;
           }
         }

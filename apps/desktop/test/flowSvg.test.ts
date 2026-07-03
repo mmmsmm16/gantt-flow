@@ -11,6 +11,7 @@ import {
   reconcileProject,
   sourceChipLayout,
   updateTaskDetail,
+  type FlowLevelView,
   type FlowNode,
   type Project,
 } from '@gantt-flow/core';
@@ -40,6 +41,39 @@ describe('buildFlowSvg のスイムレーン描画', () => {
     expect(svg).not.toContain('（未割当）'); // 担当者名の無いレーンを出さない
     expect(svg).not.toContain('営業部'); // 担当レーンは無い
     expect(svg).toContain('受注業務'); // 大工程ノードは描く
+  });
+
+  // UX#1: 空プロジェクト（工程 0 件＝レーンも 0 件）でもスイムレーンの器（ラベル列の
+  // 背景・下端の帯線・縦の仕切り線）は常に描く。hasLanes を「実際のレーン件数」ではなく
+  // 「このビューはレーンが定義され得るか（＝大/全体ではないか）」で判定する変更の検証。
+  const emptyProject = (): Project => ({
+    schemaVersion: 1,
+    meta: { id: 'p', title: 'test', createdAt: '', updatedAt: '', appVersion: '0' },
+    core: { tasks: {}, dependencies: {}, assignees: {} },
+    details: {},
+    flow: { byLevel: [] },
+  });
+  const emptyView = (level: FlowLevelView['level'], scopeParentId?: string): FlowLevelView => ({
+    level,
+    scopeParentId,
+    nodes: {},
+    edges: {},
+    lanes: {},
+    orientation: 'horizontal',
+  });
+
+  it('空プロジェクトの中ビュー（0件）でもレーンの器（ラベル列背景・帯線・縦仕切り）を描く', () => {
+    const p = emptyProject();
+    const svg = buildFlowSvg(p, emptyView('medium'));
+    // ラベル列の背景（幅=LABEL_W=96）と、下端の帯線・縦の仕切り線が出る＝スイムレーンの枠。
+    expect(svg).toMatch(/<rect x="0" y="24" width="96" height="\d+(\.\d+)?"/);
+    expect(svg).toContain('x1="96" y1="24" x2="96"'); // 縦の仕切り線（ラベル列との境界）
+  });
+
+  it('空プロジェクトでも大（全体）ビューはレーンの器を描かない（従来どおり）', () => {
+    const p = emptyProject();
+    const svg = buildFlowSvg(p, emptyView('large'));
+    expect(svg).not.toMatch(/<rect x="0" y="24" width="96"/);
   });
 
   it('工程カラー(塗り/文字色)が SVG の fill/stroke に乗る。未設定は既定色', () => {

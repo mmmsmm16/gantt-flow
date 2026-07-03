@@ -881,6 +881,81 @@ describe('app store（command → reconcile → history）', () => {
   });
 });
 
+describe('UX#6: ノード負座標のクランプと救出', () => {
+  it('moveNode は確定時に x/y を 0 未満へクランプする（プレビュー中の負座標は問わない）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const node = taskNodes(s)[0]!;
+    s.getState().moveNode(node.id, -50, -30);
+    const after = taskNodes(s).find((n) => n.id === node.id)!;
+    expect(after.x).toBe(0);
+    expect(after.y).toBe(0);
+  });
+
+  it('moveNodesBy は選択全体を剛体として動かし、一部が 0 未満になる移動量は削って揃える（個別クランプで形を歪めない）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    const gap = b.x - a.x; // 元の相対距離
+    s.getState().moveNodesBy([a.id, b.id], -(a.x + 1000), 0); // そのままなら両方とも大幅に 0 未満
+    const aAfter = taskNodes(s).find((n) => n.id === a.id)!;
+    const bAfter = taskNodes(s).find((n) => n.id === b.id)!;
+    expect(aAfter.x).toBe(0); // 最も左のノードがちょうど境界で止まる
+    expect(bAfter.x - aAfter.x).toBe(gap); // 個別クランプではなく全体を平行移動＝相対配置を保つ
+    expect(bAfter.x).toBeGreaterThanOrEqual(0);
+  });
+
+  it('外部データ等で負座標に取り残されたノードは、全体表示(fitView)と同じ一括オフセットで 0 以上へ救出できる', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    const bx0 = b.x;
+    const by0 = b.y;
+
+    // クランプ導入前に保存されたファイルや外部プロセスの書き込みで負座標に取り残された
+    // 状況を再現する（reconcile は既存ノードの x/y を据え置くため、loadProject 後も
+    // この負座標はそのまま残る＝fitView が救出すべき状況と同じ）。
+    const viewKey = (p: ReturnType<typeof s.getState>['project']) =>
+      p.flow.byLevel.find(
+        (v) => v.level === s.getState().level && (v.scopeParentId ?? undefined) === s.getState().scopeParentId,
+      )!;
+    const dirty = structuredClone(s.getState().project);
+    const an = Object.values(viewKey(dirty).nodes).find(
+      (n) => n.kind === 'task' && n.taskId === a.taskId,
+    )!;
+    an.x = -200;
+    an.y = -60;
+    s.getState().loadProject(dirty);
+
+    // フロー側 fitView がやるのと同じ計算: 全ノードの最小 x/y を 0 へ合わせるオフセットを
+    // moveNodesBy で全ノードへ一括適用する。
+    const before = viewKey(s.getState().project);
+    let minX = Infinity;
+    let minY = Infinity;
+    for (const n of Object.values(before.nodes)) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+    }
+    expect(minX).toBeLessThan(0); // 再現確認: 救出前は負座標
+
+    const dx = minX < 0 ? -minX : 0;
+    const dy = minY < 0 ? -minY : 0;
+    s.getState().moveNodesBy(Object.keys(before.nodes), dx, dy);
+
+    const after = viewKey(s.getState().project);
+    const aAfter = Object.values(after.nodes).find((n) => n.kind === 'task' && n.taskId === a.taskId)!;
+    const bAfter = Object.values(after.nodes).find((n) => n.kind === 'task' && n.taskId === b.taskId)!;
+    expect(aAfter.x).toBe(0); // 最も負だったノードがちょうど境界へ
+    expect(aAfter.y).toBe(0);
+    expect(bAfter.x).toBe(bx0 + dx); // 全体を平行移動＝他ノードとの相対配置は保つ
+    expect(bAfter.y).toBe(by0 + dy);
+  });
+});
+
 describe('taskOps（store と UI をまたぐ手続き）', () => {
   it('confirmRemoveTasks: キャンセルで false（削除しない）、OK で削除して true', async () => {
     useApp.getState().newProject();

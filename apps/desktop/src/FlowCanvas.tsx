@@ -21,6 +21,7 @@ import {
   issueLineTarget,
   issuePrimaryIds,
   laneLayout,
+  lanesBottom,
   nodeRect,
   nodeSize,
   routeEdge,
@@ -625,10 +626,12 @@ export function FlowCanvas() {
   // レーン幾何（可変高さ）。確定済みの高さで描画し、リサイズ中は破線ガイドだけ動かす
   // （ドラッグ中にレーンとノードがズレて見えるのを避け、確定時にまとめて反映）。
   // 担当（assignee）由来のレーンが無いビュー（例: 大/全体は工程に担当が無い）では
-  // スイムレーンを一切描かない＝「担当者名の無いレーン」を出さない。
+  // スイムレーンを一切描かない＝「担当者名の無いレーン」を出さない。それ以外の粒度は
+  // 工程（＝レーン）がまだ 0 件の空プロジェクトでも器（ラベル列・帯の枠）は常に描く
+  // （hasLanes は「lanes が定義され得るビューか」で判定し、実際の件数には左右されない）。
   const boxes: LaneBox[] = laneLayout(lanes);
-  const hasLanes = boxes.length > 0;
-  const lanesBottomY = hasLanes ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP;
+  const hasLanes = view.level !== 'large';
+  const lanesBottomY = hasLanes ? lanesBottom(lanes, BAND_TOP) : BAND_TOP;
 
   // レーン下端の手動リサイズ（ラベル列のグリップをドラッグ）。確定時に setLaneHeight（下のレーンも連動）。
   const onLaneResizeDown = (box: LaneBox, e: React.PointerEvent) => {
@@ -688,19 +691,34 @@ export function FlowCanvas() {
   };
 
   // 全体表示: 全ノードの外接矩形を計算し、画面に収まる倍率と位置へスクロール（拡大は100%まで）。
+  // 救出: scrollLeft/Top は 0 未満にできないため、過去のバグや外部編集で負座標に取り残された
+  // ノードがあると全体表示でも二度と画面内へ戻せない。押されるたびに全ノードを一括で
+  // (0,0) 以上へ平行移動してから通常の外接矩形計算に入る（相対配置は保つ／不要なら no-op）。
   const fitView = () => {
     const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller || !nodes.length) return;
+    let rawMinX = Infinity;
+    let rawMinY = Infinity;
+    for (const n of Object.values(view.nodes)) {
+      rawMinX = Math.min(rawMinX, n.x);
+      rawMinY = Math.min(rawMinY, n.y);
+    }
+    const rescueDx = rawMinX < 0 ? -rawMinX : 0;
+    const rescueDy = rawMinY < 0 ? -rawMinY : 0;
+    if (rescueDx || rescueDy) moveNodesBy(Object.keys(view.nodes) as FlowNodeId[], rescueDx, rescueDy);
+
     let minX = 0;
     let minY = BAND_TOP;
     let maxX = LABEL_W;
     let maxY = BAND_TOP;
     for (const n of nodes) {
       const s = nodeSize(n);
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + s.w);
-      maxY = Math.max(maxY, n.y + s.h);
+      const nx = n.x + rescueDx;
+      const ny = n.y + rescueDy;
+      minX = Math.min(minX, nx);
+      minY = Math.min(minY, ny);
+      maxX = Math.max(maxX, nx + s.w);
+      maxY = Math.max(maxY, ny + s.h);
     }
     const pad = 56;
     const contentW = maxX - minX + pad * 2;
