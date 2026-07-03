@@ -225,6 +225,34 @@ export function isEditableTarget(el: Element | null): boolean {
   );
 }
 
+/** フォーカス中の要素が「操作系」か(tagName / role / contentEditable から純粋に判定)。
+    固定キー(Enter/Delete 等)を、無関係なボタン・リンク・入力・メニュー項目・タブに
+    フォーカスがある間にペインのアクションへ横取りさせないためのガードに使う。
+    ※ role="button" の要素(フローのノード div 等)は該当させない=そこでの Enter/Delete は
+      従来どおりペイン側の操作へ通す(横取り防止の対象はネイティブの操作系のみ)。 */
+export function isInteractiveRole(
+  tagName: string | null | undefined,
+  role: string | null | undefined,
+  contentEditable: boolean,
+): boolean {
+  const tag = (tagName ?? '').toUpperCase();
+  if (tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+    return true;
+  }
+  if (contentEditable) return true;
+  return role === 'menuitem' || role === 'tab';
+}
+
+/** document.activeElement 等から isInteractiveRole を判定する DOM ラッパー(React 非依存)。 */
+export function isInteractiveTarget(el: Element | null): boolean {
+  if (!el) return false;
+  return isInteractiveRole(
+    el.tagName,
+    el.getAttribute('role'),
+    (el as HTMLElement).isContentEditable === true,
+  );
+}
+
 /** KeyboardEvent 互換の最小型(テストでプレーンオブジェクトを渡せるように)。 */
 export interface KeyLike {
   key: string;

@@ -3,7 +3,7 @@ import { useApp, findView, isBridgeEdge } from './store';
 import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
-import { chordKeys, getActiveKeymap, isImeKeyEvent } from './keymap';
+import { chordKeys, getActiveKeymap, isImeKeyEvent, isInteractiveTarget } from './keymap';
 import { clampScale, zoomScroll } from './flowZoom';
 import { confirmRemoveTasks, revealTask } from './taskOps';
 import { TASK_COLORS } from './theme';
@@ -173,6 +173,10 @@ export function FlowCanvas() {
   const [edgeDrag, setEdgeDrag] = useState<{ edgeId: string; end: 'source' | 'target'; x: number; y: number } | null>(null);
   // 未紐付けマイルストーンの菱形を横ドラッグ中のプレビュー x（モデル座標。確定は pointerup で moveNode）。
   const [msDrag, setMsDrag] = useState<{ taskId: string; x: number } | null>(null);
+  // #7 ドラッグ中の Escape 中断。各ドラッグ（ノード移動 / 接続 / 端点再接続 / レーン高さ /
+  // マイルストーン横移動）が開始時に「確定せず元へ戻す関数」をここへ登録し、Escape で呼ぶ。
+  // null = 非ドラッグ（このとき Escape は通常どおり flow.clear などへ流す）。
+  const dragCancelRef = useRef<(() => void) | null>(null);
 
   const stopAutoScroll = () => {
     if (autoScrollRef.current) {
@@ -265,6 +269,22 @@ export function FlowCanvas() {
       registerContextHandler('flow', (action, e) => flowActionsRef.current?.(action, e) ?? false),
     [],
   );
+
+  // #7 ドラッグ中の Escape で「確定せず中断」。capture フェーズで受けて伝播を止めることで、
+  // useGlobalHotkeys の flow.clear（選択解除）や closeTopLayer より優先する（同じ押下で選択解除しない）。
+  // ドラッグ中でなければ何もしない＝Escape は通常経路（flow.clear など）へそのまま流れる。
+  useEffect(() => {
+    const onEscCapture = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !dragCancelRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const cancel = dragCancelRef.current;
+      dragCancelRef.current = null; // cancel が再入で自分を呼ばないよう先に解除
+      cancel();
+    };
+    window.addEventListener('keydown', onEscCapture, true);
+    return () => window.removeEventListener('keydown', onEscCapture, true);
+  }, []);
 
   // 接続モードの現候補へ視点を追従(候補が画面外だと何を選んでいるか分からないため)。
   // 'nearest' なので見えている間はスクロールせず、枠外のときだけ最小限寄せる。
@@ -486,11 +506,25 @@ export function FlowCanvas() {
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    // #7 Escape 中断: 確定（moveNode/moveNodesBy）を呼ばずにドラッグを破棄して元位置へ戻す。
+    dragCancelRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      stopAutoScroll();
+      autoReapplyRef.current = null;
+      lastPointerRef.current = null;
+      downPosRef.current = null;
+      movedRef.current = false;
+      snapCtxRef.current = null;
+      setSnapGuides([]);
+      setDrag(null);
+    };
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       stopAutoScroll();
       autoReapplyRef.current = null;
+      dragCancelRef.current = null;
     };
   }, [drag, moveNode, moveNodesBy]);
 
@@ -572,11 +606,21 @@ export function FlowCanvas() {
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    // #7 Escape 中断: connect / connectToNew を呼ばずに接続ドラッグを破棄（新規工程を作らない）。
+    dragCancelRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      stopAutoScroll();
+      autoReapplyRef.current = null;
+      lastPointerRef.current = null;
+      setConn(null);
+    };
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       stopAutoScroll();
       autoReapplyRef.current = null;
+      dragCancelRef.current = null;
     };
   }, [conn, view, connect, connectToNew]);
 
@@ -611,11 +655,21 @@ export function FlowCanvas() {
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    // #7 Escape 中断: reconnectEdge を呼ばずに端点ドラッグを破棄（元の接続のまま）。
+    dragCancelRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      stopAutoScroll();
+      autoReapplyRef.current = null;
+      lastPointerRef.current = null;
+      setEdgeDrag(null);
+    };
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       stopAutoScroll();
       autoReapplyRef.current = null;
+      dragCancelRef.current = null;
     };
   }, [edgeDrag, view, reconnectEdge]);
 
@@ -673,9 +727,17 @@ export function FlowCanvas() {
     const onUp = (ev: PointerEvent) => {
       const h = heightAt(ev);
       setLaneResize(null);
-      setLaneHeight(box.lane.id, h);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      dragCancelRef.current = null;
+      setLaneHeight(box.lane.id, h);
+    };
+    // #7 Escape 中断: setLaneHeight を呼ばずにプレビューを破棄（確定済みの高さのまま）。
+    dragCancelRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      dragCancelRef.current = null;
+      setLaneResize(null);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -707,11 +769,19 @@ export function FlowCanvas() {
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      dragCancelRef.current = null;
       const nx = xAt(ev);
       setMsDrag(null);
       // 横方向の平行移動のみ（y 不変）。moveNodesBy はレーン再割当をしない＝MS に担当が付かない。
       if (moved) moveNodesBy([node.id], Math.round(nx) - baseX, 0);
       else selectMs(g.taskId); // 動かさなければクリック＝選択
+    };
+    // #7 Escape 中断: moveNodesBy を呼ばずに横ドラッグを破棄（元 x のまま／選択もしない）。
+    dragCancelRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      dragCancelRef.current = null;
+      setMsDrag(null);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -806,6 +876,13 @@ export function FlowCanvas() {
 
   // 'flow' コンテキストのアクション実行(キー照合・ガードは useGlobalHotkeys 済み)。
   flowActionsRef.current = (action, e) => {
+    // #8 フォーカス乗っ取り防止: フォーカスが操作系（ボタン / リンク / 入力 / SELECT /
+    //    メニュー項目 / タブ / contenteditable）にある間は、固定キー（Enter/Delete 等）を
+    //    フローのアクションへ横取りせず素通しする（例: 設定ボタンにフォーカス中の Delete で
+    //    工程削除ダイアログを開かない／Enter はそのボタンのクリックへ）。フロー内のノード div
+    //    は role=button だが interactive 判定外なので従来どおり操作できる。グローバルスコープの
+    //    キー（パレット / undo/redo など）は context 'global' で別経路のため影響を受けない。
+    if (isInteractiveTarget(document.activeElement)) return false;
     const step = e.shiftKey ? 32 : 8;
     const nudge = (dx: number, dy: number): boolean => {
       const t = keyTargets();
