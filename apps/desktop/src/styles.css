@@ -3430,6 +3430,14 @@ kbd {
   white-space: nowrap;
   pointer-events: none;
 }
+/* MS のその場リネーム入力。菱形と同様 .ms-guide の非操作を上書きし、ラベル位置に置く。 */
+.ms-edit {
+  position: absolute;
+  z-index: 7;
+  width: 140px;
+  text-align: left;
+  pointer-events: auto;
+}
 .palette-sep {
   width: 1px;
   height: 18px;

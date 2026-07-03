@@ -302,7 +302,7 @@ export function FlowCanvas() {
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     const el = e.target as HTMLElement;
-    if (el.closest('.node, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
+    if (el.closest('.node, .ms-diamond, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
     const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller) return;
     setSel(null); // 空白クリックで単一選択解除
@@ -659,9 +659,9 @@ export function FlowCanvas() {
   };
   const startMsDrag = (g: { taskId: string; bound: boolean }, e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (g.bound) return; // 追従中はドラッグしない（クリック選択は onClick 側で処理）
     e.stopPropagation();
     e.preventDefault();
+    if (g.bound) return; // 追従中はドラッグしない（クリック選択は onClick 側で処理）
     const node = Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === g.taskId);
     if (!node) return;
     const startX = e.clientX;
@@ -1343,12 +1343,16 @@ export function FlowCanvas() {
         {msGuides.map((g) => {
           const gx = msDrag && msDrag.taskId === g.taskId ? msDrag.x : g.x;
           const isSel = g.taskId === selectedTaskId;
+          // 菱形の scrollIntoView 追従・右クリックメニューの対象に使う MS のタスクノード id。
+          const msNode = Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === g.taskId);
+          const editing = editingTaskId === g.taskId;
           return (
             <div key={`ms-${g.taskId}`} className="ms-guide">
               <div className="ms-guide-line" style={{ left: gx, top: 0, height: lanesBottomY }} />
               <div
                 className={`ms-diamond${isSel ? ' selected' : ''}${g.bound ? '' : ' draggable'}`}
                 style={{ left: gx - 13, top: 3 }}
+                data-nodeid={msNode?.id}
                 role="button"
                 tabIndex={0}
                 aria-label={`マイルストーン: ${g.label || '（無題）'}`}
@@ -1359,15 +1363,66 @@ export function FlowCanvas() {
                   if (g.bound) selectMs(g.taskId); // 未紐付けは startMsDrag が選択も担う
                 }}
                 onKeyDown={(e) => {
+                  if (e.key === 'F2') {
+                    e.preventDefault();
+                    setEditingTaskId(g.taskId); // 工程ノードの F2 と同じその場リネーム
+                    return;
+                  }
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     selectMs(g.taskId);
                   }
                 }}
+                onContextMenu={(e) => {
+                  // 工程ノードの右クリックメニューを流用（対象は MS のタスクノード）。
+                  if (!msNode) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectMs(g.taskId);
+                  let { clientX: x, clientY: y } = e;
+                  if (x === 0 && y === 0) {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    x = r.left + r.width / 2;
+                    y = r.top + r.height / 2;
+                  }
+                  setCtxMenu({ kind: 'node', id: msNode.id, x, y });
+                }}
               />
-              <span className="ms-label" style={{ left: gx + 16, top: 4 }}>
-                {g.label}
-              </span>
+              {/* リネーム中はラベルの位置に工程ノードと同じ編集 input を出す（菱形はレーン外なので
+                  divNodes の input には含まれない＝ここで同じ commit/cancel 規約を再現する）。 */}
+              {editing ? (
+                <input
+                  className="node-edit ms-edit"
+                  style={{ left: gx + 16, top: 4 }}
+                  defaultValue={project.core.tasks[g.taskId]?.name ?? ''}
+                  aria-label="工程名"
+                  autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  onContextMenu={(e) => e.stopPropagation()} // 編集中はネイティブの編集メニュー(貼り付け等)に委ねる
+                  onBlur={(e) => {
+                    commitNodeRename(g.taskId, e.target.value);
+                    setEditingTaskId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (isImeKeyEvent(e)) return; // IME 変換確定の Enter/Esc では閉じない
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitNodeRename(g.taskId, e.currentTarget.value);
+                      setEditingTaskId(null);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingTaskId(null);
+                    }
+                  }}
+                />
+              ) : (
+                <span className="ms-label" style={{ left: gx + 16, top: 4 }}>
+                  {g.label}
+                </span>
+              )}
             </div>
           );
         })}
