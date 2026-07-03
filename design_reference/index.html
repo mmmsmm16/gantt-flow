@@ -1,0 +1,99 @@
+<!-- @dsCard group="Desktop App" viewport="1320x900" name="As-Is / To-Be 比較（機能デザイン案）" subtitle="改善効果サマリ・To-Beインスペクタ・シナリオ切替の配置。レイアウトA/B＋ライト/ダーク" -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gantt-flow — As-Is / To-Be 比較デザイン案</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="compare.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script src="data.js"></script>
+<style>
+  html, body { height: 100%; margin: 0; }
+  /* テーマ別ラッパ: artboard 内をライト/ダークに切替（ページ全体は中立） */
+  .theme-light { color-scheme: light; }
+  .theme-dark { color-scheme: dark; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="bars.jsx"></script>
+<script type="text/babel" src="SummaryModalB.jsx"></script>
+<script type="text/babel" src="TobeInspector.jsx"></script>
+<script type="text/babel" src="BulkInput.jsx"></script>
+<script type="text/babel" src="ScenarioSwitch.jsx"></script>
+<script type="text/babel" src="FlowCompare.jsx"></script>
+<script type="text/babel">
+  const { DesignCanvas, DCSection, DCArtboard } = window;
+
+  // テーマを適用したラッパ（artboard ローカルに data-theme を効かせる）
+  function Themed({ theme, children }) {
+    const ref = React.useRef(null);
+    React.useEffect(() => {
+      if (ref.current) ref.current.setAttribute('data-theme', theme);
+    }, [theme]);
+    return (
+      <div ref={ref} className={`theme-${theme}`} style={{ position: 'absolute', inset: 0, background: 'var(--bg)' }}>
+        {children}
+      </div>
+    );
+  }
+
+  function App() {
+    return (
+      <DesignCanvas>
+        <DCSection id="s1" title="画面1 ｜ As-Is / To-Be 比較サマリ（モーダル）" subtitle="工数・リードタイムを左右で対等に。待ち内訳・業務難易度の変化・工程差分。ライト/ダーク">
+          <DCArtboard id="b1-light" label="比較サマリ · 工数／LT 左右対比 · ライト" width={1080} height={800}>
+            <Themed theme="light"><window.SummaryModal /></Themed>
+          </DCArtboard>
+          <DCArtboard id="b1-dark" label="比較サマリ · 工数／LT 左右対比 · ダーク" width={1080} height={800}>
+            <Themed theme="dark"><window.SummaryModal /></Themed>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="s2" title="画面2 ｜ To-Be の入力" subtitle="一括入力（全工程をまとめて）と、インスペクタ（単工程の詳細）の2方式">
+          <DCArtboard id="bulk-light" label="To-Be 一括入力（工程表インライン） · ライト" width={1040} height={420}>
+            <Themed theme="light"><window.BulkInput /></Themed>
+          </DCArtboard>
+          <DCArtboard id="bulk-dark" label="To-Be 一括入力 · ダーク" width={1040} height={420}>
+            <Themed theme="dark"><window.BulkInput /></Themed>
+          </DCArtboard>
+          <DCArtboard id="a2-light" label="インスペクタ（単工程の詳細） · ライト" width={420} height={720}>
+            <Themed theme="light"><window.TobeInspector /></Themed>
+          </DCArtboard>
+          <DCArtboard id="a2-dark" label="インスペクタ · ダーク" width={420} height={720}>
+            <Themed theme="dark"><window.TobeInspector /></Themed>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="s3" title="画面3 ｜ シナリオ切替の置き場所" subtitle="As-Is / To-Be 切替はビュー上部バーの左（粒度の隣）に固定">
+          <DCArtboard id="a3-light" label="配置（推奨） · ライト" width={840} height={420}>
+            <Themed theme="light"><window.ScenarioSwitch /></Themed>
+          </DCArtboard>
+          <DCArtboard id="a3-dark" label="配置（推奨） · ダーク" width={840} height={420}>
+            <Themed theme="dark"><window.ScenarioSwitch /></Themed>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="s4" title="画面4 ｜ 工程フロー As-Is / To-Be 比較" subtitle="スイムレーンで構造変化を可視化（並行化・電子承認・難易度の低下）">
+          <DCArtboard id="a4-light" label="工程フロー比較 · ライト" width={1280} height={940}>
+            <Themed theme="light"><window.FlowCompare /></Themed>
+          </DCArtboard>
+          <DCArtboard id="a4-dark" label="工程フロー比較 · ダーク" width={1280} height={940}>
+            <Themed theme="dark"><window.FlowCompare /></Themed>
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
