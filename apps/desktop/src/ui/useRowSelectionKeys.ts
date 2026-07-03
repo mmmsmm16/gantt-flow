@@ -37,6 +37,22 @@ export function scrollRowIntoView(taskId: Id): void {
     ?.scrollIntoView({ block: 'nearest' });
 }
 
+// roving focus: 選択が変わったとき、選択行(<tr tabIndex=-1>)へ実 DOM フォーカスを移してよいか。
+// 純粋関数(DOM 非依存・node でテスト可能)。呼び出し側が activeElement から editable/inTable を測って渡す。
+//  - activePane!=='table' … フロー等からの選択同期でフォーカスを奪わない(表がアクティブなときだけ移す)。
+//  - editable(入力/セレクト/テキストエリア編集中) … セル編集中のフォーカスを奪わない。
+//  - inTable=false(#main-table の外＝ダイアログ・フロー等) … その場のフォーカスを尊重して奪わない。
+//    (body / 未フォーカスは inTable=true 扱いで「表に入る」初回移動を許す)
+export function shouldRoveRowFocus(opts: {
+  activePane: 'table' | 'flow';
+  editable: boolean;
+  inTable: boolean;
+}): boolean {
+  if (opts.activePane !== 'table') return false;
+  if (opts.editable) return false;
+  return opts.inTable;
+}
+
 // セルを横スクロールで可視範囲に入れる。全項目表の固定列(sticky)の影に隠れないよう、
 // 左固定列(No.+粒度列)の右端を「実質の左端」、右固定列(アクション列)の左端を
 // 「実質の右端」として補正する(scrollIntoView は sticky のかぶりを考慮しないため)。

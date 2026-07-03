@@ -8,11 +8,11 @@ import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnch
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
-import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
+import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
 import { revealTask, confirmRemoveTasks } from './taskOps';
-import { isImeKeyEvent } from './keymap';
+import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
@@ -148,9 +148,27 @@ export function TableView() {
 
   // 選択中の工程が変わったら、その行が画面外のとき視点を寄せる（フロー→表追従）。
   // 'nearest' なので表側の操作で既に見えている時は動かない。畳まれて未描画なら no-op。
+  // あわせて roving focus: 表がアクティブかつ編集中でないときは選択行に実 DOM フォーカスを移す
+  //（スクリーンリーダーが選択行を読み、フォーカスリングが選択に追従する）。フローからの選択同期や
+  // セル編集中はフォーカスを奪わない（shouldRoveRowFocus のガード）。
   useEffect(() => {
     if (!selectedTaskId) return;
-    const raf = requestAnimationFrame(() => scrollRowIntoView(selectedTaskId));
+    const raf = requestAnimationFrame(() => {
+      scrollRowIntoView(selectedTaskId);
+      const active = document.activeElement;
+      const inTable = !active || active === document.body || !!active.closest?.('#main-table');
+      if (
+        shouldRoveRowFocus({
+          activePane: useUI.getState().activePane,
+          editable: isEditableTarget(active),
+          inTable,
+        })
+      ) {
+        document
+          .querySelector<HTMLElement>(`tr[data-taskid="${CSS.escape(selectedTaskId)}"]`)
+          ?.focus({ preventScroll: true });
+      }
+    });
     return () => cancelAnimationFrame(raf);
   }, [selectedTaskId]);
 
@@ -342,6 +360,9 @@ export function TableView() {
           <div className="outline-scroll">
           <table
             className="grid"
+            role="grid"
+            aria-label="工程表（手順一覧）"
+            aria-rowcount={rows.length}
             onKeyDown={editNavKeyDown}
             style={{
               // 固定列の合計 + 作業名の最小幅 + 表示中の任意列。狭いペインではペインが横スクロールする。
@@ -349,18 +370,18 @@ export function TableView() {
             }}
           >
             <thead>
-              <tr>
-                <th className="c-grip" aria-hidden="true"></th>
-                <th className="c-code">No.</th>
-                <th className="c-level">粒度</th>
-                <th className="c-name">作業名</th>
-                <th className="c-assignee">担当</th>
+              <tr role="row">
+                <th className="c-grip" role="columnheader" aria-hidden="true"></th>
+                <th className="c-code" role="columnheader">No.</th>
+                <th className="c-level" role="columnheader">粒度</th>
+                <th className="c-name" role="columnheader">作業名</th>
+                <th className="c-assignee" role="columnheader">担当</th>
                 {visibleOptionalColumns.map((c) => (
-                  <th key={c.key} className={`c-${c.key}`}>
+                  <th key={c.key} className={`c-${c.key}`} role="columnheader">
                     {c.label}
                   </th>
                 ))}
-                <th className="c-act"></th>
+                <th className="c-act" role="columnheader"></th>
               </tr>
             </thead>
             <tbody>
@@ -379,6 +400,10 @@ export function TableView() {
                   <tr
                     key={t.id}
                     data-taskid={t.id}
+                    role="row"
+                    // roving focus: 選択行だけ実フォーカスを受ける（キー操作で選択に追従・SR が読む）。
+                    tabIndex={-1}
+                    aria-selected={t.id === selectedTaskId}
                     className={[
                       t.id === selectedTaskId ? 'selected' : '',
                       dragId === t.id ? 'dragging' : '',
@@ -424,7 +449,7 @@ export function TableView() {
                       setDropInfo(null);
                     }}
                   >
-                    <td className="c-grip" onClick={(e) => e.stopPropagation()}>
+                    <td className="c-grip" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       <span
                         className="row-grip"
                         draggable
@@ -442,10 +467,10 @@ export function TableView() {
                         ⠿
                       </span>
                     </td>
-                    <td className="c-code" title={codes[t.id]}>
+                    <td className="c-code" role="gridcell" title={codes[t.id]}>
                       {ms ? <span className="ms-cell-blank">—</span> : codes[t.id]}
                     </td>
-                    <td className="c-level" onClick={(e) => e.stopPropagation()}>
+                    <td className="c-level" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       {ms ? (
                         <span className="ms-cell-blank" title="マイルストーンは粒度を持ちません">—</span>
                       ) : (
@@ -464,7 +489,7 @@ export function TableView() {
                         </select>
                       )}
                     </td>
-                    <td className="c-name">
+                    <td className="c-name" role="gridcell">
                       <TreeGuides depth={depth} ancestorLines={ancestorLines} isLast={isLast} />
                       <div className="name-cell" style={{ paddingLeft: depth * INDENT }}>
                         {hasChildren && (
@@ -528,7 +553,7 @@ export function TableView() {
                         />
                       </div>
                     </td>
-                    <td className={`c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`}>
+                    <td className={`c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`} role="gridcell">
                       {ms ? (
                         <span className="ms-cell-blank" title="マイルストーンは担当を持ちません">—</span>
                       ) : (
@@ -548,7 +573,7 @@ export function TableView() {
                       )}
                     </td>
                     {columnVisibility.prev && (
-                    <td className="c-prev" onClick={(e) => e.stopPropagation()}>
+                    <td className="c-prev" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       <div className="ft-prev">
                         {preds.map((dep) => (
                           <span className="ft-pill" key={dep.id}>
@@ -593,7 +618,7 @@ export function TableView() {
                     </td>
                     )}
                     {columnVisibility.effort && (
-                    <td className="c-effort" onClick={(e) => e.stopPropagation()}>
+                    <td className="c-effort" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       {ms ? (
                         <span className="ms-cell-blank" title="マイルストーンは工数を持ちません">—</span>
                       ) : hasChildren ? (
@@ -630,6 +655,7 @@ export function TableView() {
                     {columnVisibility.io && (
                     <td
                       className={`c-io${cellCursorCls(t.id, 'io')}`}
+                      role="gridcell"
                       data-cell="io"
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -667,7 +693,7 @@ export function TableView() {
                       </div>
                     </td>
                     )}
-                    <td className="c-act" onClick={(e) => e.stopPropagation()}>
+                    <td className="c-act" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       {t.level !== 'detail' && !ms && (
                         <button
                           title="子工程を追加"
@@ -698,8 +724,8 @@ export function TableView() {
               })}
               {/* 末尾ゴースト行: 「一番下の空行へ直接入力」の入口。検索絞り込み中は出さない。 */}
               {!findActive && rows.length > 0 && (
-                <tr className="outline-ghost" onClick={addGhostRow}>
-                  <td colSpan={6 + visibleOptionalColumns.length}>＋ 新しい工程…</td>
+                <tr className="outline-ghost" role="row" onClick={addGhostRow}>
+                  <td colSpan={6 + visibleOptionalColumns.length} role="gridcell">＋ 新しい工程…</td>
                 </tr>
               )}
             </tbody>

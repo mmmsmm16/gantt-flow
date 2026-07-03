@@ -857,7 +857,9 @@ export function FlowCanvas() {
       setSel({ kind: 'node', id });
       select(undefined);
     }
-    // 選択先が画面外ならスクロールで追従
+    // 選択先が画面外ならスクロールで追従。実 DOM フォーカスは各ノードへは移さない
+    // （フローは aria-activedescendant 方式＝矢印移動でフォーカスを乗っ取らず Enter=リネーム等の
+    //   フロー既定キーを保つ。選択の可視化は .selected スタイルと aria-selected で行う）。
     requestAnimationFrame(() => {
       document
         .querySelector(`[data-nodeid="${CSS.escape(id)}"]`)
@@ -1353,6 +1355,17 @@ export function FlowCanvas() {
     return baseRoutes.get(e.id);
   };
 
+  // roving focus / aria-activedescendant: いま選択中のフォーカス可能ノード(option)の DOM id。
+  // 工程ノードは selectedTaskId のノード、制御/付箋は フロー固有選択(sel)。id は fn- 接頭辞で衝突回避。
+  // マイルストーンは option ではなく菱形(role=button)で描くので activedescendant からは除く。
+  const selectedNodeId: FlowNodeId | undefined =
+    sel?.kind === 'node'
+      ? (sel.id as FlowNodeId)
+      : selectedTaskId && !isMilestone(project.core, selectedTaskId)
+        ? Object.values(view.nodes).find((o) => o.kind === 'task' && o.taskId === selectedTaskId)?.id
+        : undefined;
+  const activeDescId = selectedNodeId ? `fn-${selectedNodeId}` : undefined;
+
   return (
     <div className="flow-wrap">
       <div className="flow-palette">
@@ -1458,6 +1471,12 @@ export function FlowCanvas() {
       <div
         className={`flow-canvas${panning ? ' panning' : ''}${conn || kbConnect ? ' connecting' : ''}`}
         ref={canvasRef}
+        // 独自キーボードモデル（矢印=選択移動）とボタン/ハンドル等の混在ゆえ listbox ではなく
+        // application ロール。選択ノードは role=option + aria-selected で読ませ、活性ノードは
+        // aria-activedescendant で指す（実フォーカスは各ノードへ移す＝roving focus）。
+        role="application"
+        aria-label="工程フロー図（矢印キーでノードを選択）"
+        aria-activedescendant={activeDescId}
         onPointerDown={onCanvasPointerDown}
         onDoubleClick={onCanvasDoubleClick}
       >
@@ -1876,6 +1895,7 @@ export function FlowCanvas() {
           return (
             <div
               key={n.id}
+              id={focusable ? `fn-${n.id}` : undefined}
               data-nodeid={n.id}
               className={cls + connCls + multiCls + flashCls}
               style={
@@ -1883,10 +1903,14 @@ export function FlowCanvas() {
                   ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
                   : { left: p.x, top: p.y, width: nodeSize(n).w, height: nodeSize(n).h, ...colorVars }
               }
-              role={focusable ? 'button' : undefined}
+              // application 内のノードは role=option。工程ノードの選択は selectedTaskId、
+              // 制御/付箋は フロー固有選択(sel=isSel) を aria-selected に反映する。
+              role={focusable ? 'option' : undefined}
               tabIndex={focusable ? 0 : undefined}
               aria-label={focusable ? ariaLabel : undefined}
-              aria-pressed={focusable ? isSel : undefined}
+              aria-selected={
+                focusable ? (n.kind === 'task' ? n.taskId === selectedTaskId : isSel) : undefined
+              }
               onPointerDown={(e) => {
                 if (e.button !== 0 || !draggable) return; // 右クリック（メニュー）でドラッグを始めない
                 downPosRef.current = { x: e.clientX, y: e.clientY };

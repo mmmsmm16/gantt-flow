@@ -5739,3 +5739,19 @@ input.colored-text {
 .st-lock.is-readonly {
   color: var(--danger);
 }
+
+/* =========================================================================
+   UX#15: 表・フローの roving focus と ARIA
+   ------------------------------------------------------------------------
+   表(role=grid)は選択行(<tr tabIndex=-1>)へ実 DOM フォーカスが乗る。キーボード操作時のみ
+   :focus-visible でアクセントのリングを出し「いまどの行を選んでいるか」を明示する
+   （ノード等と同じ 2px accent 規約。マウス選択では出さず、選択の背景色だけで示す）。
+   フローは aria-activedescendant 方式で、選択ノードの可視化は既存の .node.*.selected が担う。
+   ========================================================================= */
+.grid tbody tr:focus {
+  outline: none; /* 既定の点線フォーカスは出さない(下の focus-visible が代替) */
+}
+.grid tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
