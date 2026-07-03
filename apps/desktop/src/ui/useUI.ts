@@ -223,6 +223,11 @@ interface UIState {
   tourStep: number | null;
   setTourStep: (step: number | null) => void;
 
+  /** 空スタート経路で、最初の工程が作られたらツアーを提示するために保留中か（非永続）。
+      サンプル/テンプレート/取り込みは即時開始するのでこのフラグは使わない。 */
+  tourPendingFirstTask: boolean;
+  setTourPendingFirstTask: (pending: boolean) => void;
+
   /** 重い処理中の全画面スピナー（メッセージ＝表示中）。取り込みなどで無応答に見えるのを防ぐ。 */
   busy: string | null;
   setBusy: (message: string | null) => void;
@@ -467,6 +472,9 @@ export const useUI = create<UIState>((set, get) => ({
 
   tourStep: null,
   setTourStep: (tourStep) => set({ tourStep }),
+
+  tourPendingFirstTask: false,
+  setTourPendingFirstTask: (tourPendingFirstTask) => set({ tourPendingFirstTask }),
 
   busy: null,
   setBusy: (busy) => set({ busy }),

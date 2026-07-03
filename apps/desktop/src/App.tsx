@@ -46,7 +46,7 @@ import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
-import { Tour, tourDone } from './ui/Tour';
+import { Tour, tourDone, shouldStartTourOnFirstTask } from './ui/Tour';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -117,7 +117,15 @@ export function App() {
   // 工程が 1 件でもできたら離脱扱いにする(パレット等、Welcome のボタン以外の経路でも。
   // 以後は全工程を削除しても Welcome へは戻らない)。
   useEffect(() => {
-    if (!isEmpty) useUI.getState().setWelcomeDismissed(true);
+    if (isEmpty) return;
+    const ui = useUI.getState();
+    ui.setWelcomeDismissed(true);
+    // 空スタート経路: 最初の工程が生まれた瞬間（＝同期を体感できる瞬間）に初回ツアーを提示する。
+    // サンプル/テンプレ/取り込みは各ハンドラが開いた直後に開始するので pending は使わない。
+    if (ui.tourPendingFirstTask) {
+      ui.setTourPendingFirstTask(false);
+      if (shouldStartTourOnFirstTask({ pending: true, done: tourDone() })) ui.setTourStep(0);
+    }
   }, [isEmpty]);
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
@@ -328,6 +336,7 @@ export function App() {
         const report = useApp.getState().importRows(await readTableFile(file));
         useUI.getState().setOutlineCollapsed(new Set());
         useUI.getState().setWelcomeDismissed(true);
+        if (!tourDone()) useUI.getState().setTourStep(0); // 取り込み直後にも初回ツアーを提示（結果ダイアログの下層）
         const c = report.created;
         let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
         if (report.unresolvedDeps.length)
@@ -380,7 +389,11 @@ export function App() {
     useApp.getState().loadTemplate(key);
     useUI.getState().setOutlineCollapsed(new Set());
     useUI.getState().setWelcomeDismissed(true);
-    useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
+    if (!tourDone()) {
+      useUI.getState().setTourStep(0); // 初回だけ使い方ツアーを開始
+    } else {
+      useUI.getState().toast('テンプレートを開きました。自社の業務に合わせて編集してください。', 'success');
+    }
   };
   const onOpenRecent = async (name: string) => {
     // Welcome 経由は工程 0 件＝dirty でないので確認は実質ツールバー/パレット経由のみ。
@@ -443,7 +456,11 @@ export function App() {
   };
 
   // Welcome から空の編集画面へ（プロジェクトは既に空＝作り直し不要。フラグだけ立てる）。
-  const onStartEmpty = () => useUI.getState().setWelcomeDismissed(true);
+  // 初回なら、最初の工程を作った瞬間にツアーを提示するため保留フラグを立てる。
+  const onStartEmpty = () => {
+    useUI.getState().setWelcomeDismissed(true);
+    if (!tourDone()) useUI.getState().setTourPendingFirstTask(true);
+  };
 
   // グローバルショートカット(キーマップ駆動)。keymap.ts が単一の真実、
   // ディスパッチは useGlobalHotkeys に一元化(IME・編集中・オーバーレイのガード込み)。
