@@ -214,3 +214,98 @@ describe('マイルストーンの同期隔離', () => {
     expect(r3.report.removed).toHaveLength(0);
   });
 });
+
+// v2: 粒度非依存化。マイルストーンは工程粒度に左右されず、全ビューに同じものが出る。
+//   ・全スコープビュー(scopeParentId 未指定): level 不問で常に表示。
+//   ・スコープ付きビュー: 対象工程(入依存 from)のいずれかがそのスコープ配下にあるときのみ表示。
+//   ・未紐付け MS はスコープ付きビューには出さない（全スコープビューのみ）。
+const hasTaskNode = (v: ReturnType<typeof reconcileFlow>['view'], taskId: string) =>
+  taskNodes(v).some((n) => n.taskId === taskId);
+
+describe('マイルストーンの粒度非依存化（v2）', () => {
+  it('⑨ 中で作った MS は大・小の全スコープビューにもノードとして出る', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'P', level: 'large' }, g);
+    const pid = taskIdByName(p, 'P');
+    p = addTask(p, { name: 'A', level: 'medium', parentId: pid }, g);
+    p = addTask(p, { name: 'MS', level: 'medium', kind: 'milestone' }, g);
+    p = addDependency(p, taskIdByName(p, 'A'), taskIdByName(p, 'MS'), g); // 対象工程 A
+
+    const msId = taskIdByName(p, 'MS');
+    const large = reconcileFlow(p.core, p.details, emptyView('large'), n);
+    const small = reconcileFlow(p.core, p.details, emptyView('small'), n);
+
+    // 粒度が違っても同じ MS がノードとして現れる（1:1 はビューごとに維持）
+    expect(hasTaskNode(large.view, msId)).toBe(true);
+    expect(hasTaskNode(small.view, msId)).toBe(true);
+    // MS に触れる導出エッジは張られない（節目マーカー）
+    expect(Object.values(large.view.edges)).toHaveLength(0);
+  });
+
+  it('⑩ スコープ付きビューは対象工程が配下にある時だけ MS を出す', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'P1', level: 'large' }, g);
+    p = addTask(p, { name: 'P2', level: 'large' }, g);
+    const p1 = taskIdByName(p, 'P1');
+    const p2 = taskIdByName(p, 'P2');
+    p = addTask(p, { name: 'A', level: 'medium', parentId: p1 }, g); // 対象工程は P1 配下
+    p = addTask(p, { name: 'B', level: 'medium', parentId: p2 }, g);
+    p = addTask(p, { name: 'MS', level: 'medium', kind: 'milestone' }, g); // 未親付け（構造で紐付かない）
+    p = addDependency(p, taskIdByName(p, 'A'), taskIdByName(p, 'MS'), g);
+
+    const msId = taskIdByName(p, 'MS');
+    const inScope = reconcileFlow(p.core, p.details, emptyView('medium', p1), n);
+    const outScope = reconcileFlow(p.core, p.details, emptyView('medium', p2), n);
+
+    // 対象工程 A が配下にある P1 スコープには出る／無関係な P2 スコープには出ない
+    expect(hasTaskNode(inScope.view, msId)).toBe(true);
+    expect(hasTaskNode(outScope.view, msId)).toBe(false);
+  });
+
+  it('⑪ MS を含む大・小ビューはそれぞれ冪等（added/removed 空）', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'P', level: 'large' }, g);
+    const pid = taskIdByName(p, 'P');
+    p = addTask(p, { name: 'A', level: 'medium', parentId: pid }, g);
+    p = addTask(p, { name: 'MS', level: 'medium', kind: 'milestone' }, g);
+    p = addDependency(p, taskIdByName(p, 'A'), taskIdByName(p, 'MS'), g);
+
+    const msId = taskIdByName(p, 'MS');
+    const large1 = reconcileFlow(p.core, p.details, emptyView('large'), n);
+    expect(hasTaskNode(large1.view, msId)).toBe(true);
+    const large2 = reconcileFlow(p.core, p.details, large1.view, n);
+    expect(large2.view).toEqual(large1.view);
+    expect(large2.report.added).toHaveLength(0);
+    expect(large2.report.removed).toHaveLength(0);
+
+    const small1 = reconcileFlow(p.core, p.details, emptyView('small'), n);
+    expect(hasTaskNode(small1.view, msId)).toBe(true);
+    const small2 = reconcileFlow(p.core, p.details, small1.view, n);
+    expect(small2.view).toEqual(small1.view);
+    expect(small2.report.added).toHaveLength(0);
+    expect(small2.report.removed).toHaveLength(0);
+  });
+
+  it('⑫ 未紐付け MS は全スコープビューのみ・スコープ付きビューには出ない', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    p = addTask(p, { name: 'P', level: 'large' }, g);
+    const pid = taskIdByName(p, 'P');
+    p = addTask(p, { name: 'A', level: 'medium', parentId: pid }, g);
+    p = addTask(p, { name: 'MS', level: 'medium', kind: 'milestone' }, g); // 未紐付け・未親付け
+
+    const msId = taskIdByName(p, 'MS');
+    const scoped = reconcileFlow(p.core, p.details, emptyView('medium', pid), n);
+    const all = reconcileFlow(p.core, p.details, emptyView('medium'), n);
+
+    expect(hasTaskNode(scoped.view, msId)).toBe(false);
+    expect(hasTaskNode(all.view, msId)).toBe(true);
+  });
+});

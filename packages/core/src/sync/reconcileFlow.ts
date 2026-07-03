@@ -5,6 +5,7 @@
 import type {
   Core,
   ProcessLevel,
+  ProcessTask,
   TaskDetail,
   FlowLevelView,
   FlowTaskNode,
@@ -138,15 +139,43 @@ export function reconcileFlow(
   //    全体スコープでは親(大)ごとに固めて並べ、大の囲いが重ならないようにする。
   const parentOrder = (t: { parentId?: Id }): number =>
     t.parentId ? core.tasks[t.parentId]?.order ?? 0 : 0;
+
+  // scopeParentId を祖先に持つ（＝そのスコープ配下の）タスクか。任意の深さの子孫を辿る。
+  // MS の対象工程（入依存の from）がこのスコープに属するかの判定に使う（循環ガード付き）。
+  const isUnderScope = (taskId: Id | undefined, scopeId: Id): boolean => {
+    let cur = taskId ? core.tasks[taskId]?.parentId : undefined;
+    const seen = new Set<Id>();
+    while (cur && !seen.has(cur)) {
+      if (cur === scopeId) return true;
+      seen.add(cur);
+      cur = core.tasks[cur]?.parentId;
+    }
+    return false;
+  };
+
+  // v2 粒度非依存化: マイルストーンは工程粒度に左右されず、全ビューに同じものを出す。
+  //   ・全スコープビュー(scopeParentId 未指定): level 不問で常に表示（節目は業務の事実）。
+  //   ・スコープ付きビュー: 対象工程(入依存の from)のいずれかがそのスコープ配下にあるとき表示。
+  //     加えて、MS が構造上そのビューに属する(level×scope 一致)場合も従来どおり表示する
+  //     （MS を作った当のビューでの可視性を保つ＝既存の配置・テスト互換）。
+  const milestoneInView = (t: ProcessTask): boolean => {
+    const scope = view.scopeParentId;
+    if (scope === undefined) return true; // 全スコープビュー
+    if (t.level === view.level && sameScope(t.parentId, scope)) return true; // 構造上の所属
+    return Object.values(core.dependencies).some(
+      (d) => d.to === t.id && isUnderScope(d.from, scope),
+    );
+  };
+
   const targets = Object.values(core.tasks)
     // To-Be 新設工程(toBe.lifecycle='added')は As-Is フローには出さない。
     // To-Be 投影では呼び出し側(buildScenarioView)が details の 'added' マーカーを外して描く。
-    .filter(
-      (t) =>
-        t.level === view.level &&
-        (allScope || sameScope(t.parentId, view.scopeParentId)) &&
-        details[t.id]?.toBe?.lifecycle !== 'added',
-    )
+    .filter((t) => {
+      if (details[t.id]?.toBe?.lifecycle === 'added') return false;
+      // MS は level×scope 選定に依らず、粒度非依存の専用規則で対象化する。
+      if (isMilestone(core, t.id)) return milestoneInView(t);
+      return t.level === view.level && (allScope || sameScope(t.parentId, view.scopeParentId));
+    })
     .sort((a, b) => parentOrder(a) - parentOrder(b) || a.order - b.order || a.id.localeCompare(b.id));
   const targetIds = new Set(targets.map((t) => t.id));
   // 横位置は targets の並び順（親=大ごとに固めた連番）で詰めて配置する。
