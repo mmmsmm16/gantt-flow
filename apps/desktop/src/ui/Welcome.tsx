@@ -121,8 +121,7 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate, 
         </ul>
 
         <p className="welcome-foot">
-          まっさらな状態から作るには上の「空のプロジェクトから始める」を。開いたあとは表の「＋
-          大工程」「＋ 中工程」から作業を追加できます。
+          まっさらな状態から作るには上の「空のプロジェクトから始める」を。開いたあとは表の「＋大」「＋中」ボタンから作業を追加できます。
         </p>
       </div>
     </div>

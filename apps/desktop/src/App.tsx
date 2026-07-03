@@ -655,7 +655,7 @@ export function App() {
               className="icon-btn"
               onClick={() => setActivePane(activePane === 'table' ? 'flow' : 'table')}
               aria-label="工程表とフローを入れ替え"
-              title={`${activePane === 'table' ? '工程フロー' : '工程表'}＋詳細に切り替え (案A)`}
+              title={`${activePane === 'table' ? '工程フロー' : '工程表'}＋詳細に切り替え`}
             >
               <Icons.Swap />
             </button>

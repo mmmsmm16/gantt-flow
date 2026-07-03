@@ -2038,13 +2038,17 @@ export function FlowCanvas() {
           />
         ))}
 
+        </div>
+
+        {/* 案内見切れ対策: .flow-scale(論理1600x1400・パン/ズーム対象)の内側ではなく
+            .flow-canvas(実際に見えているペイン)の直下に置き、可視領域の中央に固定する
+            （パンやペイン幅に関わらず常に全文が収まる）。 */}
         {!nodes.some((n) => n.kind === 'task') && (
           <div className="flow-empty">
             <strong>ここをダブルクリックすると工程を作成できます。</strong>
             <span>表で追加した工程も自動でここに表示されます。</span>
           </div>
         )}
-        </div>
 
         {hasLanes && (
           <div

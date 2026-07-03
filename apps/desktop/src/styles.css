@@ -44,7 +44,9 @@
   --panel-2: #f3f5f8;
   --ink: #28303c;
   --muted: #5b6573;
-  --faint: #98a1af;
+  /* AA是正: 元 #98a1af は白地/淡パネルで2.6~2.4:1(未達)。同系色相のまま暗くして
+     4.5:1以上(白地5.0/淡パネル4.6)を確保（docs/ui-ux-improvement-catalog.md #80）。 */
+  --faint: #66707c;
   --line: #e2e6ec;
   --line-faint: #eef1f5;
   --line-strong: #cdd4de;
@@ -162,7 +164,9 @@
   --panel-2: #1e242e;
   --ink: #e4e8ef;
   --muted: #98a2b2;
-  --faint: #6b7585;
+  /* AA是正: 元 #6b7585 はパネル#222936で3.1:1(未達)。同系色相のまま明るくして
+     4.5:1以上(パネル4.7/背景5.3)を確保（docs/ui-ux-improvement-catalog.md #80）。 */
+  --faint: #8593a5;
   --line: #2f3744;
   --line-faint: #262d38;
   --line-strong: #3f4856;
@@ -2095,11 +2099,16 @@ button.danger:hover {
 }
 
 /* フローの空状態 */
+/* 案内見切れ対策(UX): .flow-canvas(可視ペイン。position:relativeの実サイズ)の
+   直下の子として centered — .flow-scale(論理1600x1400のパン/ズーム対象)基準だと
+   ペインが狭い(インスペクタ併設時など)ときに右端で見切れるため、常に可視領域の
+   中央に固定し、幅もペイン幅に追従させて折り返す。 */
 .flow-empty {
   position: absolute;
   left: 50%;
-  top: 96px;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(320px, calc(100% - 32px));
   pointer-events: none;
   display: flex;
   flex-direction: column;
@@ -2129,6 +2138,13 @@ button.danger:hover {
 }
 .modal {
   width: min(420px, 100%);
+  /* 見切れ対策(UX#5): 長い検証/取り込み結果メッセージでも OK ボタンが画面外に
+     押し出されないよう、本体は縦80vhで打ち切ってスクロールし、操作行は常に
+     スクロール領域の外(下端固定)に残す。 */
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--panel);
   color: var(--ink);
   border: 1px solid var(--line);
@@ -2138,11 +2154,15 @@ button.danger:hover {
   animation: pop-in var(--dur-1) var(--ease);
 }
 .modal-title {
+  flex: 0 0 auto;
   margin: 0 0 6px;
   font-size: var(--fs-title);
   font-weight: var(--fw-strong);
 }
 .modal-msg {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   margin: 0 0 12px;
   font-size: var(--fs-body);
   color: var(--muted);
@@ -2150,6 +2170,7 @@ button.danger:hover {
   white-space: pre-line;
 }
 .modal-input {
+  flex: 0 0 auto;
   font: inherit;
   font-size: var(--fs-body);
   width: 100%;
@@ -2166,6 +2187,7 @@ button.danger:hover {
   box-shadow: var(--ring);
 }
 .modal-actions {
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
