@@ -425,6 +425,33 @@ export function FlowCanvas() {
         ny = snapped.y;
         guides = snapped.guides;
       }
+      // 境界クランプ: 確定側（moveNode/moveNodesBy）と同じ規則をプレビューにも適用し、
+      // マウスアップ時にスナップバックしないようにする（負座標へは行かせない）。
+      const ms = multiSelRef.current;
+      if (ms.has(drag.id) && ms.size > 1) {
+        // 剛体移動: 選択全体の最小 x/y が 0 を下回らないよう移動量(delta)そのものを削って揃える
+        // （個別クランプだと選択の一部だけ壁で止まり相対配置が歪む。moveNodesBy と同じロジック）。
+        let minX = Infinity;
+        let minY = Infinity;
+        for (const id of ms) {
+          const n = view?.nodes[id];
+          if (n) {
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+          }
+        }
+        if (Number.isFinite(minX)) {
+          let ddx = nx - drag.ox;
+          let ddy = ny - drag.oy;
+          if (minX + ddx < 0) ddx = -minX;
+          if (minY + ddy < 0) ddy = -minY;
+          nx = drag.ox + ddx;
+          ny = drag.oy + ddy;
+        }
+      } else {
+        nx = Math.max(0, nx);
+        ny = Math.max(0, ny);
+      }
       setSnapGuides(guides);
       setDrag((d) => (d ? { ...d, x: nx, y: ny } : d));
     };

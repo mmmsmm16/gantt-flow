@@ -4,7 +4,7 @@ import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, 
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
-import { validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
+import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
@@ -586,6 +586,7 @@ export function TableView() {
                               return;
                             }
                             clearEffortInvalid(e.target);
+                            if (isEffortBlurUnchanged(e.target.value, detail?.effortMinutes)) return; // 無編集 blur は書き換えない
                             if (res.minutes !== detail?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
                           }}
                         />

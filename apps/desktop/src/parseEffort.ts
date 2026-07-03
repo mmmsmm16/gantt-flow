@@ -1,3 +1,5 @@
+import { effortMinutesToHours } from '@gantt-flow/core';
+
 // 工数欄（時間）の入力を分へ変換する共通ヘルパ。インスペクタ・全項目表・アウトラインの
 // 工数 onBlur で共用する（ビューごとに素の Number()×60 を残すと、不正値の混入経路が復活する）。
 // 空欄=undefined（解除）、数値でない/負/無限大=null（不正・棄却）。
@@ -34,4 +36,15 @@ export function clearEffortInvalid(input: HTMLInputElement): void {
   input.removeAttribute('aria-invalid');
   input.classList.remove('invalid');
   input.title = '';
+}
+
+// 工数欄は表示時に分を 0.1h 丸めしている（effortMinutesToHours）。この丸め後の値を
+// そのまま素の分と比較すると、無編集の blur でも端数がズレて書き換わってしまう
+// （例: 100分 → 表示 1.7h → 再パースで 102 分。100 !== 102 で誤って上書きされる）。
+// 「編集したか」は入力欄の生値（時間）と表示値（丸め後の時間）を同じ単位で比べて判定する。
+export function isEffortBlurUnchanged(rawInput: string, storedMinutes: number | undefined): boolean {
+  const trimmed = rawInput.trim();
+  const inputHours = trimmed === '' ? undefined : Number(trimmed);
+  const displayedHours = storedMinutes != null ? effortMinutesToHours(storedMinutes) : undefined;
+  return inputHours === displayedHours;
 }

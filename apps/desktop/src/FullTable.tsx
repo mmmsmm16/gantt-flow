@@ -8,7 +8,7 @@ import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, 
 import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
-import { validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
+import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
@@ -856,6 +856,7 @@ export function FullTable() {
                               return;
                             }
                             clearEffortInvalid(e.target);
+                            if (isEffortBlurUnchanged(e.target.value, d?.effortMinutes)) return; // 無編集 blur は書き換えない
                             if (res.minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
                           }}
                         />

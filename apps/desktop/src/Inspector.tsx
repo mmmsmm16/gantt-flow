@@ -4,7 +4,7 @@ import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLeve
 import { computeCodes, effortRollupMinutes, effortMinutesToHours, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
-import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
+import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { collectIoNames, prevCandidates } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
@@ -264,6 +264,7 @@ export function Inspector() {
                   return;
                 }
                 clearEffortInvalid(e.target);
+                if (isEffortBlurUnchanged(e.target.value, d?.effortMinutes)) return; // 無編集 blur は書き換えない
                 if (res.minutes !== d?.effortMinutes) updateDetail(taskId, { effortMinutes: res.minutes });
               }}
             />
@@ -577,11 +578,12 @@ export function Inspector() {
                           inputMode="decimal"
                           defaultValue={tobeEffH ?? ''}
                           placeholder={asisEffH != null ? `現状 ${r1(asisEffH)}h` : '—'}
-                          onBlur={(e) =>
+                          onBlur={(e) => {
+                            if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
                             updateToBe(taskId, {
                               effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined,
-                            })
-                          }
+                            });
+                          }}
                         />
                         {tobeEffH != null && asisEffH != null && tobeEffH !== asisEffH && (
                           <small className="tobe-delta">{sd(tobeEffH - asisEffH, 'h')}</small>
