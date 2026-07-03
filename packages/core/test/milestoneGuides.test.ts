@@ -88,7 +88,7 @@ describe('deriveMilestoneGuides', () => {
     expect(ms1GuideAfter.x).toBe(initialX + 100);
   });
 
-  it('MSがないビュー → []、2個以上のMSはx → taskId で決定論ソート', () => {
+  it('MSがないビュー → []', () => {
     const g = counter();
     const n = counter('n');
     let p = emptyProject();
@@ -98,28 +98,79 @@ describe('deriveMilestoneGuides', () => {
     const res = reconcileFlow(p.core, p.details, emptyView('medium'), n);
     const guides = deriveMilestoneGuides(p.core, res.view);
     expect(guides).toHaveLength(0);
+  });
 
-    // 複数 MS の場合
-    const { p: p2, g: g2 } = base();
-    const n2 = counter('n');
-    let proj = p2;
-    // A → MS1, A → MS2（両方紐付き）
-    proj = addDependency(proj, taskIdByName(proj, 'A'), taskIdByName(proj, 'MS1'), g2);
-    proj = addDependency(proj, taskIdByName(proj, 'A'), taskIdByName(proj, 'MS2'), g2);
+  it('複数MSは x → taskId でソート（作成順と異なる配置を検証）', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    // A → B → C（依存チェーン、右へ配置される）
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'B', level: 'medium' }, g);
+    p = addTask(p, { name: 'C', level: 'medium' }, g);
+    // MS1 を先に作成（遅いタスク C に紐付く）
+    p = addTask(p, { name: 'MS1', level: 'medium', kind: 'milestone' }, g);
+    // MS2 を後に作成（早いタスク A に紐付く）
+    p = addTask(p, { name: 'MS2', level: 'medium', kind: 'milestone' }, g);
 
-    const res2 = reconcileFlow(proj.core, proj.details, emptyView('medium'), n2);
-    const guides2 = deriveMilestoneGuides(proj.core, res2.view);
+    // 依存を設定：A → B → C
+    p = addDependency(p, taskIdByName(p, 'A'), taskIdByName(p, 'B'), g);
+    p = addDependency(p, taskIdByName(p, 'B'), taskIdByName(p, 'C'), g);
 
-    // 複数 MS は存在する
-    expect(guides2.length).toBeGreaterThan(1);
+    // 各 MS を紐付け：MS1→C（右）、MS2→A（左）
+    p = addDependency(p, taskIdByName(p, 'C'), taskIdByName(p, 'MS1'), g);
+    p = addDependency(p, taskIdByName(p, 'A'), taskIdByName(p, 'MS2'), g);
 
-    // ソート順の確認：x → taskId
-    for (let i = 1; i < guides2.length; i++) {
-      const prev = guides2[i - 1]!;
-      const curr = guides2[i]!;
-      expect(prev.x < curr.x || (prev.x === curr.x && prev.taskId.localeCompare(curr.taskId) <= 0)).toBe(
-        true,
-      );
-    }
+    const res = reconcileFlow(p.core, p.details, emptyView('medium'), n);
+    const guides = deriveMilestoneGuides(p.core, res.view);
+
+    // MS1（C 由来）と MS2（A 由来）は存在
+    expect(guides.length).toBeGreaterThanOrEqual(2);
+
+    // C は A の右に配置されるはず → MS1.x > MS2.x（作成順 MS1, MS2 と逆順にソート）
+    const ms2Guide = guides.find((g) => g.taskId === taskIdByName(p, 'MS2'))!;
+    const ms1Guide = guides.find((g) => g.taskId === taskIdByName(p, 'MS1'))!;
+    expect(ms2Guide.x).toBeLessThan(ms1Guide.x);
+
+    // ソート済み配列で MS2 が MS1 より前（昇順でソート済み、作成順 MS1→MS2 と逆）
+    const ms2Index = guides.findIndex((g) => g.taskId === taskIdByName(p, 'MS2'));
+    const ms1Index = guides.findIndex((g) => g.taskId === taskIdByName(p, 'MS1'));
+    expect(ms2Index).toBeLessThan(ms1Index);
+  });
+
+  it('複数の前工程から guide.x = max(対象ノード.x + SIZE.task.w)', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    // X と Y は独立、Z は X←Y チェーンで右へ
+    p = addTask(p, { name: 'X', level: 'medium' }, g);
+    p = addTask(p, { name: 'Y', level: 'medium' }, g);
+    p = addTask(p, { name: 'Z', level: 'medium' }, g);
+    p = addTask(p, { name: 'MS', level: 'medium', kind: 'milestone' }, g);
+
+    // X → Y → Z（Z が最も右）
+    p = addDependency(p, taskIdByName(p, 'X'), taskIdByName(p, 'Y'), g);
+    p = addDependency(p, taskIdByName(p, 'Y'), taskIdByName(p, 'Z'), g);
+
+    // MS は X と Z 両方に依存（2つの前工程）
+    p = addDependency(p, taskIdByName(p, 'X'), taskIdByName(p, 'MS'), g);
+    p = addDependency(p, taskIdByName(p, 'Z'), taskIdByName(p, 'MS'), g);
+
+    const res = reconcileFlow(p.core, p.details, emptyView('medium'), n);
+    const guides = deriveMilestoneGuides(p.core, res.view);
+    const msGuide = guides.find((g) => g.taskId === taskIdByName(p, 'MS'))!;
+
+    // 前工程ノードの取得
+    const taskNodes = Object.values(res.view.nodes).filter((n): n is FlowTaskNode => n.kind === 'task');
+    const xNode = taskNodes.find((n) => n.taskId === taskIdByName(p, 'X'))!;
+    const zNode = taskNodes.find((n) => n.taskId === taskIdByName(p, 'Z'))!;
+
+    // Z が X より右（チェーン構造）
+    expect(zNode.x).toBeGreaterThan(xNode.x);
+
+    // guide.x は max(X.x + SIZE.task.w, Z.x + SIZE.task.w) + 40 = Z.x + SIZE.task.w + 40
+    const expectedX = Math.max(xNode.x + SIZE.task.w, zNode.x + SIZE.task.w) + 40;
+    expect(msGuide.x).toBe(expectedX);
+    expect(msGuide.x).toBe(zNode.x + SIZE.task.w + 40);
   });
 });
