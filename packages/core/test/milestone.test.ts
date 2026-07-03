@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addTask, addDependency, deleteTask, reparentTask } from '../src/commands';
+import { addTask, addDependency, deleteTask, deleteTaskKeepChildren, reparentTask } from '../src/commands';
 import { computeCodes } from '../src/codes';
 import { isMilestone } from '../src/milestone';
 import { ProjectSchema } from '../src/model/schema';
@@ -42,16 +42,44 @@ describe('milestone core', () => {
     expect(p3.core.tasks[taskIdByName(p, 'C')]!.parentId).not.toBe(ms);
   });
 
-  it('deleteTask のブリッジは MS を経由しない（MS from のブリッジ依存を作らない）', () => {
+  it('deleteTask のブリッジは MS を経由しない（不正データからの防御）', () => {
     const { p, g } = base();
     const a = taskIdByName(p, 'A');
     const b = taskIdByName(p, 'B');
+    const c = taskIdByName(p, 'C');
     const ms = taskIdByName(p, '節目');
+    // A → B を張る
     let q = addDependency(p, a, b, g);
-    q = addDependency(q, ms, b, g); // no-op（出依存）— ここでは張られない前提の確認込み
-    q = addDependency(q, b, ms, g); // B → MS
-    q = deleteTask(q, b); // B を消してもブリッジで MS→x を作らない（deleteTask は idGen 不要）
-    expect(Object.values(q.core.dependencies).some((d) => d.from === ms)).toBe(false);
+    // 出依存ガードを迂回して MS → B を直接注入（ディスクから読んだ不正データの再現）
+    q = structuredClone(q);
+    q.core.dependencies['bad-dep'] = { id: 'bad-dep', from: ms, to: b, type: 'FS', scopeParentId: undefined };
+    // B → C を張って、B が後続を持つようにする（ブリッジ生成が走る条件）
+    q = addDependency(q, b, c, g);
+    // B を削除
+    const afterDelete = deleteTask(q, b);
+    // MS からの出依存が存在しないこと、A → C ブリッジが作られたことを確認
+    expect(Object.values(afterDelete.core.dependencies).some((d) => d.from === ms)).toBe(false);
+    expect(Object.values(afterDelete.core.dependencies).some((d) => d.from === a && d.to === c)).toBe(true);
+  });
+
+  it('deleteTaskKeepChildren のブリッジも MS を経由しない（不正データからの防御）', () => {
+    const { p, g } = base();
+    const a = taskIdByName(p, 'A');
+    const b = taskIdByName(p, 'B');
+    const c = taskIdByName(p, 'C');
+    const ms = taskIdByName(p, '節目');
+    // A → B を張る
+    let q = addDependency(p, a, b, g);
+    // 出依存ガードを迂回して MS → B を直接注入（ディスクから読んだ不正データの再現）
+    q = structuredClone(q);
+    q.core.dependencies['bad-dep'] = { id: 'bad-dep', from: ms, to: b, type: 'FS', scopeParentId: undefined };
+    // B → C を張って、B が後続を持つようにする（ブリッジ生成が走る条件）
+    q = addDependency(q, b, c, g);
+    // B を削除（子を残す）
+    const afterDeleteKeep = deleteTaskKeepChildren(q, b);
+    // MS からの出依存が存在しないこと、A → C ブリッジが作られたことを確認
+    expect(Object.values(afterDeleteKeep.core.dependencies).some((d) => d.from === ms)).toBe(false);
+    expect(Object.values(afterDeleteKeep.core.dependencies).some((d) => d.from === a && d.to === c)).toBe(true);
   });
 
   it('computeCodes は MS を採番せず、兄弟の番号も飛ばない', () => {
