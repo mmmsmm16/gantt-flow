@@ -40,6 +40,9 @@ export function nextMarked(
   }
   if (mods.ctrl) {
     const next = new Set(cur);
+    // 単一選択（marked が空）から複数選択へ移る初回は、直前に選んだ行（anchor）も一緒にマークする。
+    // 「行 A をクリック → Ctrl/⌘+クリックで行 B」で A も選択に含める、標準的な複数選択の挙動。
+    if (next.size === 0 && anchor !== null && anchor !== id) next.add(anchor);
     if (next.has(id)) next.delete(id);
     else next.add(id);
     return { marked: next, anchor: id, activate: false };

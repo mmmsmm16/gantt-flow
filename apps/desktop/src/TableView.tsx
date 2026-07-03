@@ -390,7 +390,16 @@ export function TableView() {
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    onClick={(e) => onRowClick(e, t.id)}
+                    onClickCapture={(e) => {
+                      // 修飾クリック（Ctrl/⌘/Shift）＝複数選択。各セルの stopPropagation より先に
+                      // capture 段で拾い、入力へのフォーカス／テキスト選択を止める（preventDefault）。
+                      // 修飾なしのクリックは従来どおり行を選択・詳細表示する（onRowClick 内 revealTask）。
+                      if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                      onRowClick(e, t.id);
+                    }}
                     onDragOver={(e) => {
                       if (!dragId || dragId === t.id) return;
                       e.preventDefault();

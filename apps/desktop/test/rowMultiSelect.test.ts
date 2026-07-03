@@ -27,6 +27,24 @@ describe('nextMarked: 行クリックのマーク遷移', () => {
     expect(remove.anchor).toBe('b');
   });
 
+  it('単一選択（marked 空）からの Ctrl/⌘ クリックは直前の行（anchor）も一緒にマークする', () => {
+    // 「行 a をクリック → Ctrl+クリックで行 b」= a と b の 2 行が選択される（標準的な複数選択）。
+    const r = nextMarked(new Set(), 'a', ids, 'b', { shift: false, ctrl: true });
+    expect([...r.marked].sort()).toEqual(['a', 'b']);
+    expect(r.anchor).toBe('b');
+    expect(r.activate).toBe(false);
+  });
+
+  it('anchor が無い（未クリック）状態での Ctrl/⌘ クリックは当該行だけをマーク', () => {
+    const r = nextMarked(new Set(), null, ids, 'c', { shift: false, ctrl: true });
+    expect([...r.marked]).toEqual(['c']);
+  });
+
+  it('anchor と同じ行を Ctrl/⌘ クリックしても二重に足さず 1 行だけ', () => {
+    const r = nextMarked(new Set(), 'a', ids, 'a', { shift: false, ctrl: true });
+    expect([...r.marked]).toEqual(['a']);
+  });
+
   it('Shift クリックはアンカーから当該行までを範囲マーク（順・逆どちらでも既存に和）', () => {
     const fwd = nextMarked(new Set(), 'b', ids, 'd', { shift: true, ctrl: false });
     expect([...fwd.marked].sort()).toEqual(['b', 'c', 'd']);

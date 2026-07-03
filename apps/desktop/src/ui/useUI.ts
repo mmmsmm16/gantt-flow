@@ -513,6 +513,13 @@ export const useUI = create<UIState>((set, get) => ({
       transient();
       return true;
     }
+    // 使い方ツアーは最下層のレイヤ。Esc で（今回だけ）閉じられるようにする。
+    // ツアー中は blocked で全ショートカットが止まるため、Esc で抜けられないと
+    // undo などが効かない。永続的な「表示しない」は 閉じる/完了 ボタン側に任せる。
+    if (s.tourStep !== null) {
+      s.setTourStep(null);
+      return true;
+    }
     return false;
   },
   registerOverlayCloser: (closer) => {

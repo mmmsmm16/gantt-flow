@@ -457,6 +457,28 @@ describe('useUI: closeTopLayer(Esc の一元規則)', () => {
     expect(useUI.getState().closeTopLayer()).toBe(false);
   });
 
+  it('使い方ツアーは最下層のレイヤとして Esc で閉じる（ツアー中の undo 等が効かない問題の回避）', () => {
+    const ui = useUI.getState();
+    ui.setTourStep(0);
+    expect(useUI.getState().tourStep).toBe(0);
+    // ダイアログ/オーバーレイ/一時 UI が無ければツアーを閉じる
+    expect(useUI.getState().closeTopLayer()).toBe(true);
+    expect(useUI.getState().tourStep).toBeNull();
+    // 閉じるものが無ければ false（通常のキー処理へ）
+    expect(useUI.getState().closeTopLayer()).toBe(false);
+  });
+
+  it('オーバーレイとツアーが重なっていても 1 回で 1 レイヤ（オーバーレイが先、ツアーは後）', () => {
+    const ui = useUI.getState();
+    ui.setTourStep(1);
+    ui.setOverlay('help');
+    expect(useUI.getState().closeTopLayer()).toBe(true); // まずオーバーレイ
+    expect(useUI.getState().overlay).toBeNull();
+    expect(useUI.getState().tourStep).toBe(1); // ツアーは残る
+    expect(useUI.getState().closeTopLayer()).toBe(true); // 次でツアー
+    expect(useUI.getState().tourStep).toBeNull();
+  });
+
   it('overlay のカスタムクローザが true を返す間は overlay が閉じない(パレットの引数モード相当)', () => {
     const ui = useUI.getState();
     ui.setOverlay('palette');
