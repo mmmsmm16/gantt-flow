@@ -142,7 +142,7 @@ Expected: `OK`
 
 Run（絶対パスで core 配下の TS を編集したことにする。sync 配下ではないので型チェックのみ走る）:
 ```bash
-echo '{"tool_name":"Edit","tool_input":{"file_path":"C:\\Users\\masat\\MyLab\\Dev\\gantt-flow\\packages\\core\\src\\ids.ts"}}' | node .claude/hooks/post-edit-check.mjs
+echo '{"tool_name":"Edit","tool_input":{"file_path":"C:\\path\\to\\gantt-flow\\packages\\core\\src\\ids.ts"}}' | node .claude/hooks/post-edit-check.mjs
 echo "exit=$?"
 ```
 Expected: 型チェックが数秒走った後、出力なしで `exit=0`。
