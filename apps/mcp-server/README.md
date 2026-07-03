@@ -58,12 +58,20 @@ node apps/mcp-server/dist/index.js [プロジェクトのパス]
 }
 ```
 
-## ツール一覧（45）
+## ツール一覧（51）
 
 **ファイル/ライフサイクル**: `open_project` / `new_project` / `save_project_as` / `import_csv`
 
+**一括構築（議事録等からの生成・形式知化）**: `apply_batch` / `upsert_task` / `audit_completeness`
+
+- `apply_batch` … 工程/依存/担当/詳細/入出力/課題を **1往復で原子的に一括構築**。各 op に `ref`（エイリアス）を付け、後続 op の `parent`/`from`/`to`/`task` から参照できる（未確定の工程同士も同一バッチで接続）。担当は名前指定で自動作成。`dryRun:true` で保存せずプレビュー。議事録など非構造テキストから抽出した業務を一気にドラフト化する用途。
+- `upsert_task` … 同じ親に同名があれば更新、無ければ作成（**冪等**）。追記・再実行に安全。
+- `audit_completeness` … 末端工程の**入力欠落（手順/難易度/工数/LT/自動化/入出力）と「次に聞くべき質問」**を完成度の低い順に返す。暗黙知の形式知化ヒアリングの羅針盤。
+
 **読み取り**: `get_summary` / `list_tasks` / `get_task` / `list_dependencies` / `get_flow_mermaid`
-/ `list_flow_layout` / `list_assignees` / `get_metrics` / `compare_scenarios` / `validate_project` / `export_table_csv` / `get_project_json`
+/ `list_flow_layout` / `list_assignees` / `get_metrics` / `compare_scenarios` / `validate_project` / `audit_completeness` / `export_table_csv` / `get_project_json`
+
+**分析・示唆（工数/LT）**: `analyze_critical_path`（LTを律速する工程列）/ `analyze_automation_candidates`（手作業×高工数×ベテラン依存＝自動化/形式知化の効き目順）/ `analyze_workload`（担当別の負荷＝ボトルネック人員）
 
 `get_flow_mermaid` は現在の業務フローを **Mermaid flowchart** で返します（担当レーン=subgraph）。
 Mermaid 対応クライアントなら、チャット上に図として表示しながら編集を進められます。
@@ -99,6 +107,7 @@ Mermaid 対応クライアントなら、チャット上に図として表示し
 ## プロンプト
 
 - `model_business_process` — 業務ヒアリングから工程表・業務フローへ落とし込む手順テンプレート
+- `build_from_minutes` — 会議の議事録/文字起こし/ヒアリングメモから業務工程を抽出し `apply_batch` で一気に組む手順（暗黙知の形式知化を主眼。工数・LT・手順・難易度を重視）
 
 ## 注意
 

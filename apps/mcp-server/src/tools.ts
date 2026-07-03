@@ -61,6 +61,9 @@ import {
   setLaneHeight,
   autoLayout,
 } from './geometry.js';
+import { runBatch, type BatchOp } from './batch.js';
+import { formatAudit } from './audit.js';
+import { formatCriticalPath, formatAutomationCandidates, formatWorkload } from './analysis.js';
 
 // ---- 共通 ----
 
@@ -73,6 +76,41 @@ const IoKind = z.enum(['doc', 'info']);
 const Phase = z.enum(['asis', 'tobe']);
 const AssigneeKind = z.enum(['person', 'department']);
 const OrientationEnum = z.enum(['horizontal', 'vertical']);
+
+// apply_batch の op スキーマ（議事録等からの一括構築）。task/parent/from/to は「この一括で作る工程の
+// ref(エイリアス)」か「既存 taskId」。assignee は名前指定可（無ければ部署として自動作成）。
+const DetailPatchShape = z.object({
+  how: z.string().optional(),
+  system: z.string().optional(),
+  effortMinutes: z.number().nonnegative().optional(),
+  ltDays: z.number().nonnegative().optional(),
+  note: z.string().optional(),
+  volume: z.string().optional(),
+  exception: z.string().optional(),
+  automation: Automation.optional(),
+  dataLink: z.string().optional(),
+  regulation: z.string().optional(),
+  difficulty: Difficulty.optional(),
+  status: Status.optional(),
+});
+const TobePatchShape = z.object({
+  effortMinutes: z.number().nonnegative().optional(),
+  ltDays: z.number().nonnegative().optional(),
+  difficulty: Difficulty.optional(),
+  automation: Automation.optional(),
+  rationale: z.string().optional(),
+  lifecycle: z.enum(['added', 'removed']).optional(),
+  assigneeId: z.string().optional(),
+});
+const BatchOpSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('add_task'), ref: z.string().optional(), name: z.string(), level: Level, parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional() }),
+  z.object({ op: z.literal('upsert_task'), ref: z.string().optional(), name: z.string(), level: Level.optional(), parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional() }),
+  z.object({ op: z.literal('add_dependency'), from: z.string(), to: z.string() }),
+  z.object({ op: z.literal('set_detail'), task: z.string(), patch: DetailPatchShape }),
+  z.object({ op: z.literal('set_tobe'), task: z.string(), patch: TobePatchShape }),
+  z.object({ op: z.literal('add_io'), task: z.string(), io: z.enum(['inputs', 'outputs']), name: z.string(), kind: IoKind, formInfo: z.string().optional(), source: z.string().optional() }),
+  z.object({ op: z.literal('add_issue'), task: z.string(), issue: z.string(), measure: z.string().optional() }),
+]);
 
 function text(s: string): CallToolResult {
   return { content: [{ type: 'text', text: s }] };
@@ -168,6 +206,63 @@ export function registerTools(server: McpServer, ws: Workspace): void {
         const { project, report } = importCsv(body, uuid);
         const s = await ws.adopt(savePath, project);
         return `取り込みました（工程 ${report.created.tasks} / 依存 ${report.created.dependencies} / 警告 ${report.warnings.length}）。\n${formatSummary(s.project, s.path)}`;
+      }),
+  );
+
+  // ============ 一括構築（議事録等からの生成・形式知化） ============
+
+  server.registerTool(
+    'apply_batch',
+    {
+      title: '一括構築',
+      description:
+        '工程/依存/担当/詳細/入出力/課題をまとめて1回で原子的に構築する。議事録など非構造テキストから抽出した業務を一気にドラフト化する用途。各 op の ref(エイリアス)を後続 op の parent/from/to/task から参照でき、未確定の工程同士も同一バッチ内で繋げられる。dryRun=true で保存せずプレビュー。',
+      inputSchema: {
+        operations: z.array(BatchOpSchema).describe('順に適用する操作列。add_task に ref を付けて後続の参照に使う'),
+        dryRun: z.boolean().optional().describe('true で保存せず結果プレビューのみ'),
+      },
+    },
+    ({ operations, dryRun }) =>
+      run(async () => {
+        const s = ws.current();
+        const result = runBatch(s.project, operations as unknown as BatchOp[]);
+        const c = result.created;
+        const head = `工程${c.tasks} 依存${c.dependencies} 担当${c.assignees} 入出力${c.ios} 課題${c.issues}`;
+        const warn = result.warnings.length ? `\n警告:\n- ${result.warnings.join('\n- ')}` : '';
+        if (dryRun) {
+          return `【プレビュー（未保存）】作成予定: ${head}${warn}\n\n${formatTaskTree(result.project)}`;
+        }
+        await s.apply(() => result.project);
+        return `一括適用しました（${head}）。${warn}\n\n${formatTaskTree(s.project)}`;
+      }),
+  );
+
+  server.registerTool(
+    'upsert_task',
+    {
+      title: '工程を冪等に作成/更新',
+      description:
+        '同じ親に同名の工程があれば更新、無ければ作成（冪等）。議事録の追記や再実行に安全。詳細(工数・手順・難易度など)も同時に設定できる。',
+      inputSchema: {
+        name: z.string(),
+        level: Level.optional().describe('新規作成時の粒度（省略で medium）'),
+        parentId: z.string().optional(),
+        assignee: z.string().optional().describe('担当名（無ければ部署として自動作成）'),
+        assigneeId: z.string().optional(),
+        detail: DetailPatchShape.optional().describe('工数(分)/手順(how)/難易度 等の As-Is 詳細'),
+      },
+    },
+    ({ name, level, parentId, assignee, assigneeId, detail }) =>
+      run(async () => {
+        const s = ws.current();
+        const ops: BatchOp[] = [
+          { op: 'upsert_task', ref: '_t', name, level, parent: parentId, assignee, assigneeId },
+        ];
+        if (detail && Object.keys(detail).length) ops.push({ op: 'set_detail', task: '_t', patch: detail });
+        const result = runBatch(s.project, ops);
+        await s.apply(() => result.project);
+        const id = result.aliases['_t']!;
+        return `upsert 完了。\n${formatTaskDetail(s.project, id)}`;
       }),
   );
 
@@ -380,6 +475,40 @@ export function registerTools(server: McpServer, ws: Workspace): void {
     () => run(() => formatCompare(ws.current().project)),
   );
 
+  // ============ 分析・示唆（工数/LT） ============
+
+  server.registerTool(
+    'analyze_critical_path',
+    {
+      title: 'クリティカルパス分析',
+      description:
+        'リードタイムを律速する工程列（最長重み付き経路）を返す。ここを短縮/並行化すると LT が縮む。各工程の LT と待ち時間も表示。',
+      inputSchema: { phase: Phase.optional().describe('asis(既定) / tobe') },
+    },
+    ({ phase }) => run(() => formatCriticalPath(ws.current().project, phase ?? 'asis')),
+  );
+
+  server.registerTool(
+    'analyze_automation_candidates',
+    {
+      title: '自動化/形式知化の候補',
+      description:
+        '手作業×高工数×ベテラン依存(H) の末端工程を効き目順に返す。自動化や暗黙知の形式知化で最も効果が大きい工程の特定に使う。',
+      inputSchema: {},
+    },
+    () => run(() => formatAutomationCandidates(ws.current().project)),
+  );
+
+  server.registerTool(
+    'analyze_workload',
+    {
+      title: '担当別の負荷',
+      description: '担当(部署/人)別の総工数・工程数・ベテラン依存数を工数の多い順に返す。負荷の偏り＝ボトルネック人員の検出に。',
+      inputSchema: { phase: Phase.optional().describe('asis(既定) / tobe') },
+    },
+    ({ phase }) => run(() => formatWorkload(ws.current().project, phase ?? 'asis')),
+  );
+
   server.registerTool(
     'validate_project',
     { title: '整合性チェック', description: '参照整合性の問題（依存の端点欠落・親欠落・循環など）を列挙。', inputSchema: {} },
@@ -389,6 +518,21 @@ export function registerTools(server: McpServer, ws: Workspace): void {
         if (!issues.length) return '整合性の問題はありません。';
         return issues.map((i) => `- [${i.kind}] ${i.ref}: ${i.message}`).join('\n');
       }),
+  );
+
+  server.registerTool(
+    'audit_completeness',
+    {
+      title: '形式知化の進捗チェック',
+      description:
+        '末端工程の入力欠落（手順/難易度/工数/LT/自動化/入出力）と「次に聞くべき質問」を、完成度の低い順に返す。暗黙知の形式知化ヒアリングを進めるための羅針盤。',
+      inputSchema: {
+        onlyIncomplete: z.boolean().optional().describe('true で未完成(100%未満)のみ'),
+        limit: z.number().int().positive().optional().describe('表示件数の上限（既定30）'),
+      },
+    },
+    ({ onlyIncomplete, limit }) =>
+      run(() => formatAudit(ws.current().project, { onlyIncomplete, limit })),
   );
 
   server.registerTool(
