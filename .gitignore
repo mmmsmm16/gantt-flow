@@ -16,10 +16,8 @@ ds-bundle/
 .design-sync/node_modules
 
 
-.claude/agents/
-.claude/hooks
-.claude/skills
 .claude/settings.local.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 docs/学習ロードマップ_2026-06-15.md
