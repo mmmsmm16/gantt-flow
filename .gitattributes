@@ -1,0 +1,9 @@
+# Mac / Windows 混在開発のための改行コード統一
+# リポジトリ内は常に LF。チェックアウト時も LF（TS/web プロジェクトの標準）
+* text=auto eol=lf
+
+# バイナリはそのまま
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary
