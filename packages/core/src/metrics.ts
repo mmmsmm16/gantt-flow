@@ -55,3 +55,10 @@ export function formatMinutes(min: number): string {
 export function formatHours(min: number): string {
   return `${parseFloat((min / 60).toFixed(2))}h`;
 }
+
+// 「分」を編集欄・比較表示用の数値（h・小数1位丸め）へ。0.5h 刻み想定の入力でも、
+// インポート等で半端な分数が入ると 0.16666… のような循環小数が画面に出てしまうため、
+// 表示直前の丸めをこの1関数に集約する（元の effortMinutes は丸めず保持＝編集時の意味は変えない）。
+export function effortMinutesToHours(min: number): number {
+  return Math.round((min / 60) * 10) / 10;
+}

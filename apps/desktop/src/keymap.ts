@@ -168,9 +168,9 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'node-add-next', action: 'flow.addNext', context: 'flow', chord: { key: 'n', shift: false }, help: { group: G.flow, label: '次工程を追加して接続(名前を編集)' } },
   { id: 'node-add-next-plain', action: 'flow.addNextNoConnect', context: 'flow', chord: { key: 'n', shift: true }, help: { group: G.flow, label: '工程を追加(接続なし)' } },
   // I/O の追加(選択中の工程)。i/o は単キー、Alt+I/O は常時有効の代替(Mac の Option 記号対策で code 判定)。
-  { id: 'add-input', action: 'flow.addInput', context: 'flow', chord: { key: 'i' }, help: { group: G.flow, label: 'インプットを追加(選択工程)' } },
+  { id: 'add-input', action: 'flow.addInput', context: 'flow', chord: { key: 'i' }, help: { group: G.flow, label: '入力を追加(選択工程)' } },
   { id: 'add-input-alt', action: 'flow.addInput', context: 'flow', chord: { code: 'KeyI', alt: true } },
-  { id: 'add-output', action: 'flow.addOutput', context: 'flow', chord: { key: 'o' }, help: { group: G.flow, label: 'アウトプットを追加(選択工程)' } },
+  { id: 'add-output', action: 'flow.addOutput', context: 'flow', chord: { key: 'o' }, help: { group: G.flow, label: '出力を追加(選択工程)' } },
   { id: 'add-output-alt', action: 'flow.addOutput', context: 'flow', chord: { code: 'KeyO', alt: true } },
   // 並行工程: p=並行工程を追加(前工程を写して直下へ)、Shift+P=基準を選んで並行化(ピッカー)。
   // Alt 版は常時有効の代替(i/o と同じ規約。Mac の Option 記号対策で code 判定)。

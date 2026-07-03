@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { computeCodes, computeEffortRollups, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
@@ -573,7 +573,7 @@ export function TableView() {
                           type="number"
                           min={0}
                           step={0.5}
-                          defaultValue={detail?.effortMinutes != null ? detail.effortMinutes / 60 : ''}
+                          defaultValue={detail?.effortMinutes != null ? effortMinutesToHours(detail.effortMinutes) : ''}
                           placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           onClick={(e) => e.stopPropagation()}

@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, effortMinutesToHours, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
@@ -254,7 +254,7 @@ export function Inspector() {
               min={0}
               step={0.5}
               placeholder="例: 2 / 0.5"
-              defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
+              defaultValue={d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : ''}
               onBlur={(e) => {
                 const res = validateEffort(e.target.value);
                 if (!res.ok) {
@@ -363,7 +363,7 @@ export function Inspector() {
         {!ms && (
         <section>
           <h3>
-            インプット / アウトプット
+            入力 / 出力
             {ios.length > 0 && <span className="insp-count">{ios.length}</span>}
             <span className="add-inline">
               <button onClick={() => { addIo(taskId, 'inputs', '帳票'); setAddFocus('io-in'); }}>＋入力</button>
@@ -543,8 +543,8 @@ export function Inspector() {
             const tb = d?.toBe;
             const removed = tb?.lifecycle === 'removed';
             const added = tb?.lifecycle === 'added';
-            const asisEffH = d?.effortMinutes != null ? d.effortMinutes / 60 : undefined;
-            const tobeEffH = tb?.effortMinutes != null ? tb.effortMinutes / 60 : undefined;
+            const asisEffH = d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : undefined;
+            const tobeEffH = tb?.effortMinutes != null ? effortMinutesToHours(tb.effortMinutes) : undefined;
             const asisLt = d?.ltDays;
             const tobeLt = tb?.ltDays;
             const r1 = (v: number) => Math.round(v * 10) / 10;

@@ -77,8 +77,8 @@ function selectedIoOptions(): ArgOption[] {
   if (!tid) return [];
   const d = a.project.details[tid];
   return [
-    ...(d?.inputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'インプット' })),
-    ...(d?.outputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'アウトプット' })),
+    ...(d?.inputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: '入力' })),
+    ...(d?.outputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: '出力' })),
   ];
 }
 
@@ -446,7 +446,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-input',
-        label: 'インプットを追加…',
+        label: '入力を追加…',
         keywords: 'input nyuuryoku インプット 入力 帳票 io',
         available: hasSel,
         repeatable: true,
@@ -463,7 +463,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-output',
-        label: 'アウトプットを追加…',
+        label: '出力を追加…',
         keywords: 'output shutsuryoku アウトプット 出力 帳票 io',
         available: hasSel,
         repeatable: true,
@@ -480,7 +480,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-io-rename',
-        label: 'インプット/アウトプットの名前を変更…',
+        label: '入力/出力の名前を変更…',
         keywords: 'io rename 帳票 入出力 インプット アウトプット 名前 変更 修正',
         available: hasSel,
         arg: {
@@ -510,7 +510,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-io-delete',
-        label: 'インプット/アウトプットを削除…',
+        label: '入力/出力を削除…',
         keywords: 'io delete 帳票 入出力 インプット アウトプット 削除',
         available: hasSel,
         arg: {

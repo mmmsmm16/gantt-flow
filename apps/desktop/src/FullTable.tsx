@@ -4,7 +4,7 @@
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, computeEffortRollups, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
@@ -67,8 +67,8 @@ export const FT_COLUMNS: readonly FtCol[] = [
   { key: 'effort', label: '工数', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
   { key: 'how', label: '業務内容', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
   { key: 'system', label: '使用システム', width: 170, cls: 'ft-c-text', optional: true, cursorable: true },
-  { key: 'inputs', label: 'インプット', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
-  { key: 'outputs', label: 'アウトプット', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
+  { key: 'inputs', label: '入力', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
+  { key: 'outputs', label: '出力', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
   { key: 'issue', label: '課題', width: 200, cls: 'ft-c-issue', optional: true, cursorable: true },
   { key: 'measure', label: '方策', width: 200, cls: 'ft-c-issue', optional: true, cursorable: true },
   { key: 'note', label: '備考', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
@@ -842,7 +842,7 @@ export function FullTable() {
                           type="number"
                           min={0}
                           step={0.5}
-                          defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
+                          defaultValue={d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : ''}
                           placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           key={`eff-${d?.effortMinutes ?? ''}`}

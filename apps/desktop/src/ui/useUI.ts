@@ -42,7 +42,7 @@ function readFtWidths(): Record<string, number> {
 export const OUTLINE_OPTIONAL_COLUMNS = [
   { key: 'prev', label: '前工程', width: 132 },
   { key: 'effort', label: '工数', width: 78 },
-  { key: 'io', label: 'I/O・課題', width: 224 },
+  { key: 'io', label: '入/出・課題', width: 224 },
 ] as const;
 export type OutlineColumnKey = (typeof OUTLINE_OPTIONAL_COLUMNS)[number]['key'];
 

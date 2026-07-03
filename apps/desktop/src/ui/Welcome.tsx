@@ -108,7 +108,7 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate, 
         <ul className="welcome-points">
           <li>
             <strong>表で編集</strong>
-            <span>作業・担当・前後関係・I/O・課題を一覧表で入力。</span>
+            <span>作業・担当・前後関係・入/出・課題を一覧表で入力。</span>
           </li>
           <li>
             <strong>図に同期</strong>

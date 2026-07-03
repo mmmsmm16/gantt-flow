@@ -335,8 +335,8 @@ export function decorateFlowSvg(
   const items: { label: string; draw: (x: number) => string }[] = [
     { label: '工程', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.task.fill}" stroke="${L.task.stroke}" stroke-width="1.3"/>` },
     { label: '判断', draw: (x) => `<polygon points="${x + 11},-10 ${x + 22},0 ${x + 11},10 ${x},0" fill="${L.control.fill}" stroke="${L.control.stroke}" stroke-width="1.3"/>` },
-    { label: 'インプット', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioIn.fill}" stroke="${L.ioIn.stroke}" stroke-width="1.3"/>` },
-    { label: 'アウトプット', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioOut.fill}" stroke="${L.ioOut.stroke}" stroke-width="1.3"/>` },
+    { label: '入力', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioIn.fill}" stroke="${L.ioIn.stroke}" stroke-width="1.3"/>` },
+    { label: '出力', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioOut.fill}" stroke="${L.ioOut.stroke}" stroke-width="1.3"/>` },
     { label: '課題', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="3" fill="${L.issue.fill}" stroke="${L.issue.stroke}" stroke-width="1.3"/>` },
   ];
   let lx = 16;

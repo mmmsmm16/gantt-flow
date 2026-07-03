@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { effortRollupMinutes, computeEffortRollups } from '../src/metrics';
+import { effortRollupMinutes, computeEffortRollups, effortMinutesToHours } from '../src/metrics';
 import { deriveBands } from '../src/sync/bands';
 import type { Core, TaskDetail, Id, ProcessLevel, ProcessTask, FlowLevelView } from '../src/model/types';
 
@@ -67,6 +67,26 @@ describe('metrics: computeEffortRollups', () => {
   it('自己参照（parentId = 自分）でも終了する', () => {
     const core = coreOf([task('a', 'medium', 'a')]);
     expect(() => effortRollupMinutes(core, {}, 'a')).not.toThrow();
+  });
+});
+
+describe('metrics: effortMinutesToHours', () => {
+  it('60 分刻みなら丸めても値は変わらない', () => {
+    expect(effortMinutesToHours(0)).toBe(0);
+    expect(effortMinutesToHours(60)).toBe(1);
+    expect(effortMinutesToHours(90)).toBe(1.5);
+    expect(effortMinutesToHours(120)).toBe(2);
+  });
+
+  it('循環小数になる半端な分は小数1位に丸める（0.1666… を画面に出さない）', () => {
+    expect(effortMinutesToHours(10)).toBeCloseTo(0.2, 5); // 10/60=0.1666… → 0.2
+    expect(effortMinutesToHours(100)).toBeCloseTo(1.7, 5); // 100/60=1.6666… → 1.7
+    expect(effortMinutesToHours(1)).toBeCloseTo(0, 5); // 1/60=0.0166… → 0.0
+  });
+
+  it('四捨五入の境界（0.05刻み相当）でも安定する', () => {
+    expect(effortMinutesToHours(63)).toBeCloseTo(1.1, 5); // 63/60=1.05 → 1.1
+    expect(effortMinutesToHours(57)).toBeCloseTo(1, 5); // 57/60=0.95 → 1.0（切り上げ）
   });
 });
 
