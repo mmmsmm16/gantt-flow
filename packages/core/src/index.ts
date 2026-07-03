@@ -8,6 +8,7 @@ export * from './sync/reconcileFlow';
 export * from './sync/reconcileProject';
 export * from './sync/autoPlace';
 export * from './sync/bands';
+export * from './sync/phaseStrip';
 export * from './sync/lanes';
 export * from './sync/tidy';
 export * from './sync/edgeRoute';
