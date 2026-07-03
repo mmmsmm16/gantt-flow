@@ -2,6 +2,7 @@
 export * from './model/types';
 export * from './model/schema';
 export * from './ids';
+export * from './milestone';
 export * from './codes';
 export * from './commands';
 export * from './sync/reconcileFlow';

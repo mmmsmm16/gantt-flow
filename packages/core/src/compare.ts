@@ -2,6 +2,7 @@
 // リードタイム＝経過時間（依存グラフのクリティカルパス）の2軸で改善効果を見る。
 // すべて純関数。To-Be は TaskDetail.toBe を優先し、未設定は As-Is へフォールバック。
 import type { Core, TaskDetail, Difficulty, Id } from './model/types';
+import { isMilestone } from './milestone';
 
 export type Phase = 'asis' | 'tobe';
 
@@ -43,12 +44,13 @@ export function depInPhase(phase: Phase, depPhase?: 'asis' | 'tobe'): boolean {
   return depPhase === undefined || depPhase === phase;
 }
 
-/** 子を持たない工程（末端）の ID。工数・難易度は末端のみが値を持つ。phase で lifecycle を反映。 */
+/** 子を持たない工程（末端）の ID。工数・難易度は末端のみが値を持つ。phase で lifecycle を反映。
+ * マイルストーンは子を持ち得ないマーカーのため、末端集計（工数・LT・難易度）からは除外する。 */
 function leafIds(core: Core, details: Record<Id, TaskDetail>, phase: Phase): Id[] {
   const hasChild = new Set<Id>();
   for (const t of Object.values(core.tasks)) if (t.parentId) hasChild.add(t.parentId);
   return Object.values(core.tasks)
-    .filter((t) => !hasChild.has(t.id) && taskInPhase(details[t.id], phase))
+    .filter((t) => !hasChild.has(t.id) && !isMilestone(core, t.id) && taskInPhase(details[t.id], phase))
     .map((t) => t.id);
 }
 

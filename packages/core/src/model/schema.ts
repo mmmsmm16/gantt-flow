@@ -11,6 +11,7 @@ const ProcessTask = z.object({
   order: z.number().finite(),
   assigneeId: z.string().optional(),
   code: z.string().optional(),
+  kind: z.literal('milestone').optional(),
 });
 
 const Dependency = z.object({

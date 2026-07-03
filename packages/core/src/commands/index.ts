@@ -15,6 +15,7 @@ import type {
   Id,
 } from '../model/types';
 import type { IdGen } from '../ids';
+import { isMilestone } from '../milestone';
 
 const clone = <T>(x: T): T => structuredClone(x);
 
@@ -37,10 +38,12 @@ export interface AddTaskArgs {
   assigneeId?: Id;
   order?: number;
   id?: Id; // 呼び出し側で発番済みの ID を使う（省略時は idGen で発番）。作成 ID をキー差分で探さなくて済む。
+  kind?: 'milestone';
 }
 
 export function addTask(p: Project, args: AddTaskArgs, idGen: IdGen): Project {
   const next = clone(p);
+  if (isMilestone(next.core, args.parentId)) return next; // MS を親にはできない
   const id = args.id ?? idGen();
   const siblings = Object.values(next.core.tasks).filter(
     (t) => (t.parentId ?? undefined) === (args.parentId ?? undefined),
@@ -55,6 +58,7 @@ export function addTask(p: Project, args: AddTaskArgs, idGen: IdGen): Project {
     order,
     parentId: args.parentId,
     assigneeId: args.assigneeId,
+    ...(args.kind ? { kind: args.kind } : {}),
   };
   next.core.tasks[id] = task;
   next.details[id] = { taskId: id };
@@ -109,6 +113,7 @@ export function addDependency(p: Project, from: Id, to: Id, idGen: IdGen): Proje
   // 実在しない工程への依存は保存ファイルの strict 検証（dependency.from/to は FATAL）で
   // 再オープン不能になるため、コア層でも no-op にする（UI 層のガードと二重防御）。
   if (!next.core.tasks[from] || !next.core.tasks[to]) return next;
+  if (isMilestone(next.core, from)) return next; // MS からの出依存は張らない
   const exists = Object.values(next.core.dependencies).some(
     (d) => d.from === from && d.to === to,
   );
@@ -222,6 +227,7 @@ export function deleteTask(p: Project, taskId: Id): Project {
   const preds = deps.filter((d) => d.to === taskId).map((d) => d.from);
   const succs = deps.filter((d) => d.from === taskId).map((d) => d.to);
   for (const a of preds) {
+    if (isMilestone(next.core, a)) continue; // MS からの出依存は張らない（ブリッジも例外なし）
     for (const b of succs) {
       if (a === b || toRemove.has(a) || toRemove.has(b)) continue;
       const already = Object.values(next.core.dependencies).some(
@@ -266,6 +272,7 @@ export function deleteTaskKeepChildren(p: Project, taskId: Id): Project {
   const preds = deps.filter((d) => d.to === taskId).map((d) => d.from);
   const succs = deps.filter((d) => d.from === taskId).map((d) => d.to);
   for (const a of preds) {
+    if (isMilestone(next.core, a)) continue; // MS からの出依存は張らない（ブリッジも例外なし）
     for (const b of succs) {
       if (a === b) continue;
       if (Object.values(next.core.dependencies).some((d) => d.from === a && d.to === b)) continue;
@@ -352,6 +359,7 @@ export function reparentTask(
   if (newParentId === taskId) return next;
   const newParent = newParentId ? next.core.tasks[newParentId] : undefined;
   if (newParentId && !newParent) return next;
+  if (isMilestone(next.core, newParentId)) return next; // MS を親にはできない
 
   // 移動サブツリー（taskId とその子孫）
   const subtree = new Set<Id>();

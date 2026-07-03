@@ -14,11 +14,14 @@ export function computeCodes(core: Core): Record<Id, string> {
 
   const codes: Record<Id, string> = {};
   const walk = (parentId: Id | undefined, prefix: string) => {
-    (byParent.get(parentId) ?? []).forEach((t, i) => {
-      const no = t.code ?? (prefix ? `${prefix}-${i + 1}` : `${i + 1}`);
+    let i = 0;
+    for (const t of byParent.get(parentId) ?? []) {
+      if (t.kind === 'milestone') continue; // 節目は採番せず、番号も飛ばさない
+      i += 1;
+      const no = t.code ?? (prefix ? `${prefix}-${i}` : `${i}`);
       codes[t.id] = no;
       walk(t.id, no);
-    });
+    }
   };
   walk(undefined, '');
   return codes;
