@@ -620,8 +620,11 @@ export function FullTable() {
       <div className="ft-scroll">
       <table className="ft" ref={tableRef} onKeyDown={onGridKeyDown}>
         <colgroup>
+          {/* minWidth も明示(UX#14): table-layout:fixed + width:max-content で列は本来縮まないが、
+              念のための保険として各列の下限を width と同じ値に固定し、常に横スクロールへ回す
+              （縮んで右固定のアクション列と重なるのを防ぐ）。 */}
           {visibleCols.map((c) => (
-            <col key={c.key} style={{ width: width(c.key) }} />
+            <col key={c.key} style={{ width: width(c.key), minWidth: width(c.key) }} />
           ))}
         </colgroup>
         <thead>

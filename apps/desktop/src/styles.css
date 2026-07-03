@@ -5755,3 +5755,52 @@ input.colored-text {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+
+/* =========================================================================
+   UX#12: 行選択モードの単キー操作 — OFF中は隠さず薄く表示 + 既定でONのバッジ
+   ------------------------------------------------------------------------
+   HelpDialog: シングルキー設定OFFで無効な行も消さず、薄く表示して
+   「設定でONにできます」を添える(存在を隠さない)。
+   KeybindingsEditor: lowRisk(表の n=次工程追加)はOFF設定でも常時有効なので、
+   その理由がわかる小さなバッジを添える。
+   ========================================================================= */
+.help-row-off {
+  opacity: 0.55;
+}
+.help-off-note {
+  margin-left: 4px;
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.kb-lowrisk {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: var(--fs-caption);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+/* =========================================================================
+   UX#14: 全項目表・狭幅での列重なり修正
+   ------------------------------------------------------------------------
+   ~960px 以下では、右固定(sticky)のアクション列を通常の最終列に戻し、他の列と
+   同じく横スクロールへ回す。固定のままだと、まだスクロールしていない担当セル等の
+   実位置とアクション列の固定位置がその画面幅ではたまたま重なり、削除アイコンが
+   セルの文字の上に透けて見えてしまう。ヘッダ行の縦方向の固定(top:0)は維持し、
+   横方向の固定(right:0)だけ外す。
+   ========================================================================= */
+@media (max-width: 960px) {
+  .ft td.ft-sticky-r {
+    position: static;
+    box-shadow: none;
+  }
+  .ft thead th.ft-sticky-r {
+    position: sticky;
+    top: 0;
+    right: auto;
+    box-shadow: none;
+  }
+}

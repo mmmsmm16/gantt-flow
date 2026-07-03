@@ -141,14 +141,22 @@ export function KeybindingsEditor() {
               const ov = overrides[b.id];
               const disabled = ov === null;
               const eff = effective.find((x) => x.id === b.id);
-              const inactive = !singleKey && eff !== undefined && isSingleKeyBinding(eff); // OFF中の単キー
+              // OFF中の単キー(ただし lowRisk は設定に関わらず有効なので薄く表示しない。UX#12)
+              const inactive = !singleKey && eff !== undefined && isSingleKeyBinding(eff) && !eff.lowRisk;
               const isCapturing = capturing === b.id;
               return (
                 <div
                   key={b.id}
                   className={`keybind-row${disabled ? ' disabled' : ''}${inactive ? ' inactive' : ''}`}
                 >
-                  <span className="kb-label">{labelOf(b)}</span>
+                  <span className="kb-label">
+                    {labelOf(b)}
+                    {!singleKey && b.lowRisk && !disabled && (
+                      <span className="kb-lowrisk" title="低リスクな操作のため、シングルキー設定に関わらず既定で有効です">
+                        既定でON
+                      </span>
+                    )}
+                  </span>
                   <span className="kb-keys">
                     {isCapturing ? (
                       <span className="kb-capture">新しいキーを押してください…（Esc で取消）</span>

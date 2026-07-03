@@ -4,17 +4,19 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
-import { DEFAULT_KEYMAP, getActiveKeymap, chordKeys } from '../keymap';
+import { DEFAULT_KEYMAP, getActiveKeymap, loadOverrides, resolveKeymap, chordKeys, type KeyBinding } from '../keymap';
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const MOD = isMac ? '⌘' : 'Ctrl';
 
-interface Shortcut {
+export interface Shortcut {
   keys: string[];
   label: string;
+  /** シングルキー設定が OFF のため今は動かない(行は隠さず薄く表示し、注記を添える。UX#12)。 */
+  off?: boolean;
 }
-interface Group {
+export interface Group {
   title: string;
   items: Shortcut[];
 }
@@ -53,12 +55,14 @@ const STATIC_GROUPS: Group[] = [
   },
 ];
 
-// 実効キーマップから「グループ → ショートカット一覧」を組み立てる。
+// 実効キーマップから「グループ → ショートカット一覧」を組み立てる(純粋関数。テスト可能)。
 // action 単位で 1 行にまとめる(ラベル/グループは DEFAULT_KEYMAP の代表エントリから引く)。
 // こうすると代表キー(例: j)がシングルキーOFFや無効化で消えても、残った代替キー(↓)で
 // 行が生き残る=「動く操作は必ずヘルプに載る」を保証できる。
-function buildKeymapGroups(): Group[] {
-  const keymap = getActiveKeymap();
+// シングルキーOFFで無効な行も消さず、resolvedAll(上書きのみ適用・OFFフィルタ前)から
+// キー表記を引いて薄く表示する(UX#12: 存在を隠さない。「設定でONにできます」を添える)。
+// ユーザーが上書きでその action を完全に無効化(null)している場合だけ行ごと出さない。
+export function buildKeymapGroupsFrom(active: KeyBinding[], resolvedAll: KeyBinding[]): Group[] {
   const groups = new Map<string, Shortcut[]>();
   const seen = new Set<string>();
   for (const def of DEFAULT_KEYMAP) {
@@ -66,10 +70,13 @@ function buildKeymapGroups(): Group[] {
     const dedupKey = `${def.action}${def.leader ? ':leader' : ''}`;
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
+    const resolvedForAction = resolvedAll.filter((b) => b.action === def.action && !!b.leader === !!def.leader);
+    if (resolvedForAction.length === 0) continue; // ユーザーが上書きで全無効化 → 行ごと出さない
     // この action のいま有効なバインド(リーダー有無は別の行として扱う)
-    const actives = keymap.filter((b) => b.action === def.action && !!b.leader === !!def.leader);
-    if (actives.length === 0) continue; // すべて無効 → 行ごと出さない
-    const keysList = actives.map((b) => chordKeys(b.chord, b.leader));
+    const activesForAction = active.filter((b) => b.action === def.action && !!b.leader === !!def.leader);
+    const off = activesForAction.length === 0; // シングルキーOFFで無効(存在は隠さない)
+    const basis = off ? resolvedForAction : activesForAction;
+    const keysList = basis.map((b) => chordKeys(b.chord, b.leader));
     const keys = keysList[0]!;
     if (keysList.length > 1 && keys.length > 0) {
       // 代替キー(j と ↓ など)は末尾の 1 打に「j / ↓」のように併記する。
@@ -77,10 +84,15 @@ function buildKeymapGroups(): Group[] {
       keys[keys.length - 1] = [last, ...keysList.slice(1).map((k) => k.join('+'))].join(' / ');
     }
     const arr = groups.get(def.help.group) ?? [];
-    arr.push({ keys, label: def.help.label });
+    arr.push({ keys, label: def.help.label, off });
     groups.set(def.help.group, arr);
   }
   return [...groups.entries()].map(([title, items]) => ({ title, items }));
+}
+
+function buildKeymapGroups(): Group[] {
+  const resolvedAll = resolveKeymap(DEFAULT_KEYMAP, loadOverrides());
+  return buildKeymapGroupsFrom(getActiveKeymap(), resolvedAll);
 }
 
 export function HelpDialog() {
@@ -126,13 +138,16 @@ export function HelpDialog() {
               <h4>{g.title}</h4>
               <dl>
                 {g.items.map((s) => (
-                  <div key={s.label} className="help-row">
+                  <div key={s.label} className={`help-row${s.off ? ' help-row-off' : ''}`}>
                     <dt>
                       {s.keys.map((k, i) => (
                         <kbd key={i}>{k}</kbd>
                       ))}
                     </dt>
-                    <dd>{s.label}</dd>
+                    <dd>
+                      {s.label}
+                      {s.off && <span className="help-off-note">（設定でONにできます）</span>}
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -142,7 +157,7 @@ export function HelpDialog() {
         <p className="help-foot">
           {singleKey
             ? '単キーの操作は、テキスト入力中は無効です（誤入力を防ぐため）。'
-            : 'シングルキー操作（j/k 移動・g リーダーなどの修飾キーなしのキー）は設定で ON にできます。'}
+            : '薄く表示された操作は今は無効です。シングルキー操作（j/k 移動・g リーダーなどの修飾キーなしのキー）の設定を ON にすると使えます（次工程追加など一部の低リスクな操作は既定で ON です）。'}
         </p>
       </div>
     </div>

@@ -37,6 +37,10 @@ export interface KeyBinding {
   leader?: boolean;
   /** 慣習キー(Delete/Esc/Enter 等)。ヘルプに出すがカスタマイズ対象にしない。 */
   fixed?: boolean;
+  /** シングルキー操作(既定OFF)の対象でも、低リスク(誤爆しても即 undo できる/実害が小さい)
+      なため設定に関わらず既定で有効にする(UX#12)。fixed とは違いユーザーは変更/無効化できる
+      (無効化すれば当然 OFF になる。resolveKeymap の上書き適用がフィルタより先に効くため)。 */
+  lowRisk?: boolean;
   /** ヘルプ一覧に出す場合のグループとラベル(無指定は補助キー=一覧に出さない)。 */
   help?: { group: string; label: string };
 }
@@ -111,7 +115,9 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'row-edit', action: 'table.edit', context: 'table', chord: { key: 'enter' }, fixed: true, help: { group: G.table, label: '選択セルを編集(Esc で選択モードへ)' } },
   { id: 'row-edit-f2', action: 'table.edit', context: 'table', chord: { key: 'f2' }, fixed: true },
   { id: 'row-clear', action: 'table.clear', context: 'table', chord: { key: 'escape' }, fixed: true, help: { group: G.table, label: '選択を解除' } },
-  { id: 'row-add', action: 'table.addSibling', context: 'table', chord: { key: 'n', shift: false }, help: { group: G.table, label: '次に工程を追加して編集' } },
+  // n=次工程追加は誤操作しても即 undo できる低リスクな操作なので、シングルキー設定に
+  // 関わらず既定で有効にする(UX#12。他の単キー行操作は引き続き設定でON)。
+  { id: 'row-add', action: 'table.addSibling', context: 'table', chord: { key: 'n', shift: false }, lowRisk: true, help: { group: G.table, label: '次に工程を追加して編集' } },
   { id: 'row-add-child', action: 'table.addChild', context: 'table', chord: { key: 'n', shift: true }, help: { group: G.table, label: '子工程を追加して編集' } },
   { id: 'row-move-up', action: 'table.moveUp', context: 'table', chord: { key: 'arrowup', alt: true }, help: { group: G.table, label: '行を上へ移動' } },
   { id: 'row-move-down', action: 'table.moveDown', context: 'table', chord: { key: 'arrowdown', alt: true }, help: { group: G.table, label: '行を下へ移動' } },
@@ -384,6 +390,7 @@ export function findConflict(
 // 修飾なしの単キー(j/k/n/c/f/v/u///+/-/0/Space/gリーダー等)は誤爆しやすく学習コストが高いため、
 // 既定では無効。設定で ON にすると使えるようになる。矢印・Ctrl/⌘系・F2/F6・fixed(Enter/Esc/
 // Delete/Tab/?)は常時有効。判定はユーザー上書き適用後の chord に対して行う。
+// lowRisk: true の単キー(表の n=次工程追加)は例外で、設定に関わらず既定で有効(UX#12)。
 
 export function isSingleKeyChord(c: Chord): boolean {
   if (c.mod || c.alt) return false;
@@ -397,9 +404,11 @@ export function isSingleKeyBinding(b: KeyBinding): boolean {
   return !b.fixed && (!!b.leader || isSingleKeyChord(b.chord));
 }
 
-/** シングルキー操作が OFF のとき、該当バインドを取り除いた実効キーマップを返す。 */
+/** シングルキー操作が OFF のとき、該当バインドを取り除いた実効キーマップを返す。
+    lowRisk なバインドは OFF 中でも残す(UX#12。ユーザー上書きでの無効化は resolveKeymap が
+    先に効くので、そちらで無効化されていれば当然ここには来ない)。 */
 export function filterKeymapForSingleKey(keymap: KeyBinding[], enabled: boolean): KeyBinding[] {
-  return enabled ? keymap : keymap.filter((b) => !isSingleKeyBinding(b));
+  return enabled ? keymap : keymap.filter((b) => b.lowRisk || !isSingleKeyBinding(b));
 }
 
 const SINGLE_KEY_KEY = 'gf-single-key';

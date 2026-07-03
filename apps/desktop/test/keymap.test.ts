@@ -550,6 +550,22 @@ describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
     expect(findBinding(ev({ key: 'arrowleft', altKey: true }), off, ['flow'], false)?.action).toBe('flow.moveLeft');
   });
 
+  it('lowRisk(表の n=次工程追加)は単キー判定だが、OFF でも実効キーマップに残る(UX#12)', () => {
+    const rowAdd = byId('row-add');
+    expect(rowAdd.lowRisk).toBe(true);
+    expect(isSingleKeyBinding(rowAdd)).toBe(true); // 判定自体は単キーのまま(ヘルプ分類等に使う)
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'n' }), off, ['table'], false)?.action).toBe('table.addSibling');
+    // 兄弟(Shift+N=子工程追加)は lowRisk ではないので、引き続き OFF で消える
+    expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['table'], false)).toBeUndefined();
+  });
+
+  it('lowRisk でもユーザーが無効化(null)すれば OFF 中と同じく消える(上書きが優先)', () => {
+    const resolved = resolveKeymap(DEFAULT_KEYMAP, { 'row-add': null });
+    const off = filterKeymapForSingleKey(resolved, false);
+    expect(findBinding(ev({ key: 'n' }), off, ['table'], false)).toBeUndefined();
+  });
+
   it('カスタムで単キー化したバインドも OFF では消える(resolve → filter の順)', () => {
     const resolved = resolveKeymap(DEFAULT_KEYMAP, { save: { key: 's' } }); // ⌘S → s に変更
     const off = filterKeymapForSingleKey(resolved, false);
