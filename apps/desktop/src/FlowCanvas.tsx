@@ -363,7 +363,7 @@ export function FlowCanvas() {
   // 空白をダブルクリック → その位置に工程を新規作成（ノード上は各自の編集に委ねる）。
   const onCanvasDoubleClick = (e: React.MouseEvent) => {
     const el = e.target as HTMLElement;
-    if (el.closest('.node, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar')) return;
+    if (el.closest('.node, .ms-diamond, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar')) return;
     if ((e.target as Element).closest('svg.edges')) {
       // 矢印（edge-hit）上のダブルクリックはラベル編集に委ねるため、線以外の余白だけで作成。
       if ((e.target as HTMLElement).classList.contains('edge-hit')) return;
@@ -1386,6 +1386,10 @@ export function FlowCanvas() {
                     y = r.top + r.height / 2;
                   }
                   setCtxMenu({ kind: 'node', id: msNode.id, x, y });
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  setEditingTaskId(g.taskId);
                 }}
               />
               {/* リネーム中はラベルの位置に工程ノードと同じ編集 input を出す（菱形はレーン外なので
