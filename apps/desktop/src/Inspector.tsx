@@ -1,10 +1,12 @@
 import type { CSSProperties } from 'react';
-import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor } from '@gantt-flow/core';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
-import { parseEffortHoursToMinutes } from './parseEffort';
+import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
 import { collectIoNames, prevCandidates } from './suggestions';
+import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
 
 // 色スウォッチの 1 行(塗り/文字色で共用)。選択中は枠で強調、「なし」で解除。
@@ -66,6 +68,24 @@ export function Inspector() {
   const removeToBePredecessor = useApp((s) => s.removeToBePredecessor);
   const tobeEnabled = useUI((s) => s.tobeEnabled);
 
+  // 入出力/課題を追加した直後、その新しい入力欄へフォーカス＆全選択（既定文字が選択され打てば置換）。
+  const asideRef = useRef<HTMLElement>(null);
+  const [addFocus, setAddFocus] = useState<'io-in' | 'io-out' | 'issue' | null>(null);
+  useLayoutEffect(() => {
+    if (!addFocus) return;
+    const root = asideRef.current;
+    if (root) {
+      const sel = addFocus === 'issue' ? '.iss-text' : `.io-row.${addFocus === 'io-in' ? 'in' : 'out'} .io-name`;
+      const xs = root.querySelectorAll<HTMLInputElement>(sel);
+      const el = xs.length ? xs[xs.length - 1]! : null;
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    }
+    setAddFocus(null);
+  }, [addFocus, project]);
+
   if (!taskId) return null;
   const task = project.core.tasks[taskId];
   if (!task) return null;
@@ -107,7 +127,7 @@ export function Inspector() {
   const bridgeSuccsOf = bridges.filter((b) => b.from === taskId);
 
   return (
-    <aside className="inspector" key={taskId}>
+    <aside className="inspector" key={taskId} ref={asideRef}>
       <div className="insp-head">
         <div className="insp-head-main">
           <div className="insp-eyebrow">
@@ -167,6 +187,19 @@ export function Inspector() {
               </select>
             </div>
           </div>
+          <label>状況（ヒアリング進行）</label>
+          <select
+            className={`insp-status st-${d?.status ?? 'none'}`}
+            value={d?.status ?? ''}
+            aria-label="状況（ヒアリング進行）"
+            onChange={(e) => updateDetail(taskId, { status: (e.target.value || undefined) as TaskStatus | undefined })}
+          >
+            <option value="">—（未着手）</option>
+            <option value="todo">未着手</option>
+            <option value="heard">ヒアリング済</option>
+            <option value="review">確認待ち</option>
+            <option value="done">確定</option>
+          </select>
           <label>塗り色（フローのノード）</label>
           <ColorSwatchRow
             value={d?.fillColor}
@@ -212,17 +245,18 @@ export function Inspector() {
               type="number"
               min={0}
               step={0.5}
-              placeholder="h"
+              placeholder="例: 2 / 0.5"
               defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
               onBlur={(e) => {
-                const minutes = parseEffortHoursToMinutes(e.target.value);
-                if (minutes === null) {
-                  // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す。
-                  e.target.value = d?.effortMinutes != null ? String(d.effortMinutes / 60) : '';
-                  useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                const res = validateEffort(e.target.value);
+                if (!res.ok) {
+                  // 不正値: 打った文字は残し、不正表示にして commit だけブロック（理由はトーストで即提示）。
+                  markEffortInvalid(e.target, res.message);
+                  useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
                   return;
                 }
-                if (minutes !== d?.effortMinutes) updateDetail(taskId, { effortMinutes: minutes });
+                clearEffortInvalid(e.target);
+                if (res.minutes !== d?.effortMinutes) updateDetail(taskId, { effortMinutes: res.minutes });
               }}
             />
           )}
@@ -261,11 +295,10 @@ export function Inspector() {
               }}
             >
               <option value="">＋ 前工程を追加…</option>
-              {depCandidates.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
+              <PrevCandidateOptions
+                candidates={depCandidates}
+                parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
+              />
             </select>
           )}
 
@@ -295,11 +328,10 @@ export function Inspector() {
               }}
             >
               <option value="">＋ 次工程を追加…</option>
-              {depCandidates.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
+              <PrevCandidateOptions
+                candidates={depCandidates}
+                parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
+              />
             </select>
           )}
         </section>
@@ -309,8 +341,8 @@ export function Inspector() {
             インプット / アウトプット
             {ios.length > 0 && <span className="insp-count">{ios.length}</span>}
             <span className="add-inline">
-              <button onClick={() => addIo(taskId, 'inputs', '帳票')}>＋入力</button>
-              <button onClick={() => addIo(taskId, 'outputs', '帳票')}>＋出力</button>
+              <button onClick={() => { addIo(taskId, 'inputs', '帳票'); setAddFocus('io-in'); }}>＋入力</button>
+              <button onClick={() => { addIo(taskId, 'outputs', '帳票'); setAddFocus('io-out'); }}>＋出力</button>
             </span>
           </h3>
           {ios.length === 0 && <p className="hint">入力/出力を追加できます。</p>}
@@ -378,7 +410,7 @@ export function Inspector() {
             課題 / 方策
             {(d?.issues?.length ?? 0) > 0 && <span className="insp-count">{(d?.issues ?? []).length}</span>}
             <span className="add-inline">
-              <button onClick={() => addIssue(taskId, '課題')}>＋課題</button>
+              <button onClick={() => { addIssue(taskId, '課題'); setAddFocus('issue'); }}>＋課題</button>
             </span>
           </h3>
           {(d?.issues ?? []).map((iss: IssueItem) => {

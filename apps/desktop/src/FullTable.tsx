@@ -2,12 +2,13 @@
 // 粒度は 大/中/小/詳細工程の 4 列（各行は自分の粒度の列に作業名、上位列に親の工程名を再掲）。
 // 課題/方策は独立列。列の表示切替・並べ替え・幅のドラッグ調整、テキスト列は折り返して全文表示。
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency } from '@gantt-flow/core';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
-import { parseEffortHoursToMinutes } from './parseEffort';
+import { PrevCandidateOptions } from './PrevCandidateOptions';
+import { validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
@@ -25,6 +26,15 @@ const AUTOMATION: { key: Automation | ''; label: string }[] = [
 ];
 const DIFFICULTY: (Difficulty | '')[] = ['', 'H', 'M', 'L'];
 const DIFF_RANK: Record<string, number> = { H: 3, M: 2, L: 1, '': 0 };
+// 状況（ヒアリング進行）。未指定は「未着手」扱い。
+const STATUS: { key: TaskStatus | ''; label: string }[] = [
+  { key: '', label: '—' },
+  { key: 'todo', label: '未着手' },
+  { key: 'heard', label: 'ヒアリング済' },
+  { key: 'review', label: '確認待ち' },
+  { key: 'done', label: '確定' },
+];
+const STATUS_RANK: Record<string, number> = { done: 4, review: 3, heard: 2, todo: 1, '': 0 };
 
 // 列定義のシングルソース（この配列の並び＝表示順）。既定幅・表示切替メニュー・並べ替え可否・
 // h/l 列カーソルの対象はすべてここから導出するので、列の追加・並べ替えはこの配列だけを編集する。
@@ -52,6 +62,7 @@ export const FT_COLUMNS: readonly FtCol[] = [
   { key: 'small', label: '小工程', width: 110, optional: true, sortable: true, level: 'small' },
   { key: 'detail', label: '詳細工程', width: 110, optional: true, sortable: true, level: 'detail' },
   { key: 'assignee', label: '担当', width: 110, cls: 'ft-c-assignee', optional: true, cursorable: true, sortable: true },
+  { key: 'status', label: '状況', width: 104, cls: 'ft-c-status', optional: true, cursorable: true, sortable: true },
   { key: 'prev', label: '前工程', width: 150, cls: 'ft-c-prev', optional: true, cursorable: true },
   { key: 'effort', label: '工数', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
   { key: 'how', label: '業務内容', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
@@ -183,6 +194,9 @@ export function FullTable() {
   }>({ assignee: '', issues: false, noEffort: false, automation: '' });
   const [resizing, setResizing] = useState<{ key: string; w: number } | null>(null);
   const [focusTask, setFocusTask] = useState<Id | null>(null);
+  // 複合セル（課題/入出力）へ追加した直後、その新しい入力欄へフォーカス＆全選択する対象。
+  // 追加 op の直後に {taskId, cell} を立て、再描画後に当該セルの最後の入力へ寄せる。
+  const [addFocus, setAddFocus] = useState<{ taskId: Id; cell: string } | null>(null);
   // 一括操作のための行マーク（複数選択）。Ctrl/⌘+クリックでトグル、Shift+クリックで範囲。
   const [marked, setMarked] = useState<Set<Id>>(new Set());
   const [anchor, setAnchor] = useState<Id | null>(null);
@@ -260,6 +274,7 @@ export function FullTable() {
     if (key === 'effort') return effortRollups.get(t.id) ?? 0;
     if (key === 'assignee') return t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
     if (key === 'difficulty') return DIFF_RANK[project.details[t.id]?.difficulty ?? ''] ?? 0;
+    if (key === 'status') return STATUS_RANK[project.details[t.id]?.status ?? ''] ?? 0;
     if (key === 'automation') return project.details[t.id]?.automation ?? '';
     if (key === 'large' || key === 'medium' || key === 'small' || key === 'detail')
       return ancestryNames(t, byId)[key] ?? '';
@@ -306,11 +321,13 @@ export function FullTable() {
   // 新規追加した工程の作業名にフォーカス（連続入力）。行が未描画なら、その行まで一度だけ
   // 描画数を広げる。絞り込みで行が出ない・名前列が非表示などで入力が現れない場合は諦める
   // （renderCount を伸ばし続ける無限再レンダリングを防ぐ）。
-  useEffect(() => {
+  // 新規作成直後の作業名へ即フォーカス＆全選択（描画直後に同期実行＝空振り防止）。
+  useLayoutEffect(() => {
     if (!focusTask) return;
     const el = tableRef.current?.querySelector<HTMLInputElement>(`input[data-task="${CSS.escape(focusTask)}"]`);
     if (el) {
       el.focus();
+      el.select();
       setFocusTask(null);
       return;
     }
@@ -318,6 +335,22 @@ export function FullTable() {
     if (idx >= renderCount) setRenderCount(Math.ceil((idx + 1) / ROW_CHUNK) * ROW_CHUNK);
     else setFocusTask(null);
   }, [focusTask, rows, renderCount]);
+
+  // 複合セルへの追加直後、新しい入力欄（そのセルの末尾の input/textarea）へフォーカス＆全選択。
+  // 既定文字（「課題」「帳票」）が選択状態になるので、そのまま打てば置き換わる＝直感的に編集できる。
+  useLayoutEffect(() => {
+    if (!addFocus) return;
+    const cellEl = tableRef.current?.querySelector(
+      `tr[data-taskid="${CSS.escape(addFocus.taskId)}"] [data-cell="${CSS.escape(addFocus.cell)}"]`,
+    );
+    const inputs = cellEl?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea');
+    const last = inputs && inputs.length ? inputs[inputs.length - 1] : null;
+    if (last) {
+      last.focus();
+      last.select();
+    }
+    setAddFocus(null);
+  }, [addFocus, project]);
 
   const clickSort = (key: string) =>
     setSort((cur) => (cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null));
@@ -331,11 +364,19 @@ export function FullTable() {
     'name',
     ...FT_COLUMNS.filter((c) => c.cursorable && vis(c.key)).map((c) => c.key),
   ];
+  // 末尾ゴースト行: 最終行と同じ親・粒度で新規工程を起こし、その作業名入力へフォーカス（連続入力）。
+  const addGhostRow = () => {
+    const last = rows[rows.length - 1];
+    if (!last) return;
+    const nid = addSiblingOf(last.id);
+    if (nid) setFocusTask(nid);
+  };
   const { colIdx, editNavKeyDown } = useRowSelectionKeys({
     enabled: activePane === 'table',
     orderedIds: rows.map((t) => t.id),
     columns: cursorColumns,
     beginEdit: (id) => setFocusTask(id), // 自粒度の作業名入力へ(未描画なら描画数を広げて待つ)
+    onEditNavPastEnd: addGhostRow, // 最終行で Enter 下移動 → 末尾に新規行を起こす
   });
   const cursorCol = cursorColumns[colIdx];
   const cellCursorCls = (taskId: Id, key: string) =>
@@ -703,6 +744,24 @@ export function FullTable() {
                       />
                     </td>
                   );
+                case 'status':
+                  return (
+                    <td key={c.key} className="ft-c-status" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        className={`ft-in ft-status st-${d?.status ?? 'none'}${cellCursorCls(t.id, 'status')}`}
+                        data-cell="status"
+                        value={d?.status ?? ''}
+                        aria-label="状況（ヒアリング進行）"
+                        onChange={(e) => updateDetail(t.id, { status: (e.target.value || undefined) as TaskStatus | undefined })}
+                      >
+                        {STATUS.map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  );
                 case 'prev': {
                   const preds = predsByTo.get(t.id) ?? [];
                   const prevCands = prevCandidatesOf(t.id);
@@ -735,11 +794,10 @@ export function FullTable() {
                             onChange={(e) => e.target.value && addDependency(e.target.value, t.id)}
                           >
                             <option value="">＋</option>
-                            {prevCands.map((o) => (
-                              <option key={o.id} value={o.id}>
-                                {o.name}
-                              </option>
-                            ))}
+                            <PrevCandidateOptions
+                              candidates={prevCands}
+                              parentName={(pid) => (pid ? (byId[pid]?.name ?? '別グループ') : '最上位')}
+                            />
                           </select>
                         )}
                       </div>
@@ -761,18 +819,20 @@ export function FullTable() {
                           min={0}
                           step={0.5}
                           defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
-                          placeholder="h"
+                          placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           key={`eff-${d?.effortMinutes ?? ''}`}
                           onBlur={(e) => {
-                            const minutes = parseEffortHoursToMinutes(e.target.value);
-                            if (minutes === null) {
-                              // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す（インスペクタと同じ規約）。
-                              e.target.value = d?.effortMinutes != null ? String(d.effortMinutes / 60) : '';
-                              useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                            const res = validateEffort(e.target.value);
+                            if (!res.ok) {
+                              // 不正値（数値でない・負・無限大）: 打った文字は残し、セルを不正表示にして
+                              // commit だけブロックする（無音で値を破棄せず、修正を促す）。理由はトーストで即提示。
+                              markEffortInvalid(e.target, res.message);
+                              useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
                               return;
                             }
-                            if (minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: minutes });
+                            clearEffortInvalid(e.target);
+                            if (res.minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
                           }}
                         />
                       )}
@@ -783,9 +843,9 @@ export function FullTable() {
                 case 'system':
                   return <WrapCell key={c.key} value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} cell="system" cursor={cellCursorCls(t.id, 'system') !== ''} />;
                 case 'inputs':
-                  return <IoCell key={c.key} items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => addIo(t.id, 'inputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                  return <IoCell key={c.key} items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => { addIo(t.id, 'inputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'inputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
                 case 'outputs':
-                  return <IoCell key={c.key} items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => addIo(t.id, 'outputs', '帳票')} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                  return <IoCell key={c.key} items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => { addIo(t.id, 'outputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'outputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
                 case 'issue':
                   return (
                     <td key={c.key} className={`ft-c-issue${cellCursorCls(t.id, 'issue')}`} data-cell="issue" onClick={(e) => e.stopPropagation()}>
@@ -798,7 +858,7 @@ export function FullTable() {
                             </button>
                           </div>
                         ))}
-                        <button className="ft-add" onClick={() => addIssue(t.id, '課題')}>
+                        <button className="ft-add" onClick={() => { addIssue(t.id, '課題'); setAddFocus({ taskId: t.id, cell: 'issue' }); }}>
                           ＋課題
                         </button>
                       </div>
@@ -906,6 +966,13 @@ export function FullTable() {
               </tr>
             );
           })}
+          {/* 末尾ゴースト行: Excel 流に「一番下の空行へ直接入力」できる入口。絞り込み中・逐次レンダ
+              の途中は出さない（追加行がフィルタに合致しない・末尾でない混乱を避ける）。 */}
+          {!hasMore && !filterActive && rows.length > 0 && (
+            <tr className="ft-ghost" onClick={addGhostRow}>
+              <td colSpan={visibleCols.length}>＋ 新しい工程…</td>
+            </tr>
+          )}
         </tbody>
       </table>
       {filterActive && rows.length === 0 && (

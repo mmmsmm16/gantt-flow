@@ -18,6 +18,80 @@ const depPairs = (s: ReturnType<typeof createAppStore>) =>
     })
     .sort();
 
+describe('reloadFromExternal（外部変更の片方向ライブ反映）', () => {
+  it('外部の更新を反映し、選択を保ち、dirty=false（保存済みベース）になる', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    s.getState().addTask('出荷');
+    const keepId = idByName(s, '受付');
+    s.getState().select(keepId);
+
+    // 外部プロセスがファイルへ書いた結果を別ストアで作る（受付/出荷 ＋ 検品 を追加）。
+    const s2 = createAppStore();
+    s2.getState().loadProject(deserializeProject(serializeProject(s.getState().project)));
+    s2.getState().addTask('検品');
+    const externalOnDisk = deserializeProject(serializeProject(s2.getState().project));
+
+    s.getState().reloadFromExternal(externalOnDisk);
+
+    expect(Object.values(s.getState().project.core.tasks).map((t) => t.name).sort()).toEqual(
+      ['出荷', '受付', '検品'],
+    );
+    expect(s.getState().selectedTaskId).toBe(keepId); // 残っている選択は維持
+    expect(s.getState().dirty).toBe(false); // 外部反映後は保存済み扱い
+    expect(s.getState().canUndo).toBe(false); // undo 履歴はリセット
+  });
+
+  it('選択中の工程が外部更新で消えていたら選択は解除される', () => {
+    const s = createAppStore();
+    s.getState().addTask('一時');
+    const gone = idByName(s, '一時');
+    s.getState().select(gone);
+
+    const s2 = createAppStore(); // 空（= 一時工程は無い）
+    const external = deserializeProject(serializeProject(s2.getState().project));
+    s.getState().reloadFromExternal(external);
+
+    expect(s.getState().selectedTaskId).toBeUndefined();
+    expect(s.getState().dirty).toBe(false);
+  });
+});
+
+describe('B: reconnectEdge / renameAssignee（フロー編集の磨き込み）', () => {
+  const viewOf = (s: ReturnType<typeof createAppStore>) =>
+    findView(s.getState().project, s.getState().level, s.getState().scopeParentId)!;
+  const nodeIdOf = (s: ReturnType<typeof createAppStore>, taskId: string) =>
+    Object.values(viewOf(s).nodes).find((n) => n.kind === 'task' && n.taskId === taskId)!.id;
+
+  it('reconnectEdge: 導出エッジの終点付け替えで依存が A→B から A→C へ変わる', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    s.getState().addTask('C');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    const c = idByName(s, 'C');
+    s.getState().connect(nodeIdOf(s, a), nodeIdOf(s, b)); // 依存 A→B（導出エッジ生成）
+    expect(depPairs(s)).toContain('A→B');
+    const edge = Object.values(viewOf(s).edges).find((e) => e.derivedFromDependencyId)!;
+    s.getState().reconnectEdge(edge.id, 'target', nodeIdOf(s, c));
+    expect(depPairs(s)).toContain('A→C');
+    expect(depPairs(s)).not.toContain('A→B');
+  });
+
+  it('renameAssignee: 担当名がレーン名と工程に反映される', () => {
+    const s = createAppStore();
+    s.getState().addTask('受注');
+    const a = idByName(s, '受注');
+    s.getState().setAssigneeByName(a, '営業');
+    const asgId = s.getState().project.core.tasks[a]!.assigneeId!;
+    s.getState().renameAssignee(asgId, '営業部');
+    expect(s.getState().project.core.assignees[asgId]!.name).toBe('営業部');
+    const lane = Object.values(viewOf(s).lanes).find((l) => l.assigneeId === asgId);
+    expect(lane?.title).toBe('営業部');
+  });
+});
+
 describe('app store（command → reconcile → history）', () => {
   it('作業追加でフローにノードが出て、undo/redo できる', () => {
     const s = createAppStore();
@@ -252,6 +326,63 @@ describe('app store（command → reconcile → history）', () => {
     expect(deps).toHaveLength(1); // pinned エッジでなくコア依存になる
     expect(deps[0]!.from).toBe(aNode.taskId);
     expect(deps[0]!.to).toBe(bNode.taskId);
+  });
+
+  it('addTaskAt は作成した工程の id を返す（作成直後のその場リネーム用）', () => {
+    const s = createAppStore();
+    const id = s.getState().addTaskAt(300, 40);
+    expect(id).toBeDefined();
+    expect(s.getState().selectedTaskId).toBe(id);
+    expect(s.getState().project.core.tasks[id!]).toBeDefined();
+  });
+
+  it('connectToNew: 空白へドラッグで工程を作成し、起点工程から依存を張る（1 undo）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = taskNodes(s)[0]!;
+    const before = Object.keys(s.getState().project.core.tasks).length;
+    const newId = s.getState().connectToNew(a.id, 360, 40)!;
+    expect(newId).toBeDefined();
+    expect(s.getState().selectedTaskId).toBe(newId); // リネーム開始用に選択される
+    expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(before + 1);
+    const created = taskNodes(s).find((n) => n.taskId === newId)!;
+    expect(created.x).toBe(360); // ドロップ位置に配置
+    expect(created.y).toBe(40);
+    const deps = Object.values(s.getState().project.core.dependencies);
+    expect(deps).toHaveLength(1);
+    expect(deps[0]!.from).toBe(a.taskId);
+    expect(deps[0]!.to).toBe(newId);
+    // 依存は導出エッジとして同じビューに引かれる
+    expect(Object.values(view0(s).edges).some((e) => e.derivedFromDependencyId === deps[0]!.id)).toBe(true);
+    s.getState().undo(); // 1 undo で作成・依存ごと戻る
+    expect(s.getState().project.core.tasks[newId]).toBeUndefined();
+    expect(Object.keys(s.getState().project.core.dependencies)).toHaveLength(0);
+  });
+
+  it('connectToNew: 制御ノード起点なら依存ではなく pinned エッジになる', () => {
+    const s = createAppStore();
+    s.getState().addControlNode('decision');
+    const ctrl = Object.values(view0(s).nodes).find((n) => n.kind === 'control')!;
+    const newId = s.getState().connectToNew(ctrl.id, 380, 60)!;
+    expect(newId).toBeDefined();
+    expect(Object.keys(s.getState().project.core.dependencies)).toHaveLength(0); // 依存は作らない
+    const newNode = taskNodes(s).find((n) => n.taskId === newId)!;
+    const edge = Object.values(view0(s).edges).find((e) => e.source === ctrl.id && e.target === newNode.id)!;
+    expect(edge).toBeDefined();
+    expect(edge.pinned).toBe(true);
+  });
+
+  it('addDependency: 別の親グループの同粒度工程にも依存を張れる（前工程候補拡大の土台）', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('large');
+    const l1 = Object.values(s.getState().project.core.tasks)[0]!;
+    s.getState().addRootTask('large');
+    const l2 = Object.values(s.getState().project.core.tasks).filter((t) => t.level === 'large')[1]!;
+    const a1 = s.getState().addChildTask(l1.id)!; // 中工程(親=l1)
+    const b1 = s.getState().addChildTask(l2.id)!; // 中工程(親=l2・別グループ)
+    s.getState().addDependency(b1, a1); // 別グループ間（同粒度）
+    const deps = Object.values(s.getState().project.core.dependencies);
+    expect(deps.some((d) => d.from === b1 && d.to === a1)).toBe(true);
   });
 
   it('サンプルを読み込むと中・全体スコープのビューが開き、履歴はリセットされる', () => {

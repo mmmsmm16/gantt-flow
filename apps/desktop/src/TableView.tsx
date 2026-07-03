@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
 import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
-import { parseEffortHoursToMinutes } from './parseEffort';
+import { PrevCandidateOptions } from './PrevCandidateOptions';
+import { validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
@@ -131,9 +132,14 @@ export function TableView() {
     null,
   );
   const nameRefs = useRef<Map<Id, HTMLInputElement>>(new Map());
-  useEffect(() => {
+  // 新規作成直後の作業名へ即フォーカス＆全選択（描画直後に同期実行＝空振り防止）。
+  useLayoutEffect(() => {
     if (!focusId) return;
-    nameRefs.current.get(focusId)?.focus();
+    const el = nameRefs.current.get(focusId);
+    if (el) {
+      el.focus();
+      el.select();
+    }
     setFocusId(null);
   }, [focusId, rows.length]);
 
@@ -175,6 +181,7 @@ export function TableView() {
       el.select();
       return true;
     },
+    onEditNavPastEnd: () => addGhostRow(), // 最終行で Enter 下移動 → 末尾に新規行を起こす
   });
   const cursorCol = cursorColumns[colIdx];
   // 選択行のカーソル列のセルを強調する(キーボードで「いまどのセルか」を示す)。
@@ -192,6 +199,17 @@ export function TableView() {
     if (id) {
       select(id);
       setFocusId(id);
+    }
+  };
+
+  // 末尾ゴースト行: 最終行と同じ親・粒度で新規工程を起こし、その作業名入力へフォーカス（連続入力）。
+  const addGhostRow = () => {
+    const last = rows[rows.length - 1];
+    if (!last) return;
+    const nid = addSiblingOf(last.task.id);
+    if (nid) {
+      select(nid);
+      setFocusId(nid);
     }
   };
 
@@ -507,11 +525,10 @@ export function TableView() {
                           }}
                         >
                           <option value="">＋前工程</option>
-                          {candidates.map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                            </option>
-                          ))}
+                          <PrevCandidateOptions
+                            candidates={candidates}
+                            parentName={(pid) => (pid ? (project.core.tasks[pid]?.name ?? '別グループ') : '最上位')}
+                          />
                         </select>
                       )}
                     </td>
@@ -530,19 +547,19 @@ export function TableView() {
                           min={0}
                           step={0.5}
                           defaultValue={detail?.effortMinutes != null ? detail.effortMinutes / 60 : ''}
-                          placeholder="h"
+                          placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
-                            const minutes = parseEffortHoursToMinutes(e.target.value);
-                            if (minutes === null) {
-                              // 不正値（数値でない・負・無限大）は棄却して表示も元の値へ戻す（インスペクタと同じ規約）。
-                              e.target.value =
-                                detail?.effortMinutes != null ? String(detail.effortMinutes / 60) : '';
-                              useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください', 'error');
+                            const res = validateEffort(e.target.value);
+                            if (!res.ok) {
+                              // 不正値: 打った文字は残し、セルを不正表示にして commit だけブロック（理由はトーストで即提示）。
+                              markEffortInvalid(e.target, res.message);
+                              useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
                               return;
                             }
-                            if (minutes !== detail?.effortMinutes) updateDetail(t.id, { effortMinutes: minutes });
+                            clearEffortInvalid(e.target);
+                            if (res.minutes !== detail?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
                           }}
                         />
                       )}
@@ -617,6 +634,12 @@ export function TableView() {
                   </tr>
                 );
               })}
+              {/* 末尾ゴースト行: 「一番下の空行へ直接入力」の入口。検索絞り込み中は出さない。 */}
+              {!findActive && rows.length > 0 && (
+                <tr className="outline-ghost" onClick={addGhostRow}>
+                  <td colSpan={6 + visibleOptionalColumns.length}>＋ 新しい工程…</td>
+                </tr>
+              )}
             </tbody>
           </table>
           </div>

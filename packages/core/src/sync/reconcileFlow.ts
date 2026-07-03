@@ -157,7 +157,12 @@ export function reconcileFlow(
   const ensureLane = (assigneeId: Id | undefined): Id | undefined => {
     if (!assigneeId) return undefined;
     const existing = laneByAssignee.get(assigneeId);
-    if (existing) return existing;
+    if (existing) {
+      // レーン名は担当名の従属。担当名が変わったら既存レーンの title も追従させる。
+      const lane = next.lanes[existing];
+      if (lane) lane.title = core.assignees[assigneeId]?.name ?? assigneeId;
+      return existing;
+    }
     const id = idGen();
     const order = Object.keys(next.lanes).length;
     next.lanes[id] = {

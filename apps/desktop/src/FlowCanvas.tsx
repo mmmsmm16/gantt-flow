@@ -60,6 +60,7 @@ export function FlowCanvas() {
   const addTaskAt = useApp((s) => s.addTaskAt);
   const addTaskNextTo = useApp((s) => s.addTaskNextTo);
   const connect = useApp((s) => s.connect);
+  const connectToNew = useApp((s) => s.connectToNew);
   const addParallel = useApp((s) => s.addParallel);
   const makeParallelTo = useApp((s) => s.makeParallelTo);
   const addControlNode = useApp((s) => s.addControlNode);
@@ -70,6 +71,8 @@ export function FlowCanvas() {
   const tidyFlow = useApp((s) => s.tidyFlow);
   const setLaneHeight = useApp((s) => s.setLaneHeight);
   const moveLane = useApp((s) => s.moveLane);
+  const renameAssignee = useApp((s) => s.renameAssignee);
+  const reconnectEdge = useApp((s) => s.reconnectEdge);
   const toggleNodePin = useApp((s) => s.toggleNodePin);
   const addIo = useApp((s) => s.addIo);
   const moveNodesBy = useApp((s) => s.moveNodesBy);
@@ -126,6 +129,8 @@ export function FlowCanvas() {
   const downPosRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
   const [drag, setDrag] = useState<{ id: FlowNodeId; x: number; y: number; ox: number; oy: number; offX: number; offY: number } | null>(null);
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
   // ドラッグ吸着（スマートガイド）。候補はドラッグ開始時に 1 回だけ構築して ref に保持
   // （drag effect は毎フレーム再実行されるため、effect 内で組むと毎フレーム O(n) になる）。
   const snapCtxRef = useRef<{ size: { w: number; h: number }; candidates: SnapRect[] } | null>(null);
@@ -155,6 +160,59 @@ export function FlowCanvas() {
   const [ctxMenu, setCtxMenu] = useState<{ kind: 'node' | 'edge'; id: string; x: number; y: number } | null>(null);
   // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
+  // B1: ドラッグ/接続中の端オートスクロール。lastPointer=最新カーソル(client)+Alt、
+  // autoReapply=スクロール後に対象位置を再評価するコールバック（ドラッグ/接続で差し替え）。
+  const autoScrollRef = useRef<{ vx: number; vy: number; raf: number } | null>(null);
+  const autoReapplyRef = useRef<(() => void) | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number; alt: boolean } | null>(null);
+  // B3: 選択エッジの端点ドラッグ（再接続）。x/y はプレビュー終点（論理座標）。
+  const [edgeDrag, setEdgeDrag] = useState<{ edgeId: string; end: 'source' | 'target'; x: number; y: number } | null>(null);
+
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current) {
+      cancelAnimationFrame(autoScrollRef.current.raf);
+      autoScrollRef.current = null;
+    }
+  };
+  // ドラッグ/接続中、ポインタが容器の端 EDGE px 以内に来たら端からの距離に比例して自動スクロール。
+  // スクロールのたびに autoReapply で対象（ノード/接続線/エッジ端点）を最新カーソル位置へ追従させる。
+  const updateAutoScroll = (clientX: number, clientY: number) => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const EDGE = 40;
+    const MAX = 22;
+    const speed = (d: number) => Math.ceil(((EDGE - Math.max(0, d)) / EDGE) * MAX);
+    let vx = 0;
+    let vy = 0;
+    const dl = clientX - r.left;
+    const dr = r.right - clientX;
+    const dt = clientY - r.top;
+    const db = r.bottom - clientY;
+    if (dl < EDGE) vx = -speed(dl);
+    else if (dr < EDGE) vx = speed(dr);
+    if (dt < EDGE) vy = -speed(dt);
+    else if (db < EDGE) vy = speed(db);
+    if (vx === 0 && vy === 0) {
+      stopAutoScroll();
+      return;
+    }
+    if (autoScrollRef.current) {
+      autoScrollRef.current.vx = vx;
+      autoScrollRef.current.vy = vy;
+      return;
+    }
+    const tick = () => {
+      const cur = autoScrollRef.current;
+      const sc = canvasRef.current;
+      if (!cur || !sc) return;
+      sc.scrollLeft += cur.vx;
+      sc.scrollTop += cur.vy;
+      autoReapplyRef.current?.(); // スクロール後、最新カーソル位置で対象を再評価
+      cur.raf = requestAnimationFrame(tick);
+    };
+    autoScrollRef.current = { vx, vy, raf: requestAnimationFrame(tick) };
+  };
 
   // アンカー付きズーム。setScale は非同期なので新 scale をここで確定し、同じ値でスクロールを補正する
   // （fitView と同じ「scale 設定 → rAF でスクロール」パターン）。scaleRef は再レンダ前の連続ホイール
@@ -307,7 +365,8 @@ export function FlowCanvas() {
       if ((e.target as HTMLElement).classList.contains('edge-hit')) return;
     }
     const p = relPoint(e);
-    addTaskAt(p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
+    const id = addTaskAt(p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
+    if (id) setEditingTaskId(id); // 作成直後にその場リネーム（「新規工程」の量産を防ぐ）
   };
 
   const relPoint = (e: { clientX: number; clientY: number }) => {
@@ -343,17 +402,18 @@ export function FlowCanvas() {
       setSnapGuides((g) => (g.length ? [] : g)); // ドラッグ終了後にガイドが残らないように
       return;
     }
-    const onMove = (e: PointerEvent) => {
+    // カーソル(client)座標から吸着込みのノード位置を算出して drag に反映。オートスクロールの
+    // 再評価(autoReapply)からも同じ関数を使い、ポインタ静止のまま端スクロールしてもノードが追従する。
+    const applyDragMove = (clientX: number, clientY: number, alt: boolean) => {
       const s = downPosRef.current;
-      if (s && (Math.abs(e.clientX - s.x) > 4 || Math.abs(e.clientY - s.y) > 4)) movedRef.current = true;
-      const p = relPoint(e);
+      if (s && (Math.abs(clientX - s.x) > 4 || Math.abs(clientY - s.y) > 4)) movedRef.current = true;
+      const p = relPoint({ clientX, clientY });
       // 近くのノードと上端/中央・左端/中央が揃う位置へ吸着（Alt/Option 押下中は無効）。
-      // 吸着済みの座標を drag に書くので、確定(onUp)もそのまま揃った値になる。
       let nx = p.x - drag.offX;
       let ny = p.y - drag.offY;
       let guides: SnapGuide[] = [];
       const ctx = snapCtxRef.current;
-      if (ctx && !e.altKey) {
+      if (ctx && !alt) {
         const snapped = computeSnap({ x: nx, y: ny, ...ctx.size }, ctx.candidates, SNAP_PX / scale);
         nx = snapped.x;
         ny = snapped.y;
@@ -362,27 +422,42 @@ export function FlowCanvas() {
       setSnapGuides(guides);
       setDrag((d) => (d ? { ...d, x: nx, y: ny } : d));
     };
+    autoReapplyRef.current = () => {
+      const lp = lastPointerRef.current;
+      if (lp) applyDragMove(lp.x, lp.y, lp.alt);
+    };
+    const onMove = (e: PointerEvent) => {
+      lastPointerRef.current = { x: e.clientX, y: e.clientY, alt: e.altKey };
+      applyDragMove(e.clientX, e.clientY, e.altKey);
+      updateAutoScroll(e.clientX, e.clientY);
+    };
     const onUp = () => {
+      stopAutoScroll();
+      autoReapplyRef.current = null;
+      lastPointerRef.current = null;
       downPosRef.current = null;
       snapCtxRef.current = null;
       setSnapGuides([]);
-      setDrag((d) => {
-        if (d && movedRef.current) {
-          const ms = multiSelRef.current;
-          if (ms.has(d.id) && ms.size > 1) {
-            moveNodesBy([...ms], Math.round(d.x) - d.ox, Math.round(d.y) - d.oy); // 選択をまとめて移動
-          } else {
-            moveNode(d.id, Math.round(d.x), Math.round(d.y));
-          }
+      const d = dragRef.current; // 最新のドラッグ位置（更新は state→ref へ反映済み）
+      if (d && movedRef.current) {
+        const ms = multiSelRef.current;
+        if (ms.has(d.id) && ms.size > 1) {
+          moveNodesBy([...ms], Math.round(d.x) - d.ox, Math.round(d.y) - d.oy); // 選択をまとめて移動
+        } else {
+          // 別レーンへ落ちて担当が書き戻ったら通知（フラッシュだけだと気づきにくい / 取り消し導線）。
+          const changedTo = moveNode(d.id, Math.round(d.x), Math.round(d.y));
+          if (changedTo) useUI.getState().toast(`担当を「${changedTo}」に変更しました（Ctrl+Z で取り消し）`, 'info');
         }
-        return null;
-      });
+      }
+      setDrag(null);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      stopAutoScroll();
+      autoReapplyRef.current = null;
     };
   }, [drag, moveNode, moveNodesBy]);
 
@@ -428,11 +503,24 @@ export function FlowCanvas() {
 
   useEffect(() => {
     if (!conn || !view) return;
-    const onMove = (e: PointerEvent) => {
-      const p = relPoint(e);
+    const applyConnMove = (clientX: number, clientY: number) => {
+      const p = relPoint({ clientX, clientY });
       setConn((c) => (c ? { ...c, x: p.x, y: p.y } : c));
     };
+    autoReapplyRef.current = () => {
+      const lp = lastPointerRef.current;
+      if (lp) applyConnMove(lp.x, lp.y);
+    };
+    const onMove = (e: PointerEvent) => {
+      lastPointerRef.current = { x: e.clientX, y: e.clientY, alt: e.altKey };
+      applyConnMove(e.clientX, e.clientY);
+      updateAutoScroll(e.clientX, e.clientY);
+    };
+    const from = conn.from; // ドラッグ中は不変（x/y のみ更新される）
     const onUp = (e: PointerEvent) => {
+      stopAutoScroll();
+      autoReapplyRef.current = null;
+      lastPointerRef.current = null;
       const p = relPoint(e);
       const target = Object.values(view.nodes).find((n) => {
         // 落下先は工程/制御ノードのみ（付箋・I/O・課題には矢印を引けない＝ハイライトと一致）。
@@ -440,18 +528,63 @@ export function FlowCanvas() {
         const s = nodeSize(n);
         return p.x >= n.x && p.x <= n.x + s.w && p.y >= n.y && p.y <= n.y + s.h;
       });
-      setConn((c) => {
-        if (c && target && target.id !== c.from) connect(c.from, target.id);
-        return null;
-      });
+      if (target && target.id !== from) {
+        connect(from, target.id);
+      } else if (!target) {
+        // 空白で離した: ドロップ位置に工程を作成して起点から接続 → 直後にその場リネーム。
+        const newId = connectToNew(from, p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
+        if (newId) setEditingTaskId(newId);
+      }
+      setConn(null);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      stopAutoScroll();
+      autoReapplyRef.current = null;
     };
-  }, [conn, view, connect]);
+  }, [conn, view, connect, connectToNew]);
+
+  // B3: 選択エッジの端点ドラッグ（再接続）。落下先＝工程/制御ノードなら reconnectEdge。
+  useEffect(() => {
+    if (!edgeDrag || !view) return;
+    const apply = (clientX: number, clientY: number) => {
+      const p = relPoint({ clientX, clientY });
+      setEdgeDrag((d) => (d ? { ...d, x: p.x, y: p.y } : d));
+    };
+    autoReapplyRef.current = () => {
+      const lp = lastPointerRef.current;
+      if (lp) apply(lp.x, lp.y);
+    };
+    const onMove = (e: PointerEvent) => {
+      lastPointerRef.current = { x: e.clientX, y: e.clientY, alt: e.altKey };
+      apply(e.clientX, e.clientY);
+      updateAutoScroll(e.clientX, e.clientY);
+    };
+    const onUp = (e: PointerEvent) => {
+      stopAutoScroll();
+      autoReapplyRef.current = null;
+      lastPointerRef.current = null;
+      const p = relPoint(e);
+      const target = Object.values(view.nodes).find((n) => {
+        if (n.kind !== 'task' && n.kind !== 'control') return false;
+        const s = nodeSize(n);
+        return p.x >= n.x && p.x <= n.x + s.w && p.y >= n.y && p.y <= n.y + s.h;
+      });
+      if (target) reconnectEdge(edgeDrag.edgeId, edgeDrag.end, target.id);
+      setEdgeDrag(null);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      stopAutoScroll();
+      autoReapplyRef.current = null;
+    };
+  }, [edgeDrag, view, reconnectEdge]);
 
   // 選択中の工程が変わったら、対応するフローノードが画面外のとき視点を寄せる（表→フロー追従）。
   // 'nearest' なので見えている間はスクロールしない＝フロー側の操作で既に見えている時は動かない。
@@ -677,8 +810,7 @@ export function FlowCanvas() {
         }
         const c = viewportCenter();
         if (!c) return false;
-        addTaskAt(c.x - SIZE.task.w / 2, c.y - SIZE.task.h / 2);
-        const newId = useApp.getState().selectedTaskId; // addTaskAt は ID を返さない代わりに作成工程を選択する
+        const newId = addTaskAt(c.x - SIZE.task.w / 2, c.y - SIZE.task.h / 2);
         if (newId) setEditingTaskId(newId);
         return true;
       }
@@ -902,11 +1034,18 @@ export function FlowCanvas() {
     return '';
   };
 
-  const startConnect = (n: FlowNode, e: React.PointerEvent) => {
+  const startConnect = (n: FlowNode, e: React.PointerEvent, edge: 'top' | 'right' | 'bottom' | 'left' = 'right') => {
     e.stopPropagation();
     const p = posOf(n);
     const s = nodeSize(n);
-    setConn({ from: n.id, fx: p.x + s.w, fy: p.y + s.h / 2, x: p.x + s.w, y: p.y + s.h / 2 });
+    // 開始辺の中点からプレビュー線を引く（確定後の経路は routeEdge が再計算＝従来どおり右辺起点）。
+    const mid = {
+      top: { x: p.x + s.w / 2, y: p.y },
+      right: { x: p.x + s.w, y: p.y + s.h / 2 },
+      bottom: { x: p.x + s.w / 2, y: p.y + s.h },
+      left: { x: p.x, y: p.y + s.h / 2 },
+    }[edge];
+    setConn({ from: n.id, fx: mid.x, fy: mid.y, x: mid.x, y: mid.y });
   };
 
   // 接続ドラッグ中の「落とせる相手」＝工程/制御ノード（自分以外）。落下受付(onUp)と同じ条件。
@@ -926,6 +1065,15 @@ export function FlowCanvas() {
     ? dropTargetId
       ? center(view.nodes[dropTargetId]!)
       : { cx: conn.x, cy: conn.y }
+    : null;
+  // B3: エッジ端点ドラッグ中の落下先（工程/制御ノード）。
+  const edgeDropTargetId = edgeDrag
+    ? (divNodes.find((n) => {
+        if (n.kind !== 'task' && n.kind !== 'control') return false;
+        const p = posOf(n);
+        const s = nodeSize(n);
+        return edgeDrag.x >= p.x && edgeDrag.x <= p.x + s.w && edgeDrag.y >= p.y && edgeDrag.y <= p.y + s.h;
+      })?.id ?? null)
     : null;
 
   // 課題ノードは工程ごとに1枚へ集約表示（モデルは1課題=1ノードのまま、描画だけ束ねる）。
@@ -1042,8 +1190,10 @@ export function FlowCanvas() {
           onClick={() => {
             const k = nodes.filter((n) => n.kind === 'task').length;
             const c = viewportCenter();
-            if (c) addTaskAt(c.x - SIZE.task.w / 2 + (k % 5) * 20, c.y - SIZE.task.h / 2 + (k % 5) * 16);
-            else addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
+            const id = c
+              ? addTaskAt(c.x - SIZE.task.w / 2 + (k % 5) * 20, c.y - SIZE.task.h / 2 + (k % 5) * 16)
+              : addTaskAt(220 + (k % 6) * 38, 70 + (k % 4) * 30);
+            if (id) setEditingTaskId(id); // 追加直後にその場リネーム
           }}
         >
           <Icons.BoxPlus />
@@ -1073,6 +1223,11 @@ export function FlowCanvas() {
         <button
           className="palette-act"
           onClick={async () => {
+            // 2件以上を選択中は「選択した工程だけ」を整列（他は固定＝手で整えた配置を壊さない）。
+            if (multiSel.size >= 2) {
+              tidyFlow([...multiSel]);
+              return;
+            }
             const ok = await useUI.getState().confirm({
               title: 'フローを整列',
               message: '依存とレーンに基づいて配置を作り直します。手で整えた配置は失われます（Ctrl+Z で戻せます）。',
@@ -1080,8 +1235,12 @@ export function FlowCanvas() {
             });
             if (ok) tidyFlow();
           }}
-          title="自動整列（依存で段組み・レーンで縦配置）"
-          aria-label="自動整列"
+          title={
+            multiSel.size >= 2
+              ? `選択した ${multiSel.size} 件だけを整列（他は固定）`
+              : '自動整列（依存で段組み・レーンで縦配置）'
+          }
+          aria-label={multiSel.size >= 2 ? '選択を整列' : '自動整列'}
         >
           <Icons.Wand />
         </button>
@@ -1212,6 +1371,37 @@ export function FlowCanvas() {
                     {e.label}
                   </text>
                 )}
+                {/* B3: 選択中の矢印の両端に掴み手。ドラッグして別の工程/制御へ付け替える。 */}
+                {sel?.kind === 'edge' && sel.id === e.id && route.points.length >= 2 && (
+                  <>
+                    <circle
+                      className="edge-endpoint"
+                      cx={route.points[0]!.x}
+                      cy={route.points[0]!.y}
+                      r={6}
+                      onPointerDown={(ev) => {
+                        ev.stopPropagation();
+                        const a = route.points[0]!;
+                        setEdgeDrag({ edgeId: e.id, end: 'source', x: a.x, y: a.y });
+                      }}
+                    >
+                      <title>始点をドラッグして接続元を変更</title>
+                    </circle>
+                    <circle
+                      className="edge-endpoint"
+                      cx={route.points[route.points.length - 1]!.x}
+                      cy={route.points[route.points.length - 1]!.y}
+                      r={6}
+                      onPointerDown={(ev) => {
+                        ev.stopPropagation();
+                        const b = route.points[route.points.length - 1]!;
+                        setEdgeDrag({ edgeId: e.id, end: 'target', x: b.x, y: b.y });
+                      }}
+                    >
+                      <title>終点をドラッグして接続先を変更</title>
+                    </circle>
+                  </>
+                )}
               </g>
             );
           })}
@@ -1225,6 +1415,32 @@ export function FlowCanvas() {
               className={`edge connecting${dropTargetId ? ' on-target' : ''}`}
               markerEnd="url(#arrow)"
             />
+          )}
+
+          {/* B3: エッジ端点ドラッグ中のプレビュー（固定端 → カーソル）。 */}
+          {edgeDrag &&
+            (() => {
+              const e = view.edges[edgeDrag.edgeId];
+              const route = e ? routeOf(e) : undefined;
+              if (!route || route.points.length < 2) return null;
+              const fixed = edgeDrag.end === 'target' ? route.points[0]! : route.points[route.points.length - 1]!;
+              return (
+                <line
+                  x1={fixed.x}
+                  y1={fixed.y}
+                  x2={edgeDrag.x}
+                  y2={edgeDrag.y}
+                  className={`edge connecting${edgeDropTargetId ? ' on-target' : ''}`}
+                  markerEnd="url(#arrow)"
+                />
+              );
+            })()}
+
+          {/* 空白上では「＋ 新しい工程」を予告（離すと作成＆接続される） */}
+          {conn && connEnd && !dropTargetId && (
+            <text x={connEnd.cx + 12} y={connEnd.cy - 10} className="conn-ghost">
+              ＋ 新しい工程
+            </text>
           )}
 
           {/* キーボード接続モード: 起点 → 現候補のプレビュー矢印 */}
@@ -1349,7 +1565,13 @@ export function FlowCanvas() {
                   : kbCandSet?.has(n.id)
                     ? ' droppable'
                     : ''
-              : '';
+              : edgeDrag
+                ? n.id === edgeDropTargetId
+                  ? ' droppable drop-active'
+                  : n.kind === 'task' || n.kind === 'control'
+                    ? ' droppable'
+                    : ''
+                : '';
           const activate = () => {
             if (n.kind === 'task') {
               if (n.taskId === selectedTaskId) {
@@ -1573,13 +1795,15 @@ export function FlowCanvas() {
                   </button>
                 </>
               )}
-              {connectable && (
-                <span
-                  className="handle"
-                  title="ドラッグして他の工程へ矢印を引く（前後関係を登録）"
-                  onPointerDown={(e) => startConnect(n, e)}
-                />
-              )}
+              {connectable &&
+                (['top', 'right', 'bottom', 'left'] as const).map((edge) => (
+                  <span
+                    key={edge}
+                    className={`handle handle-${edge}`}
+                    title="ドラッグして他の工程へ矢印を引く（空白で離すと新規工程を作成）"
+                    onPointerDown={(e) => startConnect(n, e, edge)}
+                  />
+                ))}
               {deletable && (
                 <button
                   className="del"
@@ -1677,7 +1901,27 @@ export function FlowCanvas() {
                 className="lane-label"
                 style={{ top: box.top * scale, height: box.height * scale }}
               >
-                {box.lane.title}
+                {box.lane.assigneeId ? (
+                  <button
+                    className="lane-rename"
+                    title="クリックで担当名を変更（この担当の全工程に反映）"
+                    aria-label={`担当「${box.lane.title}」の名称を変更`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={async () => {
+                      const name = await useUI.getState().promptText({
+                        title: '担当（部署 / 個人）の名称変更',
+                        defaultValue: box.lane.title,
+                        placeholder: '担当名',
+                        confirmLabel: '変更',
+                      });
+                      if (name) renameAssignee(box.lane.assigneeId!, name);
+                    }}
+                  >
+                    {box.lane.title}
+                  </button>
+                ) : (
+                  box.lane.title
+                )}
                 {boxes.length > 1 && (
                   <span className="lane-reorder">
                     <button

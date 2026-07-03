@@ -14,8 +14,9 @@ export function collectIoNames(project: Project): string[] {
   return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
 }
 
-// 「前工程」に設定できる候補。同じ親・同じ粒度の兄弟のうち、既に前後関係(どちら向きでも)が
-// 張られているものを除外して order 順に返す(表セレクトとパレットの引数コマンドで共用)。
+// 「前工程」に設定できる候補。同じ粒度の工程（別の親グループも可）のうち、既に前後関係
+// (どちら向きでも)が張られているものを除外して order 順に返す(表セレクトとパレットの引数
+// コマンドで共用)。粒度跨ぎは従来どおり除外＝大工程の接続から導出されるブリッジに委ねる。
 export function prevCandidates(project: Project, taskId: Id): ProcessTask[] {
   const t = project.core.tasks[taskId];
   if (!t) return [];
@@ -26,12 +27,31 @@ export function prevCandidates(project: Project, taskId: Id): ProcessTask[] {
     .filter(
       (o) =>
         o.id !== taskId &&
-        (o.parentId ?? undefined) === (t.parentId ?? undefined) &&
         o.level === t.level &&
         !predIds.has(o.id) &&
         !succIds.has(o.id),
     )
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+}
+
+// 前工程候補を親グループ別に分ける（同粒度の別グループも候補に入るようになったため、
+// セレクトで「どのグループの工程か」を optgroup で見分けられるようにする用途）。
+// 親が初めて現れた順を保ち、各グループ内は渡された候補順（order→id）を維持する。
+export function groupPrevCandidates(
+  candidates: ProcessTask[],
+): { parentId: Id | undefined; tasks: ProcessTask[] }[] {
+  const order: (Id | undefined)[] = [];
+  const map = new Map<Id | undefined, ProcessTask[]>();
+  for (const o of candidates) {
+    const k = o.parentId ?? undefined;
+    const arr = map.get(k);
+    if (arr) arr.push(o);
+    else {
+      map.set(k, [o]);
+      order.push(k);
+    }
+  }
+  return order.map((parentId) => ({ parentId, tasks: map.get(parentId)! }));
 }
 
 // 「＋前工程」セレクトの候補を行別に引けるルックアップを 1 回の走査で作る。
@@ -46,9 +66,9 @@ export function buildPrevCandidateIndex(project: Project): (taskId: Id) => Proce
     linked.add(`${d.from}\u0000${d.to}`);
     linked.add(`${d.to}\u0000${d.from}`);
   }
-  // 同じ親・同じ粒度のグループに分け、prevCandidates と同じ順(order→id)に整列しておく。
+  // 同じ粒度のグループ（親は問わない）に分け、prevCandidates と同じ順(order→id)に整列しておく。
   const groups = new Map<string, ProcessTask[]>();
-  const groupKey = (t: ProcessTask) => `${t.parentId ?? ''}\u0000${t.level}`;
+  const groupKey = (t: ProcessTask) => `${t.level}`;
   for (const t of Object.values(project.core.tasks)) {
     const key = groupKey(t);
     const arr = groups.get(key);

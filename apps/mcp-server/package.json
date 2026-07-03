@@ -1,0 +1,32 @@
+{
+  "name": "@gantt-flow/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "gantt-flow の MCP サーバ: 工程表/業務フローを AI から読み書きする（@gantt-flow/core を stdio で公開）。",
+  "bin": {
+    "gantt-flow-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gantt-flow/core": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

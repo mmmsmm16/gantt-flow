@@ -171,4 +171,9 @@ describe('resolveEditNavTarget: 編集中の Enter/Tab セル移動(移動先の
     expect(resolveEditNavTarget(grid, { taskId: 'zz', colKey: 'name' }, 'down', () => true)).toBeNull();
     expect(resolveEditNavTarget(grid, { taskId: 'r1', colKey: 'zz' }, 'right', () => true)).toBeNull();
   });
+
+  it('最終行の down は移動先なし(null)＝末尾ゴースト行(onEditNavPastEnd)を起動する境界', () => {
+    // handleEditNav はこの null を見て、Enter かつ down なら onEditNavPastEnd() を呼ぶ。
+    expect(resolveEditNavTarget(grid, { taskId: 'r3', colKey: 'name' }, 'down', () => true)).toBeNull();
+  });
 });

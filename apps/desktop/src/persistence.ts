@@ -109,6 +109,12 @@ let lastKnownMtime: string | null = null;
 let lockPath: string | null = null;
 let lockOwner: LockInfo | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+// 外部変更ウォッチ（片方向ライブ同期）。savingNow は自分の保存中フラグ、
+// lastSeenExternalMtime は「外部変更として通知済みの mtime」（同一変更の二重通知を防ぐ）。
+let savingNow = false;
+let watchTimer: ReturnType<typeof setInterval> | undefined;
+let watchBusy = false;
+let lastSeenExternalMtime: string | null = null;
 
 const basename = (p: string): string => p.split(/[\\/]/).pop() || p;
 
@@ -221,6 +227,7 @@ export function forgetFileHandle(): void {
   fileHandle = null;
   filePath = null;
   lastKnownMtime = null;
+  lastSeenExternalMtime = null;
   void releaseHeldLock();
 }
 
@@ -267,6 +274,18 @@ export function saveProjectToFile(
 }
 
 async function doSaveProjectToFile(
+  project: Project,
+  opts: { saveAs?: boolean; force?: boolean },
+): Promise<SaveOutcome> {
+  savingNow = true; // 外部変更ウォッチャに「今の mtime 変化は自分の保存」と知らせる
+  try {
+    return await doSave(project, opts);
+  } finally {
+    savingNow = false;
+  }
+}
+
+async function doSave(
   project: Project,
   opts: { saveAs?: boolean; force?: boolean },
 ): Promise<SaveOutcome> {
@@ -347,6 +366,46 @@ export function downloadProjectJson(project: Project): string {
   const name = `${safeName(project.meta.title)}${PROJECT_EXT}`;
   download(name, serializeProject(project), 'application/json');
   return name;
+}
+
+// ---- 外部変更の監視（片方向ライブ同期。Tauri のみ・ポーリング） ----
+// 別プロセス（MCP サーバ等）が現在開いているファイルを書き換えたら検知して onChange へ渡す。
+// 自分の保存とは lastKnownMtime / savingNow で区別する。ブラウザは絶対パスを持たないため対象外。
+
+/** 監視を開始（既存の監視は止めて張り替え）。intervalMs ごとに mtime を比較する。 */
+export function startExternalWatch(onChange: (project: Project) => void, intervalMs = 1000): void {
+  if (!isTauri()) return;
+  stopExternalWatch();
+  watchTimer = setInterval(() => void pollExternal(onChange), intervalMs);
+}
+
+export function stopExternalWatch(): void {
+  if (watchTimer !== undefined) clearInterval(watchTimer);
+  watchTimer = undefined;
+}
+
+// 外部変更を「反映/無視」と確定したら呼ぶ。直近に観測した外部 mtime を既知へ昇格させ、
+// 同じ変更で再び発火しないようにする（保存時の競合検知の基準も更新される）。
+export function acknowledgeExternalChange(): void {
+  if (lastSeenExternalMtime !== null) lastKnownMtime = lastSeenExternalMtime;
+}
+
+async function pollExternal(onChange: (project: Project) => void): Promise<void> {
+  if (watchBusy || savingNow || filePath === null || lastKnownMtime === null) return;
+  watchBusy = true;
+  try {
+    const mtime = await statMtime(filePath);
+    // 変化なし / 自分の保存後で既知 / 既に通知済みの同一変更 ならスキップ。
+    if (mtime === null || mtime === lastKnownMtime || mtime === lastSeenExternalMtime) return;
+    const text = await invoke<string>('open_project', { path: filePath });
+    const project = deserializeProject(text); // 書き込み途中の壊れた中間状態なら throw → 次回拾う
+    lastSeenExternalMtime = mtime;
+    onChange(project);
+  } catch {
+    /* 監視はベストエフォート（読み取り失敗は次のポーリングで再試行） */
+  } finally {
+    watchBusy = false;
+  }
 }
 
 // ---- 出力（Phase4） ----
@@ -544,6 +603,7 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
     fileHandle = null;
     filePath = path;
     lastKnownMtime = mtime;
+    lastSeenExternalMtime = null; // 開き直しで前ファイルの観測値を持ち越さない
     return project;
   }
   if (typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function') {

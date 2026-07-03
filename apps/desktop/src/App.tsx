@@ -25,6 +25,9 @@ import {
   currentFileName,
   listRecentFiles,
   recentFilesSupported,
+  startExternalWatch,
+  stopExternalWatch,
+  acknowledgeExternalChange,
 } from './persistence';
 import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
@@ -461,6 +464,29 @@ export function App() {
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // 外部（MCP/AI など別プロセス）のファイル更新をポーリング検知して反映する片方向ライブ同期
+  //（Tauri のみ）。未保存(dirty)でないときは自動反映、未保存があるときは破棄確認を挟む。
+  useEffect(() => {
+    startExternalWatch(async (incoming) => {
+      if (!useApp.getState().dirty) {
+        useApp.getState().reloadFromExternal(incoming);
+        acknowledgeExternalChange();
+        useUI.getState().toast('外部の変更を反映しました（AI 編集など）。', 'success');
+        return;
+      }
+      const ok = await useUI.getState().confirm({
+        title: '外部でファイルが変更されました',
+        message:
+          '別のプロセス（AI/MCP など）がこのファイルを更新しました。再読込すると、こちらの未保存の変更は失われます。',
+        confirmLabel: '再読込する',
+        cancelLabel: 'そのまま編集',
+      });
+      if (ok) useApp.getState().reloadFromExternal(incoming);
+      acknowledgeExternalChange(); // 再読込しない場合も同じ変更を二度は問わない
+    });
+    return () => stopExternalWatch();
   }, []);
 
   // 起動時: 自動退避データがあれば復元を提案（クラッシュ/誤クローズからの復旧）。
