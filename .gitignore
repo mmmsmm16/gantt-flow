@@ -14,3 +14,10 @@ ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/node_modules
+
+
+.claude/agents/
+.claude/hooks
+.claude/skills
+
+docs/学習ロードマップ_2026-06-15.md
