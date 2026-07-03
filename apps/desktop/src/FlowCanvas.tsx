@@ -98,7 +98,7 @@ export function FlowCanvas() {
   // 工程ノードの角の＋から I/O を追加（名前を尋ねてから登録。表/インスペクタにも反映）。
   const addIoPrompt = async (taskId: string, io: 'inputs' | 'outputs') => {
     const name = await useUI.getState().promptText({
-      title: io === 'inputs' ? 'インプットを追加' : 'アウトプットを追加',
+      title: io === 'inputs' ? '入力を追加' : '出力を追加',
       placeholder: '帳票 / 情報の名称',
       confirmLabel: '追加',
     });
@@ -1921,8 +1921,8 @@ export function FlowCanvas() {
                 <>
                   <button
                     className="io-add io-add-in"
-                    title="インプットを追加（左上）"
-                    aria-label="インプットを追加"
+                    title="入力を追加（左上）"
+                    aria-label="入力を追加"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1933,8 +1933,8 @@ export function FlowCanvas() {
                   </button>
                   <button
                     className="io-add io-add-out"
-                    title="アウトプットを追加（右下）"
-                    aria-label="アウトプットを追加"
+                    title="出力を追加（右下）"
+                    aria-label="出力を追加"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -2225,8 +2225,8 @@ export function FlowCanvas() {
               <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
                 <ContextItem label="名前を変更" action="flow.rename" onClick={() => setEditingTaskId(taskId)} />
                 <ContextItem label="ここから接続" action="flow.connect" onClick={() => startKbConnect(n.id)} />
-                <ContextItem label="インプットを追加" action="flow.addInput" onClick={() => void addIoPrompt(taskId, 'inputs')} />
-                <ContextItem label="アウトプットを追加" action="flow.addOutput" onClick={() => void addIoPrompt(taskId, 'outputs')} />
+                <ContextItem label="入力を追加" action="flow.addInput" onClick={() => void addIoPrompt(taskId, 'inputs')} />
+                <ContextItem label="出力を追加" action="flow.addOutput" onClick={() => void addIoPrompt(taskId, 'outputs')} />
                 <div className="menu-sep" role="separator" />
                 <ContextItem
                   label={n.pinned ? '固定を解除（整列で動くようにする）' : '固定（整列で動かさない）'}
