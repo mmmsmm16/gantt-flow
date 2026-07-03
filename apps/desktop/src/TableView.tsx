@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
 import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
 import { useApp } from './store';
@@ -132,9 +132,14 @@ export function TableView() {
     null,
   );
   const nameRefs = useRef<Map<Id, HTMLInputElement>>(new Map());
-  useEffect(() => {
+  // 新規作成直後の作業名へ即フォーカス＆全選択（描画直後に同期実行＝空振り防止）。
+  useLayoutEffect(() => {
     if (!focusId) return;
-    nameRefs.current.get(focusId)?.focus();
+    const el = nameRefs.current.get(focusId);
+    if (el) {
+      el.focus();
+      el.select();
+    }
     setFocusId(null);
   }, [focusId, rows.length]);
 
@@ -542,14 +547,15 @@ export function TableView() {
                           min={0}
                           step={0.5}
                           defaultValue={detail?.effortMinutes != null ? detail.effortMinutes / 60 : ''}
-                          placeholder="h"
+                          placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
                             const res = validateEffort(e.target.value);
                             if (!res.ok) {
-                              // 不正値: 打った文字は残し、セルを不正表示にして commit だけブロック（修正を促す）。
+                              // 不正値: 打った文字は残し、セルを不正表示にして commit だけブロック（理由はトーストで即提示）。
                               markEffortInvalid(e.target, res.message);
+                              useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
                               return;
                             }
                             clearEffortInvalid(e.target);

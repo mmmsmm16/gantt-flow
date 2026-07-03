@@ -57,6 +57,41 @@ describe('reloadFromExternal（外部変更の片方向ライブ反映）', () =
   });
 });
 
+describe('B: reconnectEdge / renameAssignee（フロー編集の磨き込み）', () => {
+  const viewOf = (s: ReturnType<typeof createAppStore>) =>
+    findView(s.getState().project, s.getState().level, s.getState().scopeParentId)!;
+  const nodeIdOf = (s: ReturnType<typeof createAppStore>, taskId: string) =>
+    Object.values(viewOf(s).nodes).find((n) => n.kind === 'task' && n.taskId === taskId)!.id;
+
+  it('reconnectEdge: 導出エッジの終点付け替えで依存が A→B から A→C へ変わる', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    s.getState().addTask('C');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    const c = idByName(s, 'C');
+    s.getState().connect(nodeIdOf(s, a), nodeIdOf(s, b)); // 依存 A→B（導出エッジ生成）
+    expect(depPairs(s)).toContain('A→B');
+    const edge = Object.values(viewOf(s).edges).find((e) => e.derivedFromDependencyId)!;
+    s.getState().reconnectEdge(edge.id, 'target', nodeIdOf(s, c));
+    expect(depPairs(s)).toContain('A→C');
+    expect(depPairs(s)).not.toContain('A→B');
+  });
+
+  it('renameAssignee: 担当名がレーン名と工程に反映される', () => {
+    const s = createAppStore();
+    s.getState().addTask('受注');
+    const a = idByName(s, '受注');
+    s.getState().setAssigneeByName(a, '営業');
+    const asgId = s.getState().project.core.tasks[a]!.assigneeId!;
+    s.getState().renameAssignee(asgId, '営業部');
+    expect(s.getState().project.core.assignees[asgId]!.name).toBe('営業部');
+    const lane = Object.values(viewOf(s).lanes).find((l) => l.assigneeId === asgId);
+    expect(lane?.title).toBe('営業部');
+  });
+});
+
 describe('app store（command → reconcile → history）', () => {
   it('作業追加でフローにノードが出て、undo/redo できる', () => {
     const s = createAppStore();

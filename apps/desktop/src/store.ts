@@ -246,7 +246,8 @@ export interface AppState {
   copyAsIsToToBe: (taskId: Id) => void;
   /** To-Be で新設する工程(lifecycle='added')を作る。As-Is には出ない。作成 ID を返す。 */
   addToBeTask: () => Id | undefined;
-  moveNode: (nodeId: FlowNodeId, x: number, y: number) => void;
+  /** フロー上のドラッグ確定。別レーンへ落ちて担当が書き戻った場合は新しい担当名を返す（UI 通知用）。 */
+  moveNode: (nodeId: FlowNodeId, x: number, y: number) => string | undefined;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
   moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
   /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。作成 ID を返す。 */
@@ -272,12 +273,17 @@ export interface AppState {
   /** 付箋のテキストを変更。 */
   updateComment: (nodeId: FlowNodeId, text: string) => void;
   /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
-  tidyFlow: () => void;
+  /** 自動整列。selectedIds を渡すと、その工程ノードだけを整列し他は固定（部分整列）。 */
+  tidyFlow: (selectedIds?: FlowNodeId[]) => void;
   /** レーンの高さを変更（手動リサイズ）。下のレーンのノードを連動シフトして整合を保つ。 */
   setLaneHeight: (laneId: Id, height: number) => void;
   /** スイムレーンを 1 つ上(-1)/下(+1)へ入れ替える。中のノードも連動して移動。 */
   moveLane: (laneId: Id, dir: -1 | 1) => void;
   connect: (source: FlowNodeId, target: FlowNodeId) => void;
+  /** 既存エッジの端点を別ノードへ付け替える（再接続）。導出エッジは依存の付け替え、手動エッジは端点変更。 */
+  reconnectEdge: (edgeId: Id, end: 'source' | 'target', newNodeId: FlowNodeId) => void;
+  /** 担当（部署/個人）の名称変更。レーン名・各工程の担当表示に反映（reconcile）。 */
+  renameAssignee: (assigneeId: Id, name: string) => void;
   setEdgeLabel: (edgeId: Id, label: string) => void;
   /** 工程ノードの固定をトグル（固定すると整列で動かない）。 */
   toggleNodePin: (nodeId: FlowNodeId) => void;
@@ -773,11 +779,12 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           history.push(reconcileProject(p, uuid));
           // 書き戻った工程を記録（表側の担当セルの一時ハイライト）。
           sync({ lastAssigneeSync: { ids: [node.taskId], seq: get().lastAssigneeSync.seq + 1 } });
-          return;
+          return p.core.assignees[lane.assigneeId]?.name; // 新しい担当名を返す（UI 通知用）
         }
       }
       history.push(p);
       sync();
+      return undefined;
     },
 
     // 複数ノードをまとめて平行移動（範囲選択した要素を一括ドラッグ）。
@@ -1080,9 +1087,19 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         if (!n || n.kind !== 'comment' || n.text === t) return false;
         n.text = t;
       }),
-    tidyFlow: () =>
+    tidyFlow: (selectedIds) =>
       editView((view, p) => {
-        p.flow.byLevel[p.flow.byLevel.indexOf(view)] = tidyFlowView(p.core, p.details, view);
+        // 部分整列: 選択した工程ノード以外を固定扱い（位置・レーン高さを保つ）。
+        let keepFixed: Set<FlowNodeId> | undefined;
+        if (selectedIds && selectedIds.length) {
+          const selSet = new Set(selectedIds);
+          keepFixed = new Set(
+            Object.values(view.nodes)
+              .filter((n) => n.kind === 'task' && !selSet.has(n.id))
+              .map((n) => n.id),
+          );
+        }
+        p.flow.byLevel[p.flow.byLevel.indexOf(view)] = tidyFlowView(p.core, p.details, view, keepFixed);
       }),
     setLaneHeight: (laneId, height) =>
       editView((view) => {
@@ -1150,6 +1167,56 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const n = view.nodes[nodeId];
         if (n && n.kind === 'task') n.pinned = !n.pinned;
       }),
+    // 既存エッジの端点付け替え。導出エッジ＝依存(from/to)の付け替え、手動エッジ＝端点の差し替え。
+    reconnectEdge: (edgeId, end, newNodeId) => {
+      const { level, scopeParentId } = get();
+      const view = findView(get().project, level, scopeParentId);
+      const edge = view?.edges[edgeId];
+      const newNode = view?.nodes[newNodeId];
+      if (!view || !edge || !newNode) return;
+      if (newNode.kind !== 'task' && newNode.kind !== 'control') return;
+      const otherEndId = end === 'source' ? edge.target : edge.source;
+      if (newNodeId === otherEndId) return; // 自己ループ防止
+      if (edge.derivedFromDependencyId) {
+        // 依存の付け替え（両端が工程である必要）。
+        const dep = get().project.core.dependencies[edge.derivedFromDependencyId];
+        const otherNode = view.nodes[otherEndId];
+        if (!dep || newNode.kind !== 'task' || otherNode?.kind !== 'task') return;
+        const newFrom = end === 'source' ? newNode.taskId : dep.from;
+        const newTo = end === 'target' ? newNode.taskId : dep.to;
+        if (newFrom === newTo) return;
+        if (hasDependency(newFrom, newTo)) {
+          commit(cRemoveDependency(get().project, dep.id)); // 既存と重複 → 旧を畳むだけ
+          return;
+        }
+        commit(cAddDependency(cRemoveDependency(get().project, dep.id), newFrom, newTo, uuid));
+        return;
+      }
+      // 手動（pinned）エッジ: 端点を差し替え（同一接続が既にあれば no-op）。
+      const dup = Object.values(view.edges).some(
+        (e) =>
+          e.id !== edgeId &&
+          (end === 'source'
+            ? e.source === newNodeId && e.target === edge.target
+            : e.source === edge.source && e.target === newNodeId),
+      );
+      if (dup) return;
+      editView((v) => {
+        const e = v.edges[edgeId];
+        if (!e) return false;
+        if (end === 'source') e.source = newNodeId;
+        else e.target = newNodeId;
+      });
+    },
+    renameAssignee: (assigneeId, name) => {
+      const trimmed = name.trim();
+      const cur = get().project.core.assignees[assigneeId];
+      if (!cur || !trimmed || cur.name === trimmed) return;
+      const p = structuredClone(get().project);
+      const a = p.core.assignees[assigneeId];
+      if (a) a.name = trimmed; // reconcile でレーン名(title)・各工程の担当表示へ反映
+      commit(p);
+    },
     setEdgeLabel: (edgeId, label) =>
       editView((view) => {
         const e = view.edges[edgeId];

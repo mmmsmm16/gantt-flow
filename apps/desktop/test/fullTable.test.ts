@@ -7,7 +7,7 @@ import { FT_COLUMNS } from '../src/FullTable';
 describe('FullTable の列定義（FT_COLUMNS）', () => {
   it('表示順がリファクタ前の COL_ORDER と一致する', () => {
     expect(FT_COLUMNS.map((c) => c.key)).toEqual([
-      'no', 'large', 'medium', 'small', 'detail', 'assignee', 'prev', 'effort',
+      'no', 'large', 'medium', 'small', 'detail', 'assignee', 'status', 'prev', 'effort',
       'how', 'system', 'inputs', 'outputs', 'issue', 'measure', 'note', 'volume',
       'exception', 'automation', 'dataLink', 'regulation', 'difficulty', 'act',
     ]);
@@ -15,7 +15,7 @@ describe('FullTable の列定義（FT_COLUMNS）', () => {
 
   it('既定の列幅がリファクタ前の DEFAULT_W と一致する', () => {
     expect(Object.fromEntries(FT_COLUMNS.map((c) => [c.key, c.width]))).toEqual({
-      no: 48, large: 110, medium: 110, small: 110, detail: 110, assignee: 110, prev: 150,
+      no: 48, large: 110, medium: 110, small: 110, detail: 110, assignee: 110, status: 104, prev: 150,
       effort: 64, how: 200, system: 170, inputs: 168, outputs: 168, issue: 200, measure: 200,
       note: 200, volume: 130, exception: 180, automation: 108, dataLink: 140, regulation: 140,
       difficulty: 62, act: 96,
@@ -29,6 +29,7 @@ describe('FullTable の列定義（FT_COLUMNS）', () => {
       ['small', '小工程'],
       ['detail', '詳細工程'],
       ['assignee', '担当'],
+      ['status', '状況'],
       ['prev', '前工程'],
       ['effort', '工数'],
       ['how', '業務内容'],
@@ -49,7 +50,7 @@ describe('FullTable の列定義（FT_COLUMNS）', () => {
 
   it('列カーソル対象（cursorable）がリファクタ前の手書きリストと同順で一致する', () => {
     expect(FT_COLUMNS.filter((c) => c.cursorable).map((c) => c.key)).toEqual([
-      'assignee', 'prev', 'effort', 'how', 'system', 'inputs', 'outputs',
+      'assignee', 'status', 'prev', 'effort', 'how', 'system', 'inputs', 'outputs',
       'issue', 'measure', 'note', 'volume', 'exception', 'automation',
       'dataLink', 'regulation', 'difficulty',
     ]);
@@ -57,7 +58,7 @@ describe('FullTable の列定義（FT_COLUMNS）', () => {
 
   it('並べ替え可能列がリファクタ前の SORTABLE と一致する', () => {
     expect(new Set(FT_COLUMNS.filter((c) => c.sortable).map((c) => c.key))).toEqual(
-      new Set(['large', 'medium', 'small', 'detail', 'assignee', 'effort', 'difficulty', 'automation']),
+      new Set(['large', 'medium', 'small', 'detail', 'assignee', 'status', 'effort', 'difficulty', 'automation']),
     );
   });
 

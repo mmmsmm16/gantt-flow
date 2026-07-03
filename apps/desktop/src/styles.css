@@ -1201,6 +1201,24 @@ button.danger:hover {
 .lane-mv:disabled {
   opacity: 0.3;
 }
+/* 担当名（レーン）をクリックで変更。見た目は通常のラベル、ホバーで点線下線＝編集可能の合図。 */
+.lane-rename {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  font: inherit;
+  color: inherit;
+  cursor: text;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lane-rename:hover,
+.lane-rename:focus-visible {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
 
 .node {
   position: absolute;
@@ -1733,6 +1751,16 @@ button.danger:hover {
 .edge.connecting.on-target {
   stroke-width: 3;
   stroke-dasharray: none;
+}
+/* B3: 選択中の矢印の端点（掴んでドラッグ＝接続先を付け替え）。白縁で背景と分離。 */
+.edge-endpoint {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.edge-endpoint:hover {
+  fill: var(--accent-strong);
 }
 
 /* === 接続ドラッグ中の落下先ガイド ===
