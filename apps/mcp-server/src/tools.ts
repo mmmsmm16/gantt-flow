@@ -103,8 +103,8 @@ const TobePatchShape = z.object({
   assigneeId: z.string().optional(),
 });
 const BatchOpSchema = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('add_task'), ref: z.string().optional(), name: z.string(), level: Level, parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional() }),
-  z.object({ op: z.literal('upsert_task'), ref: z.string().optional(), name: z.string(), level: Level.optional(), parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional() }),
+  z.object({ op: z.literal('add_task'), ref: z.string().optional(), name: z.string(), level: Level, parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない') }),
+  z.object({ op: z.literal('upsert_task'), ref: z.string().optional(), name: z.string(), level: Level.optional(), parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない') }),
   z.object({ op: z.literal('add_dependency'), from: z.string(), to: z.string() }),
   z.object({ op: z.literal('set_detail'), task: z.string(), patch: DetailPatchShape }),
   z.object({ op: z.literal('set_tobe'), task: z.string(), patch: TobePatchShape }),
@@ -249,14 +249,15 @@ export function registerTools(server: McpServer, ws: Workspace): void {
         parentId: z.string().optional(),
         assignee: z.string().optional().describe('担当名（無ければ部署として自動作成）'),
         assigneeId: z.string().optional(),
+        kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない'),
         detail: DetailPatchShape.optional().describe('工数(分)/手順(how)/難易度 等の As-Is 詳細'),
       },
     },
-    ({ name, level, parentId, assignee, assigneeId, detail }) =>
+    ({ name, level, parentId, assignee, assigneeId, kind, detail }) =>
       run(async () => {
         const s = ws.current();
         const ops: BatchOp[] = [
-          { op: 'upsert_task', ref: '_t', name, level, parent: parentId, assignee, assigneeId },
+          { op: 'upsert_task', ref: '_t', name, level, parent: parentId, assignee, assigneeId, kind },
         ];
         if (detail && Object.keys(detail).length) ops.push({ op: 'set_detail', task: '_t', patch: detail });
         const result = runBatch(s.project, ops);
@@ -559,14 +560,15 @@ export function registerTools(server: McpServer, ws: Workspace): void {
         level: Level,
         parentId: z.string().optional(),
         assigneeId: z.string().optional(),
+        kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない'),
       },
     },
-    ({ name, level, parentId, assigneeId }) =>
+    ({ name, level, parentId, assigneeId, kind }) =>
       run(async () => {
         const s = ws.current();
         if (parentId) requireTask(s.project, parentId);
         const id = uuid();
-        await s.apply((p) => addTask(p, { name, level, parentId, assigneeId, id }, uuid));
+        await s.apply((p) => addTask(p, { name, level, parentId, assigneeId, id, kind }, uuid));
         return `追加しました {id:${id}}\n${formatTaskTree(s.project)}`;
       }),
   );
