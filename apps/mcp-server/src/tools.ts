@@ -104,7 +104,7 @@ const TobePatchShape = z.object({
 });
 const BatchOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add_task'), ref: z.string().optional(), name: z.string(), level: Level, parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない') }),
-  z.object({ op: z.literal('upsert_task'), ref: z.string().optional(), name: z.string(), level: Level.optional(), parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない') }),
+  z.object({ op: z.literal('upsert_task'), ref: z.string().optional(), name: z.string(), level: Level.optional(), parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない。新規作成時のみ適用、既存工程の kind は変更しない') }),
   z.object({ op: z.literal('add_dependency'), from: z.string(), to: z.string() }),
   z.object({ op: z.literal('set_detail'), task: z.string(), patch: DetailPatchShape }),
   z.object({ op: z.literal('set_tobe'), task: z.string(), patch: TobePatchShape }),
@@ -242,14 +242,18 @@ export function registerTools(server: McpServer, ws: Workspace): void {
     {
       title: '工程を冪等に作成/更新',
       description:
-        '同じ親に同名の工程があれば更新、無ければ作成（冪等）。議事録の追記や再実行に安全。詳細(工数・手順・難易度など)も同時に設定できる。',
+        '同じ親に同名の工程があれば更新、無ければ作成（冪等）。議事録の追記や再実行に安全。詳細(工数・手順・難易度など)も同時に設定できる。' +
+        '既存工程を更新する場合、level/assignee は上書きするが kind は変更しない（新規作成時のみ適用）。',
       inputSchema: {
         name: z.string(),
         level: Level.optional().describe('新規作成時の粒度（省略で medium）'),
         parentId: z.string().optional(),
         assignee: z.string().optional().describe('担当名（無ければ部署として自動作成）'),
         assigneeId: z.string().optional(),
-        kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない'),
+        kind: z
+          .enum(['milestone'])
+          .optional()
+          .describe('節目マーカー。子・出依存・工数を持たない。新規作成時のみ適用、既存工程の kind は変更しない'),
         detail: DetailPatchShape.optional().describe('工数(分)/手順(how)/難易度 等の As-Is 詳細'),
       },
     },

@@ -1,5 +1,7 @@
 # フェーズ帯（大工程ヘッダストリップ）実装計画
 
+> **この計画は実装後にユーザ評価で取りやめ・revert 済み（2026-07-04）**。経緯は `../specs/2026-07-03-phase-strip-design.md` を参照。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** フロー図上部に大工程（フェーズ）ごとの横帯を常設し、どの領域がどのフェーズか一目で分かるようにする（画面＋SVG エクスポート両対応）。

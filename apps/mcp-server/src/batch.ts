@@ -111,6 +111,7 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           const existing = findByParentAndName(p, parentId, o.name);
           const assigneeId = resolveAssignee(o.assigneeId, o.assignee);
           if (existing) {
+            // kind は新規作成時のみ適用。既存工程の kind は変更しない（core に kind 遷移コマンドが無いため）。
             if (o.level) p = setTaskLevel(p, existing, o.level);
             if (assigneeId) p = setAssignee(p, existing, assigneeId);
             if (o.ref) aliases[o.ref] = existing;
