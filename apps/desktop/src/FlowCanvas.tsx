@@ -1357,10 +1357,12 @@ export function FlowCanvas() {
 
   // roving focus / aria-activedescendant: いま選択中のフォーカス可能ノード(option)の DOM id。
   // 工程ノードは selectedTaskId のノード、制御/付箋は フロー固有選択(sel)。id は fn- 接頭辞で衝突回避。
-  // マイルストーンは option ではなく菱形(role=button)で描くので activedescendant からは除く。
+  // マイルストーン・課題ノードは option ではなく role=button/none で描くので activedescendant からは除く。
   const selectedNodeId: FlowNodeId | undefined =
     sel?.kind === 'node'
-      ? (sel.id as FlowNodeId)
+      ? view.nodes[sel.id]?.kind === 'task' || view.nodes[sel.id]?.kind === 'control' || view.nodes[sel.id]?.kind === 'comment'
+        ? (sel.id as FlowNodeId)
+        : undefined
       : selectedTaskId && !isMilestone(project.core, selectedTaskId)
         ? Object.values(view.nodes).find((o) => o.kind === 'task' && o.taskId === selectedTaskId)?.id
         : undefined;
