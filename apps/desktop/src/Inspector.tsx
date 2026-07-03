@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
@@ -89,6 +89,10 @@ export function Inspector() {
   if (!taskId) return null;
   const task = project.core.tasks[taskId];
   if (!task) return null;
+  // マイルストーンは子工程・担当・工数・I/O・課題を持たない（spec:
+  // docs/superpowers/specs/2026-07-04-milestone-design.md §確定UX）。名前・前工程（対象工程）・
+  // 備考だけに絞る（担当/工数は core が拒否するわけではなく、単に UI 側で入口を出さない）。
+  const ms = isMilestone(project.core, taskId);
   const d = project.details[taskId];
   const assigneeName = task.assigneeId ? project.core.assignees[task.assigneeId]?.name ?? '' : '';
   const LEVEL_JP: Record<ProcessLevel, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
@@ -132,8 +136,10 @@ export function Inspector() {
         <div className="insp-head-main">
           <div className="insp-eyebrow">
             <span className={`lvl-badge lvl-${task.level}`}>{LEVEL_JP[task.level]}</span>
-            <span className="insp-code">No. {computeCodes(project.core)[taskId] ?? task.code ?? '—'}</span>
-            {assigneeName ? (
+            <span className="insp-code">No. {ms ? '—' : computeCodes(project.core)[taskId] ?? task.code ?? '—'}</span>
+            {ms ? (
+              <span className="insp-chip ms-chip">マイルストーン</span>
+            ) : assigneeName ? (
               <span className="insp-chip">{assigneeName}</span>
             ) : (
               <span className="insp-chip warn">未割当</span>
@@ -152,6 +158,8 @@ export function Inspector() {
       </div>
 
       <div className="insp-scroll">
+        {/* マイルストーンは名前(ヘッダ)・前工程(次のセクション)・備考だけに絞る。 */}
+        {!ms && (
         <section>
           <h3>基本</h3>
           <div className="two-col">
@@ -266,10 +274,11 @@ export function Inspector() {
             onBlur={(e) => commitOptText(d?.note, e.target.value, (v) => updateDetail(taskId, { note: v }))}
           />
         </section>
+        )}
 
         <section>
-          <h3>前工程 / 次工程</h3>
-          <label>前工程（この工程の前に行う）</label>
+          <h3>{ms ? '対象工程（前工程）' : '前工程 / 次工程'}</h3>
+          <label>{ms ? 'このマイルストーンまでに終わらせる工程' : '前工程（この工程の前に行う）'}</label>
           {preds.length === 0 && bridgePredsOf.length === 0 && <p className="hint">なし</p>}
           {bridgePredsOf.map((b) => (
             <div className="dep-row derived" key={`br-${b.from}`} title="大工程同士の接続から自動で繋がっています（解除は大工程側の接続を削除）">
@@ -302,40 +311,56 @@ export function Inspector() {
             </select>
           )}
 
-          <label>次工程（この工程の後に行う）</label>
-          {succs.length === 0 && bridgeSuccsOf.length === 0 && <p className="hint">なし</p>}
-          {bridgeSuccsOf.map((b) => (
-            <div className="dep-row derived" key={`bs-${b.to}`} title="大工程同士の接続から自動で繋がっています">
-              <span className="dep-name">⤷ {nameOf(b.to)}</span>
-              <span className="dep-note">親の接続</span>
-            </div>
-          ))}
-          {succs.map((dep) => (
-            <div className="dep-row" key={dep.id}>
-              <span className="dep-name">{nameOf(dep.to)}</span>
-              <button className="x" aria-label="次工程を解除" title="次工程を解除" onClick={() => removeDependency(dep.id)}>
-                ×
-              </button>
-            </div>
-          ))}
-          {depCandidates.length > 0 && (
-            <select
-              className="dep-add"
-              value=""
-              aria-label="次工程を追加"
-              onChange={(e) => {
-                if (e.target.value) addDependency(taskId, e.target.value);
-              }}
-            >
-              <option value="">＋ 次工程を追加…</option>
-              <PrevCandidateOptions
-                candidates={depCandidates}
-                parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
-              />
-            </select>
+          {/* マイルストーンから出る依存は禁止（core ガード）。UI にも次工程の入口は出さない。 */}
+          {!ms && (
+            <>
+              <label>次工程（この工程の後に行う）</label>
+              {succs.length === 0 && bridgeSuccsOf.length === 0 && <p className="hint">なし</p>}
+              {bridgeSuccsOf.map((b) => (
+                <div className="dep-row derived" key={`bs-${b.to}`} title="大工程同士の接続から自動で繋がっています">
+                  <span className="dep-name">⤷ {nameOf(b.to)}</span>
+                  <span className="dep-note">親の接続</span>
+                </div>
+              ))}
+              {succs.map((dep) => (
+                <div className="dep-row" key={dep.id}>
+                  <span className="dep-name">{nameOf(dep.to)}</span>
+                  <button className="x" aria-label="次工程を解除" title="次工程を解除" onClick={() => removeDependency(dep.id)}>
+                    ×
+                  </button>
+                </div>
+              ))}
+              {depCandidates.length > 0 && (
+                <select
+                  className="dep-add"
+                  value=""
+                  aria-label="次工程を追加"
+                  onChange={(e) => {
+                    if (e.target.value) addDependency(taskId, e.target.value);
+                  }}
+                >
+                  <option value="">＋ 次工程を追加…</option>
+                  <PrevCandidateOptions
+                    candidates={depCandidates}
+                    parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
+                  />
+                </select>
+              )}
+            </>
           )}
         </section>
 
+        {ms && (
+          <section>
+            <h3>備考</h3>
+            <textarea
+              defaultValue={d?.note ?? ''}
+              onBlur={(e) => commitOptText(d?.note, e.target.value, (v) => updateDetail(taskId, { note: v }))}
+            />
+          </section>
+        )}
+
+        {!ms && (
         <section>
           <h3>
             インプット / アウトプット
@@ -404,7 +429,9 @@ export function Inspector() {
             </div>
           ))}
         </section>
+        )}
 
+        {!ms && (
         <section>
           <h3>
             課題 / 方策
@@ -457,7 +484,9 @@ export function Inspector() {
             );
           })}
         </section>
+        )}
 
+        {!ms && (
         <section>
           <h3>任意</h3>
           <label>処理件数・ボリューム</label>
@@ -507,8 +536,9 @@ export function Inspector() {
             onBlur={(e) => commitOptText(d?.regulation, e.target.value, (v) => updateDetail(taskId, { regulation: v }))}
           />
         </section>
+        )}
 
-        {tobeEnabled &&
+        {tobeEnabled && !ms &&
           (() => {
             const tb = d?.toBe;
             const removed = tb?.lifecycle === 'removed';

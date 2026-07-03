@@ -63,6 +63,7 @@ import {
   reparentTask as cReparentTask,
   addParallelTask as cAddParallelTask,
   makeParallel as cMakeParallel,
+  isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
 
@@ -197,6 +198,11 @@ export interface AppState {
   addRootTask: (level: ProcessLevel) => Id | undefined;
   /** 子工程を追加し、新しい工程の ID を返す（フォーカス/選択用）。 */
   addChildTask: (parentId: Id) => Id | undefined;
+  /** マイルストーンを追加（現在ビューの level/scope。子工程・担当・工数は持たない）。
+      x,y を渡せばその位置（未紐付け時はそのまま菱形の位置になる）へ、省略時は既定位置に
+      軽く段積みする。表の行追加・フローの追加ボタン・コマンドパレットが同じこのアクションを
+      呼ぶ（作成導線の一本化）。作成 ID を返す。 */
+  addMilestone: (x?: number, y?: number) => Id | undefined;
   removeTask: (taskId: Id) => void;
   setTaskLevel: (taskId: Id, level: ProcessLevel) => void;
   setTaskCode: (taskId: Id, code: string | undefined) => void;
@@ -464,6 +470,40 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       return id;
     },
 
+    // マイルストーン追加: 現在ビューの level/scope に作成（表/フロー/パレットのどこから
+    // 呼んでも同じ位置規則）。reconcile 後に位置を上書きするのは addTaskAt と同じ
+    // 「作成と配置を 1 スナップショットに集約」パターン。
+    addMilestone: (x, y) => {
+      const { level, scopeParentId } = get();
+      const newId = uuid();
+      let p = cAddTask(
+        get().project,
+        { name: '新規マイルストーン', level, parentId: scopeParentId, id: newId, kind: 'milestone' },
+        uuid,
+      );
+      p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
+      const view = findView(p, level, scopeParentId);
+      const node = view
+        ? Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === newId)
+        : undefined;
+      if (node) {
+        if (x != null) {
+          node.x = Math.round(x);
+          node.y = Math.round(y ?? node.y);
+        } else {
+          // 位置指定なし（表/パレットからの追加）: 既存の未紐付け MS と重ならないよう軽く段積み
+          // （未紐付け時は node.x がそのまま菱形の位置になる。milestoneGuides.ts 参照）。
+          const k = Object.values(view!.nodes).filter(
+            (n) => n.kind === 'task' && n.id !== node.id && isMilestone(p.core, n.taskId),
+          ).length;
+          node.x = 80 + k * 40;
+        }
+      }
+      history.push(p);
+      sync({ selectedTaskId: newId });
+      return newId;
+    },
+
     // 削除は配下を残す（子は祖父へ昇格し、依存は維持）。
     removeTask: (taskId) => {
       const p = cDeleteTaskKeepChildren(get().project, taskId);
@@ -624,7 +664,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const newId = uuid();
       let p = cAddTask(
         cur,
-        { name: t.name, level: t.level, parentId: t.parentId, assigneeId: t.assigneeId, id: newId },
+        // kind も複製する（省略すると MS の複製が普通の工程になってしまう）。
+        { name: t.name, level: t.level, parentId: t.parentId, assigneeId: t.assigneeId, id: newId, kind: t.kind },
         uuid,
       );
       const sibs = siblingsOf(taskId, p);

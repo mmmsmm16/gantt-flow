@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
@@ -82,6 +82,7 @@ export function TableView() {
   const updateDetail = useApp((s) => s.updateDetail);
   const addRootTask = useApp((s) => s.addRootTask);
   const addChildTask = useApp((s) => s.addChildTask);
+  const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const moveTaskUp = useApp((s) => s.moveTaskUp);
   const moveTaskDown = useApp((s) => s.moveTaskDown);
@@ -202,6 +203,12 @@ export function TableView() {
     }
   };
 
+  // マイルストーンを追加（現在の表示粒度/スコープ。addMilestone が選択まで行うので即フォーカスのみ）。
+  const addMilestoneAndEdit = () => {
+    const id = addMilestone();
+    if (id) setFocusId(id);
+  };
+
   // 末尾ゴースト行: 最終行と同じ親・粒度で新規工程を起こし、その作業名入力へフォーカス（連続入力）。
   const addGhostRow = () => {
     const last = rows[rows.length - 1];
@@ -241,6 +248,13 @@ export function TableView() {
         </button>
         <button title="中工程を追加" onClick={() => addRootAndEdit('medium')}>
           <Icons.BoxPlus />中
+        </button>
+        <button
+          className="ms-add"
+          title="マイルストーンを追加（節目。子工程・担当・工数は持たない）"
+          onClick={addMilestoneAndEdit}
+        >
+          <Icons.MilestoneDiamond />マイルストーン
         </button>
         {parentsWithChildren.size > 0 && (
           <span className="outline-collapse">
@@ -335,6 +349,7 @@ export function TableView() {
             <tbody>
               {rows.map(({ task: t, depth, ancestorLines, isLast }) => {
                 const detail = project.details[t.id];
+                const ms = isMilestone(project.core, t.id);
                 const assigneeName = t.assigneeId
                   ? project.core.assignees[t.assigneeId]?.name ?? ''
                   : '';
@@ -353,6 +368,7 @@ export function TableView() {
                       dropInfo?.id === t.id ? `drop-${dropInfo.mode}` : '',
                       hasChildren ? 'is-parent' : '',
                       depth > 0 ? 'is-child' : '',
+                      ms ? 'is-milestone' : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
@@ -400,7 +416,7 @@ export function TableView() {
                       </span>
                     </td>
                     <td className="c-code" title={codes[t.id]}>
-                      {codes[t.id]}
+                      {ms ? <span className="ms-cell-blank">—</span> : codes[t.id]}
                     </td>
                     <td className="c-level" onClick={(e) => e.stopPropagation()}>
                       <select
@@ -441,6 +457,7 @@ export function TableView() {
                             aria-hidden="true"
                           />
                         )}
+                        {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
                         <input
                           className={`name-input${detail?.textColor ? ' colored-text' : ''}${matched.has(t.id) ? ' name-match' : ''}${cellCursorCls(t.id, 'name')}`}
                           data-cell="name"
@@ -481,19 +498,23 @@ export function TableView() {
                       </div>
                     </td>
                     <td className={`c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`}>
-                      <input
-                        className={`assignee${cellCursorCls(t.id, 'assignee')}`}
-                        data-cell="assignee"
-                        list="assignee-names"
-                        defaultValue={assigneeName}
-                        key={`asg-${assigneeName}`}
-                        placeholder="（未割当）"
-                        aria-label="担当"
-                        onClick={(e) => e.stopPropagation()}
-                        onBlur={(e) => {
-                          if (e.target.value !== assigneeName) setAssigneeByName(t.id, e.target.value);
-                        }}
-                      />
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは担当を持ちません">—</span>
+                      ) : (
+                        <input
+                          className={`assignee${cellCursorCls(t.id, 'assignee')}`}
+                          data-cell="assignee"
+                          list="assignee-names"
+                          defaultValue={assigneeName}
+                          key={`asg-${assigneeName}`}
+                          placeholder="（未割当）"
+                          aria-label="担当"
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            if (e.target.value !== assigneeName) setAssigneeByName(t.id, e.target.value);
+                          }}
+                        />
+                      )}
                     </td>
                     {columnVisibility.prev && (
                     <td className="c-prev" onClick={(e) => e.stopPropagation()}>
@@ -535,7 +556,9 @@ export function TableView() {
                     )}
                     {columnVisibility.effort && (
                     <td className="c-effort" onClick={(e) => e.stopPropagation()}>
-                      {hasChildren ? (
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは工数を持ちません">—</span>
+                      ) : hasChildren ? (
                         <span className="effort-roll" title="子の合計（自動）">
                           {formatHours(effortRollups.get(t.id) ?? 0)}
                         </span>
@@ -606,7 +629,7 @@ export function TableView() {
                     </td>
                     )}
                     <td className="c-act" onClick={(e) => e.stopPropagation()}>
-                      {t.level !== 'detail' && (
+                      {t.level !== 'detail' && !ms && (
                         <button
                           title="子工程を追加"
                           aria-label="子工程を追加"

@@ -4,7 +4,7 @@
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
@@ -172,6 +172,7 @@ export function FullTable() {
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
   const addRootTask = useApp((s) => s.addRootTask);
+  const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const setAssigneeManyByName = useApp((s) => s.setAssigneeManyByName);
   const duplicateTask = useApp((s) => s.duplicateTask);
@@ -519,6 +520,12 @@ export function FullTable() {
     if (id) setFocusTask(id);
   };
 
+  // マイルストーンを追加（現在の表示粒度/スコープ。addMilestone が選択まで行うので即フォーカスのみ）。
+  const addMilestoneAndEdit = () => {
+    const id = addMilestone();
+    if (id) setFocusTask(id);
+  };
+
   if (flat.length === 0) {
     return (
       <div className="ft-empty">
@@ -538,6 +545,13 @@ export function FullTable() {
         </button>
         <button title="中工程を追加" onClick={() => addRootAndEdit('medium')}>
           <Icons.BoxPlus />中
+        </button>
+        <button
+          className="ms-add"
+          title="マイルストーンを追加（節目。子工程・担当・工数は持たない）"
+          onClick={addMilestoneAndEdit}
+        >
+          <Icons.MilestoneDiamond />マイルストーン
         </button>
         <button onClick={onPasteRows} title="クリップボード（Excel など）の各行を工程として追加。列はタブ区切りで [作業名, 担当]。">
           貼り付けで追加
@@ -677,6 +691,7 @@ export function FullTable() {
         <tbody>
           {renderRows.map((t) => {
             const d = project.details[t.id];
+            const ms = isMilestone(project.core, t.id);
             const hasChildren = parentsWithChildren.has(t.id);
             const assigneeName = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
             const anc = ancestryNames(t, byId);
@@ -694,22 +709,25 @@ export function FullTable() {
                     onClick={(e) => e.stopPropagation()}
                   >
                     {own ? (
-                      <input
-                        className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
-                        data-cell="name"
-                        style={
-                          d?.textColor
-                            ? ({ '--task-text': TASK_COLORS[d.textColor].text } as React.CSSProperties)
-                            : undefined
-                        }
-                        defaultValue={t.name}
-                        placeholder={c.label}
-                        aria-label={c.label}
-                        data-task={t.id}
-                        key={`name-${t.name}`}
-                        // Enter/Tab のセル移動は表全体の onGridKeyDown(editNavKeyDown)が担う。
-                        onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
-                      />
+                      <span className="ft-name-cell">
+                        {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
+                        <input
+                          className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                          data-cell="name"
+                          style={
+                            d?.textColor
+                              ? ({ '--task-text': TASK_COLORS[d.textColor].text } as React.CSSProperties)
+                              : undefined
+                          }
+                          defaultValue={t.name}
+                          placeholder={c.label}
+                          aria-label={c.label}
+                          data-task={t.id}
+                          key={`name-${t.name}`}
+                          // Enter/Tab のセル移動は表全体の onGridKeyDown(editNavKeyDown)が担う。
+                          onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
+                        />
+                      </span>
                     ) : name !== undefined ? (
                       <span className="ft-anc" title={name}>
                         {name}
@@ -722,11 +740,15 @@ export function FullTable() {
                 case 'no':
                   return (
                     <td key="no" className="ft-c-no ft-sticky" style={{ left: 0 }} title={codes[t.id]}>
-                      {codes[t.id]}
+                      {ms ? <span className="ms-cell-blank">—</span> : codes[t.id]}
                     </td>
                   );
                 case 'assignee':
-                  return (
+                  return ms ? (
+                    <td key={c.key} className="ft-c-assignee" onClick={(e) => e.stopPropagation()}>
+                      <span className="ms-cell-blank" title="マイルストーンは担当を持ちません">—</span>
+                    </td>
+                  ) : (
                     <td
                       key={c.key}
                       className={`ft-c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`}
@@ -807,7 +829,9 @@ export function FullTable() {
                 case 'effort':
                   return (
                     <td key={c.key} className="ft-c-effort" onClick={(e) => e.stopPropagation()}>
-                      {hasChildren ? (
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは工数を持ちません">—</span>
+                      ) : hasChildren ? (
                         <span className="ft-roll" title="子の合計（自動）">
                           {formatHours(effortRollups.get(t.id) ?? 0)}
                         </span>
@@ -887,7 +911,11 @@ export function FullTable() {
                 case 'exception':
                   return <WrapCell key={c.key} value={d?.exception} onCommit={(v) => updateDetail(t.id, { exception: v || undefined })} k={t.id} cell="exception" cursor={cellCursorCls(t.id, 'exception') !== ''} />;
                 case 'automation':
-                  return (
+                  return ms ? (
+                    <td key={c.key} className="ft-c-auto" onClick={(e) => e.stopPropagation()}>
+                      <span className="ms-cell-blank">—</span>
+                    </td>
+                  ) : (
                     <td key={c.key} className="ft-c-auto" onClick={(e) => e.stopPropagation()}>
                       <select className={`ft-in${cellCursorCls(t.id, 'automation')}`} data-cell="automation" value={d?.automation ?? ''} aria-label="自動化区分" onChange={(e) => updateDetail(t.id, { automation: (e.target.value || undefined) as Automation | undefined })}>
                         {AUTOMATION.map((a) => (
@@ -903,7 +931,11 @@ export function FullTable() {
                 case 'regulation':
                   return <WrapCell key={c.key} value={d?.regulation} onCommit={(v) => updateDetail(t.id, { regulation: v || undefined })} k={t.id} cell="regulation" cursor={cellCursorCls(t.id, 'regulation') !== ''} />;
                 case 'difficulty':
-                  return (
+                  return ms ? (
+                    <td key={c.key} className="ft-c-diff" onClick={(e) => e.stopPropagation()}>
+                      <span className="ms-cell-blank">—</span>
+                    </td>
+                  ) : (
                     <td key={c.key} className="ft-c-diff" onClick={(e) => e.stopPropagation()}>
                       <select className={`ft-in${cellCursorCls(t.id, 'difficulty')}`} data-cell="difficulty" value={d?.difficulty ?? ''} aria-label="難易度" onChange={(e) => updateDetail(t.id, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}>
                         {DIFFICULTY.map((x) => (
@@ -959,7 +991,7 @@ export function FullTable() {
               <tr
                 key={t.id}
                 data-taskid={t.id}
-                className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}${marked.has(t.id) ? ' marked' : ''}`}
+                className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}${marked.has(t.id) ? ' marked' : ''}${ms ? ' is-milestone' : ''}`}
                 onClick={(e) => onRowClick(e, t)}
               >
                 {visibleCols.map(cell)}

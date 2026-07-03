@@ -571,6 +571,12 @@ button.danger:hover {
   width: 16px;
   height: 16px;
 }
+/* マイルストーン追加ボタン: フローの菱形（.ms-diamond）と同じ琥珀系で目立たせる。 */
+.outline-actions .ms-add,
+.ft-actions .ms-add {
+  color: var(--amber-ink);
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--line));
+}
 .outline-scroll {
   flex: 1;
   min-height: 0;
@@ -814,6 +820,29 @@ button.danger:hover {
 }
 .grid tbody tr.drop-after > td {
   box-shadow: inset 0 -2px 0 var(--accent);
+}
+/* マイルストーン行: 薄い琥珀の背景（フローの菱形と同系色）。工程No/担当/工数は「—」表示。 */
+.grid tr.is-milestone > td {
+  background: var(--amber-fill);
+}
+.grid tr.is-milestone:hover > td {
+  background: color-mix(in srgb, var(--amber-fill) 70%, var(--row-hover));
+}
+/* 表の菱形バッジ（作業名の先頭）。フローの .ms-diamond と同じ配色の小型版。 */
+.ms-badge {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  background: var(--amber-fill);
+  border: 1.3px solid var(--amber);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+/* マイルストーンでは持たない値（工程No/担当/工数など）の代わりに出す「—」。 */
+.ms-cell-blank {
+  color: var(--faint);
 }
 .grid input:hover,
 .grid select:hover {
@@ -1438,7 +1467,8 @@ button.danger:hover {
   border-radius: var(--radius-pill);
   padding: 1px 8px;
 }
-.insp-chip.warn {
+.insp-chip.warn,
+.insp-chip.ms-chip {
   color: var(--amber-ink);
   background: var(--amber-fill);
   border-color: transparent;
@@ -1675,6 +1705,11 @@ button.danger:hover {
   font-weight: var(--fw-strong);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+}
+/* マイルストーン追加ボタン: フローの菱形（.ms-diamond）と同じ琥珀系。 */
+.flow-palette .add-milestone {
+  color: var(--amber-ink);
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--line));
 }
 .palette-zoom {
   margin-left: auto;
@@ -3857,6 +3892,13 @@ kbd {
 .ft tbody tr.parent:hover td {
   background: var(--row-hover);
 }
+/* マイルストーン行: 薄い琥珀の背景（フローの菱形と同系色）。担当/工数などは「—」表示。 */
+.ft tbody tr.is-milestone td {
+  background: var(--amber-fill);
+}
+.ft tbody tr.is-milestone:hover td {
+  background: color-mix(in srgb, var(--amber-fill) 70%, var(--row-hover));
+}
 
 /* 先頭列固定（No. と 作業名）＋ヘッダ固定の交差はさらに前面に */
 .ft .ft-sticky {
@@ -3872,6 +3914,9 @@ kbd {
 }
 .ft tbody tr.parent td.ft-sticky {
   background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft tbody tr.is-milestone td.ft-sticky {
+  background: var(--amber-fill);
 }
 .ft tbody tr:hover td.ft-sticky {
   background: var(--row-hover);
@@ -3924,6 +3969,17 @@ kbd {
   box-shadow: var(--ring);
 }
 .ft-name { font-weight: 600; }
+/* マイルストーンの作業名セル: 菱形バッジ＋入力を横並びに。 */
+.ft-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ft-name-cell .ft-in {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
 .ft-num { text-align: right; }
 .ft-roll { display: block; padding: 6px 8px; text-align: right; color: var(--muted); }
 
@@ -4108,6 +4164,9 @@ kbd {
 }
 .ft tbody tr.parent td.ft-sticky-r {
   background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft tbody tr.is-milestone td.ft-sticky-r {
+  background: var(--amber-fill);
 }
 .ft-rowact {
   display: flex;

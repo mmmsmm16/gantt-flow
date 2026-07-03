@@ -994,6 +994,46 @@ describe('taskOps（store と UI をまたぐ手続き）', () => {
     expect(s.getState().canUndo).toBe(canUndoBefore);
   });
 
+  it('addMilestone: kind:milestone で作成・選択し、子工程/担当/工数を持たない', () => {
+    const s = createAppStore();
+    const id = s.getState().addMilestone()!;
+    expect(id).toBeTruthy();
+    const t = s.getState().project.core.tasks[id]!;
+    expect(t.kind).toBe('milestone');
+    expect(t.assigneeId).toBeUndefined();
+    expect(s.getState().project.details[id]?.effortMinutes).toBeUndefined();
+    expect(s.getState().selectedTaskId).toBe(id); // 作成後に自動選択
+    // 現在ビューの level/scope で作成（表/フロー/パレットのどこから呼んでも同じ）。
+    expect(t.level).toBe(s.getState().level);
+    expect(t.parentId).toBe(s.getState().scopeParentId);
+    // タスクノードは1個だけ保持（1:1 不変条件）。
+    expect(taskNodes(s).filter((n) => n.taskId === id)).toHaveLength(1);
+  });
+
+  it('addMilestone: 位置指定なしは複数追加しても重ならない（未紐付け時の段積み）', () => {
+    const s = createAppStore();
+    const id1 = s.getState().addMilestone()!;
+    const id2 = s.getState().addMilestone()!;
+    const n1 = taskNodes(s).find((n) => n.taskId === id1)!;
+    const n2 = taskNodes(s).find((n) => n.taskId === id2)!;
+    expect(n1.x).not.toBe(n2.x);
+  });
+
+  it('addMilestone: 位置を渡すとその位置に置く（フロー追加ボタン相当）', () => {
+    const s = createAppStore();
+    const id = s.getState().addMilestone(300, 40)!;
+    const n = taskNodes(s).find((nn) => nn.taskId === id)!;
+    expect(n.x).toBe(300);
+    expect(n.y).toBe(40);
+  });
+
+  it('addMilestone: duplicateTask で複製しても kind:milestone を保つ', () => {
+    const s = createAppStore();
+    const id = s.getState().addMilestone()!;
+    const dupId = s.getState().duplicateTask(id)!;
+    expect(s.getState().project.core.tasks[dupId]!.kind).toBe('milestone');
+  });
+
   it('revealTask: スコープ絞り込み中は対象工程の親へスコープを追従させる', () => {
     useApp.getState().newProject();
     useApp.getState().addRootTask('large');

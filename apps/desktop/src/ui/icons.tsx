@@ -218,6 +218,13 @@ export const Diamond = (p: SVGProps<SVGSVGElement>) => (
     <path d="M12 3l9 9-9 9-9-9z" />
   </Svg>
 );
+// マイルストーン（塗りの菱形◆）。フロー上の琥珀の菱形（.ms-diamond）と対応。
+// 判断（◇ 線画）と区別するため fill で塗りつぶす。
+export const MilestoneDiamond = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p} fill="currentColor" stroke="none">
+    <path d="M12 3l9 9-9 9-9-9z" />
+  </Svg>
+);
 // 合流（複数の流れが一つに）。
 export const Merge = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>

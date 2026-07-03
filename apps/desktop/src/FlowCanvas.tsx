@@ -66,6 +66,7 @@ export function FlowCanvas() {
   const addParallel = useApp((s) => s.addParallel);
   const makeParallelTo = useApp((s) => s.makeParallelTo);
   const addControlNode = useApp((s) => s.addControlNode);
+  const addMilestone = useApp((s) => s.addMilestone);
   const addComment = useApp((s) => s.addComment);
   const setEdgeLabel = useApp((s) => s.setEdgeLabel);
   const deleteEdge = useApp((s) => s.deleteEdge);
@@ -1249,6 +1250,18 @@ export function FlowCanvas() {
         <button aria-label="終了" title="終了（スタジアム形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}><Icons.Stop /></button>
         <button aria-label="判断" title="判断（ひし形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}><Icons.Diamond /></button>
         <button aria-label="合流" title="合流" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}><Icons.Merge /></button>
+        <button
+          className="add-milestone"
+          aria-label="マイルストーンを追加"
+          title="マイルストーンを追加（節目。子工程・担当・工数は持たない）"
+          onClick={() => {
+            const p = spawnPos(SIZE.task.w, SIZE.task.h);
+            const id = addMilestone(p.x, p.y);
+            if (id) setEditingTaskId(id); // 追加直後にその場リネーム（工程の＋と同じ挙動）
+          }}
+        >
+          <Icons.MilestoneDiamond />
+        </button>
         <button
           onClick={async () => {
             const text = await useUI.getState().promptText({

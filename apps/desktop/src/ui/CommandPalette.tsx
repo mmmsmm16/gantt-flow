@@ -727,6 +727,16 @@ function PaletteBody(handlers: FileHandlers) {
         },
       },
       {
+        id: 'add-milestone',
+        label: 'マイルストーンを追加',
+        keywords: 'milestone ms 節目 ますとーん マイルストーン 追加',
+        run: () => {
+          const a = useApp.getState();
+          const nid = a.addMilestone();
+          if (nid) a.select(nid);
+        },
+      },
+      {
         id: 'collapse-all',
         label: 'アウトラインを全折りたたみ',
         keywords: 'collapse fold tatamu 折りたたみ 閉じる',
