@@ -69,11 +69,13 @@ function assertAllFragmentLinksResolve(html: string): void {
 }
 
 describe('buildHandbookHtml', () => {
-  it('自己完結: <script>/<link> 無し・style に url() 無し・http(s) href は台帳の場所表記のみ', () => {
+  it('自己完結: src 付き<script>/<link> 無し・style に url() 無し・http(s) href は台帳の場所表記のみ（インライン JS は可）', () => {
     const html = buildHandbookHtml(sample(), opts());
 
-    expect(html).not.toContain('<script');
+    // インライン <script> は許可（検索/フィルタ/現在地/折りたたみ/drawer）。外部参照＝src 付き script/link は禁止。
+    expect(html).not.toMatch(/<script[^>]*\ssrc=/i);
     expect(html).not.toContain('<link ');
+    expect(html).toContain('<script>'); // インライン JS を同梱している（自己完結の中で完結）
     // url(...) は SVG の marker-end="url(#a)" 等、文書内フラグメント参照でのみ使う（外部参照は禁止）。
     expect(html).not.toMatch(/url\(['"]?https?:/);
 
@@ -88,6 +90,37 @@ describe('buildHandbookHtml', () => {
       'https://wiki.example.local/manuals/shortage-handling',
       'https://wiki.example.local/manuals/shortage-handling',
     ]);
+  });
+
+  it('業務ポータルのシェル: サイドバー・検索・担当フィルタ・現在地目次・折りたたみ・drawer のマークアップが出る', () => {
+    const html = buildHandbookHtml(sample(), opts());
+
+    expect(html).toContain('class="hb-side"'); // 固定サイドバー
+    expect(html).toContain('id="hb-search"'); // 工程検索
+    expect(html).toContain('id="hb-chips"'); // 担当フィルタ群
+    expect(html).toContain('data-all'); // 「全て」チップ
+    expect(html).toContain('class="hb-toc-link"'); // 現在地ハイライト付き目次リンク
+    expect(html).toContain('class="hb-chap-head"'); // 章の折りたたみヘッダ
+    expect(html).toContain('id="hb-scrim"'); // モバイル drawer 用スクリム
+    expect(html).toContain('data-anchor="hb-task-'); // 現在地スパイ用アンカー
+
+    // 担当フィルタのチップに実在の担当が全て出る（サンプル = 営業部/経理部/在庫管理/倉庫）。
+    expect(html).toContain('data-assignee="営業部"');
+    expect(html).toContain('data-assignee="経理部"');
+    expect(html).toContain('data-assignee="在庫管理"');
+    expect(html).toContain('data-assignee="倉庫"');
+  });
+
+  it('担当フィルタ: data-assignee 属性のユーザ文字列はエスケープされる（属性経由の XSS 防止）', () => {
+    const project = sample();
+    const sales = Object.values(project.core.assignees).find((a) => a.name === '営業部')!;
+    sales.name = '"><img onerror=alert(1)>営業';
+    const html = buildHandbookHtml(project, opts());
+
+    // 生タグとして注入されない。
+    expect(html).not.toContain('<img onerror=alert(1)>');
+    // data-* 属性値は escapeHtml 経由（" > < がエンティティ化される）。
+    expect(html).toContain('data-assignee="&quot;&gt;&lt;img onerror=alert(1)&gt;営業"');
   });
 
   it('画像は data:image/ の src になる（サンプルは画像を同梱しないため 1 件手で仕込む）', () => {
@@ -163,8 +196,10 @@ describe('buildHandbookHtml', () => {
       .length;
     expect(expectedCards).toBe(2); // サンプル = 大(全体)・中(受注業務スコープ)のみノードあり
 
+    // フロー図はフローセクション内にのみ出る（サイドバーの装飾アイコン SVG と混ざらないよう範囲を絞る）。
+    const flowsHtml = html.slice(html.indexOf('id="hb-flows"'), html.indexOf('class="hb-main-body"'));
     // decorateFlowSvg は元図(buildFlowSvg)を入れ子 <svg> として埋め込むため、1 カードにつき <svg が 2 個。
-    const svgCount = (html.match(/<svg[ >]/g) ?? []).length;
+    const svgCount = (flowsHtml.match(/<svg[ >]/g) ?? []).length;
     expect(svgCount).toBe(expectedCards * 2);
   });
 
