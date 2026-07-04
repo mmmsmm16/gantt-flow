@@ -13,6 +13,7 @@ export * from './sync/milestoneGuides';
 export * from './sync/lanes';
 export * from './sync/tidy';
 export * from './sync/edgeRoute';
+export * from './sync/procedureNav';
 export * from './history/history';
 export * from './validate';
 export * from './metrics';

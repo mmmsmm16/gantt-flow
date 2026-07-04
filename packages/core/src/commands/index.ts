@@ -257,6 +257,7 @@ export function deleteTask(p: Project, taskId: Id): Project {
   for (const id of toRemove) {
     delete next.core.tasks[id];
     delete next.details[id];
+    delete next.manual.procedures[id];
   }
   return next;
 }
@@ -325,6 +326,7 @@ export function deleteTaskKeepChildren(p: Project, taskId: Id): Project {
 
   delete next.core.tasks[taskId];
   delete next.details[taskId];
+  delete next.manual.procedures[taskId];
   return next;
 }
 
@@ -566,3 +568,5 @@ function idGenFromTask(p: Project, from: Id): Id {
   while (p.core.dependencies[id]) id = `dep_bridge_${from}_${++n}`;
   return id;
 }
+
+export * from './manual';
