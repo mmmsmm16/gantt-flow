@@ -84,6 +84,7 @@ export function planEscFocus(opts: {
 /** ペインをアクティブにし、必要ならレイアウトを直して見えるようにする(フォーカスも移す)。 */
 export function activatePane(pane: 'table' | 'flow'): void {
   const ui = useUI.getState();
+  ui.setMainView('work'); // 手順書タブに居ても作業ビューへ戻す（分割操作が効かない事故を防ぐ）
   // 全画面（工程表のみ / フローのみ）でも必ず分割へ戻してから対象ペインをアクティブにする。
   // g f / g t（小文字）・mod+1 / mod+2・F6 共通の「分割でアクティブ化」挙動。
   ui.setPaneLayout('split'); // tableWide/flowWide を解除＋全項目表ならアウトラインへ戻す
@@ -100,6 +101,7 @@ function currentPaneLayout(ui: ReturnType<typeof useUI.getState>): 'split' | 'ta
 
 // レイアウトを設定し、全画面化したペインへフォーカスを移す（再レンダ後に対象が出るので次フレームで）。
 function setPaneLayoutFocused(mode: 'split' | 'table' | 'flow'): void {
+  useUI.getState().setMainView('work'); // g d/g t/g f は手順書から作業ビューへ戻す
   useUI.getState().setPaneLayout(mode);
   requestAnimationFrame(() => {
     if (mode === 'table') document.querySelector<HTMLElement>('#main-table')?.focus();
@@ -205,6 +207,9 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           return true;
         case 'view.summary':
           ui.setOverlay('summary');
+          return true;
+        case 'view.procedure':
+          ui.setMainView('procedure');
           return true;
         case 'level.large':
         case 'level.medium':

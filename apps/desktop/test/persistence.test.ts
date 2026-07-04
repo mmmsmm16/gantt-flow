@@ -16,8 +16,10 @@ import {
   forgetFileHandle,
   readTableFile,
   localDateYmd,
+  missingReferencedAssets,
 } from '../src/persistence';
 import { bytesToB64, b64ToBytes } from '../src/b64';
+import { putAsset, __resetAssetStoreForTest } from '../src/assetStore';
 
 const gen = (prefix: string) => {
   let n = 0;
@@ -432,6 +434,143 @@ describe('readTableFile（CSV）', () => {
     const csv = '﻿工程No,作業名\nA1,受注';
     const rows = await readTableFile(new File([csv], 'bom.csv', { type: 'text/csv' }));
     expect(rows[0]![0]).toBe('工程No'); // File.text() の UTF-8 デコードで BOM は除去される
+  });
+});
+
+describe('保存時 assets 配線（ZIP assets/ 往復・保存時 GC・b64 多チャンク）', () => {
+  const NOW = '2026-07-05T00:00:00.000Z';
+
+  // 手順書に画像 1 枚を参照させた Project を作る（bytes は assetStore 側に putAsset 済み前提）。
+  const withImageRef = (base: Project, taskId: string, file: string): Project => ({
+    ...base,
+    manual: {
+      procedures: {
+        [taskId]: {
+          taskId,
+          updatedAt: NOW,
+          revisions: [],
+          steps: [{ id: `${file}-s`, action: '手順', conds: [], refs: [], images: [{ id: `${file}-i`, file }] }],
+        },
+      },
+      assets: {},
+    },
+  });
+
+  afterEach(() => __resetAssetStoreForTest());
+
+  it('>32KB 画像を貼って保存→読込で壊れない（bytesToB64 の CHUNK 境界回帰）', async () => {
+    // 0x8000(32768) 境界を越える画像。ZIP 全体も >32KB になり b64 多チャンク経路を通す。
+    const big = new Uint8Array(50000);
+    for (let i = 0; i < big.length; i++) big[i] = (i * 31 + 7) & 0xff;
+    const file = 'big-b64.png';
+    putAsset(file, big);
+
+    const base = createSampleProject(gen('imgbig'));
+    const taskId = Object.keys(base.core.tasks)[0]!;
+    const p = withImageRef(base, taskId, file);
+
+    const saved: string[] = [];
+    installTauri({
+      pick_save_path: () => '/tmp/img.gflow',
+      save_project: (a) => {
+        saved.push(a['contentsB64'] as string);
+        return null;
+      },
+      stat_updated_at: () => '1',
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+
+    const r = await saveProjectToFile(p);
+    expect(r.kind).toBe('saved');
+    const bytes = b64ToBytes(saved[0]!);
+    expect(bytes[0]).toBe(0x50); // 'PK'（ZIP）
+    const out = deserializeContainer(bytes);
+    // 画像 bytes がバイト同一で往復する
+    expect(out.assets[file]).toEqual(big);
+    // project 側は file 名だけを持つ（bytes は入れない）
+    expect(out.project.manual.procedures[taskId]!.steps[0]!.images[0]!.file).toBe(file);
+  });
+
+  it('保存時 GC: 参照されない孤児 asset は ZIP へ書かれない（メモリは残る＝別テストの責務）', async () => {
+    const referenced = 'ref.png';
+    const orphan = 'orphan.png';
+    putAsset(referenced, new Uint8Array([1, 2, 3]));
+    putAsset(orphan, new Uint8Array([9, 9, 9])); // どのステップからも参照されない
+
+    const base = createSampleProject(gen('imggc'));
+    const taskId = Object.keys(base.core.tasks)[0]!;
+    const p = withImageRef(base, taskId, referenced);
+
+    const saved: string[] = [];
+    installTauri({
+      pick_save_path: () => '/tmp/gc.gflow',
+      save_project: (a) => {
+        saved.push(a['contentsB64'] as string);
+        return null;
+      },
+      stat_updated_at: () => '1',
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+
+    await saveProjectToFile(p);
+    const out = deserializeContainer(b64ToBytes(saved[0]!));
+    expect(Object.keys(out.assets)).toEqual([referenced]); // 参照分のみ・孤児は落ちる
+  });
+});
+
+// migration-safety Important2: 保存前の欠落画像チェック（App の doSave が確認ダイアログに使う純関数）。
+// 参照している画像の bytes がメモリに無いまま保存すると ZIP から永久に消えるため、事前に検出する。
+describe('missingReferencedAssets（保存前の欠落画像検出）', () => {
+  const NOW = '2026-07-05T00:00:00.000Z';
+  const withImageRefs = (base: Project, taskId: string, files: string[]): Project => ({
+    ...base,
+    manual: {
+      procedures: {
+        [taskId]: {
+          taskId,
+          updatedAt: NOW,
+          revisions: [],
+          steps: [
+            {
+              id: `${taskId}-s`,
+              action: '手順',
+              conds: [],
+              refs: [],
+              images: files.map((file) => ({ id: `${file}-i`, file })),
+            },
+          ],
+        },
+      },
+      assets: {},
+    },
+  });
+
+  afterEach(() => __resetAssetStoreForTest());
+
+  it('参照画像がすべて assetStore にあれば空配列（そのまま保存してよい）', () => {
+    const base = createSampleProject(gen('miss-ok'));
+    const taskId = Object.keys(base.core.tasks)[0]!;
+    putAsset('a.png', new Uint8Array([1]));
+    putAsset('b.png', new Uint8Array([2]));
+    const p = withImageRefs(base, taskId, ['a.png', 'b.png']);
+    expect(missingReferencedAssets(p)).toEqual([]);
+  });
+
+  it('bytes がメモリに無い参照画像を欠落として列挙する', () => {
+    const base = createSampleProject(gen('miss-some'));
+    const taskId = Object.keys(base.core.tasks)[0]!;
+    putAsset('present.png', new Uint8Array([1])); // これだけメモリにある
+    const p = withImageRefs(base, taskId, ['present.png', 'gone1.png', 'gone2.png']);
+    expect(missingReferencedAssets(p).sort()).toEqual(['gone1.png', 'gone2.png']);
+  });
+
+  it('画像を参照しないプロジェクトは常に空配列', () => {
+    const base = createSampleProject(gen('miss-none'));
+    expect(missingReferencedAssets(base)).toEqual([]);
   });
 });
 

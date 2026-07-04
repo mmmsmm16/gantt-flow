@@ -18,6 +18,8 @@ import {
   type IoItem,
   type IssueItem,
   type ImportReport,
+  type StepRef,
+  type AssetLocator,
   CURRENT_SCHEMA_VERSION,
   uuid,
   serializeProject,
@@ -63,9 +65,27 @@ import {
   reparentTask as cReparentTask,
   addParallelTask as cAddParallelTask,
   makeParallel as cMakeParallel,
+  upsertProcedure as cUpsertProcedure,
+  addStep as cAddStep,
+  updateStep as cUpdateStep,
+  removeStep as cRemoveStep,
+  moveStep as cMoveStep,
+  addStepCond as cAddStepCond,
+  updateStepCond as cUpdateStepCond,
+  removeStepCond as cRemoveStepCond,
+  addStepRef as cAddStepRef,
+  removeStepRef as cRemoveStepRef,
+  addStepImage as cAddStepImage,
+  updateStepImage as cUpdateStepImage,
+  removeStepImage as cRemoveStepImage,
+  upsertAsset as cUpsertAsset,
+  updateAsset as cUpdateAsset,
+  removeAsset as cRemoveAsset,
   isMilestone,
+  collectReferencedAssetFiles,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
+import { contentHashName, putAsset, broadcastAsset, pruneAssetStore } from './assetStore';
 import { useUI, type ToastTone } from './ui/useUI';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
@@ -254,6 +274,7 @@ function initialProject(): Project {
     core: { tasks: {}, dependencies: {}, assignees: {} },
     details: {},
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   };
   return reconcileProject(ensureLevelView(base, 'medium'), uuid);
 }
@@ -373,6 +394,32 @@ export interface AppState {
   copyAsIsToToBe: (taskId: Id) => void;
   /** To-Be で新設する工程(lifecycle='added')を作る。As-Is には出ない。作成 ID を返す。 */
   addToBeTask: () => Id | undefined;
+
+  // --- 手順書（manual）。core/details/flow は触らず manual のみ更新（各コマンドへ now を注入）。 ---
+  /** 工程の手順書の目的を設定（doc を確保して purpose/updatedAt を立てる。空文字で目的をクリア）。 */
+  upsertProcedurePurpose: (taskId: Id, purpose: string) => void;
+  /** ステップを末尾に追加し、新しいステップ ID を返す（事前 uuid を注入）。 */
+  addStep: (taskId: Id, args: { action: string; why?: string; bodyMd?: string }) => Id | undefined;
+  updateStep: (taskId: Id, stepId: Id, patch: { action?: string; why?: string; bodyMd?: string }) => void;
+  removeStep: (taskId: Id, stepId: Id) => void;
+  moveStep: (taskId: Id, stepId: Id, toIndex: number) => void;
+  /** ステップに条件（〜の場合→対処・飛び先）を追加し、新しい条件 ID を返す。 */
+  addStepCond: (taskId: Id, stepId: Id, args: { when: string; thenMd: string; targetTaskId?: Id }) => Id | undefined;
+  updateStepCond: (taskId: Id, stepId: Id, condId: Id, patch: { when?: string; thenMd?: string; targetTaskId?: Id }) => void;
+  removeStepCond: (taskId: Id, stepId: Id, condId: Id) => void;
+  addStepRef: (taskId: Id, stepId: Id, ref: StepRef) => void;
+  removeStepRef: (taskId: Id, stepId: Id, index: number) => void;
+  // ---- ステップ画像（manual の StepImage）。Project には file 名だけ入り、実バイトは assetStore
+  // （メモリ層）に持つ＝undo/autosave に乗らない。追加時に二窓へ bytes を配布する。 ----
+  /** 画像 bytes を assetStore へ格納・二窓へ配布し、内容ハッシュ名だけを手順書へ追加する。 */
+  addStepImage: (taskId: Id, stepId: Id, bytes: Uint8Array, mime: string, caption?: string) => void;
+  updateStepImage: (taskId: Id, stepId: Id, imageId: Id, patch: { caption?: string }) => void;
+  removeStepImage: (taskId: Id, stepId: Id, imageId: Id) => void;
+  // ---- 資料台帳（manual.assets）。手順書のステップから参照される資料の唯一の実体。 ----
+  /** 資産を追加/更新する（id 指定時は既存レコードへ merge）。事前 uuid を注入し、新規/対象 ID を返す。 */
+  upsertAsset: (args: { id?: Id; name: string; desc?: string; locator?: AssetLocator }) => Id | undefined;
+  updateAsset: (assetId: Id, patch: { name?: string; desc?: string; locator?: AssetLocator }) => void;
+  removeAsset: (assetId: Id) => void;
   /** フロー上のドラッグ確定。別レーンへ落ちて担当が書き戻った場合は新しい担当名を返す（UI 通知用）。 */
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => string | undefined;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
@@ -1021,6 +1068,67 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       return id;
     },
 
+    // --- 手順書（manual）。core は履歴を持たないので commit 経由で 1 undo 単位。
+    // updatedAt 用の now は各コマンドへ注入（純粋性・決定論を core 側で保つ）。 ---
+    upsertProcedurePurpose: (taskId, purpose) =>
+      commit(cUpsertProcedure(get().project, taskId, { purpose }, new Date().toISOString()), '目的を編集'),
+    addStep: (taskId, args) => {
+      const id = uuid();
+      commit(cAddStep(get().project, taskId, { ...args, id }, uuid, new Date().toISOString()), '手順を追加');
+      return id;
+    },
+    updateStep: (taskId, stepId, patch) =>
+      commit(cUpdateStep(get().project, taskId, stepId, patch, new Date().toISOString()), '手順を編集'),
+    removeStep: (taskId, stepId) =>
+      commit(cRemoveStep(get().project, taskId, stepId, new Date().toISOString()), '手順を削除'),
+    moveStep: (taskId, stepId, toIndex) =>
+      commit(cMoveStep(get().project, taskId, stepId, toIndex, new Date().toISOString()), '手順を並べ替え'),
+    addStepCond: (taskId, stepId, args) => {
+      const id = uuid();
+      commit(cAddStepCond(get().project, taskId, stepId, { ...args, id }, uuid, new Date().toISOString()), '条件を追加');
+      return id;
+    },
+    updateStepCond: (taskId, stepId, condId, patch) =>
+      commit(cUpdateStepCond(get().project, taskId, stepId, condId, patch, new Date().toISOString()), '条件を編集'),
+    removeStepCond: (taskId, stepId, condId) =>
+      commit(cRemoveStepCond(get().project, taskId, stepId, condId, new Date().toISOString()), '条件を削除'),
+    addStepRef: (taskId, stepId, ref) =>
+      commit(cAddStepRef(get().project, taskId, stepId, ref, new Date().toISOString()), '参照を追加'),
+    removeStepRef: (taskId, stepId, index) =>
+      commit(cRemoveStepRef(get().project, taskId, stepId, index, new Date().toISOString()), '参照を削除'),
+
+    // 画像追加: 内容ハッシュで命名 → メモリ層へ格納 → 二窓へ bytes 配布 → Project には file 名だけ commit。
+    // bytes は undo/autosave/snapshot に載せない（肥大・重複配布を避ける）。フォロワーで貼った場合は
+    // このアクション自体が引数(bytes 含む)ごとリーダーへ forward され、リーダーがここを実行する。
+    addStepImage: (taskId, stepId, bytes, mime, caption) => {
+      const file = contentHashName(bytes, mime);
+      putAsset(file, bytes);
+      broadcastAsset(file, bytes);
+      commit(
+        cAddStepImage(
+          get().project,
+          taskId,
+          stepId,
+          { file, ...(caption ? { caption } : {}) },
+          uuid,
+          new Date().toISOString(),
+        ),
+        '画像を追加',
+      );
+    },
+    updateStepImage: (taskId, stepId, imageId, patch) =>
+      commit(cUpdateStepImage(get().project, taskId, stepId, imageId, patch, new Date().toISOString()), '画像を編集'),
+    removeStepImage: (taskId, stepId, imageId) =>
+      commit(cRemoveStepImage(get().project, taskId, stepId, imageId, new Date().toISOString()), '画像を削除'),
+
+    upsertAsset: (args) => {
+      const id = args.id ?? uuid();
+      commit(cUpsertAsset(get().project, { ...args, id }, uuid), args.id ? '資料を編集' : '資料を追加');
+      return id;
+    },
+    updateAsset: (assetId, patch) => commit(cUpdateAsset(get().project, assetId, patch), '資料を編集'),
+    removeAsset: (assetId) => commit(cRemoveAsset(get().project, assetId), '資料を削除'),
+
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     // x/y は 0 未満へクランプする（負座標へ落ちると全体表示のスクロールは 0 未満にできず、
     // 二度と画面内へ戻せなくなるため。ドラッグ中のプレビュー/スナップガイドはそのまま＝
@@ -1607,6 +1715,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     loadProject: (project) => {
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す
+      // （全消しにすると、直前に openProjectFromFile が ingestAssets した開いたばかりの
+      //  ファイルの画像まで消してしまう＝Critical リグレッション）。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId);
     },
@@ -1624,30 +1736,50 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (selectedTaskId && project.core.tasks[selectedTaskId]) set({ selectedTaskId });
     },
     restoreProject: (project) => {
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId, true); // 未保存扱い
     },
     importCsvText: (text) => {
       const { project, report } = importCsv(text, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す
+      // （取込直後は画像を参照しないため、実質は前プロジェクトの画像の全消し＝メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
       return report;
     },
     importRows: (rows) => {
       const { project, report } = rowsToProject(rows, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す
+      // （取込直後は画像を参照しないため、実質は前プロジェクトの画像の全消し＝メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
       return report;
     },
-    newProject: () => adopt(initialProject(), 'medium', undefined),
+    newProject: () => {
+      const p = initialProject();
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新規プロジェクトは画像を参照しないため、
+      // 実質は前プロジェクトの画像の全消し（メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(p));
+      adopt(p, 'medium', undefined);
+    },
     loadTemplate: (key) => {
       const tpl = TEMPLATES.find((t) => t.key === key);
       if (!tpl) return;
       const p = tpl.create(uuid, new Date().toISOString());
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝テンプレートは画像を参照しないため、
+      // 実質は前プロジェクトの画像の全消し（メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(p));
       adopt(p, 'medium', undefined); // 既定は全体スコープ(大をまたいで業務全体を俯瞰)
     },
     loadSample: () => {
       const sample = createSampleProject(uuid, new Date().toISOString());
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝サンプルは画像を参照しないため、
+      // 実質は前プロジェクトの画像の全消し（メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(sample));
       adopt(sample, 'medium', undefined); // 既定は全体スコープ
     },
 

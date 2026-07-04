@@ -9,6 +9,7 @@ import {
 import { TableView } from './TableView';
 import { FullTable } from './FullTable';
 import { FlowCanvas } from './FlowCanvas';
+import { ProcedureView } from './ProcedureView';
 import { buildScenarioFlowSvg } from './scenarioFlow';
 import { Inspector } from './Inspector';
 import {
@@ -29,6 +30,7 @@ import {
   stopExternalWatch,
   acknowledgeExternalChange,
   isEmptyProjectForOutput,
+  missingReferencedAssets,
 } from './persistence';
 import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
@@ -77,21 +79,39 @@ const PANE_LAYOUT_TABS: { value: 'split' | 'table' | 'flow'; label: string; titl
 
 function PaneLayoutTabs({ current }: { current: 'split' | 'table' | 'flow' }) {
   const setPaneLayout = useUI((s) => s.setPaneLayout);
+  const mainView = useUI((s) => s.mainView);
+  const setMainView = useUI((s) => s.setMainView);
+  const inProc = mainView === 'procedure';
   return (
-    <span className="view-tabs" role="tablist" aria-label="表示するペイン">
+    <span className="view-tabs" role="tablist" aria-label="表示ビュー">
       {PANE_LAYOUT_TABS.map((t) => (
         <button
           key={t.value}
           type="button"
           role="tab"
-          aria-selected={current === t.value}
-          className={current === t.value ? 'on' : ''}
-          onClick={() => setPaneLayout(t.value)}
+          aria-selected={!inProc && current === t.value}
+          className={!inProc && current === t.value ? 'on' : ''}
+          // 手順書から作業ビューへ戻す（分割操作が効かない事故を防ぐ）＋ペインレイアウトを設定。
+          onClick={() => {
+            setMainView('work');
+            setPaneLayout(t.value);
+          }}
           title={t.title}
         >
           {t.label}
         </button>
       ))}
+      {/* 手順書タブ（第 3 のビュー）。常設ボタンとして分割/表/フローの隣に置く。 */}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={inProc}
+        className={inProc ? 'on' : ''}
+        onClick={() => setMainView('procedure')}
+        title="手順書（工程ごとの実施手順）"
+      >
+        手順書
+      </button>
     </span>
   );
 }
@@ -147,6 +167,7 @@ export function App() {
     () => (tobeEnabled && scenario === 'tobe' ? buildScenarioFlowSvg(project, 'tobe', level, scopeParentId) : ''),
     [tobeEnabled, scenario, project, level, scopeParentId],
   );
+  const mainView = useUI((s) => s.mainView);
   const tableWide = useUI((s) => s.tableWide);
   const flowWide = useUI((s) => s.flowWide);
   const chromeHidden = useUI((s) => s.chromeHidden);
@@ -228,6 +249,21 @@ export function App() {
   const doSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
     // 保存した内容そのものを markSaved に渡す（書き込み待ちの間の編集を保存済み扱いにしない）。
     const snapshot = useApp.getState().project;
+    // 保存前の最後の安全網: 参照している画像の bytes がメモリに無い（クラッシュ復旧・localStorage
+    // 復元で画像抜きに戻った等）と、保存で ZIP assets/ から永久に消える。黙って消さず確認する。
+    // force はこの確認を通過済みの競合リトライ経路なので二重には出さない。
+    if (!opts.force) {
+      const missing = missingReferencedAssets(snapshot);
+      if (missing.length > 0) {
+        const ok = await useUI.getState().confirm({
+          title: '画像データが見つかりません',
+          message: `${missing.length} 件の画像データが見つかりません。このまま保存すると、これらの画像は失われます。\n（アプリの再起動やクラッシュ復旧の後などに起こることがあります）\n保存を続けますか？`,
+          confirmLabel: '保存する',
+          danger: true,
+        });
+        if (!ok) return; // 保存中止（dirty と未保存の内容はそのまま残す）
+      }
+    }
     try {
       const result = await saveProjectToFile(snapshot, opts);
       if (result.kind === 'cancelled') return; // ピッカーをキャンセル
@@ -879,6 +915,8 @@ export function App() {
           onTemplate={onTemplate}
           onStartEmpty={onStartEmpty}
         />
+      ) : mainView === 'procedure' ? (
+        <ProcedureView />
       ) : (
         <div
           className={`panes${showInspector ? ' with-inspector' : ''}${

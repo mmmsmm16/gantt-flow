@@ -191,6 +191,15 @@ interface UIState {
   /** 分割 / 工程表のみ / 工程フローのみ をタブで直接切替（tableWide・flowWide を一括設定）。 */
   setPaneLayout: (mode: 'split' | 'table' | 'flow') => void;
 
+  /** 直交ビュー: 'work'=分割/表/フロー（既存 PaneLayoutTabs）、'procedure'=手順書タブ（全面）。
+      分割/表/フローの外側にある全面ビューの切替。既定 'work'。undo 非対象・非永続（ビュー状態）。 */
+  mainView: 'work' | 'procedure';
+  setMainView: (v: 'work' | 'procedure') => void;
+  /** 手順書タブが開く中工程（null=選択工程から導出）。ノードのクリックジャンプ・条件の飛び先・
+      パンくずで中工程を切替えるときに使う。undo 非対象・非永続。 */
+  procedureMidId: Id | null;
+  setProcedureMidId: (id: Id | null) => void;
+
   /** 集中モード: 上部ツールバー＋各ビューのヘッダ・操作バーを隠して作業エリアを最大化。
       表示制御は App の .focus-mode クラス＋CSS で行う。localStorage 永続(既定 OFF=表示)。 */
   chromeHidden: boolean;
@@ -382,6 +391,11 @@ export const useUI = create<UIState>((set, get) => ({
           ? { activePane: 'flow' as const }
           : {}),
     }),
+
+  mainView: 'work',
+  setMainView: (mainView) => set({ mainView }),
+  procedureMidId: null,
+  setProcedureMidId: (procedureMidId) => set({ procedureMidId }),
 
   chromeHidden: (() => {
     try {

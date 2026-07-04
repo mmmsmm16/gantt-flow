@@ -204,6 +204,43 @@ export interface FlowView {
   byLevel: FlowLevelView[];
 }
 
+// ---- 手順書（工程ごとの実施手順・資料台帳） ----
+
+export interface Manual {
+  procedures: Record<Id, ProcedureDoc>; // key = taskId（末端工程）
+  assets: Record<Id, AssetRef>;         // 資料台帳
+}
+export interface ProcedureDoc {
+  taskId: Id;
+  purpose?: string;        // 目的（1 文）
+  steps: ProcedureStep[];
+  updatedAt: string;       // 最終改訂日時（ISO）
+  revisions: Revision[];   // 軽量改訂履歴（追記式）
+}
+export interface ProcedureStep {
+  id: Id;
+  action: string;          // アクション（1 文）
+  why?: string;            // このステップの目的（1 文）
+  bodyMd?: string;         // 詳細本文・ノウハウ（Markdown）
+  conds: StepCond[];
+  refs: StepRef[];
+  images: StepImage[];
+}
+export interface StepCond { id: Id; when: string; thenMd: string; targetTaskId?: Id }
+export type StepRef =
+  | { kind: 'asset'; assetId: Id }             // 資料台帳
+  | { kind: 'io'; taskId: Id; ioId: Id }       // 帳票（IoItem）
+  | { kind: 'task'; taskId: Id };              // 他工程
+export interface StepImage {
+  id: Id;
+  file: string;            // ZIP 内 assets/… の相対名（内容ハッシュ由来）
+  caption?: string;
+  overlay?: unknown;       // 注釈レイヤの席のみ予約（実装しない）
+}
+export interface Revision { at: string; note?: string; by?: string }
+export type AssetLocator = { alias: string; relPath: string } | { url: string };
+export interface AssetRef { id: Id; name: string; desc?: string; locator?: AssetLocator }
+
 // ---- プロジェクト（保存ドキュメント） ----
 
 export interface ProjectMeta {
@@ -220,5 +257,6 @@ export interface Project {
   core: Core;
   details: Record<Id, TaskDetail>;
   flow: FlowView;
+  manual: Manual;
   quarantine?: unknown[];
 }

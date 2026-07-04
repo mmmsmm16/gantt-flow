@@ -4,6 +4,7 @@ import { reconcileProject } from '../src/sync/reconcileProject';
 import { computeCodes } from '../src/codes';
 import { effortRollupMinutes } from '../src/metrics';
 import { ProjectSchema } from '../src/model/schema';
+import { validate } from '../src/validate';
 import { counter } from './helpers';
 import { taskIdByName } from './helpers';
 
@@ -65,5 +66,50 @@ describe('createSampleProject', () => {
     const codes = computeCodes(p.core);
     const m1 = taskIdByName(p, '注文受付');
     expect(codes[m1]).toBe('1-1');
+  });
+
+  it('手順書・資料台帳: 末端工程のみに付与され、conds/refs の参照先はすべて実在する（procedure 系の validate 警告ゼロ）', () => {
+    const p = createSampleProject(counter());
+    const procedures = Object.values(p.manual.procedures);
+    expect(procedures.length).toBeGreaterThanOrEqual(2);
+
+    const issues = validate(p);
+    expect(issues.filter((i) => i.kind.startsWith('procedure.'))).toEqual([]);
+
+    for (const doc of procedures) {
+      // 手順書は末端工程（子を持たない）にのみ付与される
+      const hasChild = Object.values(p.core.tasks).some((t) => t.parentId === doc.taskId);
+      expect(hasChild).toBe(false);
+
+      for (const step of doc.steps) {
+        for (const cond of step.conds) {
+          if (cond.targetTaskId) expect(p.core.tasks[cond.targetTaskId]).toBeDefined();
+        }
+        for (const ref of step.refs) {
+          if (ref.kind === 'asset') expect(p.manual.assets[ref.assetId]).toBeDefined();
+          if (ref.kind === 'task') expect(p.core.tasks[ref.taskId]).toBeDefined();
+          if (ref.kind === 'io') {
+            const detail = p.details[ref.taskId];
+            const found = [...(detail?.inputs ?? []), ...(detail?.outputs ?? [])].some(
+              (io) => io.id === ref.ioId,
+            );
+            expect(found).toBe(true);
+          }
+        }
+      }
+    }
+
+    // 少なくとも asset ref と io ref が 1 件ずつ存在する（台帳参照・帳票参照の両パターンをデモする）
+    const allRefs = procedures.flatMap((d) => d.steps.flatMap((s) => s.refs));
+    expect(allRefs.some((r) => r.kind === 'asset')).toBe(true);
+    expect(allRefs.some((r) => r.kind === 'io')).toBe(true);
+    // 少なくとも 1 件の cond に targetTaskId（他工程への飛び先）がある
+    const allConds = procedures.flatMap((d) => d.steps.flatMap((s) => s.conds));
+    expect(allConds.some((c) => !!c.targetTaskId)).toBe(true);
+
+    // 資料台帳: alias(相対パス) 形式と url 形式が両方ある（未接続グレー表示＋リンクのデモ）
+    const locators = Object.values(p.manual.assets).map((a) => a.locator);
+    expect(locators.some((l) => l && 'alias' in l)).toBe(true);
+    expect(locators.some((l) => l && 'url' in l)).toBe(true);
   });
 });

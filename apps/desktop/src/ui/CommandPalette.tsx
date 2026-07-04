@@ -777,6 +777,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'layout-split', label: '分割表示（工程表＋フロー）', keywords: 'split bunkatsu 分割 両方 並べる レイアウト', run: () => ui.setPaneLayout('split') },
       { id: 'wide', label: '工程表だけを全幅表示', keywords: 'wide hyou table 表 全幅 広く レイアウト', run: () => ui.setPaneLayout('table') },
       { id: 'flow-wide', label: '工程フローだけを全幅表示', keywords: 'wide flow フロー 全幅 広く レイアウト', run: () => ui.setPaneLayout('flow') },
+      { id: 'procedure-tab', label: '手順書タブを開く', keywords: 'procedure tejunsho 手順書 手順 マニュアル ノウハウ manual', hint: 'g p', run: () => ui.setMainView('procedure') },
       { id: 'toggle-chrome', label: '集中モード（ツールバー・操作バーを隠す / 表示）', keywords: 'chrome toolbar shuchu 集中 ツールバー 操作バー ヘッダ 隠す 非表示 最大化 全画面 focus zen', hint: '⌘\\', run: ui.toggleChrome },
       { id: 'minimap', label: 'ミニマップの表示を切り替え', keywords: 'minimap map ミニマップ 地図 俯瞰', run: () => useUI.getState().toggleMinimap() },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },

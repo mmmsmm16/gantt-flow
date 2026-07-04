@@ -13,7 +13,7 @@ import {
   type Project,
   type ValidationIssue,
 } from '@gantt-flow/core';
-import { loadProjectFile, saveProjectFile } from './fileio.js';
+import { loadProjectContainer, saveProjectFile } from './fileio.js';
 
 const APP_VERSION = '0.0.0'; // デスクトップ版 persistence.ts と同じ。保存ファイルの meta.appVersion。
 
@@ -33,6 +33,7 @@ function emptyProject(title: string): Project {
     core: { tasks: {}, dependencies: {}, assignees: {} },
     details: {},
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   };
   // 新規はデスクトップ版 initialProject と同じく medium ビューを 1 枚用意して reconcile。
   return reconcileProject(ensureLevelView(base, 'medium'), uuid);
@@ -42,12 +43,14 @@ export class ProjectSession {
   private constructor(
     public readonly path: string,
     public project: Project,
+    /** open 時に同梱されていた画像 assets（MCP は生成しないが write-through で握って書き戻す）。 */
+    public assets: Record<string, Uint8Array> = {},
   ) {}
 
   /** 既存ファイルを開く。 */
   static async open(path: string): Promise<ProjectSession> {
-    const project = await loadProjectFile(path);
-    return new ProjectSession(path, project);
+    const { project, assets } = await loadProjectContainer(path);
+    return new ProjectSession(path, project, assets);
   }
 
   /** 既製の Project（CSV 取り込み等）を採用する。ビュー補完・reconcile・保存まで行う。 */
@@ -58,7 +61,7 @@ export class ProjectSession {
       ...reconciled,
       meta: { ...reconciled.meta, updatedAt: new Date().toISOString() },
     };
-    await saveProjectFile(path, stamped);
+    await saveProjectFile(path, stamped); // 取り込みは画像を持たない（assets なし）
     return new ProjectSession(path, stamped);
   }
 
@@ -72,7 +75,7 @@ export class ProjectSession {
       : emptyProject(opts.title ?? '新規プロジェクト');
     const titled = opts.title ? { ...project, meta: { ...project.meta, title: opts.title } } : project;
     const session = new ProjectSession(path, titled);
-    await saveProjectFile(path, titled);
+    await saveProjectFile(path, titled); // 新規は画像を持たない（assets なし）
     return session;
   }
 
@@ -90,13 +93,14 @@ export class ProjectSession {
       ...reconciled,
       meta: { ...reconciled.meta, updatedAt: new Date().toISOString() },
     };
-    await saveProjectFile(this.path, this.project);
+    // assets を渡して write-through（既存画像を保持したまま保存＝落とさない）。参照 GC は fileio 側。
+    await saveProjectFile(this.path, this.project, this.assets);
   }
 
   /** 現在の Project を別パスへ保存し、以後の保存先をそのパスに切り替える。 */
   async saveAs(path: string): Promise<ProjectSession> {
-    await saveProjectFile(path, this.project);
-    return new ProjectSession(path, this.project);
+    await saveProjectFile(path, this.project, this.assets);
+    return new ProjectSession(path, this.project, this.assets);
   }
 
   /** 参照整合性の問題一覧（投げない）。 */

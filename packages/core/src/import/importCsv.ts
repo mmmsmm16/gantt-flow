@@ -110,6 +110,7 @@ export function rowsToProject(
     core: { tasks: {}, dependencies: {}, assignees: {} },
     details: {},
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   };
   if (rows.length === 0) {
     report.warnings.push('空のファイルです');
