@@ -7,7 +7,8 @@
 import * as XLSX from 'xlsx';
 import {
   serializeProject,
-  deserializeProject,
+  serializeContainer,
+  deserializeContainer,
   projectToRows,
   projectToCsv,
   computeCodes,
@@ -17,6 +18,7 @@ import {
   type LockInfo,
   type AcquireResult,
 } from '@gantt-flow/core';
+import { bytesToB64, b64ToBytes } from './b64';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
 import { useUI, type LockUiState } from './ui/useUI';
 
@@ -39,7 +41,7 @@ function reportLockFailure(): void {
 // File System Access API は一部ブラウザのみ。lib.dom に未収録のため使う範囲だけ最小宣言する
 //（既存の lib 型と衝突しないよう独自名で定義）。
 interface FsWritable {
-  write(data: BlobPart): Promise<void>;
+  write(data: BlobPart | Uint8Array): Promise<void>;
   close(): Promise<void>;
 }
 interface FsFileHandle {
@@ -264,8 +266,9 @@ const isAbort = (err: unknown): boolean =>
 const safeName = (title: string) =>
   (title.trim() || 'project').replace(/[^\w\-一-龠ぁ-んァ-ヶ。、ー]/g, '_');
 
-function download(name: string, data: BlobPart, mime: string): void {
-  const url = URL.createObjectURL(new Blob([data], { type: mime }));
+function download(name: string, data: BlobPart | Uint8Array, mime: string): void {
+  // Uint8Array は実行時に有効な BlobPart。新しい lib.dom の型狭化を避けるためここで受ける。
+  const url = URL.createObjectURL(new Blob([data as BlobPart], { type: mime }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
@@ -313,9 +316,9 @@ async function doSave(
   project: Project,
   opts: { saveAs?: boolean; force?: boolean },
 ): Promise<SaveOutcome> {
-  const json = serializeProject(project);
+  const bytes = serializeContainer(project);
   const suggested = `${safeName(project.meta.title)}${PROJECT_EXT}`;
-  if (isTauri()) return saveTauri(json, suggested, opts);
+  if (isTauri()) return saveTauri(bytes, suggested, opts);
   if (fsSupported()) {
     if (!fileHandle || opts.saveAs) {
       try {
@@ -329,18 +332,18 @@ async function doSave(
       }
     }
     const w = await fileHandle.createWritable();
-    await w.write(json);
+    await w.write(bytes);
     await w.close();
     void rememberRecent(fileHandle);
     return { kind: 'saved', name: fileHandle.name };
   }
   // File System Access 非対応ブラウザのみダウンロード（呼び出し側は「上書きではない」と分かる）。
-  download(suggested, json, 'application/json');
+  download(suggested, bytes, 'application/octet-stream');
   return { kind: 'downloaded', name: suggested };
 }
 
 async function saveTauri(
-  json: string,
+  bytes: Uint8Array,
   suggested: string,
   opts: { saveAs?: boolean; force?: boolean },
 ): Promise<SaveOutcome> {
@@ -359,7 +362,7 @@ async function saveTauri(
     const mtime = await statMtime(path);
     if (mtime !== null && mtime !== lastKnownMtime) return { kind: 'conflict' };
   }
-  await invoke<null>('save_project', { path, contents: json });
+  await invoke<null>('save_project', { path, contentsB64: bytesToB64(bytes) });
   lastKnownMtime = await statMtime(path);
   if (filePath !== path) {
     fileHandle = null;
@@ -421,8 +424,8 @@ async function pollExternal(onChange: (project: Project) => void): Promise<void>
     const mtime = await statMtime(filePath);
     // 変化なし / 自分の保存後で既知 / 既に通知済みの同一変更 ならスキップ。
     if (mtime === null || mtime === lastKnownMtime || mtime === lastSeenExternalMtime) return;
-    const text = await invoke<string>('open_project', { path: filePath });
-    const project = deserializeProject(text); // 書き込み途中の壊れた中間状態なら throw → 次回拾う
+    const b64 = await invoke<string>('open_project', { path: filePath });
+    const project = deserializeContainer(b64ToBytes(b64)).project; // 書き込み途中の壊れた中間状態なら throw → 次回拾う
     lastSeenExternalMtime = mtime;
     onChange(project);
   } catch {
@@ -619,8 +622,8 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
     if (path === null) return null;
     // mtime は読む「前」に取る（読んでいる間の変更を、次の保存で競合として拾う側に倒す）。
     const mtime = await statMtime(path);
-    const text = await invoke<string>('open_project', { path });
-    const project = deserializeProject(text); // 不正なら throw
+    const b64 = await invoke<string>('open_project', { path });
+    const project = deserializeContainer(b64ToBytes(b64)).project; // 不正なら throw
     // 助言ロックの付け替え。同じファイルの開き直しは保持中のロックをそのまま使う
     //（一度手放すと、確認のキャンセルや取得失敗で「今の状態のまま」ロックだけ失ってしまう）。
     if (lockPath !== path) {
@@ -648,7 +651,7 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
     const handle = handles[0];
     if (!handle) return null;
     const file = await handle.getFile();
-    const project = deserializeProject(await file.text()); // 不正なら throw
+    const project = deserializeContainer(new Uint8Array(await file.arrayBuffer())).project; // 不正なら throw
     fileHandle = handle; // 検証成功後にだけ保存先として採用
     filePath = null;
     void rememberRecent(handle);
@@ -665,8 +668,8 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
         return;
       }
       try {
-        const text = await file.text();
-        const project = deserializeProject(text); // 不正なら throw（Zod）
+        const buf = new Uint8Array(await file.arrayBuffer());
+        const project = deserializeContainer(buf).project; // 不正なら throw（Zod）
         fileHandle = null; // input 経由は上書き不可（毎回ダウンロード保存）
         filePath = null;
         resolve(project);
@@ -755,7 +758,7 @@ export async function openRecentFile(name: string): Promise<Project | null> {
     if (perm !== 'granted') return null;
   }
   const file = await handle.getFile();
-  const project = deserializeProject(await file.text());
+  const project = deserializeContainer(new Uint8Array(await file.arrayBuffer())).project;
   fileHandle = handle;
   filePath = null;
   void rememberRecent(handle);
