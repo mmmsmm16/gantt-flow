@@ -150,6 +150,17 @@ describe('addTaskQuickCommand（工程クイック追加 DSL）', () => {
     expect(Object.values(s.project.core.tasks).some((t) => t.name === '出荷')).toBe(true);
     expect(Object.values(s.project.core.dependencies)).toHaveLength(0);
   });
+
+  it('マイルストーンは前工程候補から除外される（同名指定でも依存を作らない）', () => {
+    selectFirstTask(); // 「受付」(medium) を選択→同じ粒度・親でマイルストーンを追加
+    const msId = useApp.getState().addMilestone();
+    expect(useApp.getState().project.core.tasks[msId!]?.kind).toBe('milestone');
+    addTaskQuickCommand(true).runWithArg?.('出荷 >新規マイルストーン');
+    const s = useApp.getState();
+    expect(Object.values(s.project.core.tasks).some((t) => t.name === '出荷')).toBe(true);
+    // MS は前工程候補に出ないため名前が一致しても解決されず、依存は作られない（無言の無視を防ぐ）。
+    expect(Object.values(s.project.core.dependencies)).toHaveLength(0);
+  });
 });
 
 describe('直前コマンドのリピート（mod+. / もう一度行）', () => {

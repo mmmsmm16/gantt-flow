@@ -150,4 +150,21 @@ describe('export: Project → 行列 / CSV', () => {
     expect(from.name).toBe('内容確認');
     expect(p2.core.tasks[from.parentId!]!.name).toBe('受注業務'); // 請求業務側に繋がない
   });
+
+  it('マイルストーン行は工程No 空・◆ 付きの作業名で出力し、担当/工数も空にする', () => {
+    const g = counter('m');
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium', assigneeId: undefined }, g);
+    const a = taskIdByName(p, 'A');
+    p = addTask(p, { name: '節目', level: 'medium', kind: 'milestone' }, g);
+    const ms = taskIdByName(p, '節目');
+    p = addDependency(p, a, ms, g);
+
+    const rows = projectToRows(p);
+    const row = rows.find((r) => r[1] === '◆ 節目')!;
+    expect(row).toBeDefined();
+    expect(row[0]).toBe(''); // 工程No は空
+    expect(row[2]).toBe(''); // 担当は空
+    expect(row[10]).toBe(''); // 工数(分) も空
+  });
 });

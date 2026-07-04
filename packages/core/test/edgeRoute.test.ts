@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { routeEdge, type Rect, type Pt } from '../src/sync/edgeRoute';
+import { routeEdge, chooseEdgeDir, type Rect, type Pt } from '../src/sync/edgeRoute';
 
 const R = (x: number, y: number, w = 120, h = 44): Rect => ({ x, y, w, h });
 
@@ -80,11 +80,12 @@ describe('routeEdge: 直角経路のノード回避', () => {
     for (const o of [A, B, C]) expect(passesThrough(r.points, o)).toBe(false);
   });
 
-  it('後ろ向き(ターゲットが左)でも経路が返る', () => {
+  it('後ろ向き(ターゲットが左)は左辺から出て相手の右辺へ入る', () => {
+    // 相手が左＝左辺から出て、ターゲットの右辺へ入る(矢じりは左を向く)。従来の「右辺から U 字」ではない。
     const r = routeEdge(R(400, 0), R(0, 200), []);
     expect(r.points.length).toBeGreaterThanOrEqual(4);
-    expect(r.points[0]).toEqual({ x: 520, y: 22 });
-    expect(r.points[r.points.length - 1]).toEqual({ x: 0, y: 222 });
+    expect(r.points[0]).toEqual({ x: 400, y: 22 }); // ソース左辺中央
+    expect(r.points[r.points.length - 1]).toEqual({ x: 120, y: 222 }); // ターゲット右辺中央(0+120)
   });
 
   it('ラベル位置は経路の中央セグメントの中点', () => {
@@ -93,68 +94,78 @@ describe('routeEdge: 直角経路のノード回避', () => {
   });
 });
 
-describe('routeEdge: 後ろ向き(手戻り)エッジの U 字迂回', () => {
-  it('終端は右向き＝矢じりがターゲット左辺に入る(6点・最終セグメントが +x)', () => {
-    const r = routeEdge(R(400, 0), R(0, 200), []);
-    expect(r.points).toHaveLength(6);
-    const p = r.points;
-    // 端点(接続ハンドル)は従来どおり: ソース右辺中央 / ターゲット左辺中央
-    expect(p[0]).toEqual({ x: 520, y: 22 });
-    expect(p[5]).toEqual({ x: 0, y: 222 });
-    // 最終セグメント P4→P5 は水平の右向き(矢じりが右を向く)
-    expect(p[4]!.y).toBe(p[5]!.y);
-    expect(p[4]!.x).toBeLessThan(p[5]!.x);
+describe('routeEdge: 相対位置による出入り辺の自動選択(4方位)', () => {
+  // 相手のいる辺から出て、相手の対辺へ入る。marker は orient=auto なので最終セグメントの向きに
+  // 矢じりが揃う(下の相手には下辺から出て上辺へ＝矢じりは下向きに刺さる)。すべて決定論。
+  it('右の相手 → 右辺から出て左辺へ入る(直線)', () => {
+    const r = routeEdge(R(0, 0), R(400, 0), []);
+    expect(r.points).toHaveLength(2);
+    expect(r.points[0]).toEqual({ x: 120, y: 22 }); // ソース右辺中央
+    expect(r.points[1]).toEqual({ x: 400, y: 22 }); // ターゲット左辺中央
   });
 
-  it('縦の入口はターゲット左辺より左＝本体に被らない', () => {
-    const r = routeEdge(R(400, 0), R(0, 200), []);
-    const p = r.points;
-    expect(p[4]!.x).toBeLessThan(0); // x2 = target.x = 0 より左
-    // ソース本体・ターゲット本体のどちらも貫かない(被らない)
-    expect(passesThrough(p, R(400, 0))).toBe(false);
-    expect(passesThrough(p, R(0, 200))).toBe(false);
+  it('左の相手 → 左辺から出て右辺へ入る(直線・矢じりは左向き)', () => {
+    const r = routeEdge(R(400, 0), R(0, 0), []);
+    expect(r.points).toHaveLength(2);
+    expect(r.points[0]).toEqual({ x: 400, y: 22 }); // ソース左辺中央
+    expect(r.points[1]).toEqual({ x: 120, y: 22 }); // ターゲット右辺中央(0+120)
+    expect(r.points[1]!.x).toBeLessThan(r.points[0]!.x); // 最終セグメントは左向き
   });
 
-  it('横断レーンは両ノードの行帯の外＝前向き線と別の高さを通る', () => {
-    const r = routeEdge(R(400, 100), R(0, 100), []); // 同一行で手戻り
-    const p = r.points;
-    const cy = p[2]!.y;
-    expect(p[2]!.y).toBe(p[3]!.y); // 横断は水平
-    // ソース/ターゲットの本体 y レンジ(100..144)の外側
-    expect(cy < 100 || cy > 144).toBe(true);
+  it('真下の相手 → 下辺から出て上辺へ入る(直線・矢じりは下向き)', () => {
+    const r = routeEdge(R(0, 0), R(0, 200), []);
+    expect(r.points).toHaveLength(2);
+    expect(r.points[0]).toEqual({ x: 60, y: 44 }); // ソース下辺中央(0+120/2, 0+44)
+    expect(r.points[1]).toEqual({ x: 60, y: 200 }); // ターゲット上辺中央
+    expect(r.points[1]!.y).toBeGreaterThan(r.points[0]!.y); // 下向き
   });
 
-  it('隣接列(間隔が狭い)でも終端は長さ>0 の右向きにクランプされる', () => {
-    const r = routeEdge(R(300, 100), R(200, 100), []);
-    const p = r.points;
-    const lastLen = p[5]!.x - p[4]!.x; // = x2 - xEntry
-    expect(lastLen).toBeGreaterThan(0);
-    expect(lastLen).toBeLessThanOrEqual(16); // STUB 以内(過剰に長い stub を作らない)
+  it('真上の相手 → 上辺から出て下辺へ入る(直線・矢じりは上向き)', () => {
+    const r = routeEdge(R(0, 200), R(0, 0), []);
+    expect(r.points).toHaveLength(2);
+    expect(r.points[0]).toEqual({ x: 60, y: 200 }); // ソース上辺中央
+    expect(r.points[1]).toEqual({ x: 60, y: 44 }); // ターゲット下辺中央(0+44)
+    expect(r.points[1]!.y).toBeLessThan(r.points[0]!.y); // 上向き
   });
 
-  it('間に居座るノードがあっても上下の専用レーンで全回避する', () => {
-    const obstacles = [R(250, 80), R(250, 150)];
-    const r = routeEdge(R(400, 100), R(0, 120), obstacles);
-    for (const o of obstacles) expect(passesThrough(r.points, o)).toBe(false);
+  it('x範囲が重なるかどうかで down/right が切り替わる', () => {
+    // x範囲がほぼ重なる(ずれ20 < w120) → ほぼ真下 → 下辺から
+    expect(routeEdge(R(0, 0), R(20, 300), []).points[0]).toEqual({ x: 60, y: 44 });
+    // x範囲が重ならない斜め前方 → dy が dx より大きくても right に丸める
+    expect(routeEdge(R(0, 0), R(400, 120), []).points[0]).toEqual({ x: 120, y: 22 });
   });
 
-  it('ラベルは横断レーン(中央セグメント)の中点', () => {
-    const r = routeEdge(R(400, 0), R(0, 200), []);
-    const p = r.points;
-    expect(r.label.y).toBe(p[2]!.y);
-    expect(r.label.x).toBe((p[2]!.x + p[3]!.x) / 2);
+  it('原則: 常に right。例外は「x範囲が重なる(down/up)」と「明確に逆向き(left)」の2つだけ', () => {
+    // 斜め右下(dy(300) > dx(200) だが x範囲は重ならない) → 原則どおり right
+    expect(chooseEdgeDir(R(0, 0), R(200, 300))).toBe('right');
+    // 斜め右上も同様に right
+    expect(chooseEdgeDir(R(0, 300), R(200, 0))).toBe('right');
+    // x範囲が重なる真下(x範囲[0,120]と[80,200]が交差) → down
+    expect(chooseEdgeDir(R(0, 0), R(80, 300))).toBe('down');
+    // x範囲が重なる真上 → up
+    expect(chooseEdgeDir(R(0, 300), R(80, 0))).toBe('up');
+    // 逆向き(ターゲット右端(120)がソース左端(400)より左) → down/up の軸判定によらず left
+    // (dy(500) > |dx|(400) で従来の主軸判定なら down になるはずのケース)
+    expect(chooseEdgeDir(R(400, 0), R(0, 500))).toBe('left');
   });
 
-  it('前提を保ったまま、通れる最短側のレーンを選ぶ(無駄な大回りをしない)', () => {
-    // ソース/ターゲットは上の方(y=22,62)、障害物は遥か下(y=400〜)。
-    // 下へ大回り(縦移動 ~556)せず、上の短いレーン(縦移動 ~244)を通るべき。
-    const r = routeEdge(R(400, 0), R(0, 40), [R(200, 400)]);
-    const cy = r.points[2]!.y; // 横断レーンの y
-    expect(cy).toBeLessThan(0); // 両ノードより上＝短い側
-    // 障害物を貫かない(前提は維持)
-    expect(passesThrough(r.points, R(200, 400))).toBe(false);
-    // 終端は右向き(矢じりは左辺)・縦の入口は左辺より左(本体に被らない)も維持
-    expect(r.points[4]!.x).toBeLessThan(r.points[5]!.x);
-    expect(r.points[4]!.x).toBeLessThan(0);
+  it('縦方向でも障害物を避ける(下辺から出て相手を迂回)', () => {
+    // ソース→真下のターゲット。間に別ノードが居座る → 下辺から出つつ障害物本体を貫かない。
+    const obstacle = R(0, 120);
+    const r = routeEdge(R(0, 0), R(0, 260), [obstacle]);
+    expect(r.points[0]).toEqual({ x: 60, y: 44 }); // 下辺から出る
+    expect(passesThrough(r.points, obstacle)).toBe(false); // 迂回している
+  });
+
+  it('決定論: 同じ入力は同じ経路(4方位)', () => {
+    const cases: [ReturnType<typeof R>, ReturnType<typeof R>][] = [
+      [R(0, 0), R(400, 0)],
+      [R(400, 0), R(0, 0)],
+      [R(0, 0), R(0, 200)],
+      [R(0, 200), R(0, 0)],
+    ];
+    for (const [s, t] of cases) {
+      expect(routeEdge(s, t, []).d).toBe(routeEdge(s, t, []).d);
+    }
   });
 });

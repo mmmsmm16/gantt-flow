@@ -24,8 +24,8 @@ import {
 } from '@gantt-flow/core';
 
 export type BatchOp =
-  | { op: 'add_task'; ref?: string; name: string; level: ProcessLevel; parent?: string; assignee?: string; assigneeId?: string }
-  | { op: 'upsert_task'; ref?: string; name: string; level?: ProcessLevel; parent?: string; assignee?: string; assigneeId?: string }
+  | { op: 'add_task'; ref?: string; name: string; level: ProcessLevel; parent?: string; assignee?: string; assigneeId?: string; kind?: 'milestone' }
+  | { op: 'upsert_task'; ref?: string; name: string; level?: ProcessLevel; parent?: string; assignee?: string; assigneeId?: string; kind?: 'milestone' }
   | { op: 'add_dependency'; from: string; to: string }
   | { op: 'set_detail'; task: string; patch: TaskDetailPatch }
   | { op: 'set_tobe'; task: string; patch: Partial<TaskDetailToBe> }
@@ -101,7 +101,7 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           const parentId = resolve(o.parent);
           const assigneeId = resolveAssignee(o.assigneeId, o.assignee);
           const id = uuid();
-          p = addTask(p, { id, name: o.name, level: o.level, parentId, assigneeId }, uuid);
+          p = addTask(p, { id, name: o.name, level: o.level, parentId, assigneeId, kind: o.kind }, uuid);
           if (o.ref) aliases[o.ref] = id;
           created.tasks++;
           break;
@@ -111,12 +111,13 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           const existing = findByParentAndName(p, parentId, o.name);
           const assigneeId = resolveAssignee(o.assigneeId, o.assignee);
           if (existing) {
+            // kind は新規作成時のみ適用。既存工程の kind は変更しない（core に kind 遷移コマンドが無いため）。
             if (o.level) p = setTaskLevel(p, existing, o.level);
             if (assigneeId) p = setAssignee(p, existing, assigneeId);
             if (o.ref) aliases[o.ref] = existing;
           } else {
             const id = uuid();
-            p = addTask(p, { id, name: o.name, level: o.level ?? 'medium', parentId, assigneeId }, uuid);
+            p = addTask(p, { id, name: o.name, level: o.level ?? 'medium', parentId, assigneeId, kind: o.kind }, uuid);
             if (o.ref) aliases[o.ref] = id;
             created.tasks++;
           }

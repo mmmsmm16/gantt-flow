@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createAppStore, useApp, findView } from '../src/store';
 import { revealTask, confirmRemoveTasks } from '../src/taskOps';
 import { useUI } from '../src/ui/useUI';
-import { serializeProject, deserializeProject, ROW_SUB, SIZE } from '@gantt-flow/core';
+import { serializeProject, deserializeProject, ROW_SUB, SIZE, laneLayout } from '@gantt-flow/core';
 import type { FlowTaskNode, FlowDocNode } from '@gantt-flow/core';
 
 const view0 = (s: ReturnType<typeof createAppStore>) => s.getState().project.flow.byLevel[0]!;
@@ -571,6 +571,60 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.values(view0(s).nodes).some((n) => n.kind === 'task')).toBe(true); // 工程は残る
   });
 
+  it('setCommentTarget: 付箋を工程ノードへ結ぶ/解除する。不正な対象は no-op', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const task = taskNodes(s)[0]!;
+    s.getState().addComment('メモ');
+    const note = Object.values(view0(s).nodes).find((n) => n.kind === 'comment')!;
+
+    // 実在する工程ノードを対象に設定できる。
+    s.getState().setCommentTarget(note.id, task.id);
+    const linked = view0(s).nodes[note.id]!;
+    expect(linked.kind === 'comment' && linked.targetNodeId).toBe(task.id);
+
+    // 不在ノード・自分自身は無効（no-op：直前の対象を保つ、履歴も汚さない）。
+    const canUndoBefore = s.getState().canUndo;
+    s.getState().setCommentTarget(note.id, 'no-such-node');
+    s.getState().setCommentTarget(note.id, note.id);
+    const still = view0(s).nodes[note.id]!;
+    expect(still.kind === 'comment' && still.targetNodeId).toBe(task.id);
+    expect(s.getState().canUndo).toBe(canUndoBefore); // no-op は履歴に積まれない
+
+    // 解除できる（undefined）。
+    s.getState().setCommentTarget(note.id, undefined);
+    const cleared = view0(s).nodes[note.id]!;
+    expect(cleared.kind === 'comment' && cleared.targetNodeId).toBeUndefined();
+
+    // undo で対象設定が元に戻る（結び→解除の 2 手を戻すと結び直った状態へ）。
+    s.getState().undo();
+    const back = view0(s).nodes[note.id]!;
+    expect(back.kind === 'comment' && back.targetNodeId).toBe(task.id);
+  });
+
+  it('removeTask: 削除された工程のノードを対象にしていた付箋の targetNodeId が外れる（ダングリング禁止）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const nodeA = taskNodes(s).find((n) => n.taskId === idByName(s, 'A'))!;
+    const nodeB = taskNodes(s).find((n) => n.taskId === idByName(s, 'B'))!;
+    s.getState().addComment('Aを対象');
+    s.getState().addComment('Bを対象');
+    const noteA = Object.values(view0(s).nodes).find((n) => n.kind === 'comment' && n.text === 'Aを対象')!;
+    const noteB = Object.values(view0(s).nodes).find((n) => n.kind === 'comment' && n.text === 'Bを対象')!;
+    s.getState().setCommentTarget(noteA.id, nodeA.id);
+    s.getState().setCommentTarget(noteB.id, nodeB.id);
+
+    s.getState().removeTask(idByName(s, 'A'));
+
+    // 対象工程ごと消えた付箋は targetNodeId が外れる（描画側ガードで無害でも永続化するとダングリング）。
+    const clearedA = view0(s).nodes[noteA.id]!;
+    expect(clearedA.kind === 'comment' && clearedA.targetNodeId).toBeUndefined();
+    // 無関係（削除していない工程）を対象にした付箋は影響を受けない。
+    const stillB = view0(s).nodes[noteB.id]!;
+    expect(stillB.kind === 'comment' && stillB.targetNodeId).toBe(nodeB.id);
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');
@@ -881,6 +935,161 @@ describe('app store（command → reconcile → history）', () => {
   });
 });
 
+describe('再監査H-1: 初回導線でフロー表示粒度が最初の工程の粒度に追従する', () => {
+  it('空プロジェクトで addRootTask(large) すると表示粒度が大へ追従し、大ノードがフローに出る', () => {
+    const s = createAppStore();
+    expect(s.getState().level).toBe('medium'); // 既定粒度
+    const id = s.getState().addRootTask('large');
+    expect(id).toBeTruthy();
+    expect(s.getState().level).toBe('large'); // 初回だけ新工程の粒度へ追従
+    // 追従先の大ビューに、作った大工程のノードが実在する（「大を作ってもフローに出ない」の解消）。
+    const view = findView(s.getState().project, 'large', undefined)!;
+    expect(Object.values(view.nodes).some((n) => n.kind === 'task' && n.taskId === id!)).toBe(true);
+  });
+
+  it('同じ粒度で作るなら追従は無害（medium のまま）', () => {
+    const s = createAppStore();
+    s.getState().addRootTask('medium');
+    expect(s.getState().level).toBe('medium');
+  });
+
+  it('既存プロジェクト（工程あり）では粒度を勝手に切り替えない＝手動配置・現在の粒度を尊重', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付'); // medium の工程が既にある＝空でない
+    expect(s.getState().level).toBe('medium');
+    s.getState().addRootTask('large'); // 2 件目は初回導線ではない
+    expect(s.getState().level).toBe('medium'); // 追従しない
+  });
+});
+
+describe('再監査H-2: 選択工程の削除で選択と詳細ペインが固着しない', () => {
+  // App.tsx の詳細ペイン表示条件（belt）を純粋述語として再現し、選択が実在するときだけ true。
+  const showInspectorLike = (s: ReturnType<typeof createAppStore>) => {
+    const st = s.getState();
+    const sel = st.selectedTaskId;
+    return !!sel && !!st.project.core.tasks[sel];
+  };
+
+  it('removeTask: 選択中の工程を削除すると selectedTaskId が解除される（suspenders）', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = idByName(s, '受付');
+    s.getState().select(id);
+    expect(showInspectorLike(s)).toBe(true);
+    s.getState().removeTask(id);
+    expect(s.getState().selectedTaskId).toBeUndefined();
+    expect(showInspectorLike(s)).toBe(false);
+  });
+
+  it('removeTask: 別の工程を選択中なら選択は維持される', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    s.getState().select(b);
+    s.getState().removeTask(a);
+    expect(s.getState().selectedTaskId).toBe(b); // 消えていない選択はそのまま
+  });
+
+  it('removeManyTasks: 選択中を含む一括削除で選択が解除される', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    s.getState().select(a);
+    s.getState().removeManyTasks([a, b]);
+    expect(s.getState().selectedTaskId).toBeUndefined();
+    expect(showInspectorLike(s)).toBe(false);
+  });
+
+  it('belt: 選択が消えた工程を指していても存在チェックで詳細ペインは開かない', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = idByName(s, '受付');
+    s.getState().removeTask(id);
+    s.getState().select(id); // store の自動解除を経ずに stale な id を選択し直す
+    expect(s.getState().selectedTaskId).toBe(id); // 選択自体は入る
+    expect(showInspectorLike(s)).toBe(false); // が、実在しないので開かない（App 側の belt）
+  });
+});
+
+describe('UX#6: ノード負座標のクランプと救出', () => {
+  it('moveNode は確定時に x/y を 0 未満へクランプする（プレビュー中の負座標は問わない）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const node = taskNodes(s)[0]!;
+    s.getState().moveNode(node.id, -50, -30);
+    const after = taskNodes(s).find((n) => n.id === node.id)!;
+    expect(after.x).toBe(0);
+    expect(after.y).toBe(0);
+  });
+
+  it('moveNodesBy は選択全体を剛体として動かし、一部が 0 未満になる移動量は削って揃える（個別クランプで形を歪めない）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    const gap = b.x - a.x; // 元の相対距離
+    s.getState().moveNodesBy([a.id, b.id], -(a.x + 1000), 0); // そのままなら両方とも大幅に 0 未満
+    const aAfter = taskNodes(s).find((n) => n.id === a.id)!;
+    const bAfter = taskNodes(s).find((n) => n.id === b.id)!;
+    expect(aAfter.x).toBe(0); // 最も左のノードがちょうど境界で止まる
+    expect(bAfter.x - aAfter.x).toBe(gap); // 個別クランプではなく全体を平行移動＝相対配置を保つ
+    expect(bAfter.x).toBeGreaterThanOrEqual(0);
+  });
+
+  it('外部データ等で負座標に取り残されたノードは、全体表示(fitView)と同じ一括オフセットで 0 以上へ救出できる', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const a = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'A')!;
+    const b = taskNodes(s).find((n) => s.getState().project.core.tasks[n.taskId]!.name === 'B')!;
+    const bx0 = b.x;
+    const by0 = b.y;
+
+    // クランプ導入前に保存されたファイルや外部プロセスの書き込みで負座標に取り残された
+    // 状況を再現する（reconcile は既存ノードの x/y を据え置くため、loadProject 後も
+    // この負座標はそのまま残る＝fitView が救出すべき状況と同じ）。
+    const viewKey = (p: ReturnType<typeof s.getState>['project']) =>
+      p.flow.byLevel.find(
+        (v) => v.level === s.getState().level && (v.scopeParentId ?? undefined) === s.getState().scopeParentId,
+      )!;
+    const dirty = structuredClone(s.getState().project);
+    const an = Object.values(viewKey(dirty).nodes).find(
+      (n) => n.kind === 'task' && n.taskId === a.taskId,
+    )!;
+    an.x = -200;
+    an.y = -60;
+    s.getState().loadProject(dirty);
+
+    // フロー側 fitView がやるのと同じ計算: 全ノードの最小 x/y を 0 へ合わせるオフセットを
+    // moveNodesBy で全ノードへ一括適用する。
+    const before = viewKey(s.getState().project);
+    let minX = Infinity;
+    let minY = Infinity;
+    for (const n of Object.values(before.nodes)) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+    }
+    expect(minX).toBeLessThan(0); // 再現確認: 救出前は負座標
+
+    const dx = minX < 0 ? -minX : 0;
+    const dy = minY < 0 ? -minY : 0;
+    s.getState().moveNodesBy(Object.keys(before.nodes), dx, dy);
+
+    const after = viewKey(s.getState().project);
+    const aAfter = Object.values(after.nodes).find((n) => n.kind === 'task' && n.taskId === a.taskId)!;
+    const bAfter = Object.values(after.nodes).find((n) => n.kind === 'task' && n.taskId === b.taskId)!;
+    expect(aAfter.x).toBe(0); // 最も負だったノードがちょうど境界へ
+    expect(aAfter.y).toBe(0);
+    expect(bAfter.x).toBe(bx0 + dx); // 全体を平行移動＝他ノードとの相対配置は保つ
+    expect(bAfter.y).toBe(by0 + dy);
+  });
+});
+
 describe('taskOps（store と UI をまたぐ手続き）', () => {
   it('confirmRemoveTasks: キャンセルで false（削除しない）、OK で削除して true', async () => {
     useApp.getState().newProject();
@@ -961,6 +1170,34 @@ describe('taskOps（store と UI をまたぐ手続き）', () => {
     expect(n1.y).not.toBe(n2.y);
   });
 
+  it('addParallel: 既定のレーン高さでは収まらない場合、元工程と同じレーン内に収まるようレーン高さを自動拡張する（実機FB）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = idByName(s, 'A');
+    s.getState().setAssigneeByName(a, '営業'); // lane0, y=80（既定高さ156）
+    s.getState().addTask('B');
+    const b = idByName(s, 'B');
+    s.getState().setAssigneeByName(b, '倉庫'); // lane1, y=236
+
+    const newId = s.getState().addParallel(a)!;
+    const lane0 = Object.values(view0(s).lanes).find((l) => l.order === 0)!;
+    const box0 = laneLayout(view0(s).lanes).find((bx) => bx.lane.id === lane0.id)!;
+    const newNode = taskNodes(s).find((n) => n.taskId === newId)!;
+    const bNode = taskNodes(s).find((n) => n.taskId === b)!;
+
+    // 新ノードは元工程(A)と同じレーンの範囲内に収まる（次レーンへはみ出さない＝実機FBの再現条件）。
+    expect(newNode.y).toBeGreaterThanOrEqual(box0.top);
+    expect(newNode.y + SIZE.task.h).toBeLessThanOrEqual(box0.top + box0.height);
+
+    expect(newNode.y).toBe(144); // 直下のサブ行自体は従来どおり（A.y=80 + ROW_SUB=64）
+    expect(view0(s).lanes[lane0.id]!.height).toBe(220); // 156→220 = 2 段ぶんへ自動拡張
+    expect(bNode.y).toBe(300); // 拡張ぶん、下のレーン(倉庫)は連動シフト（236+64）
+
+    s.getState().undo(); // 作成・配置・レーン拡張が 1 undo 単位でまとめて戻る
+    expect(view0(s).lanes[lane0.id]!.height).toBeUndefined();
+    expect(taskNodes(s).find((n) => n.taskId === b)!.y).toBe(236);
+  });
+
   it('makeParallelTo: X→Y→B→C が X→{Y,B}→C になり、B は基準の直下へ寄る', () => {
     const s = createAppStore();
     for (const n of ['X', 'Y', 'B', 'C']) s.getState().addTask(n);
@@ -992,6 +1229,46 @@ describe('taskOps（store と UI をまたぐ手続き）', () => {
     s.getState().makeParallelTo(b, b);
     expect(serializeProject(s.getState().project)).toBe(json);
     expect(s.getState().canUndo).toBe(canUndoBefore);
+  });
+
+  it('addMilestone: kind:milestone で作成・選択し、子工程/担当/工数を持たない', () => {
+    const s = createAppStore();
+    const id = s.getState().addMilestone()!;
+    expect(id).toBeTruthy();
+    const t = s.getState().project.core.tasks[id]!;
+    expect(t.kind).toBe('milestone');
+    expect(t.assigneeId).toBeUndefined();
+    expect(s.getState().project.details[id]?.effortMinutes).toBeUndefined();
+    expect(s.getState().selectedTaskId).toBe(id); // 作成後に自動選択
+    // 現在ビューの level/scope で作成（表/フロー/パレットのどこから呼んでも同じ）。
+    expect(t.level).toBe(s.getState().level);
+    expect(t.parentId).toBe(s.getState().scopeParentId);
+    // タスクノードは1個だけ保持（1:1 不変条件）。
+    expect(taskNodes(s).filter((n) => n.taskId === id)).toHaveLength(1);
+  });
+
+  it('addMilestone: 位置指定なしは複数追加しても重ならない（未紐付け時の段積み）', () => {
+    const s = createAppStore();
+    const id1 = s.getState().addMilestone()!;
+    const id2 = s.getState().addMilestone()!;
+    const n1 = taskNodes(s).find((n) => n.taskId === id1)!;
+    const n2 = taskNodes(s).find((n) => n.taskId === id2)!;
+    expect(n1.x).not.toBe(n2.x);
+  });
+
+  it('addMilestone: 位置を渡すとその位置に置く（フロー追加ボタン相当）', () => {
+    const s = createAppStore();
+    const id = s.getState().addMilestone(300, 40)!;
+    const n = taskNodes(s).find((nn) => nn.taskId === id)!;
+    expect(n.x).toBe(300);
+    expect(n.y).toBe(40);
+  });
+
+  it('addMilestone: duplicateTask で複製しても kind:milestone を保つ', () => {
+    const s = createAppStore();
+    const id = s.getState().addMilestone()!;
+    const dupId = s.getState().duplicateTask(id)!;
+    expect(s.getState().project.core.tasks[dupId]!.kind).toBe('milestone');
   });
 
   it('revealTask: スコープ絞り込み中は対象工程の親へスコープを追従させる', () => {

@@ -1,10 +1,11 @@
 import type { CSSProperties } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, effortRollupMinutes, formatHours, deriveParentBridges } from '@gantt-flow/core';
+import { computeCodes, effortRollupMinutes, effortMinutesToHours, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
-import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
+import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
+import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { collectIoNames, prevCandidates } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
@@ -67,6 +68,8 @@ export function Inspector() {
   const addToBePredecessor = useApp((s) => s.addToBePredecessor);
   const removeToBePredecessor = useApp((s) => s.removeToBePredecessor);
   const tobeEnabled = useUI((s) => s.tobeEnabled);
+  // フロー側の I/O クリックからの「該当セクションへスクロール/フォーカス」シグナル（seq でトリガ）。
+  const inspectorIoFocus = useUI((s) => s.inspectorIoFocus);
 
   // 入出力/課題を追加した直後、その新しい入力欄へフォーカス＆全選択（既定文字が選択され打てば置換）。
   const asideRef = useRef<HTMLElement>(null);
@@ -86,9 +89,37 @@ export function Inspector() {
     setAddFocus(null);
   }, [addFocus, project]);
 
+  // フローの I/O アイコン/チップクリック時: 該当 I/O 項目（あれば）まで寄せてハイライト＆入力へフォーカス。
+  // seq が変わるたびに発火（同じ工程を続けてクリックしても再度スクロールできる）。個別 ioId が無ければ
+  // I/O セクションの見出しへ寄せる。
+  useLayoutEffect(() => {
+    if (!inspectorIoFocus) return;
+    const root = asideRef.current;
+    if (!root) return;
+    const { ioId } = inspectorIoFocus;
+    const row = ioId
+      ? root.querySelector<HTMLElement>(`.io-row[data-ioid="${CSS.escape(ioId)}"]`)
+      : null;
+    const target = row ?? root.querySelector<HTMLElement>('.io-section');
+    if (!target) return;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const name = row?.querySelector<HTMLInputElement>('.io-name');
+    if (name) {
+      name.focus();
+      name.select();
+    }
+    target.classList.add('io-flash');
+    const timer = setTimeout(() => target.classList.remove('io-flash'), 1400);
+    return () => clearTimeout(timer);
+  }, [inspectorIoFocus]);
+
   if (!taskId) return null;
   const task = project.core.tasks[taskId];
   if (!task) return null;
+  // マイルストーンは子工程・担当・工数・I/O・課題を持たない（spec:
+  // docs/superpowers/specs/2026-07-04-milestone-design.md §確定UX）。名前・前工程（対象工程）・
+  // 備考だけに絞る（担当/工数は core が拒否するわけではなく、単に UI 側で入口を出さない）。
+  const ms = isMilestone(project.core, taskId);
   const d = project.details[taskId];
   const assigneeName = task.assigneeId ? project.core.assignees[task.assigneeId]?.name ?? '' : '';
   const LEVEL_JP: Record<ProcessLevel, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
@@ -132,8 +163,10 @@ export function Inspector() {
         <div className="insp-head-main">
           <div className="insp-eyebrow">
             <span className={`lvl-badge lvl-${task.level}`}>{LEVEL_JP[task.level]}</span>
-            <span className="insp-code">No. {computeCodes(project.core)[taskId] ?? task.code ?? '—'}</span>
-            {assigneeName ? (
+            <span className="insp-code">No. {ms ? '—' : computeCodes(project.core)[taskId] ?? task.code ?? '—'}</span>
+            {ms ? (
+              <span className="insp-chip ms-chip">マイルストーン</span>
+            ) : assigneeName ? (
               <span className="insp-chip">{assigneeName}</span>
             ) : (
               <span className="insp-chip warn">未割当</span>
@@ -152,24 +185,27 @@ export function Inspector() {
       </div>
 
       <div className="insp-scroll">
+        {/* マイルストーンは名前(ヘッダ)・前工程(次のセクション)・備考だけに絞る。 */}
+        {!ms && (
         <section>
           <h3>基本</h3>
           <div className="two-col">
             <div>
               <label>担当 / 部署</label>
-              <select
-                value={assigneeName}
-                onChange={(e) => {
+              {/* select → input+datalist に統一（表と同じく自由入力＝新規部署の直接追加が可能・
+                  既存の選択肢は datalist#insp-depts で提示。#6/#8: 全選択・Escape 取り消しも揃える）。 */}
+              <input
+                list="insp-depts"
+                defaultValue={assigneeName}
+                key={`asg-${assigneeName}`}
+                placeholder="（未割当）"
+                aria-label="担当 / 部署"
+                {...selectAllOnFocus}
+                onKeyDown={cancelEditOnEscape}
+                onBlur={(e) => {
                   if (e.target.value !== assigneeName) setAssigneeByName(taskId, e.target.value);
                 }}
-              >
-                <option value="">（未割当）</option>
-                {deptNames.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div>
               <label>粒度</label>
@@ -222,16 +258,19 @@ export function Inspector() {
           <input
             defaultValue={task.code ?? ''}
             placeholder={computeCodes(project.core)[taskId] ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(task.code, e.target.value.trim(), (v) => setTaskCode(taskId, v))}
           />
           <label>業務内容（どうやって）</label>
           <textarea
             defaultValue={d?.how ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.how, e.target.value, (v) => updateDetail(taskId, { how: v }))}
           />
           <label>使用システム</label>
           <textarea
             defaultValue={d?.system ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.system, e.target.value, (v) => updateDetail(taskId, { system: v }))}
           />
           <label>工数（時間・0.5刻み）</label>
@@ -242,11 +281,12 @@ export function Inspector() {
             </div>
           ) : (
             <input
-              type="number"
-              min={0}
-              step={0.5}
+              // #3 type=number をやめて text + inputMode=decimal（ホイール誤変更・カンマ黙殺を解消）。
+              type="text"
+              inputMode="decimal"
               placeholder="例: 2 / 0.5"
-              defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
+              defaultValue={d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : ''}
+              onKeyDown={cancelEditOnEscape}
               onBlur={(e) => {
                 const res = validateEffort(e.target.value);
                 if (!res.ok) {
@@ -256,6 +296,7 @@ export function Inspector() {
                   return;
                 }
                 clearEffortInvalid(e.target);
+                if (isEffortBlurUnchanged(e.target.value, d?.effortMinutes)) return; // 無編集 blur は書き換えない
                 if (res.minutes !== d?.effortMinutes) updateDetail(taskId, { effortMinutes: res.minutes });
               }}
             />
@@ -263,13 +304,15 @@ export function Inspector() {
           <label>備考</label>
           <textarea
             defaultValue={d?.note ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.note, e.target.value, (v) => updateDetail(taskId, { note: v }))}
           />
         </section>
+        )}
 
         <section>
-          <h3>前工程 / 次工程</h3>
-          <label>前工程（この工程の前に行う）</label>
+          <h3>{ms ? '対象工程（前工程）' : '前工程 / 次工程'}</h3>
+          <label>{ms ? 'このマイルストーンまでに終わらせる工程' : '前工程（この工程の前に行う）'}</label>
           {preds.length === 0 && bridgePredsOf.length === 0 && <p className="hint">なし</p>}
           {bridgePredsOf.map((b) => (
             <div className="dep-row derived" key={`br-${b.from}`} title="大工程同士の接続から自動で繋がっています（解除は大工程側の接続を削除）">
@@ -302,43 +345,60 @@ export function Inspector() {
             </select>
           )}
 
-          <label>次工程（この工程の後に行う）</label>
-          {succs.length === 0 && bridgeSuccsOf.length === 0 && <p className="hint">なし</p>}
-          {bridgeSuccsOf.map((b) => (
-            <div className="dep-row derived" key={`bs-${b.to}`} title="大工程同士の接続から自動で繋がっています">
-              <span className="dep-name">⤷ {nameOf(b.to)}</span>
-              <span className="dep-note">親の接続</span>
-            </div>
-          ))}
-          {succs.map((dep) => (
-            <div className="dep-row" key={dep.id}>
-              <span className="dep-name">{nameOf(dep.to)}</span>
-              <button className="x" aria-label="次工程を解除" title="次工程を解除" onClick={() => removeDependency(dep.id)}>
-                ×
-              </button>
-            </div>
-          ))}
-          {depCandidates.length > 0 && (
-            <select
-              className="dep-add"
-              value=""
-              aria-label="次工程を追加"
-              onChange={(e) => {
-                if (e.target.value) addDependency(taskId, e.target.value);
-              }}
-            >
-              <option value="">＋ 次工程を追加…</option>
-              <PrevCandidateOptions
-                candidates={depCandidates}
-                parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
-              />
-            </select>
+          {/* マイルストーンから出る依存は禁止（core ガード）。UI にも次工程の入口は出さない。 */}
+          {!ms && (
+            <>
+              <label>次工程（この工程の後に行う）</label>
+              {succs.length === 0 && bridgeSuccsOf.length === 0 && <p className="hint">なし</p>}
+              {bridgeSuccsOf.map((b) => (
+                <div className="dep-row derived" key={`bs-${b.to}`} title="大工程同士の接続から自動で繋がっています">
+                  <span className="dep-name">⤷ {nameOf(b.to)}</span>
+                  <span className="dep-note">親の接続</span>
+                </div>
+              ))}
+              {succs.map((dep) => (
+                <div className="dep-row" key={dep.id}>
+                  <span className="dep-name">{nameOf(dep.to)}</span>
+                  <button className="x" aria-label="次工程を解除" title="次工程を解除" onClick={() => removeDependency(dep.id)}>
+                    ×
+                  </button>
+                </div>
+              ))}
+              {depCandidates.length > 0 && (
+                <select
+                  className="dep-add"
+                  value=""
+                  aria-label="次工程を追加"
+                  onChange={(e) => {
+                    if (e.target.value) addDependency(taskId, e.target.value);
+                  }}
+                >
+                  <option value="">＋ 次工程を追加…</option>
+                  <PrevCandidateOptions
+                    candidates={depCandidates}
+                    parentName={(pid) => (pid ? nameOf(pid) : '最上位')}
+                  />
+                </select>
+              )}
+            </>
           )}
         </section>
 
-        <section>
+        {ms && (
+          <section>
+            <h3>備考</h3>
+            <textarea
+              defaultValue={d?.note ?? ''}
+              onKeyDown={cancelEditOnEscape}
+              onBlur={(e) => commitOptText(d?.note, e.target.value, (v) => updateDetail(taskId, { note: v }))}
+            />
+          </section>
+        )}
+
+        {!ms && (
+        <section className="io-section">
           <h3>
-            インプット / アウトプット
+            入力 / 出力
             {ios.length > 0 && <span className="insp-count">{ios.length}</span>}
             <span className="add-inline">
               <button onClick={() => { addIo(taskId, 'inputs', '帳票'); setAddFocus('io-in'); }}>＋入力</button>
@@ -357,13 +417,15 @@ export function Inspector() {
             ))}
           </datalist>
           {ios.map(({ item, io }) => (
-            <div className={`io-row ${io === 'inputs' ? 'in' : 'out'}`} key={item.id}>
+            <div className={`io-row ${io === 'inputs' ? 'in' : 'out'}`} key={item.id} data-ioid={item.id}>
               <span className="io-tag">{io === 'inputs' ? '入' : '出'}</span>
               <input
                 className="io-name"
                 list="insp-io-names"
                 defaultValue={item.name}
                 key={`ion-${item.name}`}
+                {...selectAllOnFocus}
+                onKeyDown={cancelEditOnEscape}
                 onBlur={(e) => commitText(item.name, e.target.value, (v) => updateIo(taskId, item.id, { name: v }))}
               />
               <select
@@ -377,6 +439,7 @@ export function Inspector() {
                 className="io-form"
                 placeholder="様式・保管"
                 defaultValue={item.formInfo ?? ''}
+                onKeyDown={cancelEditOnEscape}
                 onBlur={(e) =>
                   commitOptText(item.formInfo, e.target.value, (v) => updateIo(taskId, item.id, { formInfo: v }))
                 }
@@ -389,6 +452,7 @@ export function Inspector() {
                   defaultValue={item.source ?? ''}
                   key={`src-${item.source ?? ''}`}
                   title="この帳票がどの部署から来るか（工程が無くてもフローに出所を描きます）"
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) =>
                     commitOptText(item.source, e.target.value, (v) => updateIo(taskId, item.id, { source: v }))
                   }
@@ -404,7 +468,9 @@ export function Inspector() {
             </div>
           ))}
         </section>
+        )}
 
+        {!ms && (
         <section>
           <h3>
             課題 / 方策
@@ -421,12 +487,14 @@ export function Inspector() {
                   className="iss-text"
                   defaultValue={iss.issue}
                   placeholder="課題"
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) => commitText(iss.issue, e.target.value, (v) => updateIssue(taskId, iss.id, { issue: v }))}
                 />
                 <input
                   className="iss-measure"
                   defaultValue={iss.measure ?? ''}
                   placeholder="方策"
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) =>
                     commitOptText(iss.measure, e.target.value, (v) => updateIssue(taskId, iss.id, { measure: v }))
                   }
@@ -457,17 +525,21 @@ export function Inspector() {
             );
           })}
         </section>
+        )}
 
+        {!ms && (
         <section>
           <h3>任意</h3>
           <label>処理件数・ボリューム</label>
           <input
             defaultValue={d?.volume ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.volume, e.target.value, (v) => updateDetail(taskId, { volume: v }))}
           />
           <label>例外・イレギュラー</label>
           <textarea
             defaultValue={d?.exception ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.exception, e.target.value, (v) => updateDetail(taskId, { exception: v }))}
           />
           <div className="two-col">
@@ -499,22 +571,25 @@ export function Inspector() {
           <label>データ連携先</label>
           <input
             defaultValue={d?.dataLink ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.dataLink, e.target.value, (v) => updateDetail(taskId, { dataLink: v }))}
           />
           <label>関連規程・統制</label>
           <input
             defaultValue={d?.regulation ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.regulation, e.target.value, (v) => updateDetail(taskId, { regulation: v }))}
           />
         </section>
+        )}
 
-        {tobeEnabled &&
+        {tobeEnabled && !ms &&
           (() => {
             const tb = d?.toBe;
             const removed = tb?.lifecycle === 'removed';
             const added = tb?.lifecycle === 'added';
-            const asisEffH = d?.effortMinutes != null ? d.effortMinutes / 60 : undefined;
-            const tobeEffH = tb?.effortMinutes != null ? tb.effortMinutes / 60 : undefined;
+            const asisEffH = d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : undefined;
+            const tobeEffH = tb?.effortMinutes != null ? effortMinutesToHours(tb.effortMinutes) : undefined;
             const asisLt = d?.ltDays;
             const tobeLt = tb?.ltDays;
             const r1 = (v: number) => Math.round(v * 10) / 10;
@@ -547,11 +622,13 @@ export function Inspector() {
                           inputMode="decimal"
                           defaultValue={tobeEffH ?? ''}
                           placeholder={asisEffH != null ? `現状 ${r1(asisEffH)}h` : '—'}
-                          onBlur={(e) =>
+                          onKeyDown={cancelEditOnEscape}
+                          onBlur={(e) => {
+                            if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
                             updateToBe(taskId, {
                               effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined,
-                            })
-                          }
+                            });
+                          }}
                         />
                         {tobeEffH != null && asisEffH != null && tobeEffH !== asisEffH && (
                           <small className="tobe-delta">{sd(tobeEffH - asisEffH, 'h')}</small>
@@ -564,8 +641,11 @@ export function Inspector() {
                           inputMode="decimal"
                           defaultValue={tobeLt ?? ''}
                           placeholder={asisLt != null ? `現状 ${asisLt}日` : '—'}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) =>
-                            updateToBe(taskId, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })
+                            updateToBe(taskId, {
+                              ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
+                            })
                           }
                         />
                         {tobeLt != null && asisLt != null && tobeLt !== asisLt && (
@@ -607,6 +687,7 @@ export function Inspector() {
                 <textarea
                   defaultValue={tb?.rationale ?? ''}
                   rows={2}
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) => updateToBe(taskId, { rationale: e.target.value.trim() || undefined })}
                 />
                 <label>前工程（To-Be）</label>

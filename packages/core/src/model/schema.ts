@@ -11,6 +11,7 @@ const ProcessTask = z.object({
   order: z.number().finite(),
   assigneeId: z.string().optional(),
   code: z.string().optional(),
+  kind: z.literal('milestone').optional(),
 });
 
 const Dependency = z.object({
@@ -120,7 +121,13 @@ const FlowNode = z.discriminatedUnion('kind', [
     targetNodeId: z.string(),
     visible: z.boolean(),
   }),
-  z.object({ ...xy, kind: z.literal('comment'), text: z.string(), laneId: z.string().optional() }),
+  z.object({
+    ...xy,
+    kind: z.literal('comment'),
+    text: z.string(),
+    laneId: z.string().optional(),
+    targetNodeId: z.string().optional(),
+  }),
 ]);
 
 const FlowEdge = z.object({

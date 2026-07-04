@@ -71,6 +71,12 @@ export const ChevronDown = (p: SVGProps<SVGSVGElement>) => (
     <path d="m6 9 6 6 6-6" />
   </Svg>
 );
+export const NewWindow = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="13" height="10" rx="2" />
+    <path d="M18 9h3v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-1" />
+  </Svg>
+);
 export const Eye = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>
     <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
@@ -215,6 +221,13 @@ export const Stop = (p: SVGProps<SVGSVGElement>) => (
 // 判断（ひし形）。キャンバスの判断ノード＝ひし形に対応。
 export const Diamond = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>
+    <path d="M12 3l9 9-9 9-9-9z" />
+  </Svg>
+);
+// マイルストーン（塗りの菱形◆）。フロー上の琥珀の菱形（.ms-diamond）と対応。
+// 判断（◇ 線画）と区別するため fill で塗りつぶす。
+export const MilestoneDiamond = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p} fill="currentColor" stroke="none">
     <path d="M12 3l9 9-9 9-9-9z" />
   </Svg>
 );

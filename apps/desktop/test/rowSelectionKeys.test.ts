@@ -6,6 +6,7 @@ import { useUI } from '../src/ui/useUI';
 import {
   runTableAction,
   resolveEditNavTarget,
+  resolveTabWrapTarget,
   type RowSelectionOpts,
 } from '../src/ui/useRowSelectionKeys';
 
@@ -175,5 +176,84 @@ describe('resolveEditNavTarget: 編集中の Enter/Tab セル移動(移動先の
   it('最終行の down は移動先なし(null)＝末尾ゴースト行(onEditNavPastEnd)を起動する境界', () => {
     // handleEditNav はこの null を見て、Enter かつ down なら onEditNavPastEnd() を呼ぶ。
     expect(resolveEditNavTarget(grid, { taskId: 'r3', colKey: 'name' }, 'down', () => true)).toBeNull();
+  });
+});
+
+// H-3 再監査: セル編集中の Tab/Shift+Tab は「行内に移動先が無い」で無反応にならず、
+// 次/前の行の先頭/末尾の編集可能セルへ折返す。それも無い(表の端)ときだけ null を返し、
+// handleEditNav はネイティブの Tab へフォールバックする(preventDefault しない)。
+describe('resolveTabWrapTarget: Tab/Shift+Tab の行またぎ折返し(H-3)', () => {
+  const grid = { orderedIds: ['r1', 'r2', 'r3'], columns: ['level', 'name', 'assignee', 'effort'] };
+  // 行ごとの「編集可能セル」を模した表(select-only 列や丸ごと編集不可の行を混在させる)。
+  //  r1: level(select-only) / name・assignee・effort は編集可
+  //  r2: level・assignee(select-only) / name・effort は編集可
+  //  r3: level(select-only) / name・assignee・effort は編集可
+  const editable: Record<string, Set<string>> = {
+    r1: new Set(['name', 'assignee', 'effort']),
+    r2: new Set(['name', 'effort']),
+    r3: new Set(['name', 'assignee', 'effort']),
+  };
+  const tryFocus = (taskId: string, colKey: string) => editable[taskId]?.has(colKey) ?? false;
+
+  const cases: {
+    label: string;
+    from: { taskId: string; colKey: string };
+    dir: 'left' | 'right';
+    expected: { taskId: string; colKey: string } | null;
+  }[] = [
+    {
+      label: '行の途中の Tab: 同じ行内の次の編集可能列へ(select-only の assignee は無関係にそのまま採用)',
+      from: { taskId: 'r1', colKey: 'name' },
+      dir: 'right',
+      expected: { taskId: 'r1', colKey: 'assignee' },
+    },
+    {
+      label: '行の途中の Tab: 直後の列が select-only(編集不可)ならさらに先の編集可能列まで飛ばす',
+      from: { taskId: 'r2', colKey: 'name' },
+      dir: 'right',
+      expected: { taskId: 'r2', colKey: 'effort' }, // assignee(select-only)を飛ばす
+    },
+    {
+      label: '行末の Tab: 同じ行に移動先が無ければ次の行へ折返し、先頭列(select-only)を飛ばして最初の編集可能セルへ',
+      from: { taskId: 'r1', colKey: 'effort' },
+      dir: 'right',
+      expected: { taskId: 'r2', colKey: 'name' }, // r2 の level(select-only)を飛ばす
+    },
+    {
+      label: '最終行・最終セルの Tab: 折返し先が無い(表の本当の行き止まり)＝null',
+      from: { taskId: 'r3', colKey: 'effort' },
+      dir: 'right',
+      expected: null,
+    },
+    {
+      label: 'Shift+Tab(対称): 行の途中は同じ行内の前の編集可能列へ',
+      from: { taskId: 'r1', colKey: 'effort' },
+      dir: 'left',
+      expected: { taskId: 'r1', colKey: 'assignee' },
+    },
+    {
+      label: 'Shift+Tab(対称): 行頭で移動先が無ければ前の行へ折返し、末尾列から編集可能セルを探す',
+      from: { taskId: 'r2', colKey: 'name' }, // 左の level は r2 で select-only
+      dir: 'left',
+      expected: { taskId: 'r1', colKey: 'effort' },
+    },
+    {
+      label: 'Shift+Tab(対称): 先頭行・先頭セルは折返し先が無い(表の本当の行き止まり)＝null',
+      from: { taskId: 'r1', colKey: 'name' }, // 左の level は r1 で select-only、前の行も無い
+      dir: 'left',
+      expected: null,
+    },
+  ];
+
+  it.each(cases)('$label', ({ from, dir, expected }) => {
+    expect(resolveTabWrapTarget(grid, from, dir, tryFocus)).toEqual(expected);
+  });
+
+  it('折返し先の行が丸ごと編集不可なら、そこも飛ばしてさらに次の行まで進む', () => {
+    const wideGrid = { orderedIds: ['r1', 'r2', 'r3'], columns: ['name'] };
+    const onlyR1AndR3 = (taskId: string) => taskId !== 'r2';
+    expect(
+      resolveTabWrapTarget(wideGrid, { taskId: 'r1', colKey: 'name' }, 'right', onlyR1AndR3),
+    ).toEqual({ taskId: 'r3', colKey: 'name' });
   });
 });

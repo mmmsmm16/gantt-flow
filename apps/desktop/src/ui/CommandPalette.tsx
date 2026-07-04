@@ -3,7 +3,7 @@
 // アプリ全体の発見性と速度を上げる単一の入口。ファイル系操作は App からハンドラを受け取る。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessLevel, ProcessTask, TaskColor } from '@gantt-flow/core';
-import { computeCodes } from '@gantt-flow/core';
+import { computeCodes, isMilestone } from '@gantt-flow/core';
 import { useApp, findView, resolveQuickAddParent } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
 import { parseQuickAdd, type QuickAddParsed } from '../quickAdd';
@@ -77,8 +77,8 @@ function selectedIoOptions(): ArgOption[] {
   if (!tid) return [];
   const d = a.project.details[tid];
   return [
-    ...(d?.inputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'インプット' })),
-    ...(d?.outputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: 'アウトプット' })),
+    ...(d?.inputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: '入力' })),
+    ...(d?.outputs ?? []).map((it) => ({ value: it.id, label: it.name || '帳票', detail: '出力' })),
   ];
 }
 
@@ -95,8 +95,16 @@ function parseQuickAddInApp(input: string): QuickAddParsed {
   // 親は確定時（addTaskWithOptions）と同じ解決を使う＝チップに出る前工程候補と実際の配置が一致する。
   const parentId = resolveQuickAddParent(a.project.core.tasks, sel, level, a.scopeParentId);
   const taskCodes = computeCodes(a.project.core);
+  // マイルストーンは「工程→MS」の一方向しか依存を張れない（commands/index.ts の isMilestone
+  // ガードで MS からの出依存は無視される）ため、MS を前工程候補には出さない（suggestions.ts の
+  // prevCandidates と同じ規則）。出さないと不可視の入力を許してしまい、確定時に無言で無視される。
   const predecessors = Object.values(a.project.core.tasks)
-    .filter((t) => t.level === level && (t.parentId ?? undefined) === (parentId ?? undefined))
+    .filter(
+      (t) =>
+        t.level === level &&
+        (t.parentId ?? undefined) === (parentId ?? undefined) &&
+        !isMilestone(a.project.core, t.id),
+    )
     .sort((x, y) => x.order - y.order || x.id.localeCompare(y.id))
     .map((t) => ({ id: t.id, name: t.name, code: taskCodes[t.id] }));
   return parseQuickAdd(input, { assigneeNames, predecessors });
@@ -126,6 +134,10 @@ export function addTaskQuickCommand(hasSelection: boolean): Cmd {
     },
   };
 }
+
+// ファイル操作コマンド。検索時に同名末尾の「〜を開く」系オーバーレイ名(設定を開く/サマリを開く等)へ
+// 埋もれないよう軽く優先する(例:「開く」で『保存ファイルを開く』が上位に来る)。id で判定。
+const FILE_CMD_IDS = new Set(['new', 'open', 'open-recent', 'import', 'save', 'save-as']);
 
 // 部分一致＋連続一致を軽く評価するファジー。query の全文字が順に現れれば一致。
 function fuzzyScore(query: string, text: string): number | null {
@@ -250,6 +262,8 @@ function PaletteBody(handlers: FileHandlers) {
   const canUndo = useApp((s) => s.canUndo);
   const canRedo = useApp((s) => s.canRedo);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
+  // 表の複数選択（marked）件数。担当設定など一括対応コマンドを「選択中の n 件に適用」に切り替える。
+  const markedCount = useUI((s) => s.markedTaskIds.length);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   // 引数モード: 選択中のコマンド（null=コマンド一覧）。Esc / 空欄 Backspace で一覧へ戻る。
@@ -300,10 +314,11 @@ function PaletteBody(handlers: FileHandlers) {
       addTaskQuickCommand(hasSel),
       // ---- 引数付きコマンド（選択中の工程に対する編集） ----
       {
+        // 表で複数選択中は選択全体に一括適用（既存の setAssigneeManyByName を流用）。
         id: 'arg-assignee',
-        label: '担当を設定…',
+        label: markedCount > 1 ? `担当を設定（選択中の ${markedCount} 件）…` : '担当を設定…',
         keywords: 'assignee tantou 担当 部署 設定 set',
-        available: hasSel,
+        available: hasSel || markedCount > 1,
         repeatable: true,
         arg: {
           placeholder: '担当（部門 / 個人）。空欄で未割当',
@@ -316,7 +331,9 @@ function PaletteBody(handlers: FileHandlers) {
         },
         runWithArg: (v) => {
           const a = useApp.getState();
-          if (a.selectedTaskId) a.setAssigneeByName(a.selectedTaskId, v);
+          const mk = useUI.getState().markedTaskIds;
+          if (mk.length > 1) a.setAssigneeManyByName(mk, v);
+          else if (a.selectedTaskId) a.setAssigneeByName(a.selectedTaskId, v);
         },
       },
       {
@@ -438,7 +455,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-input',
-        label: 'インプットを追加…',
+        label: '入力を追加…',
         keywords: 'input nyuuryoku インプット 入力 帳票 io',
         available: hasSel,
         repeatable: true,
@@ -455,7 +472,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-output',
-        label: 'アウトプットを追加…',
+        label: '出力を追加…',
         keywords: 'output shutsuryoku アウトプット 出力 帳票 io',
         available: hasSel,
         repeatable: true,
@@ -472,7 +489,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-io-rename',
-        label: 'インプット/アウトプットの名前を変更…',
+        label: '入力/出力の名前を変更…',
         keywords: 'io rename 帳票 入出力 インプット アウトプット 名前 変更 修正',
         available: hasSel,
         arg: {
@@ -502,7 +519,7 @@ function PaletteBody(handlers: FileHandlers) {
       },
       {
         id: 'arg-io-delete',
-        label: 'インプット/アウトプットを削除…',
+        label: '入力/出力を削除…',
         keywords: 'io delete 帳票 入出力 インプット アウトプット 削除',
         available: hasSel,
         arg: {
@@ -727,6 +744,16 @@ function PaletteBody(handlers: FileHandlers) {
         },
       },
       {
+        id: 'add-milestone',
+        label: 'マイルストーンを追加',
+        keywords: 'milestone ms 節目 ますとーん マイルストーン 追加',
+        run: () => {
+          const a = useApp.getState();
+          const nid = a.addMilestone();
+          if (nid) a.select(nid);
+        },
+      },
+      {
         id: 'collapse-all',
         label: 'アウトラインを全折りたたみ',
         keywords: 'collapse fold tatamu 折りたたみ 閉じる',
@@ -761,7 +788,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },
     ];
-  }, [handlers, canUndo, canRedo, selectedTaskId, recentFiles]);
+  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles]);
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 
@@ -769,8 +796,13 @@ function PaletteBody(handlers: FileHandlers) {
   const { cmdHits, taskHits } = useMemo(() => {
     if (argCmd) return { cmdHits: [] as Cmd[], taskHits: [] as ProcessTask[] };
     const cmds = commands.filter((c) => c.available !== false);
+    const q = query.trim();
     const scoredCmds = cmds
-      .map((c) => ({ c, s: fuzzyScore(query, `${c.label} ${c.keywords}`) }))
+      .map((c) => {
+        const base = fuzzyScore(query, `${c.label} ${c.keywords}`);
+        // ブーストは検索中のみ(空欄時の既定並び=「もう一度」/工程追加… を崩さない)。
+        return { c, s: base === null ? null : base + (q && FILE_CMD_IDS.has(c.id) ? 30 : 0) };
+      })
       .filter((x) => x.s !== null)
       .sort((a, b) => (b.s ?? 0) - (a.s ?? 0))
       .map((x) => x.c);
@@ -899,7 +931,7 @@ function PaletteBody(handlers: FileHandlers) {
         }
         runAndClose(item.c.run);
       }
-    } else runAndClose(() => revealTask(item.t.id));
+    } else runAndClose(() => revealTask(item.t.id, { revealInFlow: true }));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {

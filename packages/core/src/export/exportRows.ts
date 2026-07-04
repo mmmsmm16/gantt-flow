@@ -1,6 +1,7 @@
 // 出力（`docs/06-roadmap.md` Phase4）。Project → 表の行列。Excel/CSV はこの行列を各形式に流す。
 import type { Project, ProcessTask, ProcessLevel, Automation, Id } from '../model/types';
 import { computeCodes } from '../codes';
+import { isMilestone } from '../milestone';
 
 const LEVEL_LABEL: Record<ProcessLevel, string> = {
   large: '大',
@@ -66,7 +67,9 @@ export function projectToRows(project: Project, opts: ProjectToRowsOptions = {})
   const walk = (parentId: Id | undefined) => {
     const arr = byParent.get(parentId) ?? [];
     arr.forEach((t) => {
-      const no = codes[t.id]!;
+      const ms = isMilestone(project.core, t.id);
+      // MS は工程No を持たない（computeCodes が採番しない）ため空欄で出す。行自体は残す。
+      const no = codes[t.id] ?? '';
       const d = project.details[t.id];
       // 前工程の参照は depRef で切替（'code'=工程No / 'name'=作業名）。欠けている側は
       // もう一方で補う（コード未計算・名前空の工程でも列を空にしない）。
@@ -80,8 +83,8 @@ export function projectToRows(project: Project, opts: ProjectToRowsOptions = {})
         .join('；');
       rows.push([
         no,
-        t.name,
-        t.assigneeId ? assignees[t.assigneeId]?.name ?? '' : '',
+        ms ? `◆ ${t.name}` : t.name,
+        ms ? '' : t.assigneeId ? assignees[t.assigneeId]?.name ?? '' : '',
         LEVEL_LABEL[t.level],
         prev,
         (d?.inputs ?? []).map((x) => x.name).join('；'),
@@ -89,7 +92,7 @@ export function projectToRows(project: Project, opts: ProjectToRowsOptions = {})
         (d?.issues ?? []).map((x) => (x.measure ? `${x.issue}→${x.measure}` : x.issue)).join('；'),
         d?.how ?? '',
         d?.system ?? '',
-        d?.effortMinutes != null ? String(d.effortMinutes) : '',
+        ms ? '' : d?.effortMinutes != null ? String(d.effortMinutes) : '',
         d?.note ?? '',
         d?.volume ?? '',
         d?.exception ?? '',

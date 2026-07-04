@@ -53,4 +53,6 @@ export const FLOW_LIGHT = {
   issue: { fill: '#fee2e2', stroke: '#dc2626' },
   comment: { fill: '#fef9c3', stroke: '#ca8a04', text: '#854d0e' },
   control: { fill: '#ffffff', stroke: '#94a3b8', text: '#64748b' },
+  // マイルストーン（琥珀の菱形＋縦破線＋ラベル）。styles.css の --amber 系（ライト値）と同期。
+  ms: { fill: '#f6ecc6', stroke: '#b9820a', text: '#7a5407' },
 } as const;

@@ -44,7 +44,9 @@
   --panel-2: #f3f5f8;
   --ink: #28303c;
   --muted: #5b6573;
-  --faint: #98a1af;
+  /* AA是正: 元 #98a1af は白地/淡パネルで2.6~2.4:1(未達)。同系色相のまま暗くして
+     4.5:1以上(白地5.0/淡パネル4.6)を確保（docs/ui-ux-improvement-catalog.md #80）。 */
+  --faint: #66707c;
   --line: #e2e6ec;
   --line-faint: #eef1f5;
   --line-strong: #cdd4de;
@@ -162,7 +164,9 @@
   --panel-2: #1e242e;
   --ink: #e4e8ef;
   --muted: #98a2b2;
-  --faint: #6b7585;
+  /* AA是正: 元 #6b7585 はパネル#222936で3.1:1(未達)。同系色相のまま明るくして
+     4.5:1以上(パネル4.7/背景5.3)を確保（docs/ui-ux-improvement-catalog.md #80）。 */
+  --faint: #8593a5;
   --line: #2f3744;
   --line-faint: #262d38;
   --line-strong: #3f4856;
@@ -225,6 +229,39 @@
 * {
   box-sizing: border-box;
 }
+
+/* =========================================================================
+   実機FB#3: スクロールバーの軽量化
+   ------------------------------------------------------------------------
+   既定の太い OS スクロールバーは表・フロー双方で圧迫感がある。オーバーレイ風の
+   細いスクロールバーに統一する（機能は変えず見た目のみ）。テーマトークン
+   （--line-strong / --faint）を使うため、ライト/ダーク切替に自動追従する。
+   Firefox は scrollbar-width/-color、Chromium系(Tauri webview含む)は
+   ::-webkit-scrollbar 系で対応。アプリ全体既定（.flow-canvas・outline-scroll・
+   ft-scroll・Inspector 等の主要スクロール領域を個別に列挙しない）。
+   ========================================================================= */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--faint) 55%, transparent);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--faint) 85%, transparent);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html,
 body,
 #root {
@@ -571,6 +608,12 @@ button.danger:hover {
   width: 16px;
   height: 16px;
 }
+/* マイルストーン追加ボタン: フローの菱形（.ms-diamond）と同じ琥珀系で目立たせる。 */
+.outline-actions .ms-add,
+.ft-actions .ms-add {
+  color: var(--amber-ink);
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--line));
+}
 .outline-scroll {
   flex: 1;
   min-height: 0;
@@ -815,6 +858,29 @@ button.danger:hover {
 .grid tbody tr.drop-after > td {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
+/* マイルストーン行: 薄い琥珀の背景（フローの菱形と同系色）。工程No/担当/工数は「—」表示。 */
+.grid tr.is-milestone > td {
+  background: var(--amber-fill);
+}
+.grid tr.is-milestone:hover > td {
+  background: color-mix(in srgb, var(--amber-fill) 70%, var(--row-hover));
+}
+/* 表の菱形バッジ（作業名の先頭）。フローの .ms-diamond と同じ配色の小型版。 */
+.ms-badge {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  background: var(--amber-fill);
+  border: 1.3px solid var(--amber);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+/* マイルストーンでは持たない値（工程No/担当/工数など）の代わりに出す「—」。 */
+.ms-cell-blank {
+  color: var(--faint);
+}
 .grid input:hover,
 .grid select:hover {
   background: var(--panel);
@@ -858,22 +924,6 @@ button.danger:hover {
   font-size: var(--fs-label);
   margin-top: 2px;
 }
-.c-io {
-  width: 150px;
-}
-/* 24/22: アウトラインの I/O・課題は入/出/課題のドット＋件数の要約（クリックで詳細）。 */
-.io-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  font-size: var(--fs-caption);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.io-summary:hover {
-  color: var(--ink);
-}
 .io-pip {
   display: inline-flex;
   align-items: center;
@@ -904,6 +954,44 @@ button.danger:hover {
   width: 78px;
   white-space: nowrap;
   text-align: right;
+}
+/* 実機FB#3: 分割ビュー（アウトライン＋フロー）の横スクロールで＋子/×が隠れないよう、
+   操作列を右端に固定する（全項目表の .ft-sticky-r と同じ手法）。狭幅列を追い越して
+   通過するセルの文字が透けて見えないよう、行の状態ごとに不透明な背景を明示する
+   （淡色の状態トークンはそのままだと半透明合成のものがあるため、透過を含まない
+   組み合わせで塗り直す）。 */
+.grid td.c-act,
+.grid th.c-act {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: -1px 0 0 var(--line-strong);
+}
+.grid thead th.c-act {
+  z-index: 3;
+  background: var(--hdr);
+}
+.grid tbody tr:hover td.c-act {
+  background: var(--row-hover);
+}
+.grid tr.selected td.c-act {
+  background: var(--accent-soft);
+}
+.grid tr.is-parent td.c-act {
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--panel));
+}
+.grid tr.is-parent:hover td.c-act {
+  background: var(--row-hover);
+}
+.grid tr.is-parent.selected td.c-act {
+  background: var(--accent-soft);
+}
+.grid tr.is-milestone td.c-act {
+  background: var(--amber-fill);
+}
+.grid tbody tr.marked td.c-act {
+  background: var(--accent-soft);
 }
 .name-cell {
   display: flex;
@@ -1438,7 +1526,8 @@ button.danger:hover {
   border-radius: var(--radius-pill);
   padding: 1px 8px;
 }
-.insp-chip.warn {
+.insp-chip.warn,
+.insp-chip.ms-chip {
   color: var(--amber-ink);
   background: var(--amber-fill);
   border-color: transparent;
@@ -1675,6 +1764,11 @@ button.danger:hover {
   font-weight: var(--fw-strong);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+}
+/* マイルストーン追加ボタン: フローの菱形（.ms-diamond）と同じ琥珀系。 */
+.flow-palette .add-milestone {
+  color: var(--amber-ink);
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--line));
 }
 .palette-zoom {
   margin-left: auto;
@@ -2060,11 +2154,16 @@ button.danger:hover {
 }
 
 /* フローの空状態 */
+/* 案内見切れ対策(UX): .flow-canvas(可視ペイン。position:relativeの実サイズ)の
+   直下の子として centered — .flow-scale(論理1600x1400のパン/ズーム対象)基準だと
+   ペインが狭い(インスペクタ併設時など)ときに右端で見切れるため、常に可視領域の
+   中央に固定し、幅もペイン幅に追従させて折り返す。 */
 .flow-empty {
   position: absolute;
   left: 50%;
-  top: 96px;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(320px, calc(100% - 32px));
   pointer-events: none;
   display: flex;
   flex-direction: column;
@@ -2094,6 +2193,13 @@ button.danger:hover {
 }
 .modal {
   width: min(420px, 100%);
+  /* 見切れ対策(UX#5): 長い検証/取り込み結果メッセージでも OK ボタンが画面外に
+     押し出されないよう、本体は縦80vhで打ち切ってスクロールし、操作行は常に
+     スクロール領域の外(下端固定)に残す。 */
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--panel);
   color: var(--ink);
   border: 1px solid var(--line);
@@ -2103,11 +2209,15 @@ button.danger:hover {
   animation: pop-in var(--dur-1) var(--ease);
 }
 .modal-title {
+  flex: 0 0 auto;
   margin: 0 0 6px;
   font-size: var(--fs-title);
   font-weight: var(--fw-strong);
 }
 .modal-msg {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   margin: 0 0 12px;
   font-size: var(--fs-body);
   color: var(--muted);
@@ -2115,6 +2225,7 @@ button.danger:hover {
   white-space: pre-line;
 }
 .modal-input {
+  flex: 0 0 auto;
   font: inherit;
   font-size: var(--fs-body);
   width: 100%;
@@ -2131,6 +2242,7 @@ button.danger:hover {
   box-shadow: var(--ring);
 }
 .modal-actions {
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -2763,6 +2875,22 @@ kbd {
   }
 }
 
+/* 保存ボタンの「保存中…」進行表示（明示保存の実行中だけ。完了は既存トーストが担う） */
+.icon-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: busy-spin 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-spinner {
+    animation-duration: 2s;
+  }
+}
+
 /* 使い方ツアー（コーチマーク）。ページ操作を妨げない: レイヤは素通し、カードだけ操作可能 */
 .tour-layer {
   position: fixed;
@@ -3388,6 +3516,56 @@ kbd {
   width: 0;
   border-left: 1px dashed var(--accent-strong);
 }
+/* マイルストーン: レーン上の余白に琥珀の菱形＋全レーンを貫く縦破線（対象工程の右端に追従）。
+   .ms-guide は .flow-scale 全面を覆うが透明・非操作（菱形だけが pointer-events を持つ）。
+   spec: docs/superpowers/specs/2026-07-04-milestone-design.md §デスクトップ描画・UI */
+.ms-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ms-guide-line {
+  position: absolute;
+  width: 0;
+  border-left: 1.5px dashed var(--amber);
+  opacity: 0.55;
+}
+.ms-diamond {
+  position: absolute;
+  z-index: 6;
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  background: var(--amber-fill);
+  border: 1.6px solid var(--amber);
+  transform: rotate(45deg);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ms-diamond.draggable {
+  cursor: grab;
+}
+.ms-diamond.selected {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 45%, transparent);
+}
+.ms-label {
+  position: absolute;
+  z-index: 6;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  color: var(--amber-ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* MS のその場リネーム入力。菱形と同様 .ms-guide の非操作を上書きし、ラベル位置に置く。 */
+.ms-edit {
+  position: absolute;
+  z-index: 7;
+  width: 140px;
+  text-align: left;
+  pointer-events: auto;
+}
 .palette-sep {
   width: 1px;
   height: 18px;
@@ -3807,6 +3985,13 @@ kbd {
 .ft tbody tr.parent:hover td {
   background: var(--row-hover);
 }
+/* マイルストーン行: 薄い琥珀の背景（フローの菱形と同系色）。担当/工数などは「—」表示。 */
+.ft tbody tr.is-milestone td {
+  background: var(--amber-fill);
+}
+.ft tbody tr.is-milestone:hover td {
+  background: color-mix(in srgb, var(--amber-fill) 70%, var(--row-hover));
+}
 
 /* 先頭列固定（No. と 作業名）＋ヘッダ固定の交差はさらに前面に */
 .ft .ft-sticky {
@@ -3822,6 +4007,9 @@ kbd {
 }
 .ft tbody tr.parent td.ft-sticky {
   background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft tbody tr.is-milestone td.ft-sticky {
+  background: var(--amber-fill);
 }
 .ft tbody tr:hover td.ft-sticky {
   background: var(--row-hover);
@@ -3874,6 +4062,17 @@ kbd {
   box-shadow: var(--ring);
 }
 .ft-name { font-weight: 600; }
+/* マイルストーンの作業名セル: 菱形バッジ＋入力を横並びに。 */
+.ft-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ft-name-cell .ft-in {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
 .ft-num { text-align: right; }
 .ft-roll { display: block; padding: 6px 8px; text-align: right; color: var(--muted); }
 
@@ -4058,6 +4257,9 @@ kbd {
 }
 .ft tbody tr.parent td.ft-sticky-r {
   background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+}
+.ft tbody tr.is-milestone td.ft-sticky-r {
+  background: var(--amber-fill);
 }
 .ft-rowact {
   display: flex;
@@ -5590,4 +5792,352 @@ input.colored-text {
 .flow-tobe-svg svg {
   max-width: 100%;
   height: auto;
+}
+
+/* アウトライン表: 一括選択でマークされた行（単一選択 .selected とは別の淡い強調・
+   全項目表の .ft tr.marked と同系）。行の背景は td に敷く。 */
+.grid tbody tr.marked > td {
+  background: var(--accent-soft);
+}
+
+/* ステータスバー: 永続化の健全性（自動保存の直近成功時刻・助言ロック状態）。
+   正常時は控えめ（muted）、失敗/読み取り専用のみ警告色で目立たせる（沈黙する失敗の可視化）。 */
+.st-autosave,
+.st-lock {
+  color: var(--muted);
+}
+.st-autosave.is-failed,
+.st-lock.is-readonly {
+  color: var(--danger);
+}
+
+/* =========================================================================
+   UX#15: 表・フローの roving focus と ARIA
+   ------------------------------------------------------------------------
+   表(role=grid)は選択行(<tr tabIndex=-1>)へ実 DOM フォーカスが乗る。キーボード操作時のみ
+   :focus-visible でアクセントのリングを出し「いまどの行を選んでいるか」を明示する
+   （ノード等と同じ 2px accent 規約。マウス選択では出さず、選択の背景色だけで示す）。
+   フローは aria-activedescendant 方式で、選択ノードの可視化は既存の .node.*.selected が担う。
+   ========================================================================= */
+.grid tbody tr:focus {
+  outline: none; /* 既定の点線フォーカスは出さない(下の focus-visible が代替) */
+}
+.grid tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* =========================================================================
+   UX#12: 行選択モードの単キー操作 — OFF中は隠さず薄く表示 + 既定でONのバッジ
+   ------------------------------------------------------------------------
+   HelpDialog: シングルキー設定OFFで無効な行も消さず、薄く表示して
+   「設定でONにできます」を添える(存在を隠さない)。
+   KeybindingsEditor: lowRisk(表の n=次工程追加)はOFF設定でも常時有効なので、
+   その理由がわかる小さなバッジを添える。
+   ========================================================================= */
+.help-row-off {
+  opacity: 0.55;
+}
+.help-off-note {
+  margin-left: 4px;
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+.kb-lowrisk {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: var(--fs-caption);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+/* =========================================================================
+   UX#14: 全項目表・狭幅での列重なり修正
+   ------------------------------------------------------------------------
+   ~960px 以下では、右固定(sticky)のアクション列を通常の最終列に戻し、他の列と
+   同じく横スクロールへ回す。固定のままだと、まだスクロールしていない担当セル等の
+   実位置とアクション列の固定位置がその画面幅ではたまたま重なり、削除アイコンが
+   セルの文字の上に透けて見えてしまう。ヘッダ行の縦方向の固定(top:0)は維持し、
+   横方向の固定(right:0)だけ外す。
+   ========================================================================= */
+@media (max-width: 960px) {
+  .ft td.ft-sticky-r {
+    position: static;
+    box-shadow: none;
+  }
+  .ft thead th.ft-sticky-r {
+    position: sticky;
+    top: 0;
+    right: auto;
+    box-shadow: none;
+  }
+}
+
+/* =========================================================================
+   快適化B1: 前工程「×」の当たり領域を拡大
+   実測で 12×13px の極小ターゲット（前工程ピルの解除ボタン）。見た目は据え置きのまま、
+   透明な ::after を重ねてクリック/タップ判定だけ約 36px 四方へ広げる（レイアウト不変）。
+   対象は前工程ピル（アウトライン・全項目表とも .ft-pill .ft-x）に限定し、密な I/O チップ側は現状維持。
+   ========================================================================= */
+.ft-pill .ft-x {
+  position: relative;
+}
+.ft-pill .ft-x::after {
+  content: '';
+  position: absolute;
+  inset: -12px -8px;
+}
+
+/* =========================================================================
+   表示専用ミラー窓（?mirror=flow|table・マルチディスプレイ）
+   主窓が発行するスナップショットを閲覧専用で描く別ウィンドウ。操作 UI は持たず、
+   上部に「閲覧専用」バッジ＋ローカルズームのみ。フローは buildFlowSvg（常にライト）、
+   工程表は projectToRows 由来の読み取り専用テーブル。主窓が閉じたら接続待ちを覆う。
+   ========================================================================= */
+.mirror-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas-bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+.mirror-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  z-index: 2;
+}
+.mirror-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.mirror-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.mirror-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.mirror-zoom button {
+  min-width: 34px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--btn-bg);
+  color: var(--ink);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mirror-zoom button:hover {
+  background: var(--hover);
+}
+.mirror-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+}
+.mirror-content {
+  display: inline-block;
+  padding: 12px;
+  will-change: transform;
+}
+.mirror-content svg {
+  display: block;
+}
+.mirror-empty {
+  padding: 40px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.mirror-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--panel);
+  color: var(--ink);
+}
+.mirror-table th,
+.mirror-table td {
+  border: 1px solid var(--line-strong);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 320px;
+}
+.mirror-table th {
+  background: var(--hdr);
+  position: sticky;
+  top: 0;
+  font-weight: 600;
+}
+.mirror-waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(2px);
+  z-index: 3;
+}
+.mirror-waiting-card {
+  text-align: center;
+  padding: 28px 32px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  max-width: 360px;
+}
+.mirror-waiting-title {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.mirror-waiting-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.mirror-spin {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  border: 3px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: mirror-spin 0.9s linear infinite;
+}
+@keyframes mirror-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mirror-spin {
+    animation: none;
+  }
+}
+
+/* =========================================================================
+   実機FB その1: フローの I/O クリック編集 ＆ 付箋の対象工程リンク
+   ========================================================================= */
+/* I/O 表示（集約アイコン・出所チップ）はクリックで詳細パネルの該当 I/O へ寄せる。
+   io-overlay は既定 pointer-events:none なので、対象の g だけ操作可へ戻す
+   （子要素は pointer-events を継承して当たり判定を持つ）。 */
+.io-clickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.io-clickable:hover .io-main,
+.io-clickable:hover .io-source-chip {
+  filter: brightness(0.96);
+}
+/* フローの I/O クリックで開いた詳細パネルの該当項目/セクションを一時ハイライト。
+   既存の sync-flash（box-shadow フェード）を流用して見た目を揃える。 */
+.io-row.io-flash,
+.io-section.io-flash {
+  animation: sync-flash 1.5s var(--ease);
+  border-radius: var(--radius-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .io-row.io-flash,
+  .io-section.io-flash {
+    animation: none;
+  }
+}
+
+/* 実機FB: アウトラインの「入出」「課題」を別列に分離。件数バッジ（.io-pop-trigger）を
+   クリックで名称一覧のポップオーバー（.io-pop）を開く。ポップオーバーは .outline-scroll の
+   overflow に切られないよう .menu の見た目を流用しつつ fixed で出す（座標は JS が付与）。 */
+.c-io {
+  width: 122px;
+}
+.c-issue {
+  width: 102px;
+}
+.io-pop-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+.io-pop-trigger:hover,
+.io-pop-trigger[aria-expanded='true'] {
+  color: var(--ink);
+  background: var(--panel-2);
+}
+.io-pop {
+  position: fixed;
+  top: auto;
+  right: auto;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow: auto;
+}
+.io-pop .menu-caption {
+  padding: 6px 12px 2px;
+  font-size: var(--fs-label);
+  color: var(--faint);
+}
+.io-pop .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  max-width: 300px;
+}
+.io-pop .io-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.io-pop .io-dot.in {
+  background: var(--in);
+}
+.io-pop .io-dot.out {
+  background: var(--out);
+}
+.io-pop .io-dot.issue {
+  background: var(--red);
+}
+.io-pop-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -108,7 +108,7 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate, 
         <ul className="welcome-points">
           <li>
             <strong>表で編集</strong>
-            <span>作業・担当・前後関係・I/O・課題を一覧表で入力。</span>
+            <span>作業・担当・前後関係・入/出・課題を一覧表で入力。</span>
           </li>
           <li>
             <strong>図に同期</strong>
@@ -121,8 +121,7 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate, 
         </ul>
 
         <p className="welcome-foot">
-          まっさらな状態から作るには上の「空のプロジェクトから始める」を。開いたあとは表の「＋
-          大工程」「＋ 中工程」から作業を追加できます。
+          まっさらな状態から作るには上の「空のプロジェクトから始める」を。開いたあとは表の「＋大」「＋中」ボタンから作業を追加できます。
         </p>
       </div>
     </div>

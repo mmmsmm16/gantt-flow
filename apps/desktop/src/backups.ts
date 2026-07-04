@@ -1,6 +1,7 @@
 // 世代バックアップ。保存のたびに直近 N 世代を localStorage に残し、「昨日の状態に戻す」を
 // 可能にする（共有フォルダ運用での誤上書き・誤編集への保険）。autosave（未保存の退避）とは別系統。
 import { serializeProject, deserializeProject, type Project } from '@gantt-flow/core';
+import { useUI } from './ui/useUI';
 
 const KEY = 'gf-backups-v1';
 const MAX_GENERATIONS = 5;
@@ -26,12 +27,15 @@ function readAll(): BackupEntry[] {
 function writeAll(entries: BackupEntry[]): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(entries));
+    useUI.getState().notePersistOk('backup');
   } catch {
     // 容量超過: 古い世代を削って再試行（それでも無理なら諦める＝ベストエフォート）
     try {
       localStorage.setItem(KEY, JSON.stringify(entries.slice(0, 2)));
+      useUI.getState().notePersistOk('backup');
     } catch {
-      /* 退避不能は無視 */
+      // 世代バックアップの退避不能を可視化する（保存自体は成功しているので編集は妨げない）。
+      useUI.getState().notePersistFailure('backup');
     }
   }
 }

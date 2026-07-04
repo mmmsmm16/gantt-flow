@@ -4,17 +4,19 @@
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
-import { validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
+import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
+import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
+import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
@@ -67,8 +69,8 @@ export const FT_COLUMNS: readonly FtCol[] = [
   { key: 'effort', label: '工数', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
   { key: 'how', label: '業務内容', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
   { key: 'system', label: '使用システム', width: 170, cls: 'ft-c-text', optional: true, cursorable: true },
-  { key: 'inputs', label: 'インプット', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
-  { key: 'outputs', label: 'アウトプット', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
+  { key: 'inputs', label: '入力', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
+  { key: 'outputs', label: '出力', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
   { key: 'issue', label: '課題', width: 200, cls: 'ft-c-issue', optional: true, cursorable: true },
   { key: 'measure', label: '方策', width: 200, cls: 'ft-c-issue', optional: true, cursorable: true },
   { key: 'note', label: '備考', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
@@ -160,6 +162,7 @@ export function FullTable() {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const renameTask = useApp((s) => s.renameTask);
+  const removeTask = useApp((s) => s.removeTask);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
   const updateDetail = useApp((s) => s.updateDetail);
   const addIo = useApp((s) => s.addIo);
@@ -172,8 +175,8 @@ export function FullTable() {
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
   const addRootTask = useApp((s) => s.addRootTask);
+  const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
-  const setAssigneeManyByName = useApp((s) => s.setAssigneeManyByName);
   const duplicateTask = useApp((s) => s.duplicateTask);
   const pasteRowsAsTasks = useApp((s) => s.pasteRowsAsTasks);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
@@ -197,9 +200,6 @@ export function FullTable() {
   // 複合セル（課題/入出力）へ追加した直後、その新しい入力欄へフォーカス＆全選択する対象。
   // 追加 op の直後に {taskId, cell} を立て、再描画後に当該セルの最後の入力へ寄せる。
   const [addFocus, setAddFocus] = useState<{ taskId: Id; cell: string } | null>(null);
-  // 一括操作のための行マーク（複数選択）。Ctrl/⌘+クリックでトグル、Shift+クリックで範囲。
-  const [marked, setMarked] = useState<Set<Id>>(new Set());
-  const [anchor, setAnchor] = useState<Id | null>(null);
   // 逐次レンダリング: 現在描画している行数（センチネルが見えたら増やす）。
   const [renderCount, setRenderCount] = useState(ROW_CHUNK);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -398,49 +398,15 @@ export function FullTable() {
     return () => cancelAnimationFrame(raf);
   }, [selectedTaskId]);
 
-  // 行クリック: 通常＝単一選択（インスペクタ）、Ctrl/⌘＝トグル、Shift＝アンカーからの範囲選択。
-  const onRowClick = (e: React.MouseEvent, t: ProcessTask) => {
-    if (e.shiftKey && anchor) {
-      const ids = rows.map((r) => r.id);
-      const a = ids.indexOf(anchor);
-      const b = ids.indexOf(t.id);
-      if (a >= 0 && b >= 0) {
-        const [lo, hi] = a < b ? [a, b] : [b, a];
-        const next = new Set(marked);
-        for (let i = lo; i <= hi; i++) next.add(ids[i]!);
-        setMarked(next);
-      }
-      return;
-    }
-    if (e.ctrlKey || e.metaKey) {
-      const next = new Set(marked);
-      if (next.has(t.id)) next.delete(t.id);
-      else next.add(t.id);
-      setMarked(next);
-      setAnchor(t.id);
-      return;
-    }
-    setMarked(new Set()); // 通常クリックは一括選択を解除
-    setAnchor(t.id);
-    select(t.id);
-  };
-
-  const clearMarked = () => setMarked(new Set());
-  const bulkAssign = async () => {
-    const name = await useUI.getState().promptText({
-      title: '担当を一括設定',
-      message: `選択中の ${marked.size} 件の担当を変更します（空欄で未割当）。`,
-      placeholder: '担当（部門 / 個人）',
-      confirmLabel: '設定',
-    });
-    if (name === null) return;
-    setAssigneeManyByName([...marked], name);
-    clearMarked();
-  };
-  const bulkDelete = async () => {
-    const ok = await confirmRemoveTasks([...marked]);
-    if (ok) clearMarked();
-  };
+  // 行クリック（通常＝単一選択、Ctrl/⌘＝トグル、Shift＝範囲）と一括操作は共有フックに集約。
+  // 範囲は表示順（ソート・絞り込み反映済み）の rows 内で解決する。
+  const {
+    marked,
+    onRowClick,
+    clear: clearMarked,
+    bulkAssign,
+    bulkDelete,
+  } = useRowMultiSelect({ orderedIds: rows.map((r) => r.id), onActivate: select });
 
   // クリップボード（Excel/表計算）の各行を工程として一括追加。タブ区切り [作業名, 担当?]。
   const onPasteRows = async () => {
@@ -519,6 +485,12 @@ export function FullTable() {
     if (id) setFocusTask(id);
   };
 
+  // マイルストーンを追加（現在の表示粒度/スコープ。addMilestone が選択まで行うので即フォーカスのみ）。
+  const addMilestoneAndEdit = () => {
+    const id = addMilestone();
+    if (id) setFocusTask(id);
+  };
+
   if (flat.length === 0) {
     return (
       <div className="ft-empty">
@@ -538,6 +510,13 @@ export function FullTable() {
         </button>
         <button title="中工程を追加" onClick={() => addRootAndEdit('medium')}>
           <Icons.BoxPlus />中
+        </button>
+        <button
+          className="ms-add"
+          title="マイルストーンを追加（節目。子工程・担当・工数は持たない）"
+          onClick={addMilestoneAndEdit}
+        >
+          <Icons.MilestoneDiamond />マイルストーン
         </button>
         <button onClick={onPasteRows} title="クリップボード（Excel など）の各行を工程として追加。列はタブ区切りで [作業名, 担当]。">
           貼り付けで追加
@@ -643,8 +622,11 @@ export function FullTable() {
       <div className="ft-scroll">
       <table className="ft" ref={tableRef} onKeyDown={onGridKeyDown}>
         <colgroup>
+          {/* minWidth も明示(UX#14): table-layout:fixed + width:max-content で列は本来縮まないが、
+              念のための保険として各列の下限を width と同じ値に固定し、常に横スクロールへ回す
+              （縮んで右固定のアクション列と重なるのを防ぐ）。 */}
           {visibleCols.map((c) => (
-            <col key={c.key} style={{ width: width(c.key) }} />
+            <col key={c.key} style={{ width: width(c.key), minWidth: width(c.key) }} />
           ))}
         </colgroup>
         <thead>
@@ -677,6 +659,7 @@ export function FullTable() {
         <tbody>
           {renderRows.map((t) => {
             const d = project.details[t.id];
+            const ms = isMilestone(project.core, t.id);
             const hasChildren = parentsWithChildren.has(t.id);
             const assigneeName = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
             const anc = ancestryNames(t, byId);
@@ -694,22 +677,38 @@ export function FullTable() {
                     onClick={(e) => e.stopPropagation()}
                   >
                     {own ? (
-                      <input
-                        className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
-                        data-cell="name"
-                        style={
-                          d?.textColor
-                            ? ({ '--task-text': TASK_COLORS[d.textColor].text } as React.CSSProperties)
-                            : undefined
-                        }
-                        defaultValue={t.name}
-                        placeholder={c.label}
-                        aria-label={c.label}
-                        data-task={t.id}
-                        key={`name-${t.name}`}
-                        // Enter/Tab のセル移動は表全体の onGridKeyDown(editNavKeyDown)が担う。
-                        onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
-                      />
+                      <span className="ft-name-cell">
+                        {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
+                        <input
+                          className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                          data-cell="name"
+                          style={
+                            d?.textColor
+                              ? ({ '--task-text': TASK_COLORS[d.textColor].text } as React.CSSProperties)
+                              : undefined
+                          }
+                          defaultValue={t.name}
+                          placeholder={c.label}
+                          aria-label={c.label}
+                          data-task={t.id}
+                          key={`name-${t.name}`}
+                          {...selectAllOnFocus}
+                          // Enter/Tab のセル移動は表全体の onGridKeyDown(editNavKeyDown)が担う。
+                          // Escape: 未コミット新規行(name==='')は行削除、既存行はリネーム取り消し(#1/#2)。
+                          onKeyDown={(e) => {
+                            if (isImeKeyEvent(e)) return;
+                            if (e.key !== 'Escape') return;
+                            e.stopPropagation();
+                            if (nameEscapeAction(t.name) === 'remove') {
+                              removeTask(t.id);
+                              return;
+                            }
+                            e.currentTarget.value = t.name;
+                            e.currentTarget.blur();
+                          }}
+                          onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
+                        />
+                      </span>
                     ) : name !== undefined ? (
                       <span className="ft-anc" title={name}>
                         {name}
@@ -722,11 +721,15 @@ export function FullTable() {
                 case 'no':
                   return (
                     <td key="no" className="ft-c-no ft-sticky" style={{ left: 0 }} title={codes[t.id]}>
-                      {codes[t.id]}
+                      {ms ? <span className="ms-cell-blank">—</span> : codes[t.id]}
                     </td>
                   );
                 case 'assignee':
-                  return (
+                  return ms ? (
+                    <td key={c.key} className="ft-c-assignee" onClick={(e) => e.stopPropagation()}>
+                      <span className="ms-cell-blank" title="マイルストーンは担当を持ちません">—</span>
+                    </td>
+                  ) : (
                     <td
                       key={c.key}
                       className={`ft-c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`}
@@ -740,6 +743,8 @@ export function FullTable() {
                         placeholder="（未割当）"
                         aria-label="担当"
                         key={`asg-${assigneeName}`}
+                        {...selectAllOnFocus}
+                        onKeyDown={cancelEditOnEscape}
                         onBlur={(e) => e.target.value !== assigneeName && setAssigneeByName(t.id, e.target.value)}
                       />
                     </td>
@@ -807,7 +812,9 @@ export function FullTable() {
                 case 'effort':
                   return (
                     <td key={c.key} className="ft-c-effort" onClick={(e) => e.stopPropagation()}>
-                      {hasChildren ? (
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは工数を持ちません">—</span>
+                      ) : hasChildren ? (
                         <span className="ft-roll" title="子の合計（自動）">
                           {formatHours(effortRollups.get(t.id) ?? 0)}
                         </span>
@@ -815,13 +822,14 @@ export function FullTable() {
                         <input
                           className={`ft-in ft-num${cellCursorCls(t.id, 'effort')}`}
                           data-cell="effort"
-                          type="number"
-                          min={0}
-                          step={0.5}
-                          defaultValue={d?.effortMinutes != null ? d.effortMinutes / 60 : ''}
+                          // #3 type=number をやめて text + inputMode=decimal（ホイール誤変更・カンマ黙殺を解消）。
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : ''}
                           placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           key={`eff-${d?.effortMinutes ?? ''}`}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) => {
                             const res = validateEffort(e.target.value);
                             if (!res.ok) {
@@ -832,6 +840,7 @@ export function FullTable() {
                               return;
                             }
                             clearEffortInvalid(e.target);
+                            if (isEffortBlurUnchanged(e.target.value, d?.effortMinutes)) return; // 無編集 blur は書き換えない
                             if (res.minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
                           }}
                         />
@@ -887,7 +896,11 @@ export function FullTable() {
                 case 'exception':
                   return <WrapCell key={c.key} value={d?.exception} onCommit={(v) => updateDetail(t.id, { exception: v || undefined })} k={t.id} cell="exception" cursor={cellCursorCls(t.id, 'exception') !== ''} />;
                 case 'automation':
-                  return (
+                  return ms ? (
+                    <td key={c.key} className="ft-c-auto" onClick={(e) => e.stopPropagation()}>
+                      <span className="ms-cell-blank">—</span>
+                    </td>
+                  ) : (
                     <td key={c.key} className="ft-c-auto" onClick={(e) => e.stopPropagation()}>
                       <select className={`ft-in${cellCursorCls(t.id, 'automation')}`} data-cell="automation" value={d?.automation ?? ''} aria-label="自動化区分" onChange={(e) => updateDetail(t.id, { automation: (e.target.value || undefined) as Automation | undefined })}>
                         {AUTOMATION.map((a) => (
@@ -903,7 +916,11 @@ export function FullTable() {
                 case 'regulation':
                   return <WrapCell key={c.key} value={d?.regulation} onCommit={(v) => updateDetail(t.id, { regulation: v || undefined })} k={t.id} cell="regulation" cursor={cellCursorCls(t.id, 'regulation') !== ''} />;
                 case 'difficulty':
-                  return (
+                  return ms ? (
+                    <td key={c.key} className="ft-c-diff" onClick={(e) => e.stopPropagation()}>
+                      <span className="ms-cell-blank">—</span>
+                    </td>
+                  ) : (
                     <td key={c.key} className="ft-c-diff" onClick={(e) => e.stopPropagation()}>
                       <select className={`ft-in${cellCursorCls(t.id, 'difficulty')}`} data-cell="difficulty" value={d?.difficulty ?? ''} aria-label="難易度" onChange={(e) => updateDetail(t.id, { difficulty: (e.target.value || undefined) as Difficulty | undefined })}>
                         {DIFFICULTY.map((x) => (
@@ -959,8 +976,17 @@ export function FullTable() {
               <tr
                 key={t.id}
                 data-taskid={t.id}
-                className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}${marked.has(t.id) ? ' marked' : ''}`}
-                onClick={(e) => onRowClick(e, t)}
+                className={`${t.id === selectedTaskId ? 'sel' : ''}${hasChildren ? ' parent' : ''}${marked.has(t.id) ? ' marked' : ''}${ms ? ' is-milestone' : ''}`}
+                onClickCapture={(e) => {
+                  // 修飾クリック（Ctrl/⌘/Shift）＝複数選択。各セルの stopPropagation より先に
+                  // capture 段で拾い、入力へのフォーカス／テキスト選択を止める（preventDefault）。
+                  // 修飾なしのクリックは従来どおり行を選択する（onRowClick 内 select）。
+                  if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
+                  onRowClick(e, t.id);
+                }}
               >
                 {visibleCols.map(cell)}
               </tr>
@@ -1017,6 +1043,7 @@ function AutoTextarea({
       key={`v-${value ?? ''}`}
       ref={grow}
       onInput={(e) => grow(e.currentTarget)}
+      onKeyDown={cancelEditOnEscape}
       onBlur={(e) => e.target.value !== (value ?? '') && onCommit(e.target.value)}
     />
   );
@@ -1067,7 +1094,7 @@ function IoCell({
           // 色は入出力の向き（フローと統一）。種別(帳票/情報)はセレクトの値で区別。
           <span className={`ft-iochip ${direction}`} key={it.id}>
             {/* 触れただけの blur で履歴と未保存フラグを汚さない（変化があるときだけコミット）。 */}
-            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => e.target.value !== it.name && onRename(it.id, e.target.value)} />
+            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" {...selectAllOnFocus} onKeyDown={cancelEditOnEscape} onBlur={(e) => e.target.value !== it.name && onRename(it.id, e.target.value)} />
             <select className="ft-io-kind" value={it.kind} aria-label="種別" onChange={(e) => onKind(it.id, e.target.value as IoKind)}>
               <option value="doc">帳票</option>
               <option value="info">情報</option>

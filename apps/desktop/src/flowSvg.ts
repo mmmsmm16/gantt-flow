@@ -3,11 +3,13 @@
 import {
   SIZE,
   deriveBands,
+  deriveMilestoneGuides,
   ioIconRect,
   IO_ICON,
   issueLineTarget,
   issuePrimaryIds,
   laneLayout,
+  lanesBottom,
   nodeSize,
   routeEdge,
   sourceChipLayout,
@@ -30,13 +32,21 @@ const esc = (s: string) =>
 
 export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   const nodes = Object.values(view.nodes);
+  // マイルストーン縦線（上部余白の菱形＋レーンを貫く破線）。導出は画面 FlowCanvas と共有＝一致を保証。
+  const msGuides = deriveMilestoneGuides(project.core, view);
+  const msTaskIds = new Set(msGuides.map((g) => g.taskId));
+  // マイルストーンのタスクノードはレーン内に描かない（菱形で表す）。
+  const isMs = (n: FlowNode) => n.kind === 'task' && msTaskIds.has(n.taskId);
 
-  // レーン幾何（可変高さ）。担当レーンが無いビューはスイムレーンを描かない。
+  // レーン幾何（可変高さ）。担当（assignee）由来のレーンが無いビュー（大/全体）は
+  // スイムレーンを描かない。それ以外の粒度は工程（＝レーン）が 0 件の空プロジェクトでも
+  // 器（ラベル列・帯の枠）は常に描く＝ hasLanes は画面 FlowCanvas と同じ「lanes が
+  // 定義され得るビューか」で判定し、実際の件数には左右されない。
   const BAND_TOP = 24;
   const LABEL_W = 96;
   const boxes = laneLayout(view.lanes);
-  const hasLanes = boxes.length > 0;
-  const laneBottom = hasLanes ? boxes[boxes.length - 1]!.top + boxes[boxes.length - 1]!.height : BAND_TOP;
+  const hasLanes = view.level !== 'large';
+  const laneBottom = hasLanes ? lanesBottom(view.lanes, BAND_TOP) : BAND_TOP;
 
   // 図の範囲。入力 I/O アイコンや出所チップは工程の左上・真上へはみ出すため、
   // 正方向(max)だけでなく負方向(min)へも広げる（viewBox を 0,0 に固定すると切れる）。
@@ -51,7 +61,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     maxY = Math.max(maxY, r.y + r.h + 60);
   };
   for (const n of nodes) {
-    if (n.kind === 'doc') continue; // I/O はタスクへ集約表示（下で算入）
+    if (n.kind === 'doc' || isMs(n)) continue; // I/O はタスクへ集約 / MS は菱形で別描画
     grow({ x: n.x, y: n.y, ...nodeSize(n) });
     if (n.kind === 'task') {
       const d = project.details[n.taskId];
@@ -66,6 +76,13 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
   if (hasLanes) maxY = Math.max(maxY, laneBottom + 40);
+  // マイルストーンがあるときは上部に菱形の余白を取り、縦線＋ラベルが収まる幅まで右へ広げる。
+  const MS_CY = -20; // 菱形の中心 y（レーン上の余白）
+  const msLineBottom = hasLanes ? laneBottom : maxY - 40;
+  if (msGuides.length) {
+    minY = Math.min(minY, MS_CY - 16);
+    for (const g of msGuides) maxX = Math.max(maxX, g.x + 120);
+  }
   // 負側にはみ出した分は少し余白を足す（はみ出しが無ければ従来どおり原点 0,0）。
   if (minX < 0) minX -= 12;
   if (minY < 0) minY -= 12;
@@ -123,9 +140,25 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     }
   }
 
+  // マイルストーン: レーンを貫く縦破線＋上部余白の琥珀の菱形（回転した角丸四角）＋ラベル。
+  // 導出は画面 FlowCanvas と共有（deriveMilestoneGuides）＝ WYSIWYG。
+  for (const g of msGuides) {
+    parts.push(
+      `<line x1="${g.x}" y1="${MS_CY + 12}" x2="${g.x}" y2="${msLineBottom}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.55"/>`,
+    );
+    parts.push(
+      `<rect x="${g.x - 10}" y="${MS_CY - 10}" width="20" height="20" rx="4" transform="rotate(45 ${g.x} ${MS_CY})" fill="${FLOW_LIGHT.ms.fill}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.6"/>`,
+    );
+    if (g.label) {
+      parts.push(
+        `<text x="${g.x + 16}" y="${MS_CY + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.ms.text}">${esc(g.label)}</text>`,
+      );
+    }
+  }
+
   // edges: 直角コネクタ。他ノードと重ならない通り道を routeEdge が選ぶ(画面と同一ロジック)。
   const edgeObstacles = nodes
-    .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+    .filter((n) => (n.kind === 'task' || n.kind === 'control' || n.kind === 'comment') && !isMs(n))
     .map((n) => ({ id: n.id, x: n.x, y: n.y, w: nodeSize(n).w, h: nodeSize(n).h }));
   for (const e of Object.values(view.edges)) {
     const s = view.nodes[e.source];
@@ -166,8 +199,21 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     );
   }
 
+  // 付箋の対象工程リンク（課題線と同じ細い薄線。対象が消えていれば描かない＝ダングリング禁止）。
+  for (const n of nodes) {
+    if (n.kind !== 'comment' || !n.targetNodeId) continue;
+    const t = view.nodes[n.targetNodeId];
+    if (!t) continue;
+    const c = issueLineTarget(t, nodes, project.details);
+    const cs = nodeSize(n);
+    parts.push(
+      `<line x1="${n.x + cs.w / 2}" y1="${n.y + cs.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"/>`,
+    );
+  }
+
   // nodes
   for (const n of nodes) {
+    if (isMs(n)) continue; // マイルストーンは菱形で別描画（レーン内には出さない）
     const s = nodeSize(n);
     const cx = n.x + s.w / 2;
     if (n.kind === 'task') {
@@ -254,7 +300,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     });
   };
   for (const n of nodes) {
-    if (n.kind !== 'task') continue;
+    if (n.kind !== 'task' || isMs(n)) continue;
     const d = project.details[n.taskId];
     const inputs = d?.inputs ?? [];
     const plain = inputs.filter((it) => !it.source?.trim());
@@ -305,8 +351,8 @@ export function decorateFlowSvg(
   const items: { label: string; draw: (x: number) => string }[] = [
     { label: '工程', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.task.fill}" stroke="${L.task.stroke}" stroke-width="1.3"/>` },
     { label: '判断', draw: (x) => `<polygon points="${x + 11},-10 ${x + 22},0 ${x + 11},10 ${x},0" fill="${L.control.fill}" stroke="${L.control.stroke}" stroke-width="1.3"/>` },
-    { label: 'インプット', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioIn.fill}" stroke="${L.ioIn.stroke}" stroke-width="1.3"/>` },
-    { label: 'アウトプット', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioOut.fill}" stroke="${L.ioOut.stroke}" stroke-width="1.3"/>` },
+    { label: '入力', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioIn.fill}" stroke="${L.ioIn.stroke}" stroke-width="1.3"/>` },
+    { label: '出力', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="4" fill="${L.ioOut.fill}" stroke="${L.ioOut.stroke}" stroke-width="1.3"/>` },
     { label: '課題', draw: (x) => `<rect x="${x}" y="-9" width="22" height="16" rx="3" fill="${L.issue.fill}" stroke="${L.issue.stroke}" stroke-width="1.3"/>` },
   ];
   let lx = 16;

@@ -2,6 +2,7 @@
 // 表示中の粒度ノードの祖先をたどり、中工程・大工程ごとに横方向の帯（範囲）を計算する。保存しない。
 import type { Core, FlowLevelView, FlowTaskNode, Id, ProcessLevel } from '../model/types';
 import { SIZE } from './autoPlace';
+import { isMilestone } from '../milestone';
 
 export interface Band {
   taskId: Id; // 祖先タスク（この帯が表す中/大工程）
@@ -15,7 +16,11 @@ export interface Band {
 }
 
 export function deriveBands(core: Core, view: FlowLevelView): Band[] {
-  const taskNodes = Object.values(view.nodes).filter((n): n is FlowTaskNode => n.kind === 'task');
+  // MS(節目マーカー) は親範囲バンドの集計に含めない。手動で遠くへ置いた MS が親帯を
+  // 不自然に広げてしまうのを防ぐ（MS は流れの中の点で、工程群の範囲には数えない）。
+  const taskNodes = Object.values(view.nodes).filter(
+    (n): n is FlowTaskNode => n.kind === 'task' && !isMilestone(core, n.taskId),
+  );
   const acc = new Map<Id, { minX: number; maxX: number; minY: number; maxY: number; depth: number }>();
 
   for (const node of taskNodes) {

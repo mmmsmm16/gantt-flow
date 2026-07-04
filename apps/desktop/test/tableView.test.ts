@@ -9,7 +9,7 @@ describe('工程表の任意列: 記述子(OUTLINE_OPTIONAL_COLUMNS)と表示ト
     expect(OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, c.label, c.width])).toEqual([
       ['prev', '前工程', 132],
       ['effort', '工数', 78],
-      ['io', 'I/O・課題', 224],
+      ['io', '入/出・課題', 224],
     ]);
   });
 

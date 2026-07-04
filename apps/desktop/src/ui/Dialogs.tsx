@@ -1,7 +1,7 @@
 // 自前の Modal（confirm / prompt）と Toaster。素の window.confirm/prompt/alert を置き換える。
 // App 直下に <Modal /> と <Toaster /> を一度だけ置く。状態は useUI が保持。
 import { useEffect, useRef, useState } from 'react';
-import { useUI } from './useUI';
+import { useUI, TOAST_DURATION_MS, createPausableTimer, type ToastItem } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
 import { isImeKeyEvent } from '../keymap';
 
@@ -92,19 +92,22 @@ export function Toaster() {
   );
 }
 
-function ToastView({
-  item,
-  onDone,
-}: {
-  item: { id: number; message: string; tone: string };
-  onDone: (id: number) => void;
-}) {
+function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => void }) {
+  // hover で消えるまでの時間を一時停止（読んでいる間に消えてしまうのを防ぐ）。
+  // タイマー本体は useUI 側の純粋実装（createPausableTimer）に committed し、ここでは配線のみ。
+  const timerRef = useRef<ReturnType<typeof createPausableTimer> | null>(null);
   useEffect(() => {
-    const t = setTimeout(() => onDone(item.id), 4200);
-    return () => clearTimeout(t);
-  }, [item.id, onDone]);
+    const timer = createPausableTimer(TOAST_DURATION_MS[item.tone] ?? 4200, () => onDone(item.id));
+    timerRef.current = timer;
+    return () => timer.cancel();
+  }, [item.id, item.tone, onDone]);
   return (
-    <div className={`toast toast-${item.tone}`} role="status">
+    <div
+      className={`toast toast-${item.tone}`}
+      role="status"
+      onMouseEnter={() => timerRef.current?.pause()}
+      onMouseLeave={() => timerRef.current?.resume()}
+    >
       <span>{item.message}</span>
       <button className="toast-x" aria-label="閉じる" title="閉じる" onClick={() => onDone(item.id)}>
         ×

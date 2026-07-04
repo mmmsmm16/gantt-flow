@@ -1,17 +1,19 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
-import { computeCodes, computeEffortRollups, formatHours, bridgePredMap } from '@gantt-flow/core';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { ProcessTask, ProcessLevel, Id, TaskDetail } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
-import { validateEffort, markEffortInvalid, clearEffortInvalid } from './parseEffort';
+import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
+import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
-import { Menu, MenuCheckItem } from './ui/Menu';
-import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
+import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
+import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
+import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
 import { revealTask, confirmRemoveTasks } from './taskOps';
-import { isImeKeyEvent } from './keymap';
+import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
 
@@ -72,21 +74,154 @@ function TreeGuides({ depth, ancestorLines, isLast }: Omit<Row, 'task'>) {
   return <span className="tree-guides" aria-hidden="true">{segs}</span>;
 }
 
+// 実機FB: アウトラインの「入出」列＝入力→出力の順、「課題」列＝課題文の一覧。
+// 件数バッジをクリックするとポップオーバーで名称/課題文を並べ、項目クリックで
+// インスペクタの該当セクションへ寄せる（受け口 focusInspectorIo は FB-1 の I/O 経路を再利用）。
+export type OutlineIoGroup = 'inputs' | 'outputs';
+export interface OutlineIoItem {
+  id: Id;
+  name: string;
+  io: OutlineIoGroup;
+}
+export interface OutlineIssueItem {
+  id: Id;
+  text: string;
+}
+
+// 入出セルの一覧項目（入力→出力の順）。各項目は Inspector の該当 I/O へ寄せる io/ioId を持つ。
+export function outlineIoItems(detail: TaskDetail | undefined): OutlineIoItem[] {
+  return [
+    ...(detail?.inputs ?? []).map((it) => ({ id: it.id, name: it.name, io: 'inputs' as const })),
+    ...(detail?.outputs ?? []).map((it) => ({ id: it.id, name: it.name, io: 'outputs' as const })),
+  ];
+}
+
+// 課題セルの一覧項目。課題文（issue）だけを並べる（方策 measure は Inspector 側で見る）。
+export function outlineIssueItems(detail: TaskDetail | undefined): OutlineIssueItem[] {
+  return (detail?.issues ?? []).map((it) => ({ id: it.id, text: it.issue }));
+}
+
+// セル内ポップオーバー。.outline-scroll の overflow に切られないよう fixed で出し、外側クリック /
+// Esc（registerTransientLayer 経由）/ 再スクロールで閉じる。トリガは <button> なので Enter/Space で
+// 開き、開いたら先頭項目へフォーカスして ↑↓/Home/End で移動できる（Menu と同じ規約）。
+function CellPopover({
+  label,
+  title,
+  ariaLabel,
+  children,
+}: {
+  label: ReactNode;
+  title: string;
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const openedAt = useRef(0);
+
+  const openAt = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 260)), top: r.bottom + 4 });
+    openedAt.current = performance.now();
+    setOpen(true);
+  };
+  const close = () => {
+    setOpen(false);
+    btnRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (btnRef.current?.contains(target) || popRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    // スクロールで固定配置がトリガから離れるため閉じる。ただし開いた直後は、行選択に伴う
+    // 自動スクロール（selectedTaskId の scrollRowIntoView）で即閉じないよう猶予を置く。
+    const onScroll = () => {
+      if (performance.now() - openedAt.current > 300) setOpen(false);
+    };
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('scroll', onScroll, true); // capture=内側スクローラも拾う
+    const unregister = useUI.getState().registerTransientLayer(() => setOpen(false));
+    popRef.current?.querySelector<HTMLElement>('.menu-item')?.focus(); // 開いたら先頭項目へ
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      unregister();
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="io-pop-trigger"
+        title={title}
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => (open ? close() : openAt())}
+      >
+        {label}
+      </button>
+      {open && pos && (
+        <div
+          ref={popRef}
+          className="menu io-pop"
+          role="menu"
+          style={{ left: pos.left, top: pos.top }}
+          onClick={() => setOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              close();
+              return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const items = Array.from(popRef.current?.querySelectorAll<HTMLElement>('.menu-item') ?? []);
+            if (items.length === 0) return;
+            const i = items.indexOf(document.activeElement as HTMLElement);
+            let next: number;
+            if (e.key === 'Home') next = 0;
+            else if (e.key === 'End') next = items.length - 1;
+            else if (i < 0) next = e.key === 'ArrowDown' ? 0 : items.length - 1;
+            else next = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items[next]!.focus();
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function TableView() {
   const project = useApp((s) => s.project);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const renameTask = useApp((s) => s.renameTask);
+  const removeTask = useApp((s) => s.removeTask);
   const setTaskLevel = useApp((s) => s.setTaskLevel);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
   const updateDetail = useApp((s) => s.updateDetail);
   const addRootTask = useApp((s) => s.addRootTask);
   const addChildTask = useApp((s) => s.addChildTask);
+  const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const moveTaskUp = useApp((s) => s.moveTaskUp);
   const moveTaskDown = useApp((s) => s.moveTaskDown);
   const dropTask = useApp((s) => s.dropTask);
   const addDependency = useApp((s) => s.addDependency);
+  const removeDependency = useApp((s) => s.removeDependency);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
@@ -100,7 +235,9 @@ export function TableView() {
   const setCollapsed = useUI((s) => s.setOutlineCollapsed);
   // クイックフィルタ(Ctrl/⌘+F)。表示のみの絞り込みで、行追加・移動などのデータ操作には触れない。
   // フィルタ中は折りたたみを無視して全展開で探す(畳まれた配下の一致を取りこぼさない)。
-  const [findQuery, setFindQuery] = useState('');
+  // 文字列は useUI に置く＝表⇄フロー切替や粒度変更で TableView が再マウントされても揮発しない(#26)。
+  const findQuery = useUI((s) => s.outlineFilter);
+  const setFindQuery = useUI((s) => s.setOutlineFilter);
   const findRef = useRef<HTMLInputElement>(null);
   const findActive = findQuery.trim() !== '';
   const { rows, matched } = filterOutlineRows(
@@ -143,19 +280,57 @@ export function TableView() {
     setFocusId(null);
   }, [focusId, rows.length]);
 
+  // 両窓編集同期: 発信元窓の focusHint が「表での作成→即リネーム」を要求したら、その行を選択して
+  // 作業名入力へフォーカスする（他の追加経路＝addRootAndEdit と同じ select + setFocusId 経路）。
+  // フォロワー窓が、リーダーから届いた新工程 id を受けて開く。seq でトリガ（再マウントの二重発火防止）。
+  const renameRequest = useUI((s) => s.renameRequest);
+  const consumedRenameSeq = useRef(useUI.getState().renameRequest?.seq ?? 0);
+  useEffect(() => {
+    if (renameRequest && renameRequest.surface === 'table' && renameRequest.seq > consumedRenameSeq.current) {
+      consumedRenameSeq.current = renameRequest.seq;
+      select(renameRequest.taskId);
+      setFocusId(renameRequest.taskId);
+    }
+  }, [renameRequest]);
+
   // 選択中の工程が変わったら、その行が画面外のとき視点を寄せる（フロー→表追従）。
   // 'nearest' なので表側の操作で既に見えている時は動かない。畳まれて未描画なら no-op。
+  // あわせて roving focus: 表がアクティブかつ編集中でないときは選択行に実 DOM フォーカスを移す
+  //（スクリーンリーダーが選択行を読み、フォーカスリングが選択に追従する）。フローからの選択同期や
+  // セル編集中はフォーカスを奪わない（shouldRoveRowFocus のガード）。
   useEffect(() => {
     if (!selectedTaskId) return;
-    const raf = requestAnimationFrame(() => scrollRowIntoView(selectedTaskId));
+    const raf = requestAnimationFrame(() => {
+      scrollRowIntoView(selectedTaskId);
+      const active = document.activeElement;
+      const inTable = !active || active === document.body || !!active.closest?.('#main-table');
+      if (
+        shouldRoveRowFocus({
+          activePane: useUI.getState().activePane,
+          editable: isEditableTarget(active),
+          inTable,
+        })
+      ) {
+        document
+          .querySelector<HTMLElement>(`tr[data-taskid="${CSS.escape(selectedTaskId)}"]`)
+          ?.focus({ preventScroll: true });
+      }
+    });
     return () => cancelAnimationFrame(raf);
   }, [selectedTaskId]);
 
   const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
-  // 行クリック/編集開始は工程へジャンプ(選択＋粒度同期＋詳細パネル)。
+  // 行クリック(通常＝工程へジャンプ＝選択＋粒度同期＋詳細パネル、Ctrl/⌘＝トグル、Shift＝範囲)と
+  // 一括操作は全項目表と共有のフックに集約。範囲は表示中の行(rows・折りたたみ配下は除外)内で解決。
   // スコープ追従の規則はパレット等と共通の revealTask(taskOps.ts)に集約。
-  const openRow = (t: ProcessTask) => revealTask(t.id);
+  const {
+    marked,
+    onRowClick,
+    clear: clearMarked,
+    bulkAssign,
+    bulkDelete,
+  } = useRowMultiSelect({ orderedIds: rows.map((r) => r.task.id), onActivate: revealTask });
 
   // 行選択モード(編集外のキーボード操作)。j/k=行移動・h/l=列カーソル・Enter=セル編集 などは
   // useGlobalHotkeys → 'table' コンテキスト経由でここに届く。
@@ -192,6 +367,19 @@ export function TableView() {
     if (value !== t.name) renameTask(t.id, value);
   };
 
+  // 入出/課題セルのポップオーバー項目クリック: 工程を選択し詳細パネルを開く。I/O は FB-1 の
+  // 受け口（focusInspectorIo）で該当項目まで寄せる。課題はセクションを開くだけ（受け口を追加しない）。
+  const openIoInspector = (taskId: Id, io: OutlineIoGroup, ioId: Id) => {
+    select(taskId);
+    const ui = useUI.getState();
+    ui.setInspectorOpen(true);
+    ui.focusInspectorIo(io, ioId);
+  };
+  const openIssueInspector = (taskId: Id) => {
+    select(taskId);
+    useUI.getState().setInspectorOpen(true);
+  };
+
   // ＋大/＋中: 追加した工程を選択（→ useEffect が行を可視化）し、名前入力へフォーカスして
   // 即編集を始める（末尾に空の「新規工程」が増えて止まる問題を解消・キーボード n と挙動統一）。
   const addRootAndEdit = (level: ProcessLevel) => {
@@ -200,6 +388,12 @@ export function TableView() {
       select(id);
       setFocusId(id);
     }
+  };
+
+  // マイルストーンを追加（現在の表示粒度/スコープ。addMilestone が選択まで行うので即フォーカスのみ）。
+  const addMilestoneAndEdit = () => {
+    const id = addMilestone();
+    if (id) setFocusId(id);
   };
 
   // 末尾ゴースト行: 最終行と同じ親・粒度で新規工程を起こし、その作業名入力へフォーカス（連続入力）。
@@ -241,6 +435,13 @@ export function TableView() {
         </button>
         <button title="中工程を追加" onClick={() => addRootAndEdit('medium')}>
           <Icons.BoxPlus />中
+        </button>
+        <button
+          className="ms-add"
+          title="マイルストーンを追加（節目。子工程・担当・工数は持たない）"
+          onClick={addMilestoneAndEdit}
+        >
+          <Icons.MilestoneDiamond />マイルストーン
         </button>
         {parentsWithChildren.size > 0 && (
           <span className="outline-collapse">
@@ -293,6 +494,14 @@ export function TableView() {
             />
           ))}
         </Menu>
+        {marked.size > 0 && (
+          <span className="ft-bulk" role="group" aria-label="一括操作">
+            <strong>{marked.size}件選択中</strong>
+            <button onClick={bulkAssign}>担当を一括設定</button>
+            <button className="danger" onClick={bulkDelete}>まとめて削除</button>
+            <button className="ft-bulk-clear" onClick={clearMarked}>選択解除</button>
+          </span>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -311,6 +520,9 @@ export function TableView() {
           <div className="outline-scroll">
           <table
             className="grid"
+            role="grid"
+            aria-label="工程表（手順一覧）"
+            aria-rowcount={rows.length}
             onKeyDown={editNavKeyDown}
             style={{
               // 固定列の合計 + 作業名の最小幅 + 表示中の任意列。狭いペインではペインが横スクロールする。
@@ -318,28 +530,38 @@ export function TableView() {
             }}
           >
             <thead>
-              <tr>
-                <th className="c-grip" aria-hidden="true"></th>
-                <th className="c-code">No.</th>
-                <th className="c-level">粒度</th>
-                <th className="c-name">作業名</th>
-                <th className="c-assignee">担当</th>
-                {visibleOptionalColumns.map((c) => (
-                  <th key={c.key} className={`c-${c.key}`}>
-                    {c.label}
-                  </th>
-                ))}
-                <th className="c-act"></th>
+              <tr role="row">
+                <th className="c-grip" role="columnheader" aria-hidden="true"></th>
+                <th className="c-code" role="columnheader">No.</th>
+                <th className="c-level" role="columnheader">粒度</th>
+                <th className="c-name" role="columnheader">作業名</th>
+                <th className="c-assignee" role="columnheader">担当</th>
+                {visibleOptionalColumns.flatMap((c) =>
+                  c.key === 'io'
+                    ? [
+                        <th key="io" className="c-io" role="columnheader">入出</th>,
+                        <th key="issue" className="c-issue" role="columnheader">課題</th>,
+                      ]
+                    : [
+                        <th key={c.key} className={`c-${c.key}`} role="columnheader">
+                          {c.label}
+                        </th>,
+                      ],
+                )}
+                <th className="c-act" role="columnheader"></th>
               </tr>
             </thead>
             <tbody>
               {rows.map(({ task: t, depth, ancestorLines, isLast }) => {
                 const detail = project.details[t.id];
+                const ms = isMilestone(project.core, t.id);
                 const assigneeName = t.assigneeId
                   ? project.core.assignees[t.assigneeId]?.name ?? ''
                   : '';
-                const ioCount = (detail?.inputs?.length ?? 0) + (detail?.outputs?.length ?? 0);
-                const issueCount = detail?.issues?.length ?? 0;
+                const ioItems = outlineIoItems(detail);
+                const inItems = ioItems.filter((i) => i.io === 'inputs');
+                const outItems = ioItems.filter((i) => i.io === 'outputs');
+                const issueItems = outlineIssueItems(detail);
                 const hasChildren = parentsWithChildren.has(t.id);
                 const preds = deps.filter((dep) => dep.to === t.id);
                 const candidates = columnVisibility.prev ? prevCandidatesFor(t.id) : [];
@@ -347,16 +569,31 @@ export function TableView() {
                   <tr
                     key={t.id}
                     data-taskid={t.id}
+                    role="row"
+                    // roving focus: 選択行だけ実フォーカスを受ける（キー操作で選択に追従・SR が読む）。
+                    tabIndex={-1}
+                    aria-selected={t.id === selectedTaskId}
                     className={[
                       t.id === selectedTaskId ? 'selected' : '',
                       dragId === t.id ? 'dragging' : '',
                       dropInfo?.id === t.id ? `drop-${dropInfo.mode}` : '',
                       hasChildren ? 'is-parent' : '',
                       depth > 0 ? 'is-child' : '',
+                      ms ? 'is-milestone' : '',
+                      marked.has(t.id) ? 'marked' : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    onClick={() => openRow(t)}
+                    onClickCapture={(e) => {
+                      // 修飾クリック（Ctrl/⌘/Shift）＝複数選択。各セルの stopPropagation より先に
+                      // capture 段で拾い、入力へのフォーカス／テキスト選択を止める（preventDefault）。
+                      // 修飾なしのクリックは従来どおり行を選択・詳細表示する（onRowClick 内 revealTask）。
+                      if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                      onRowClick(e, t.id);
+                    }}
                     onDragOver={(e) => {
                       if (!dragId || dragId === t.id) return;
                       e.preventDefault();
@@ -381,7 +618,7 @@ export function TableView() {
                       setDropInfo(null);
                     }}
                   >
-                    <td className="c-grip" onClick={(e) => e.stopPropagation()}>
+                    <td className="c-grip" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       <span
                         className="row-grip"
                         draggable
@@ -399,25 +636,29 @@ export function TableView() {
                         ⠿
                       </span>
                     </td>
-                    <td className="c-code" title={codes[t.id]}>
-                      {codes[t.id]}
+                    <td className="c-code" role="gridcell" title={codes[t.id]}>
+                      {ms ? <span className="ms-cell-blank">—</span> : codes[t.id]}
                     </td>
-                    <td className="c-level" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        className={`lvl lvl-${t.level}${cellCursorCls(t.id, 'level')}`}
-                        data-cell="level"
-                        value={t.level}
-                        aria-label="粒度"
-                        onChange={(e) => setTaskLevel(t.id, e.target.value as ProcessLevel)}
-                      >
-                        {LEVEL_OPTS.map((l) => (
-                          <option key={l.key} value={l.key}>
-                            {l.label}
-                          </option>
-                        ))}
-                      </select>
+                    <td className="c-level" role="gridcell" onClick={(e) => e.stopPropagation()}>
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは粒度を持ちません">—</span>
+                      ) : (
+                        <select
+                          className={`lvl lvl-${t.level}${cellCursorCls(t.id, 'level')}`}
+                          data-cell="level"
+                          value={t.level}
+                          aria-label="粒度"
+                          onChange={(e) => setTaskLevel(t.id, e.target.value as ProcessLevel)}
+                        >
+                          {LEVEL_OPTS.map((l) => (
+                            <option key={l.key} value={l.key}>
+                              {l.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
-                    <td className="c-name">
+                    <td className="c-name" role="gridcell">
                       <TreeGuides depth={depth} ancestorLines={ancestorLines} isLast={isLast} />
                       <div className="name-cell" style={{ paddingLeft: depth * INDENT }}>
                         {hasChildren && (
@@ -441,6 +682,7 @@ export function TableView() {
                             aria-hidden="true"
                           />
                         )}
+                        {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
                         <input
                           className={`name-input${detail?.textColor ? ' colored-text' : ''}${matched.has(t.id) ? ' name-match' : ''}${cellCursorCls(t.id, 'name')}`}
                           data-cell="name"
@@ -460,13 +702,19 @@ export function TableView() {
                           placeholder="作業名"
                           aria-label="作業名"
                           onClick={(e) => e.stopPropagation()}
+                          {...selectAllOnFocus}
                           onKeyDown={(e) => {
                             if (isImeKeyEvent(e)) return; // IME 変換の確定 Enter/Tab/Esc を編集操作にしない
                             // Enter/Tab は表全体の editNavKeyDown(両ビュー共通のセル移動規約)に任せる。
                             // インデントは行選択モードの Tab(table.indent)に一本化した。
                             if (e.key === 'Escape') {
                               e.stopPropagation(); // グローバルの Esc(選択解除)を発火させない
-                              e.currentTarget.value = t.name;
+                              // #1 直前作成の未コミット行(name==='')は Escape で行ごと削除しゴーストを残さない。
+                              if (nameEscapeAction(t.name) === 'remove') {
+                                removeTask(t.id);
+                                return;
+                              }
+                              e.currentTarget.value = t.name; // 既存行は従来どおりリネーム取り消し
                               e.currentTarget.blur();
                             } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
                               e.preventDefault();
@@ -480,62 +728,77 @@ export function TableView() {
                         />
                       </div>
                     </td>
-                    <td className={`c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`}>
-                      <input
-                        className={`assignee${cellCursorCls(t.id, 'assignee')}`}
-                        data-cell="assignee"
-                        list="assignee-names"
-                        defaultValue={assigneeName}
-                        key={`asg-${assigneeName}`}
-                        placeholder="（未割当）"
-                        aria-label="担当"
-                        onClick={(e) => e.stopPropagation()}
-                        onBlur={(e) => {
-                          if (e.target.value !== assigneeName) setAssigneeByName(t.id, e.target.value);
-                        }}
-                      />
+                    <td className={`c-assignee${assigneeFlash.has(t.id) ? ' cell-flash' : ''}`} role="gridcell">
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは担当を持ちません">—</span>
+                      ) : (
+                        <input
+                          className={`assignee${cellCursorCls(t.id, 'assignee')}`}
+                          data-cell="assignee"
+                          list="assignee-names"
+                          defaultValue={assigneeName}
+                          key={`asg-${assigneeName}`}
+                          placeholder="（未割当）"
+                          aria-label="担当"
+                          onClick={(e) => e.stopPropagation()}
+                          {...selectAllOnFocus}
+                          onKeyDown={cancelEditOnEscape}
+                          onBlur={(e) => {
+                            if (e.target.value !== assigneeName) setAssigneeByName(t.id, e.target.value);
+                          }}
+                        />
+                      )}
                     </td>
                     {columnVisibility.prev && (
-                    <td className="c-prev" onClick={(e) => e.stopPropagation()}>
-                      {preds.length > 0 && (
-                        <span
-                          className="prev-names"
-                          title={preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
-                        >
-                          {preds.map((d) => project.core.tasks[d.from]?.name ?? '').join('、')}
-                        </span>
-                      )}
-                      {(bridgePreds[t.id] ?? []).map((fromId) => (
-                        <span
-                          key={`br-${fromId}`}
-                          className="prev-names derived"
-                          title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ・解除は大工程側の接続を削除）"
-                        >
-                          ⤷ {project.core.tasks[fromId]?.name ?? ''}
-                        </span>
-                      ))}
-                      {candidates.length > 0 && (
-                        <select
-                          className={`prev-add${cellCursorCls(t.id, 'prev')}`}
-                          data-cell="prev"
-                          value=""
-                          aria-label="前工程を追加"
-                          onChange={(e) => {
-                            if (e.target.value) addDependency(e.target.value, t.id);
-                          }}
-                        >
-                          <option value="">＋前工程</option>
-                          <PrevCandidateOptions
-                            candidates={candidates}
-                            parentName={(pid) => (pid ? (project.core.tasks[pid]?.name ?? '別グループ') : '最上位')}
-                          />
-                        </select>
-                      )}
+                    <td className="c-prev" role="gridcell" onClick={(e) => e.stopPropagation()}>
+                      <div className="ft-prev">
+                        {preds.map((dep) => (
+                          <span className="ft-pill" key={dep.id}>
+                            {project.core.tasks[dep.from]?.name ?? ''}
+                            <button
+                              className="ft-x"
+                              aria-label="前工程を解除"
+                              title="前工程を解除"
+                              onClick={() => removeDependency(dep.id)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        {(bridgePreds[t.id] ?? []).map((fromId) => (
+                          <span
+                            key={`br-${fromId}`}
+                            className="ft-pill derived"
+                            title="大工程同士の接続から自動で繋がっています（フローの矢印と同じ・解除は大工程側の接続を削除）"
+                          >
+                            ⤷ {project.core.tasks[fromId]?.name ?? ''}
+                          </span>
+                        ))}
+                        {candidates.length > 0 && (
+                          <select
+                            className={`prev-add${cellCursorCls(t.id, 'prev')}`}
+                            data-cell="prev"
+                            value=""
+                            aria-label="前工程を追加"
+                            onChange={(e) => {
+                              if (e.target.value) addDependency(e.target.value, t.id);
+                            }}
+                          >
+                            <option value="">＋前工程</option>
+                            <PrevCandidateOptions
+                              candidates={candidates}
+                              parentName={(pid) => (pid ? (project.core.tasks[pid]?.name ?? '別グループ') : '最上位')}
+                            />
+                          </select>
+                        )}
+                      </div>
                     </td>
                     )}
                     {columnVisibility.effort && (
-                    <td className="c-effort" onClick={(e) => e.stopPropagation()}>
-                      {hasChildren ? (
+                    <td className="c-effort" role="gridcell" onClick={(e) => e.stopPropagation()}>
+                      {ms ? (
+                        <span className="ms-cell-blank" title="マイルストーンは工数を持ちません">—</span>
+                      ) : hasChildren ? (
                         <span className="effort-roll" title="子の合計（自動）">
                           {formatHours(effortRollups.get(t.id) ?? 0)}
                         </span>
@@ -543,13 +806,15 @@ export function TableView() {
                         <input
                           className={`effort-input${cellCursorCls(t.id, 'effort')}`}
                           data-cell="effort"
-                          type="number"
-                          min={0}
-                          step={0.5}
-                          defaultValue={detail?.effortMinutes != null ? detail.effortMinutes / 60 : ''}
+                          // #3 type=number をやめて text + inputMode=decimal に統一（ホイール誤変更・
+                          // カンマ黙殺を解消。カンマ/全角は parseEffort が正規化）。To-Be 欄と同じ型。
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={detail?.effortMinutes != null ? effortMinutesToHours(detail.effortMinutes) : ''}
                           placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           onClick={(e) => e.stopPropagation()}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) => {
                             const res = validateEffort(e.target.value);
                             if (!res.ok) {
@@ -559,6 +824,7 @@ export function TableView() {
                               return;
                             }
                             clearEffortInvalid(e.target);
+                            if (isEffortBlurUnchanged(e.target.value, detail?.effortMinutes)) return; // 無編集 blur は書き換えない
                             if (res.minutes !== detail?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
                           }}
                         />
@@ -566,47 +832,79 @@ export function TableView() {
                     </td>
                     )}
                     {columnVisibility.io && (
-                    <td
-                      className={`c-io${cellCursorCls(t.id, 'io')}`}
-                      data-cell="io"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {/* 24/22: アウトラインは入/出/課題のドット＋件数の要約のみ。
-                          深掘り編集はクリックでインスペクタ、または全項目表で行う。 */}
-                      <div
-                        className="io-summary"
-                        title="クリックで詳細（入出力・課題を編集）"
-                        onClick={() => {
-                          select(t.id);
-                          useUI.getState().setInspectorOpen(true);
-                        }}
-                      >
-                        {ioCount === 0 && issueCount === 0 ? (
-                          <span className="io-empty">—</span>
-                        ) : (
-                          <>
-                            {(detail?.inputs?.length ?? 0) > 0 && (
-                              <span className="io-pip in">
-                                <span className="io-dot" />入{detail?.inputs?.length}
-                              </span>
-                            )}
-                            {(detail?.outputs?.length ?? 0) > 0 && (
-                              <span className="io-pip out">
-                                <span className="io-dot" />出{detail?.outputs?.length}
-                              </span>
-                            )}
-                            {issueCount > 0 && (
-                              <span className="io-pip issue">
-                                <span className="io-dot" />課題{issueCount}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
+                      <>
+                        {/* 実機FB: 入出（入力→出力）と課題を別列に分離。件数バッジをクリックで
+                            名称/課題文のポップオーバー、項目クリックでインスペクタの該当箇所へ。 */}
+                        <td
+                          className={`c-io${cellCursorCls(t.id, 'io')}`}
+                          role="gridcell"
+                          data-cell="io"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {ioItems.length === 0 ? (
+                            <span className="io-empty">—</span>
+                          ) : (
+                            <CellPopover
+                              title="入力・出力の名称一覧（クリックで詳細へ）"
+                              ariaLabel={`入力 ${inItems.length} 件・出力 ${outItems.length} 件（クリックで名称一覧）`}
+                              label={
+                                <>
+                                  {inItems.length > 0 && (
+                                    <span className="io-pip in">
+                                      <span className="io-dot" />入{inItems.length}
+                                    </span>
+                                  )}
+                                  {outItems.length > 0 && (
+                                    <span className="io-pip out">
+                                      <span className="io-dot" />出{outItems.length}
+                                    </span>
+                                  )}
+                                </>
+                              }
+                            >
+                              {inItems.length > 0 && <div className="menu-caption">入力</div>}
+                              {inItems.map((it) => (
+                                <MenuItem key={it.id} onClick={() => openIoInspector(t.id, 'inputs', it.id)}>
+                                  <span className="io-dot in" />
+                                  <span className="io-pop-name">{it.name || '（名称なし）'}</span>
+                                </MenuItem>
+                              ))}
+                              {outItems.length > 0 && <div className="menu-caption">出力</div>}
+                              {outItems.map((it) => (
+                                <MenuItem key={it.id} onClick={() => openIoInspector(t.id, 'outputs', it.id)}>
+                                  <span className="io-dot out" />
+                                  <span className="io-pop-name">{it.name || '（名称なし）'}</span>
+                                </MenuItem>
+                              ))}
+                            </CellPopover>
+                          )}
+                        </td>
+                        <td className="c-issue" role="gridcell" data-cell="issue" onClick={(e) => e.stopPropagation()}>
+                          {issueItems.length === 0 ? (
+                            <span className="io-empty">—</span>
+                          ) : (
+                            <CellPopover
+                              title="課題の一覧（クリックで詳細へ）"
+                              ariaLabel={`課題 ${issueItems.length} 件（クリックで一覧）`}
+                              label={
+                                <span className="io-pip issue">
+                                  <span className="io-dot" />課題{issueItems.length}
+                                </span>
+                              }
+                            >
+                              {issueItems.map((it) => (
+                                <MenuItem key={it.id} onClick={() => openIssueInspector(t.id)}>
+                                  <span className="io-dot issue" />
+                                  <span className="io-pop-name">{it.text || '（内容なし）'}</span>
+                                </MenuItem>
+                              ))}
+                            </CellPopover>
+                          )}
+                        </td>
+                      </>
                     )}
-                    <td className="c-act" onClick={(e) => e.stopPropagation()}>
-                      {t.level !== 'detail' && (
+                    <td className="c-act" role="gridcell" onClick={(e) => e.stopPropagation()}>
+                      {t.level !== 'detail' && !ms && (
                         <button
                           title="子工程を追加"
                           aria-label="子工程を追加"
@@ -616,6 +914,7 @@ export function TableView() {
                               // 折りたたまれた親の下に作ると新しい行が見えないため、先に展開する。
                               if (collapsed.has(t.id)) toggleCollapse(t.id);
                               select(nid);
+                              setFocusId(nid); // #6 他の追加経路と同じく作業名へ即フォーカス＆全選択
                             }
                           }}
                         >
@@ -636,8 +935,8 @@ export function TableView() {
               })}
               {/* 末尾ゴースト行: 「一番下の空行へ直接入力」の入口。検索絞り込み中は出さない。 */}
               {!findActive && rows.length > 0 && (
-                <tr className="outline-ghost" onClick={addGhostRow}>
-                  <td colSpan={6 + visibleOptionalColumns.length}>＋ 新しい工程…</td>
+                <tr className="outline-ghost" role="row" onClick={addGhostRow}>
+                  <td colSpan={6 + visibleOptionalColumns.length + (columnVisibility.io ? 1 : 0)} role="gridcell">＋ 新しい工程…</td>
                 </tr>
               )}
             </tbody>

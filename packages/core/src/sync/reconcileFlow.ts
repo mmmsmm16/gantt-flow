@@ -5,6 +5,7 @@
 import type {
   Core,
   ProcessLevel,
+  ProcessTask,
   TaskDetail,
   FlowLevelView,
   FlowTaskNode,
@@ -18,6 +19,7 @@ import type {
 import type { IdGen } from '../ids';
 import { placeInputDoc, placeOutputDoc, placeClear, obstaclesFor } from './autoPlace';
 import { laneTaskBaseY } from './lanes';
+import { isMilestone } from '../milestone';
 
 export interface SyncReport {
   added: FlowNodeId[]; // 自動追加したノード
@@ -46,7 +48,9 @@ export interface ParentBridge {
 
 /** 指定粒度の子タスクに対して、親レベルの依存から導出されるブリッジ接続を返す(純関数)。 */
 export function deriveParentBridges(core: Core, level: ProcessLevel): ParentBridge[] {
-  const kids = Object.values(core.tasks).filter((t) => t.level === level);
+  // MS は橋の端点候補から除外する。並び順の先頭/末尾が MS だと橋の端点が MS ノードに
+  // なってしまうため（MS は流れの節目マーカーで、依存の橋渡し役にはしない）。
+  const kids = Object.values(core.tasks).filter((t) => t.level === level && !isMilestone(core, t.id));
   const byParent = new Map<Id, typeof kids>();
   for (const t of kids) {
     if (!t.parentId) continue;
@@ -135,15 +139,43 @@ export function reconcileFlow(
   //    全体スコープでは親(大)ごとに固めて並べ、大の囲いが重ならないようにする。
   const parentOrder = (t: { parentId?: Id }): number =>
     t.parentId ? core.tasks[t.parentId]?.order ?? 0 : 0;
+
+  // scopeParentId を祖先に持つ（＝そのスコープ配下の）タスクか。任意の深さの子孫を辿る。
+  // MS の対象工程（入依存の from）がこのスコープに属するかの判定に使う（循環ガード付き）。
+  const isUnderScope = (taskId: Id | undefined, scopeId: Id): boolean => {
+    let cur = taskId ? core.tasks[taskId]?.parentId : undefined;
+    const seen = new Set<Id>();
+    while (cur && !seen.has(cur)) {
+      if (cur === scopeId) return true;
+      seen.add(cur);
+      cur = core.tasks[cur]?.parentId;
+    }
+    return false;
+  };
+
+  // v2 粒度非依存化: マイルストーンは工程粒度に左右されず、全ビューに同じものを出す。
+  //   ・全スコープビュー(scopeParentId 未指定): level 不問で常に表示（節目は業務の事実）。
+  //   ・スコープ付きビュー: 対象工程(入依存の from)のいずれかがそのスコープ配下にあるとき表示。
+  //     加えて、MS が構造上そのビューに属する(level×scope 一致)場合も従来どおり表示する
+  //     （MS を作った当のビューでの可視性を保つ＝既存の配置・テスト互換）。
+  const milestoneInView = (t: ProcessTask): boolean => {
+    const scope = view.scopeParentId;
+    if (scope === undefined) return true; // 全スコープビュー
+    if (t.level === view.level && sameScope(t.parentId, scope)) return true; // 構造上の所属
+    return Object.values(core.dependencies).some(
+      (d) => d.to === t.id && isUnderScope(d.from, scope),
+    );
+  };
+
   const targets = Object.values(core.tasks)
     // To-Be 新設工程(toBe.lifecycle='added')は As-Is フローには出さない。
     // To-Be 投影では呼び出し側(buildScenarioView)が details の 'added' マーカーを外して描く。
-    .filter(
-      (t) =>
-        t.level === view.level &&
-        (allScope || sameScope(t.parentId, view.scopeParentId)) &&
-        details[t.id]?.toBe?.lifecycle !== 'added',
-    )
+    .filter((t) => {
+      if (details[t.id]?.toBe?.lifecycle === 'added') return false;
+      // MS は level×scope 選定に依らず、粒度非依存の専用規則で対象化する。
+      if (isMilestone(core, t.id)) return milestoneInView(t);
+      return t.level === view.level && (allScope || sameScope(t.parentId, view.scopeParentId));
+    })
     .sort((a, b) => parentOrder(a) - parentOrder(b) || a.order - b.order || a.id.localeCompare(b.id));
   const targetIds = new Set(targets.map((t) => t.id));
   // 横位置は targets の並び順（親=大ごとに固めた連番）で詰めて配置する。
@@ -267,6 +299,13 @@ export function reconcileFlow(
   // 直接依存が張った端点対。同じ対に解決されたブリッジは張らない（同一区間の二重矢印防止）。
   const directPairs = new Set<string>();
   for (const d of depsInScope) {
+    // MS に触れる依存は導出エッジを張らない（MS は流れの節目マーカーで前後を繋がない）。
+    // 過去に張られていた導出エッジがあれば撤去する（種別変更に追従＝自己修復）。
+    if (isMilestone(core, d.to) || isMilestone(core, d.from)) {
+      const ex = derivedByDep.get(d.id);
+      if (ex && !ex.pinned) delete next.edges[ex.id]; // pinned は 5a と同様に消さない
+      continue;
+    }
     const s = nodeIdByTask.get(d.from);
     const t = nodeIdByTask.get(d.to);
     if (!s || !t) continue;
@@ -286,6 +325,14 @@ export function reconcileFlow(
   // 5c. 全体スコープの大またぎブリッジ（親の依存 1 本 ⇄ 子の末端→先頭エッジ 1 本）。
   //     直接依存と同じ端点対に解決された場合は直接依存のエッジを優先し、ブリッジ側は出さない。
   for (const br of bridges) {
+    // 由来の親依存が MS に触れるなら橋を張らない（自己修復込み）。deriveParentBridges 側で
+    // MS の子は端点候補から除外済みだが、由来依存側でも二重に防ぐ。
+    const via = core.dependencies[br.depId];
+    if (via && (isMilestone(core, via.from) || isMilestone(core, via.to))) {
+      const ex = derivedByDep.get(br.depId);
+      if (ex && !ex.pinned) delete next.edges[ex.id]; // pinned は 5a と同様に消さない
+      continue;
+    }
     const duplicatesDirect = directPairs.has(`${br.from}->${br.to}`);
     const existing = derivedByDep.get(br.depId);
     if (existing) {

@@ -4,6 +4,7 @@
 import type { Core, TaskDetail, FlowLevelView, FlowTaskNode, Id } from '../model/types';
 import { SIZE, placeInputDoc, placeOutputDoc, placeClear, obstaclesFor } from './autoPlace';
 import { laneTaskBaseY, LANE_DEFAULT_H } from './lanes';
+import { isMilestone } from '../milestone';
 
 const MARGIN_X = 120;
 const COL_W = 220;
@@ -35,7 +36,10 @@ export function tidyFlowView(
     (d) =>
       (allScope || sameScope(d.scopeParentId, view.scopeParentId)) &&
       idsInView.has(d.from) &&
-      idsInView.has(d.to),
+      idsInView.has(d.to) &&
+      // MS に触れる依存は段組みに使わない（MS は流れの節目マーカーで前後関係に加えない）。
+      !isMilestone(core, d.from) &&
+      !isMilestone(core, d.to),
   );
 
   // 段組みにはコア依存に加えて、ビュー上の工程→工程エッジ（親依存からの導出ブリッジ等）も使う。
@@ -105,7 +109,11 @@ export function tidyFlowView(
   //    まま残す（謎の縦整列を防ぐ）。
   const hasDep = (taskId: Id): boolean =>
     layerLinks.some((d) => d.from === taskId || d.to === taskId);
-  const layoutNodes = sorted.filter((n) => !n.pinned && !keepFixed?.has(n.id) && hasDep(n.taskId));
+  //  ・MS(節目マーカー) … 段組み・レーン高さ集計に含めず置いた位置のまま残す。deps を除外
+  //    済みなので hasDep=false でも外れるが、意図を明示するため単独ガードも置く。
+  const layoutNodes = sorted.filter(
+    (n) => !n.pinned && !keepFixed?.has(n.id) && !isMilestone(core, n.taskId) && hasDep(n.taskId),
+  );
 
   // パス1: 各ノードの 段(col)・レーン(order)・サブ行(slot) を決め、レーンごとの最大サブ行数を集計。
   const place = new Map<Id, { col: number; lane: number; slot: number }>();

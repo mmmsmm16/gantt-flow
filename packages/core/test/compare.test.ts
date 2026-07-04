@@ -159,3 +159,19 @@ describe('compare: To-Be 編集コマンド', () => {
     expect(p2.details[id('B')]!.toBe).toMatchObject({ effortMinutes: 120, ltDays: 3, difficulty: 'H' });
   });
 });
+
+describe('compare: マイルストーンは末端集計から除外', () => {
+  it('子を持たないマイルストーンは leafCount / 工数・難易度の集計に含まれない', () => {
+    const g = counter('ms');
+    let p = emptyProject();
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: '節目', level: 'medium', kind: 'milestone' }, g);
+    const id = (n: string) => taskIdByName(p, n);
+    p.details[id('A')] = { taskId: id('A'), effortMinutes: 60, difficulty: 'M' };
+    // マイルストーンに工数・難易度を書いても集計に混ざらないことを確認
+    p.details[id('節目')] = { taskId: id('節目'), effortMinutes: 999, difficulty: 'H' };
+    expect(totalEffortMinutes(p.core, p.details, 'asis')).toBe(60);
+    expect(diffByDifficulty(p.core, p.details, 'asis', 'count')).toEqual({ H: 0, M: 1, L: 0 });
+    expect(computeCompare(p.core, p.details).leafCount).toEqual({ asis: 1, tobe: 1 });
+  });
+});

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Difficulty, ProcessLevel } from '@gantt-flow/core';
 import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
 import { FlowCompareView } from './FlowCompareView';
-import { parseEffortHoursToMinutes } from '../parseEffort';
+import { isEffortBlurUnchanged, parseEffortHoursToMinutes, parseLtDaysInput } from '../parseEffort';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
@@ -251,11 +251,12 @@ export function ComparisonDialog() {
                             key={`e-${r.id}-${tb?.effortMinutes}`}
                             defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
                             placeholder={`${round1(r.aEff)}`}
-                            onBlur={(e) =>
+                            onBlur={(e) => {
+                              if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
                               updateToBe(r.id, {
                                 effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined,
-                              })
-                            }
+                              });
+                            }}
                           />
                         </td>
                         <td className="num">
@@ -264,7 +265,11 @@ export function ComparisonDialog() {
                             key={`l-${r.id}-${tb?.ltDays}`}
                             defaultValue={tb?.ltDays ?? ''}
                             placeholder={`${r.aLt}`}
-                            onBlur={(e) => updateToBe(r.id, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })}
+                            onBlur={(e) =>
+                              updateToBe(r.id, {
+                                ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
+                              })
+                            }
                           />
                         </td>
                         <td>
@@ -360,7 +365,10 @@ export function ComparisonDialog() {
                               className="cmp-bulk-in num"
                               key={`ae-${t.id}-${tb?.effortMinutes}`}
                               defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
-                              onBlur={(e) => updateToBe(t.id, { effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined })}
+                              onBlur={(e) => {
+                                if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
+                                updateToBe(t.id, { effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined });
+                              }}
                             />
                           </td>
                           <td className="num">
@@ -368,7 +376,11 @@ export function ComparisonDialog() {
                               className="cmp-bulk-in num"
                               key={`al-${t.id}-${tb?.ltDays}`}
                               defaultValue={tb?.ltDays ?? ''}
-                              onBlur={(e) => updateToBe(t.id, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })}
+                              onBlur={(e) =>
+                                updateToBe(t.id, {
+                                  ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
+                                })
+                              }
                             />
                           </td>
                           <td>

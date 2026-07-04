@@ -63,8 +63,10 @@ import {
   reparentTask as cReparentTask,
   addParallelTask as cAddParallelTask,
   makeParallel as cMakeParallel,
+  isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
+import { useUI, type ToastTone } from './ui/useUI';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
 const LEVELS: ProcessLevel[] = ['large', 'medium', 'small', 'detail'];
@@ -78,22 +80,55 @@ export const findView = (
     (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
   );
 
+// 対象レーンが元工程のノードを収めきれない場合、必要ぶんだけ高さを拡張する
+// （setLaneHeight と同じ規則: 拡張前の次レーン基準 y 以降のノードを delta ぶん下へシフト）。
+// 下端の余白はレーン上端の余白（box.base - box.top）と対称にし、tidyFlowView の
+// LANE_PAD 計算と同じ見た目（行数に依らず一定の余白）になるよう揃える。
+// 実機FB「並行工程を追加するとスイムレーンをまたいでしまう」対策＝追加時のみレーン内に収める。
+function growLaneToFit(view: FlowLevelView, laneId: Id, neededBottom: number): void {
+  const lane = view.lanes[laneId];
+  const box = laneLayout(view.lanes).find((b) => b.lane.id === laneId);
+  if (!lane || !box) return;
+  const cur = laneHeight(lane);
+  const topInset = box.base - box.top;
+  const required = Math.max(cur, Math.ceil(neededBottom - box.top + topInset));
+  const delta = required - cur;
+  if (delta <= 0) return;
+  const threshold = laneTaskBaseY(view.lanes, lane.order + 1);
+  lane.height = required;
+  for (const n of Object.values(view.nodes)) {
+    if (n.y >= threshold) n.y += delta;
+  }
+}
+
 // 基準ノードの直下の空きサブ行（y = ref.y + k*ROW_SUB、x は同じ）を探す。
-// 並行追加・並行化の連打でノードが重ならないようにする。
+// 並行追加・並行化の連打でノードが重ならないようにする。基準がレーンに属していれば、
+// そのレーンの範囲内に収まる候補だけを採用し、収まらなければレーンを拡張する（ドラッグ移動時の
+// 自動追従はしない＝手動レーン高さ設定と衝突するため、追加時のみのガード）。基準が未割当
+// レーン（レーン外）のときは従来どおりレーン無視で下へ積む。
 function parallelSlotBelow(
   view: FlowLevelView,
-  ref: { x: number; y: number },
+  ref: { x: number; y: number; laneId?: Id },
   excludeId?: FlowNodeId,
 ): { x: number; y: number } {
   const taken = Object.values(view.nodes).filter(
     (n) => (n.kind === 'task' || n.kind === 'control') && n.id !== excludeId,
   );
+  const occupied = (y: number) =>
+    taken.some((n) => Math.abs(n.x - ref.x) < SIZE.task.w && Math.abs(n.y - y) < SIZE.task.h);
+  const lane = ref.laneId ? view.lanes[ref.laneId] : undefined;
+  const box = lane ? laneLayout(view.lanes).find((b) => b.lane.id === lane.id) : undefined;
+  const bottom = box ? box.top + box.height : undefined;
+
+  let y = ref.y + ROW_SUB;
   for (let k = 1; k <= taken.length + 1; k++) {
-    const y = ref.y + k * ROW_SUB;
-    const occupied = taken.some(
-      (n) => Math.abs(n.x - ref.x) < SIZE.task.w && Math.abs(n.y - y) < SIZE.task.h,
-    );
-    if (!occupied) return { x: ref.x, y };
+    y = ref.y + k * ROW_SUB;
+    if (bottom !== undefined && y + SIZE.task.h > bottom) break; // レーン内に空きなし → 拡張へ
+    if (!occupied(y)) return { x: ref.x, y };
+  }
+  if (lane) {
+    growLaneToFit(view, lane.id, y + SIZE.task.h);
+    return { x: ref.x, y };
   }
   return { x: ref.x, y: ref.y + ROW_SUB }; // 到達しない保険
 }
@@ -155,6 +190,62 @@ function nextTaskPos(
   return { x: Math.round(x), y: Math.round(y) };
 }
 
+// 段積み配置: base（左上）から右下へ 1 枠ずつずらし、既存の箱ノード（工程/制御/付箋）と
+// 重ならない最初の位置を返す。制御ノード・付箋を連続追加したとき（特に画面中央スポーン）に
+// 既存ノードの真上へ重なって「追加が効かない」ように見えるのを防ぐ（必ずズレて置かれる）。
+const STACK_DX = 26;
+const STACK_DY = 22;
+function stackSlot(
+  view: FlowLevelView,
+  baseX: number,
+  baseY: number,
+  size: { w: number; h: number },
+): { x: number; y: number } {
+  const boxes = Object.values(view.nodes).filter(
+    (n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment',
+  );
+  for (let k = 0; k <= boxes.length; k++) {
+    const x = Math.round(baseX + k * STACK_DX);
+    const y = Math.round(baseY + k * STACK_DY);
+    const hit = boxes.some((o) => {
+      const s = nodeSize(o);
+      return x < o.x + s.w && x + size.w > o.x && y < o.y + s.h && y + size.h > o.y;
+    });
+    if (!hit) return { x, y };
+  }
+  const k = boxes.length + 1;
+  return { x: Math.round(baseX + k * STACK_DX), y: Math.round(baseY + k * STACK_DY) };
+}
+
+// 部分整列で「固定扱い」にするノード集合（選択した工程ノード以外を固定）。tidyFlow と
+// wouldTidyFlow が同じ規則を使うよう切り出す。selectedIds 空/未指定なら全体整列（固定なし）。
+function tidyKeepFixed(
+  view: FlowLevelView,
+  selectedIds?: FlowNodeId[],
+): Set<FlowNodeId> | undefined {
+  if (!selectedIds || !selectedIds.length) return undefined;
+  const selSet = new Set(selectedIds);
+  return new Set(
+    Object.values(view.nodes)
+      .filter((n) => n.kind === 'task' && !selSet.has(n.id))
+      .map((n) => n.id),
+  );
+}
+
+// 自動整列が変えるのはノードの x/y とレーン高さだけ。この 2 つが全て一致すれば「差分なし」＝
+// 整列しても見た目は変わらない（確認を出さず no-op として扱う判定に使う）。
+function sameLayout(a: FlowLevelView, b: FlowLevelView): boolean {
+  for (const id in a.nodes) {
+    const na = a.nodes[id]!;
+    const nb = b.nodes[id];
+    if (!nb || na.x !== nb.x || na.y !== nb.y) return false;
+  }
+  for (const id in a.lanes) {
+    if ((a.lanes[id]?.height ?? undefined) !== (b.lanes[id]?.height ?? undefined)) return false;
+  }
+  return true;
+}
+
 function initialProject(): Project {
   const now = new Date().toISOString();
   const base: Project = {
@@ -176,6 +267,34 @@ export interface AddTaskOptions {
   predecessorId?: Id;
 }
 
+/** 両窓編集同期（dualwindow）: 作成系操作の「発信元の窓だけで実行する後処理」の種別。
+    rename=作成直後にその場リネーム / inspector=詳細を開く / select=選択のみ。 */
+export type FocusIntent = 'rename' | 'inspector' | 'select';
+
+/** リーダー→フォロワーへ、作成した工程 id と発信元の窓 id を伝える一時シグナル（origin 一致の窓だけが実行）。
+    seq で 1 回だけ発火させる（lastSyncAdded と同じ規約）。applyRemoteSnapshot 経由でのみ従属窓へ届く。 */
+export interface FocusHint {
+  taskId?: Id;
+  origin: string;
+  /** 後処理の種別。トーストだけを運ぶ hint（undo/redo の結果など）では省略できる。 */
+  intent?: FocusIntent;
+  surface?: 'table' | 'flow';
+  /** 発信元窓へ届けるトースト（undo/redo の結果・境界メッセージ）。リーダーでは巻き戻して出さない。 */
+  toast?: { message: string; tone: ToastTone };
+  seq: number;
+}
+
+/** リーダーが従属窓へ配る「同期対象フィールド」だけのスナップショット（表示状態＝level/scope/選択は含めない）。 */
+export interface RemoteSnapshot {
+  project: Project;
+  canUndo: boolean;
+  canRedo: boolean;
+  dirty: boolean;
+  lastSyncAdded?: { ids: FlowNodeId[]; seq: number };
+  lastAssigneeSync?: { ids: Id[]; seq: number };
+  focusHint?: FocusHint | null;
+}
+
 export interface AppState {
   project: Project;
   canUndo: boolean;
@@ -190,6 +309,9 @@ export interface AppState {
   lastSyncAdded: { ids: FlowNodeId[]; seq: number };
   /** フローのレーン移動 → 担当書き戻し（逆同期）が起きた工程。表側の担当セルの一時ハイライト用。 */
   lastAssigneeSync: { ids: Id[]; seq: number };
+  /** 両窓編集同期: 発信元の窓へ「作成した工程へリネーム/詳細/選択を寄せる」を伝えるシグナル（null=無し）。
+      リーダーが従属窓の作成操作を代行したとき set し、applyRemoteSnapshot で従属窓へ運ぶ。 */
+  focusHint: FocusHint | null;
 
   addTask: (name: string) => void;
   /** ルート工程を追加し、新しい工程の ID を返す（追加直後に選択＋名前を即編集するため）。
@@ -197,6 +319,11 @@ export interface AppState {
   addRootTask: (level: ProcessLevel) => Id | undefined;
   /** 子工程を追加し、新しい工程の ID を返す（フォーカス/選択用）。 */
   addChildTask: (parentId: Id) => Id | undefined;
+  /** マイルストーンを追加（現在ビューの level/scope。子工程・担当・工数は持たない）。
+      x,y を渡せばその位置（未紐付け時はそのまま菱形の位置になる）へ、省略時は既定位置に
+      軽く段積みする。表の行追加・フローの追加ボタン・コマンドパレットが同じこのアクションを
+      呼ぶ（作成導線の一本化）。作成 ID を返す。 */
+  addMilestone: (x?: number, y?: number) => Id | undefined;
   removeTask: (taskId: Id) => void;
   setTaskLevel: (taskId: Id, level: ProcessLevel) => void;
   setTaskCode: (taskId: Id, code: string | undefined) => void;
@@ -272,9 +399,15 @@ export interface AppState {
   addComment: (text: string, x?: number, y?: number) => void;
   /** 付箋のテキストを変更。 */
   updateComment: (nodeId: FlowNodeId, text: string) => void;
+  /** 付箋の対象ノード（細い薄線で結ぶ相手）を設定/解除。undefined で解除。
+      対象は実在する工程ノードのみ（自分自身・不在ノードは no-op）。同期は触らない（付箋はユーザー所有）。 */
+  setCommentTarget: (nodeId: FlowNodeId, targetNodeId: FlowNodeId | undefined) => void;
   /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
   /** 自動整列。selectedIds を渡すと、その工程ノードだけを整列し他は固定（部分整列）。 */
   tidyFlow: (selectedIds?: FlowNodeId[]) => void;
+  /** 自動整列で配置（x/y・レーン高さ）が実際に変わるか（読み取り専用）。確認ダイアログを
+      出す前に「差分の出ない整列」を判定し、no-op トーストへ切り替えるために使う。 */
+  wouldTidyFlow: (selectedIds?: FlowNodeId[]) => boolean;
   /** レーンの高さを変更（手動リサイズ）。下のレーンのノードを連動シフトして整合を保つ。 */
   setLaneHeight: (laneId: Id, height: number) => void;
   /** スイムレーンを 1 つ上(-1)/下(+1)へ入れ替える。中のノードも連動して移動。 */
@@ -312,12 +445,45 @@ export interface AppState {
   loadTemplate: (key: string) => void;
   /** 自動退避データから復元（未保存＝dirty 扱い。ファイル保存を促す）。 */
   restoreProject: (project: Project) => void;
+
+  // --- 両窓編集同期（dualwindow） ---
+  /** リーダーが配ったスナップショットを従属窓へ反映する。素の set() のみで、history/savedRef/
+      selectedTaskId/level/scope/showIssues には触れない（表示状態は窓ごとに独立）。 */
+  applyRemoteSnapshot: (snap: RemoteSnapshot) => void;
+  /** 指定 level/scope のフロービューを（無ければ作って）保証・reconcile する冪等操作（undo 対象外）。
+      従属窓の粒度/スコープ切替を共有プロジェクトへ最小反映するためリーダーが実行する。 */
+  ensureView: (level: ProcessLevel, scopeParentId?: Id) => void;
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
   const history = createHistory<Project>(initialProject());
   // 未保存検知: 最後に保存/開いた時点の Project 参照。現在がこれと異なれば dirty。
   let savedRef: Project | null = history.current();
+
+  // undo/redo の「何をしたか」ラベル。history と同じ増減を平行配列でミラーする（Project の
+  // コピーは持たない＝メモリ増は文字列ぶんのみ）。labels[i] = 状態 i を生んだ操作のラベル。
+  const LABEL_FALLBACK = '編集';
+  let labels: (string | undefined)[] = [undefined];
+  let labelCursor = 0;
+  // history.push の直後に呼ぶ（history.size() は上限プルーニング後の実サイズ）。
+  const recordLabel = (label?: string) => {
+    labels = labels.slice(0, labelCursor + 1);
+    labels.push(label);
+    labelCursor = labels.length - 1;
+    const over = labels.length - history.size(); // history 側が古い方から捨てた分に追従
+    if (over > 0) {
+      labels = labels.slice(over);
+      labelCursor -= over;
+    }
+  };
+  const pushHistory = (p: Project, label?: string) => {
+    history.push(p);
+    recordLabel(label);
+  };
+  const resetLabels = () => {
+    labels = [undefined];
+    labelCursor = 0;
+  };
 
   const sync = (extra: Partial<AppState> = {}) =>
     set({
@@ -328,12 +494,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       ...extra,
     });
 
-  // core/details を変えるコマンド: 現在ビューを保証 → reconcile → 履歴 push（1 undo 単位）
-  const commit = (p: Project) => {
+  // core/details を変えるコマンド: 現在ビューを保証 → reconcile → 履歴 push（1 undo 単位）。
+  // label は undo/redo のフィードバック用（省略時は「編集」フォールバック）。
+  const commit = (p: Project, label?: string) => {
     const { level, scopeParentId } = get();
     const withView = ensureLevelView(p, level, scopeParentId);
     const { project: reconciled, reports } = reconcileProjectWithReport(withView, uuid);
-    history.push(reconciled);
+    pushHistory(reconciled, label);
     // 表側編集の同期で現在ビューに自動追加されたノードを記録（フロー側の一時ハイライト）。
     // 追加が無い編集では更新しない＝seq が進まず、前回のフラッシュを光らせ直さない。
     const added =
@@ -352,13 +519,16 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
 
   // 現在ビューのオーバーレイ（制御ノード/コメント/手動エッジ等）を直接編集して履歴に積む。
   // fn が false を返したら「変更なし」として履歴に積まない（no-op で履歴を汚さない）。
-  const editView = (fn: (view: FlowLevelView, project: Project) => void | false) => {
+  const editView = (
+    fn: (view: FlowLevelView, project: Project) => void | false,
+    label?: string,
+  ) => {
     const { level, scopeParentId } = get();
     const p = structuredClone(get().project);
     const view = findView(p, level, scopeParentId);
     if (!view) return;
     if (fn(view, p) === false) return;
-    history.push(p);
+    pushHistory(p, label);
     sync();
   };
 
@@ -369,6 +539,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     clearLastCommand();
     const reconciled = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
     history.reset(reconciled);
+    resetLabels(); // 新プロジェクトの履歴＝undo/redo ラベルもリセット
     savedRef = dirtyAfter ? null : reconciled; // 開く/新規=保存済みベース、取込=未保存
     set({
       project: reconciled,
@@ -416,14 +587,46 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     if (scope && !p.core.tasks[scope]) set({ scopeParentId: undefined });
   };
 
+  // 削除で現在の選択工程が消えていたら選択を解除する。commit 後に呼ぶ（現在の project を基準に
+  // 判定）。選択が実在しないと App の showInspector が空の詳細ペインを開いたまま固着し、分割画面
+  // からフローペインが消える（H-2）。App 側の存在チェックと二重化して確実に解消する。
+  const clearSelectionIfRemoved = () => {
+    const sel = get().selectedTaskId;
+    if (sel && !get().project.core.tasks[sel]) set({ selectedTaskId: undefined });
+  };
+
+  // 工程削除で消えるノード（工程/入出力/課題。いずれも taskId を持つ）を指していた付箋の対象参照を
+  // 外す。reconcile はコメント（付箋）を管理しないため、ノード消滅を追従して掃除しないと
+  // targetNodeId がダングリングのまま永続化されてしまう（描画側はガードしているが不変条件違反）。
+  // cDeleteTaskKeepChildren 直後・reconcile 前の p（flow は未変更）に対して呼ぶこと。
+  const clearCommentTargetsFor = (p: Project, taskId: Id) => {
+    for (const view of p.flow.byLevel) {
+      const dead = new Set<FlowNodeId>();
+      for (const n of Object.values(view.nodes)) {
+        if ('taskId' in n && n.taskId === taskId) dead.add(n.id);
+      }
+      if (!dead.size) continue;
+      for (const n of Object.values(view.nodes)) {
+        if (n.kind === 'comment' && n.targetNodeId && dead.has(n.targetNodeId)) {
+          delete n.targetNodeId;
+        }
+      }
+    }
+  };
+
   // reparent は実質変化があるときだけコミット（深さ超過・循環などの no-op で履歴を汚さない）。
-  const commitReparent = (taskId: Id, newParentId: Id | undefined, index?: number) => {
+  const commitReparent = (
+    taskId: Id,
+    newParentId: Id | undefined,
+    index?: number,
+    label?: string,
+  ) => {
     const cur = get().project;
     const applied = cReparentTask(cur, taskId, newParentId, index);
     const a = cur.core.tasks[taskId];
     const b = applied.core.tasks[taskId];
     if (a && b && (a.parentId !== b.parentId || a.level !== b.level || a.order !== b.order)) {
-      commit(applied);
+      commit(applied, label);
     }
   };
 
@@ -438,6 +641,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     showIssues: true,
     lastSyncAdded: { ids: [], seq: 0 },
     lastAssigneeSync: { ids: [], seq: 0 },
+    focusHint: null,
 
     addTask: (name) =>
       commit(
@@ -446,12 +650,18 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           { name: name || '新規作業', level: get().level, parentId: get().scopeParentId },
           uuid,
         ),
+        '工程を追加',
       ),
 
     addRootTask: (level) => {
       // 空名で作り、UI 側が追加直後に選択＋名前を即編集する（キーボード n=addSiblingOf と挙動統一）。
+      const wasEmpty = Object.keys(get().project.core.tasks).length === 0;
       const id = uuid();
-      commit(cAddTask(get().project, { name: '', level, parentId: undefined, id }, uuid));
+      commit(cAddTask(get().project, { name: '', level, parentId: undefined, id }, uuid), '工程を追加');
+      // 初回導線: 空プロジェクトで最初の工程を作った瞬間、その粒度をフロー表示粒度へ追従させる。
+      // 既定は medium なので「＋大工程」で始めても大ノードがフローに出ない問題を防ぐ。
+      // 既存プロジェクト（工程あり）では追従しない＝手動配置・現在の粒度を勝手に切り替えて驚かせない。
+      if (wasEmpty && level !== get().level) get().setLevel(level);
       return id;
     },
 
@@ -460,30 +670,71 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (!parent) return undefined;
       const childLevel = LEVELS[RANK[parent.level] + 1] ?? 'detail';
       const id = uuid();
-      commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId, id }, uuid));
+      commit(cAddTask(get().project, { name: '新規工程', level: childLevel, parentId, id }, uuid), '工程を追加');
       return id;
+    },
+
+    // マイルストーン追加: 現在ビューの level/scope に作成（表/フロー/パレットのどこから
+    // 呼んでも同じ位置規則）。reconcile 後に位置を上書きするのは addTaskAt と同じ
+    // 「作成と配置を 1 スナップショットに集約」パターン。
+    addMilestone: (x, y) => {
+      const { level, scopeParentId } = get();
+      const newId = uuid();
+      let p = cAddTask(
+        get().project,
+        { name: '新規マイルストーン', level, parentId: scopeParentId, id: newId, kind: 'milestone' },
+        uuid,
+      );
+      p = reconcileProject(ensureLevelView(p, level, scopeParentId), uuid);
+      const view = findView(p, level, scopeParentId);
+      const node = view
+        ? Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === newId)
+        : undefined;
+      if (node) {
+        // 既存の（自分以外の）マイルストーン数。中央スポーン/既定位置いずれも、この本数ぶん
+        // 右へずらして連続追加が既存 MS の真上に重ならないようにする（未紐付け時は node.x が
+        // そのまま菱形の位置になる。milestoneGuides.ts 参照）。
+        const k = Object.values(view!.nodes).filter(
+          (n) => n.kind === 'task' && n.id !== node.id && isMilestone(p.core, n.taskId),
+        ).length;
+        if (x != null) {
+          node.x = Math.round(x) + k * 40;
+          node.y = Math.round(y ?? node.y);
+        } else {
+          node.x = 80 + k * 40;
+        }
+      }
+      pushHistory(p, 'マイルストーンを追加');
+      sync({ selectedTaskId: newId });
+      // 作成直後にインスペクタを開く: マイルストーンは対象工程（前工程）を紐付けて初めて意味を持つ。
+      // すぐ設定できるよう詳細パネルを開く（#10。表/フロー/パレットのどこから作っても同じ導線）。
+      useUI.getState().setInspectorOpen(true);
+      return newId;
     },
 
     // 削除は配下を残す（子は祖父へ昇格し、依存は維持）。
     removeTask: (taskId) => {
+      const name = get().project.core.tasks[taskId]?.name?.trim() || '工程';
       const p = cDeleteTaskKeepChildren(get().project, taskId);
+      clearCommentTargetsFor(p, taskId);
       clearScopeIfRemoved(p);
-      commit(p);
+      commit(p, `工程『${name}』を削除`);
+      clearSelectionIfRemoved();
     },
 
-    setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level)),
-    setTaskCode: (taskId, code) => commit(cSetTaskCode(get().project, taskId, code)),
+    setTaskLevel: (taskId, level) => commit(cSetTaskLevel(get().project, taskId, level), '粒度を変更'),
+    setTaskCode: (taskId, code) => commit(cSetTaskCode(get().project, taskId, code), '工程Noを変更'),
 
-    renameTask: (taskId, name) => commit(cRenameTask(get().project, taskId, name)),
+    renameTask: (taskId, name) => commit(cRenameTask(get().project, taskId, name), '作業名を変更'),
 
     setAssigneeByName: (taskId, name) => {
       const trimmed = name.trim();
       if (!trimmed) {
-        commit(cSetAssignee(get().project, taskId, undefined));
+        commit(cSetAssignee(get().project, taskId, undefined), '担当を変更');
         return;
       }
       const { project: p, assigneeId } = ensureAssigneeId(get().project, trimmed);
-      commit(cSetAssignee(p, taskId, assigneeId));
+      commit(cSetAssignee(p, taskId, assigneeId), '担当を変更');
     },
 
     setAssigneeManyByName: (taskIds, name) => {
@@ -493,28 +744,31 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (trimmed) {
         ({ project: p, assigneeId } = ensureAssigneeId(p, trimmed));
       }
-      let changed = false;
+      let count = 0;
       for (const id of taskIds) {
         if (p.core.tasks[id]) {
           p = cSetAssignee(p, id, assigneeId);
-          changed = true;
+          count += 1;
         }
       }
-      if (changed) commit(p);
+      // 一括操作は undo ラベルに件数を入れる（「3件の担当を変更」＝何をまとめて戻すか分かる）。
+      if (count) commit(p, count > 1 ? `${count}件の担当を変更` : '担当を変更');
     },
 
     removeManyTasks: (taskIds) => {
       let p = get().project;
-      let changed = false;
+      let count = 0;
       for (const id of taskIds) {
         if (p.core.tasks[id]) {
           p = cDeleteTaskKeepChildren(p, id);
-          changed = true;
+          clearCommentTargetsFor(p, id);
+          count += 1;
         }
       }
-      if (changed) {
+      if (count) {
         clearScopeIfRemoved(p);
-        commit(p);
+        commit(p, count > 1 ? `${count}件を削除` : '工程を削除');
+        clearSelectionIfRemoved();
       }
     },
 
@@ -525,11 +779,12 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const tasks = get().project.core.tasks;
       if (!tasks[from] || !tasks[to]) return;
       if (hasDependency(from, to)) return; // 既存の依存への再接続は no-op
-      commit(cAddDependency(get().project, from, to, uuid));
+      commit(cAddDependency(get().project, from, to, uuid), '前工程を追加');
     },
 
-    removeDependency: (depId) => commit(cRemoveDependency(get().project, depId)),
-    setDependencyPhase: (depId, phase) => commit(cSetDependencyPhase(get().project, depId, phase)),
+    removeDependency: (depId) => commit(cRemoveDependency(get().project, depId), '前工程を削除'),
+    setDependencyPhase: (depId, phase) =>
+      commit(cSetDependencyPhase(get().project, depId, phase), '前後関係を変更'),
     setToBePredecessor: (taskId, fromId) => {
       let p = get().project;
       // 既存の To-Be 専用 incoming を外す（前工程は 1 本に保つ）。
@@ -541,7 +796,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         p = cAddDependency(p, fromId, taskId, () => id);
         p = cSetDependencyPhase(p, id, 'tobe');
       }
-      commit(p);
+      commit(p, '前工程を変更');
     },
     addToBePredecessor: (taskId, fromId) => {
       if (fromId === taskId) return;
@@ -555,7 +810,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         p = cAddDependency(p, fromId, taskId, () => id);
         p = cSetDependencyPhase(p, id, 'tobe');
       }
-      commit(p);
+      commit(p, '前工程を追加');
     },
     removeToBePredecessor: (taskId, fromId) => {
       let p = get().project;
@@ -564,7 +819,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (dep.phase === 'tobe') p = cRemoveDependency(p, dep.id); // To-Be専用→削除
       else if (dep.phase === undefined) p = cSetDependencyPhase(p, dep.id, 'asis'); // 両方→As-Is専用(To-Beから外す)
       else return; // As-Is専用→To-Beには無い
-      commit(p);
+      commit(p, '前工程を削除');
     },
 
     // 「次行を追加」: 同じ親・同じ粒度の兄弟を「クリック行の直下」に挿入し、新タスクの id を返す（フォーカス用）。
@@ -577,7 +832,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const sibs = siblingsOf(taskId, p);
       const idx = sibs.findIndex((o) => o.id === taskId);
       if (idx >= 0) p = cReorderTask(p, newId, idx + 1); // クリック行の直下へ
-      commit(p);
+      commit(p, '工程を追加');
       return newId;
     },
 
@@ -610,7 +865,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (opts.predecessorId && p.core.tasks[opts.predecessorId]) {
         p = cAddDependency(p, opts.predecessorId, newId, uuid);
       }
-      commit(p);
+      commit(p, '工程を追加');
       set({ selectedTaskId: newId });
       return newId;
     },
@@ -624,7 +879,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const newId = uuid();
       let p = cAddTask(
         cur,
-        { name: t.name, level: t.level, parentId: t.parentId, assigneeId: t.assigneeId, id: newId },
+        // kind も複製する（省略すると MS の複製が普通の工程になってしまう）。
+        { name: t.name, level: t.level, parentId: t.parentId, assigneeId: t.assigneeId, id: newId, kind: t.kind },
         uuid,
       );
       const sibs = siblingsOf(taskId, p);
@@ -655,7 +911,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const iss of d.issues ?? [])
           p = cAddIssueItem(p, newId, { issue: iss.issue, measure: iss.measure }, uuid);
       }
-      commit(p);
+      commit(p, '工程を複製');
       set({ selectedTaskId: newId });
       return newId;
     },
@@ -682,24 +938,25 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           p = cSetAssignee(r.project, nid, r.assigneeId);
         }
       }
-      if (count) commit(p);
+      if (count) commit(p, count > 1 ? `${count}件を貼り付け` : '工程を貼り付け');
       return count;
     },
 
     moveTaskUp: (taskId) => {
       const sibs = siblingsOf(taskId);
       const idx = sibs.findIndex((t) => t.id === taskId);
-      if (idx > 0) commit(cReorderTask(get().project, taskId, idx - 1));
+      if (idx > 0) commit(cReorderTask(get().project, taskId, idx - 1), '順序を変更');
     },
     moveTaskDown: (taskId) => {
       const sibs = siblingsOf(taskId);
       const idx = sibs.findIndex((t) => t.id === taskId);
-      if (idx >= 0 && idx < sibs.length - 1) commit(cReorderTask(get().project, taskId, idx + 1));
+      if (idx >= 0 && idx < sibs.length - 1)
+        commit(cReorderTask(get().project, taskId, idx + 1), '順序を変更');
     },
     indentTask: (taskId) => {
       const sibs = siblingsOf(taskId);
       const idx = sibs.findIndex((t) => t.id === taskId);
-      if (idx > 0) commitReparent(taskId, sibs[idx - 1]!.id); // 直前の兄弟の子へ
+      if (idx > 0) commitReparent(taskId, sibs[idx - 1]!.id, undefined, '階層を変更'); // 直前の兄弟の子へ
     },
     outdentTask: (taskId) => {
       const t = get().project.core.tasks[taskId];
@@ -708,7 +965,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (!parent) return;
       const gpSibs = siblingsOf(parent.id);
       const parentIdx = gpSibs.findIndex((o) => o.id === parent.id);
-      commitReparent(taskId, parent.parentId, parentIdx + 1); // 親の直後（祖父母の子）へ
+      commitReparent(taskId, parent.parentId, parentIdx + 1, '階層を変更'); // 親の直後（祖父母の子）へ
     },
     dropTask: (dragId, targetId, mode) => {
       if (dragId === targetId) return;
@@ -716,7 +973,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const target = get().project.core.tasks[targetId];
       if (!drag || !target) return;
       if (mode === 'child') {
-        commitReparent(dragId, targetId);
+        commitReparent(dragId, targetId, undefined, '移動');
         return;
       }
       const targetParent = target.parentId;
@@ -725,28 +982,32 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if ((drag.parentId ?? undefined) === (targetParent ?? undefined)) {
         const di = sibs.findIndex((o) => o.id === dragId); // 同一グループ → 並べ替え
         const tiPost = di < ti ? ti - 1 : ti;
-        commit(cReorderTask(get().project, dragId, mode === 'after' ? tiPost + 1 : tiPost));
+        commit(cReorderTask(get().project, dragId, mode === 'after' ? tiPost + 1 : tiPost), '順序を変更');
       } else {
-        commitReparent(dragId, targetParent, mode === 'after' ? ti + 1 : ti); // 別グループ → 移動
+        commitReparent(dragId, targetParent, mode === 'after' ? ti + 1 : ti, '移動'); // 別グループ → 移動
       }
     },
 
     addIo: (taskId, io, name) => {
       const lv = get().project.core.tasks[taskId]?.level;
       const kind: IoKind = lv === 'small' || lv === 'detail' ? 'info' : 'doc';
-      commit(cAddIoItem(get().project, taskId, io, { name: name || '帳票', kind }, uuid));
+      commit(cAddIoItem(get().project, taskId, io, { name: name || '帳票', kind }, uuid), '入出力を追加');
     },
-    updateIo: (taskId, ioId, patch) => commit(cUpdateIoItem(get().project, taskId, ioId, patch)),
-    removeIo: (taskId, ioId) => commit(cRemoveIoItem(get().project, taskId, ioId)),
+    updateIo: (taskId, ioId, patch) =>
+      commit(cUpdateIoItem(get().project, taskId, ioId, patch), '入出力を変更'),
+    removeIo: (taskId, ioId) => commit(cRemoveIoItem(get().project, taskId, ioId), '入出力を削除'),
 
-    addIssue: (taskId, text) => commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid)),
+    addIssue: (taskId, text) =>
+      commit(cAddIssueItem(get().project, taskId, { issue: text || '課題' }, uuid), '課題を追加'),
     addIssueWithMeasure: (taskId, measure) =>
-      commit(cAddIssueItem(get().project, taskId, { issue: '', measure }, uuid)),
-    updateIssue: (taskId, issueId, patch) => commit(cUpdateIssueItem(get().project, taskId, issueId, patch)),
-    removeIssue: (taskId, issueId) => commit(cRemoveIssueItem(get().project, taskId, issueId)),
-    updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch)),
-    updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch)),
-    copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId)),
+      commit(cAddIssueItem(get().project, taskId, { issue: '', measure }, uuid), '課題を追加'),
+    updateIssue: (taskId, issueId, patch) =>
+      commit(cUpdateIssueItem(get().project, taskId, issueId, patch), '課題を変更'),
+    removeIssue: (taskId, issueId) =>
+      commit(cRemoveIssueItem(get().project, taskId, issueId), '課題を削除'),
+    updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch), '詳細を編集'),
+    updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch), 'To-Beを編集'),
+    copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId), 'To-Beに複製'),
     addToBeTask: () => {
       const cur = get().project;
       const firstLarge = Object.values(cur.core.tasks).find((t) => t.level === 'large');
@@ -756,53 +1017,74 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const id = uuid();
       let p = cAddTask(cur, { name: '新規工程', level, parentId, assigneeId, id }, uuid);
       p = cUpdateTaskToBe(p, id, { lifecycle: 'added' });
-      commit(p);
+      commit(p, '工程を追加');
       return id;
     },
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
+    // x/y は 0 未満へクランプする（負座標へ落ちると全体表示のスクロールは 0 未満にできず、
+    // 二度と画面内へ戻せなくなるため。ドラッグ中のプレビュー/スナップガイドはそのまま＝
+    // 確定時にのみ境界で止める）。
     moveNode: (nodeId, x, y) => {
       const { level, scopeParentId } = get();
       const p = structuredClone(get().project);
       const view = findView(p, level, scopeParentId);
       const node = view?.nodes[nodeId];
       if (!view || !node) return;
-      node.x = x;
-      node.y = y;
+      const cx = Math.max(0, x);
+      const cy = Math.max(0, y);
+      node.x = cx;
+      node.y = cy;
 
       if (node.kind === 'task') {
-        const laneOrder = nearestLaneOrder(view.lanes, y);
+        const laneOrder = nearestLaneOrder(view.lanes, cy);
         const lane = Object.values(view.lanes).find((l) => l.order === laneOrder);
         const task = p.core.tasks[node.taskId];
         if (lane?.assigneeId && task && task.assigneeId !== lane.assigneeId) {
           task.assigneeId = lane.assigneeId; // 逆同期: レーン → 担当
-          history.push(reconcileProject(p, uuid));
+          pushHistory(reconcileProject(p, uuid), 'レーン移動で担当を変更');
           // 書き戻った工程を記録（表側の担当セルの一時ハイライト）。
           sync({ lastAssigneeSync: { ids: [node.taskId], seq: get().lastAssigneeSync.seq + 1 } });
           return p.core.assignees[lane.assigneeId]?.name; // 新しい担当名を返す（UI 通知用）
         }
       }
-      history.push(p);
+      pushHistory(p, 'ノードを移動');
       sync();
       return undefined;
     },
 
     // 複数ノードをまとめて平行移動（範囲選択した要素を一括ドラッグ）。
     // レーン再割当（逆同期）はしない＝選択をそのままずらす素直な挙動。1 undo 単位。
+    // 剛体移動として 0 未満へは行かせない: 個別クランプだと選択の一部だけ壁で止まり
+    // 相対配置が歪むため、選択全体の最小 x/y が 0 を下回らないよう移動量そのものを
+    // 削って揃える（全体表示の負座標救出＝fitView からも同じ関数を使う）。
     moveNodesBy: (nodeIds, dx, dy) => {
       if ((dx === 0 && dy === 0) || nodeIds.length === 0) return;
       editView((view) => {
+        let minX = Infinity;
+        let minY = Infinity;
+        for (const id of nodeIds) {
+          const n = view.nodes[id];
+          if (n) {
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+          }
+        }
+        if (!Number.isFinite(minX)) return false; // 対象ノードが1つも無い
+        const cdx = minX + dx < 0 ? -minX : dx;
+        const cdy = minY + dy < 0 ? -minY : dy;
+        if (cdx === 0 && cdy === 0) return false;
         let changed = false;
         for (const id of nodeIds) {
           const n = view.nodes[id];
           if (n) {
-            n.x = Math.round(n.x + dx);
-            n.y = Math.round(n.y + dy);
+            n.x = Math.max(0, Math.round(n.x + cdx));
+            n.y = Math.max(0, Math.round(n.y + cdy));
             changed = true;
           }
         }
         if (!changed) return false;
-      });
+      }, 'ノードを移動');
     },
 
     // フロー上で工程を新規作成 → ドロップ位置のレーン(担当)へ。1 操作 = 1 undo（作成と配置を 1 スナップショットに集約）。
@@ -829,7 +1111,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         node.x = Math.round(x);
         node.y = Math.round(y);
       }
-      history.push(p);
+      pushHistory(p, '工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -872,7 +1154,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const eid = uuid();
         view.edges[eid] = { id: eid, source: sourceNodeId, target: node.id, pinned: true, role: 'flow' };
       }
-      history.push(p);
+      pushHistory(p, '工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -895,7 +1177,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         newNode.x = pos.x;
         newNode.y = pos.y;
       }
-      history.push(p);
+      pushHistory(p, '並行工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -932,7 +1214,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         node.x = pos.x;
         node.y = pos.y;
       }
-      history.push(p);
+      pushHistory(p, '工程を追加');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -954,7 +1236,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         node.x = pos.x;
         node.y = pos.y;
       }
-      history.push(p);
+      pushHistory(p, '並行化');
       sync();
     },
 
@@ -1057,7 +1339,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           if (derived) derived.label = edge.label;
         }
       }
-      history.push(p);
+      pushHistory(p, '工程を挿入');
       sync({ selectedTaskId: newId });
       return newId;
     },
@@ -1066,41 +1348,56 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     addControlNode: (control, x, y) =>
       editView((view) => {
         const id = uuid();
-        const k = Object.values(view.nodes).filter((n) => n.kind === 'control').length;
-        // 位置指定あり（画面中央など）＝そこへ。同じ点への連続追加は少しずらして重なりを防ぐ。
-        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420 + k * 28;
-        const py = y != null ? Math.round(y) + (k % 5) * 14 : 44 + k * 18;
-        view.nodes[id] = { id, kind: 'control', control, x: px, y: py };
-      }),
+        // 位置指定あり（画面中央など）＝そこを起点に、既存の箱ノードと重ならない位置へ段積み。
+        // k%5 の周回だと 5 個目で真上に戻り「追加が効かない」誤認を招いていた（累積で必ずズレる）。
+        const base = x != null ? { x: Math.round(x), y: Math.round(y ?? 44) } : { x: 420, y: 44 };
+        const pos = stackSlot(view, base.x, base.y, SIZE.control);
+        view.nodes[id] = { id, kind: 'control', control, x: pos.x, y: pos.y };
+      }, '制御ノードを追加'),
     addComment: (text, x, y) =>
       editView((view) => {
         const id = uuid();
-        const k = Object.values(view.nodes).filter((n) => n.kind === 'comment').length;
-        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420;
-        const py = y != null ? Math.round(y) + (k % 5) * 14 : 320 + k * 24;
-        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: px, y: py };
-      }),
+        const base = x != null ? { x: Math.round(x), y: Math.round(y ?? 320) } : { x: 420, y: 320 };
+        const pos = stackSlot(view, base.x, base.y, SIZE.comment);
+        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: pos.x, y: pos.y };
+      }, 'メモを追加'),
     updateComment: (nodeId, text) =>
       editView((view) => {
         const n = view.nodes[nodeId];
         const t = text || 'メモ'; // 空は addComment と同じ既定文言（見えない白付箋を作らない）
         if (!n || n.kind !== 'comment' || n.text === t) return false;
         n.text = t;
-      }),
+      }, 'メモを編集'),
+    setCommentTarget: (nodeId, targetNodeId) =>
+      editView((view) => {
+        const n = view.nodes[nodeId];
+        if (!n || n.kind !== 'comment') return false;
+        // 対象は実在する工程ノードのみ（自分自身・不在ノードは無効＝ダングリング参照を作らない）。
+        if (targetNodeId !== undefined) {
+          const t = view.nodes[targetNodeId];
+          if (!t || t.kind !== 'task' || targetNodeId === nodeId) return false;
+        }
+        if ((n.targetNodeId ?? undefined) === (targetNodeId ?? undefined)) return false;
+        if (targetNodeId === undefined) delete n.targetNodeId;
+        else n.targetNodeId = targetNodeId;
+      }, targetNodeId ? '付箋の対象を設定' : '付箋の対象を解除'),
     tidyFlow: (selectedIds) =>
       editView((view, p) => {
         // 部分整列: 選択した工程ノード以外を固定扱い（位置・レーン高さを保つ）。
-        let keepFixed: Set<FlowNodeId> | undefined;
-        if (selectedIds && selectedIds.length) {
-          const selSet = new Set(selectedIds);
-          keepFixed = new Set(
-            Object.values(view.nodes)
-              .filter((n) => n.kind === 'task' && !selSet.has(n.id))
-              .map((n) => n.id),
-          );
-        }
-        p.flow.byLevel[p.flow.byLevel.indexOf(view)] = tidyFlowView(p.core, p.details, view, keepFixed);
-      }),
+        const keepFixed = tidyKeepFixed(view, selectedIds);
+        const tidied = tidyFlowView(p.core, p.details, view, keepFixed);
+        // 差分の出ない整列は履歴・dirty を汚さない（no-op。呼び出し側で案内トーストを出す）。
+        if (sameLayout(view, tidied)) return false;
+        p.flow.byLevel[p.flow.byLevel.indexOf(view)] = tidied;
+      }, '自動整列'),
+    wouldTidyFlow: (selectedIds) => {
+      const { level, scopeParentId } = get();
+      const view = findView(get().project, level, scopeParentId);
+      if (!view) return false;
+      const keepFixed = tidyKeepFixed(view, selectedIds);
+      const tidied = tidyFlowView(get().project.core, get().project.details, view, keepFixed);
+      return !sameLayout(view, tidied);
+    },
     setLaneHeight: (laneId, height) =>
       editView((view) => {
         const lane = view.lanes[laneId];
@@ -1114,7 +1411,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const n of Object.values(view.nodes)) {
           if (n.y >= threshold) n.y += delta;
         }
-      }),
+      }, 'レーン高さを変更'),
     moveLane: (laneId, dir) =>
       editView((view) => {
         // レーン幾何は laneLayout（唯一の正）から取る。boxes は order 昇順。
@@ -1133,7 +1430,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const tmp = U.lane.order;
         U.lane.order = D.lane.order;
         D.lane.order = tmp;
-      }),
+      }, 'レーンを入れ替え'),
     // 矢印接続。両端が工程ノードなら「依存（前後関係）」をコアに作る→工程表へ反映。
     // 制御ノード等を含む接続は従来どおり pinned な図固有エッジ（reconcile で消えない）。
     connect: (source, target) => {
@@ -1149,7 +1446,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         // （全体スコープのビューで描画される）。粒度が違う接続は従来どおり pinned エッジ。
         if (from && to && from.level === to.level) {
           if (!hasDependency(sNode.taskId, tNode.taskId)) {
-            commit(cAddDependency(get().project, sNode.taskId, tNode.taskId, uuid));
+            commit(cAddDependency(get().project, sNode.taskId, tNode.taskId, uuid), '前工程を追加');
           }
           return;
         }
@@ -1160,13 +1457,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       editView((v) => {
         const id = uuid();
         v.edges[id] = { id, source, target, pinned: true, role: 'flow' };
-      });
+      }, '接続を追加');
     },
     toggleNodePin: (nodeId) =>
       editView((view) => {
         const n = view.nodes[nodeId];
         if (n && n.kind === 'task') n.pinned = !n.pinned;
-      }),
+      }, '固定を切替'),
     // 既存エッジの端点付け替え。導出エッジ＝依存(from/to)の付け替え、手動エッジ＝端点の差し替え。
     reconnectEdge: (edgeId, end, newNodeId) => {
       const { level, scopeParentId } = get();
@@ -1186,10 +1483,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const newTo = end === 'target' ? newNode.taskId : dep.to;
         if (newFrom === newTo) return;
         if (hasDependency(newFrom, newTo)) {
-          commit(cRemoveDependency(get().project, dep.id)); // 既存と重複 → 旧を畳むだけ
+          commit(cRemoveDependency(get().project, dep.id), '前後関係を変更'); // 既存と重複 → 旧を畳むだけ
           return;
         }
-        commit(cAddDependency(cRemoveDependency(get().project, dep.id), newFrom, newTo, uuid));
+        commit(cAddDependency(cRemoveDependency(get().project, dep.id), newFrom, newTo, uuid), '前後関係を変更');
         return;
       }
       // 手動（pinned）エッジ: 端点を差し替え（同一接続が既にあれば no-op）。
@@ -1206,7 +1503,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         if (!e) return false;
         if (end === 'source') e.source = newNodeId;
         else e.target = newNodeId;
-      });
+      }, '接続を変更');
     },
     renameAssignee: (assigneeId, name) => {
       const trimmed = name.trim();
@@ -1215,13 +1512,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const p = structuredClone(get().project);
       const a = p.core.assignees[assigneeId];
       if (a) a.name = trimmed; // reconcile でレーン名(title)・各工程の担当表示へ反映
-      commit(p);
+      commit(p, '担当名を変更');
     },
     setEdgeLabel: (edgeId, label) =>
       editView((view) => {
         const e = view.edges[edgeId];
         if (e) e.label = label || undefined;
-      }),
+      }, 'ラベルを変更'),
     deleteFlowNode: (nodeId) =>
       editView((view) => {
         const n = view.nodes[nodeId];
@@ -1230,7 +1527,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const e of Object.values(view.edges)) {
           if (e.source === nodeId || e.target === nodeId) delete view.edges[e.id];
         }
-      }),
+      }, 'ノードを削除'),
     deleteFlowNodes: (nodeIds) =>
       editView((view) => {
         const set = new Set(nodeIds);
@@ -1242,19 +1539,19 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         for (const e of Object.values(view.edges)) {
           if (set.has(e.source) || set.has(e.target)) delete view.edges[e.id];
         }
-      }),
+      }, 'ノードを削除'),
     deleteEdge: (edgeId) => {
       const view = findView(get().project, get().level, get().scopeParentId);
       const edge = view?.edges[edgeId];
       // 導出エッジは元の依存（前後関係）を消す＝表にも反映し再同期でも復活しない。
       // 手動（pinned）エッジは図からのみ取り除く。
       if (edge?.derivedFromDependencyId) {
-        commit(cRemoveDependency(get().project, edge.derivedFromDependencyId));
+        commit(cRemoveDependency(get().project, edge.derivedFromDependencyId), '前工程を削除');
         return;
       }
       editView((v) => {
         delete v.edges[edgeId];
-      });
+      }, 'エッジを削除');
     },
 
     select: (taskId) => set({ selectedTaskId: taskId }),
@@ -1274,10 +1571,27 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     toggleIssues: () => set({ showIssues: !get().showIssues }),
 
     undo: () => {
-      if (history.undo()) sync();
+      // 取り消す操作＝いまの先頭(labelCursor 位置)のラベル。undo 成功後にカーソルを 1 戻す。
+      const undone = labels[labelCursor];
+      if (history.undo()) {
+        labelCursor -= 1;
+        sync();
+        useUI.getState().toast(`元に戻しました: ${undone ?? LABEL_FALLBACK}`);
+      } else {
+        // 履歴の端。キーボード（Ctrl+Z）は端でも呼ばれるため、無反応にせず案内する（#10）。
+        useUI.getState().toast('これ以上戻せません', 'info');
+      }
     },
     redo: () => {
-      if (history.redo()) sync();
+      if (history.redo()) {
+        labelCursor += 1;
+        // やり直す操作＝進めた先(新しい labelCursor 位置)のラベル。
+        const redone = labels[labelCursor];
+        sync();
+        useUI.getState().toast(`やり直しました: ${redone ?? LABEL_FALLBACK}`);
+      } else {
+        useUI.getState().toast('これ以上やり直せません', 'info');
+      }
     },
     markSaved: (saved) => {
       const target = saved ?? history.current();
@@ -1335,6 +1649,28 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     loadSample: () => {
       const sample = createSampleProject(uuid, new Date().toISOString());
       adopt(sample, 'medium', undefined); // 既定は全体スコープ
+    },
+
+    // --- 両窓編集同期（dualwindow） ---
+    // 従属窓へのスナップショット反映。canUndo/canRedo/dirty はリーダーの履歴状態をそのまま採用
+    // （従属窓は自前の履歴を持たない）。表示状態（level/scope/選択/showIssues）と savedRef・
+    // history には一切触れない＝窓ごとに独立。focusHint はキーがあるときだけ更新する。
+    applyRemoteSnapshot: (snap) =>
+      set({
+        project: snap.project,
+        canUndo: snap.canUndo,
+        canRedo: snap.canRedo,
+        dirty: snap.dirty,
+        ...(snap.lastSyncAdded ? { lastSyncAdded: snap.lastSyncAdded } : {}),
+        ...(snap.lastAssigneeSync ? { lastAssigneeSync: snap.lastAssigneeSync } : {}),
+        ...('focusHint' in snap ? { focusHint: snap.focusHint ?? null } : {}),
+      }),
+
+    // 指定ビューを保証・reconcile して履歴の先頭を置換（undo 対象外）。ensureLevelView も reconcile も
+    // 冪等なので、2 回目以降は added/removed 空＝プロジェクトは実質不変。
+    ensureView: (level, scopeParentId) => {
+      replaceTop(reconcileProject(ensureLevelView(get().project, level, scopeParentId), uuid));
+      sync();
     },
   };
 };

@@ -13,6 +13,8 @@ export interface ProcessTask {
   order: number; // 同一親内の並び順
   assigneeId?: Id;
   code?: string; // 工程No の手動上書き（未設定なら木の位置から自動採番）
+  /** 'milestone' = 節目マーカー。子・担当・工数・工程Noを持たず、出依存も張れない。省略時は通常工程。 */
+  kind?: 'milestone';
 }
 
 export type DependencyType = 'FS'; // 当面は finish-start 相当（順序）のみ
@@ -157,6 +159,9 @@ export interface FlowComment {
   x: number;
   y: number;
   laneId?: Id;
+  /** 付箋を任意のノードへ結ぶ細い薄線（矢頭なし・課題の注釈線と同じ見た目）の対象。
+      未指定＝どこにも結ばない。対象ノードが消えた場合は描画側で線を描かない（ダングリング禁止）。 */
+  targetNodeId?: FlowNodeId;
 }
 
 export type FlowNode =

@@ -1,6 +1,15 @@
 // 小さな汎用ドロップダウン（出力メニュー等）。外側クリック / Esc で閉じる。
+// キーボード操作は右クリックのコンテキストメニュー（FlowCanvas の ContextMenu）に合わせる:
+// role=menu/menuitem＋↑↓（Home/End 追加）でロービングフォーカス、開いたら先頭項目へフォーカス。
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useUI } from './useUI';
+
+// 項目要素自身がフォーカス可能ならそれを、そうでなければ内側の最初のフォーカス可能要素
+// （MenuCheckItem は <label> なので中の <input>）を返す。
+function focusableWithin(el: HTMLElement): HTMLElement {
+  if (el.matches('button, input, [tabindex]')) return el;
+  return el.querySelector<HTMLElement>('button, input, [tabindex]') ?? el;
+}
 
 export function Menu({
   label,
@@ -18,6 +27,7 @@ export function Menu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -30,6 +40,21 @@ export function Menu({
     return () => {
       window.removeEventListener('pointerdown', onDown);
       unregister();
+    };
+  }, [open]);
+
+  // 開いたら先頭項目へフォーカス（コンテキストメニューと同じ挙動）。閉じたら開く前の
+  // フォーカスへ戻す（activeElement が body に落ちているときだけ＝項目クリックで別の
+  // 入力へ移った場合は奪い返さない）。
+  useEffect(() => {
+    if (!open) return undefined;
+    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const first = menuRef.current?.querySelector<HTMLElement>('.menu-item');
+    if (first) focusableWithin(first).focus();
+    return () => {
+      if (prev?.isConnected && (document.activeElement === document.body || !document.activeElement)) {
+        prev.focus();
+      }
     };
   }, [open]);
 
@@ -49,7 +74,28 @@ export function Menu({
         {label}
       </button>
       {open && (
-        <div className="menu" role="menu" onClick={() => setOpen(false)}>
+        <div
+          ref={menuRef}
+          className="menu"
+          role="menu"
+          onClick={() => setOpen(false)}
+          onKeyDown={(e) => {
+            // ↑↓/Home/End で項目間を巡回（ロービングフォーカス）。上位のキー操作へは流さない。
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('.menu-item') ?? []);
+            if (items.length === 0) return;
+            const focusables = items.map(focusableWithin);
+            const i = focusables.indexOf(document.activeElement as HTMLElement);
+            let next: number;
+            if (e.key === 'Home') next = 0;
+            else if (e.key === 'End') next = items.length - 1;
+            else if (i < 0) next = e.key === 'ArrowDown' ? 0 : items.length - 1;
+            else next = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            focusables[next]!.focus();
+          }}
+        >
           {children}
         </div>
       )}

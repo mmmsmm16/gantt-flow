@@ -5,7 +5,10 @@
 // 経路の形は 2 種類:
 //   HVH   : 出口 → 縦の通り道(midX) → 入口    (従来形。midX を賢く選ぶ)
 //   HVHVH : 出口 → 横の通り道(channelY) → 入口 (HVH で避け切れないときの迂回)
-// 始点=ソース右辺中央 / 終点=ターゲット左辺中央 は従来と同じ(接続ハンドルの位置)。
+// 出入りする辺(接続ハンドル)は両ノードの相対位置から自動選択する(chooseEdgeDir)。原則は常に
+// right(右辺→左辺)。例外は「相手がほぼ真上/真下(down/up)」と「相手が左側で明確に逆向き(left)」
+// の2つだけで、斜め前方(右上/右下)はすべて right に丸める。実装は 4 方位を鏡映/転置で canonical 系
+// (=ソース右辺→ターゲット左辺の従来系)へ移し、下の routeForward で経路を作って逆変換で戻す。
 
 import type { Rect } from './autoPlace';
 
@@ -74,11 +77,82 @@ function labelOf(points: Pt[]): Pt {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+export type EdgeDir = 'right' | 'left' | 'down' | 'up';
+
+interface Transform {
+  pt: (p: Pt) => Pt; // world → canonical
+  rect: (r: Rect) => Rect; // world → canonical
+  inv: (p: Pt) => Pt; // canonical → world
+}
+
+// canonical 系＝「相手が右にいて、ソース右辺→ターゲット左辺で結ぶ」既存系。各方位を鏡映/転置で
+// canonical に移し、routeForward で経路を作って inv で戻す。これで障害物回避・入口レーン整列など
+// 既存ロジックを 4 方位すべてで無改造のまま再利用でき、marker(orient=auto)も自然に向く。
+const TRANSFORMS: Record<EdgeDir, Transform> = {
+  right: { pt: (p) => p, rect: (r) => r, inv: (p) => p },
+  left: {
+    pt: (p) => ({ x: -p.x, y: p.y }),
+    rect: (r) => ({ x: -(r.x + r.w), y: r.y, w: r.w, h: r.h }),
+    inv: (p) => ({ x: -p.x, y: p.y }),
+  },
+  down: {
+    pt: (p) => ({ x: p.y, y: p.x }),
+    rect: (r) => ({ x: r.y, y: r.x, w: r.h, h: r.w }),
+    inv: (p) => ({ x: p.y, y: p.x }),
+  },
+  up: {
+    pt: (p) => ({ x: -p.y, y: p.x }),
+    rect: (r) => ({ x: -(r.y + r.h), y: r.x, w: r.h, h: r.w }),
+    inv: (p) => ({ x: p.y, y: -p.x }),
+  },
+};
+
 /**
- * source 右辺中央 → target 左辺中央 の直角経路を返す。
- * obstacles には source/target 自身を含めないこと。
+ * ソース/ターゲットの相対位置から、幾何的に自然な出入り辺(＝方位)を決める。
+ * 原則は常に right(ソース右辺→ターゲット左辺)。例外は2つだけ:
+ *   1. 相手がほぼ真上/真下: x範囲([x, x+w])が重なる → dy の符号で down/up。
+ *   2. 相手が左側で明確に逆向き: ターゲットの右端がソースの左端より左 → left
+ *      (U字の後ろ向きではなく、左辺から出て相手の右辺へ入る現行の left 方位)。
+ * 斜め前方(右上/右下)はこのどちらにも当たらないため right に丸まる。決定論(同入力→同出力)を保つ。
+ */
+export function chooseEdgeDir(source: Rect, target: Rect): EdgeDir {
+  const sLo = source.x;
+  const sHi = source.x + source.w;
+  const tLo = target.x;
+  const tHi = target.x + target.w;
+
+  // 例外1: x範囲が重なる(ほぼ真上/真下)
+  if (tLo < sHi && sLo < tHi) {
+    const dy = target.y + target.h / 2 - (source.y + source.h / 2);
+    return dy >= 0 ? 'down' : 'up';
+  }
+
+  // 例外2: ターゲットの右端がソースの左端より左(明確に逆向き)
+  if (tHi < sLo) return 'left';
+
+  // 原則: 常に right
+  return 'right';
+}
+
+/**
+ * source → target の直角経路を返す。出入りする辺は両ノードの相対位置から自動選択する
+ * (右の相手＝右辺→左辺 / 真下＝下辺→上辺 など)。障害物回避・入口レーン整列は canonical 系で
+ * 既存ロジックをそのまま再利用。obstacles には source/target 自身を含めないこと。決定論。
  */
 export function routeEdge(source: Rect, target: Rect, obstacles: Rect[]): EdgeRoute {
+  const dir = chooseEdgeDir(source, target);
+  if (dir === 'right') return routeForward(source, target, obstacles); // 既存の前向き経路と完全一致
+  const t = TRANSFORMS[dir];
+  const core = routeForward(t.rect(source), t.rect(target), obstacles.map(t.rect));
+  const points = core.points.map(t.inv);
+  return { points, d: toPath(points), label: labelOf(points) };
+}
+
+/**
+ * canonical 系(ソース右辺中央 → ターゲット左辺中央)の直角経路。
+ * obstacles には source/target 自身を含めないこと。
+ */
+function routeForward(source: Rect, target: Rect, obstacles: Rect[]): EdgeRoute {
   const x1 = source.x + source.w;
   const y1 = source.y + source.h / 2;
   const x2 = target.x;

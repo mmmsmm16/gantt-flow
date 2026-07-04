@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deserializeProject, type Project } from '@gantt-flow/core';
+import { deserializeProject, type Project, isMilestone } from '@gantt-flow/core';
 import { Workspace } from '../src/session.js';
 import { runBatch, type BatchOp } from '../src/batch.js';
 import { auditLeafTasks, formatAudit } from '../src/audit.js';
@@ -82,6 +82,18 @@ describe('upsert（冪等）', () => {
     expect(r2.aliases['t']).toBe(id1); // 同じ工程
     expect(r2.project.core.tasks[id1!]?.level).toBe('small');
     expect(r2.project.details[id1!]?.effortMinutes).toBe(15);
+  });
+});
+
+describe('kind: milestone（節目マーカー）', () => {
+  it('add_task に kind=milestone を指定するとマイルストーンが作成される', () => {
+    const base = { schemaVersion: 1, meta: { id: 'x', title: '', createdAt: '', updatedAt: '', appVersion: '0' }, core: { tasks: {}, dependencies: {}, assignees: {} }, details: {}, flow: { byLevel: [] } } as unknown as Project;
+    const result = runBatch(base, [{ op: 'add_task', ref: 'ms', name: 'リリース', level: 'medium', kind: 'milestone' }]);
+    expect(Object.keys(result.project.core.tasks)).toHaveLength(1);
+    const msId = result.aliases['ms']!;
+    const task = result.project.core.tasks[msId]!;
+    expect(task.kind).toBe('milestone');
+    expect(isMilestone(result.project.core, msId)).toBe(true);
   });
 });
 

@@ -42,7 +42,7 @@ function readFtWidths(): Record<string, number> {
 export const OUTLINE_OPTIONAL_COLUMNS = [
   { key: 'prev', label: '前工程', width: 132 },
   { key: 'effort', label: '工数', width: 78 },
-  { key: 'io', label: 'I/O・課題', width: 224 },
+  { key: 'io', label: '入/出・課題', width: 224 },
 ] as const;
 export type OutlineColumnKey = (typeof OUTLINE_OPTIONAL_COLUMNS)[number]['key'];
 
@@ -90,6 +90,57 @@ export interface ToastItem {
   message: string;
   tone: ToastTone;
 }
+
+// トーストの自動消去までの時間(ms)。error はやや長め＝読み切る前に消えないよう猶予を足す。
+export const TOAST_DURATION_MS: Record<ToastTone, number> = {
+  info: 4200,
+  success: 4200,
+  error: 6000,
+};
+
+// hover で一時停止できるトースト用タイマー。DOM 非依存の純粋実装（vi.useFakeTimers で直接テスト可能）。
+// pause: 残り時間を覚えて止める / resume: 残り時間から再開 / cancel: 二度と発火しない(アンマウント用)。
+export interface PausableTimer {
+  pause: () => void;
+  resume: () => void;
+  cancel: () => void;
+}
+export function createPausableTimer(ms: number, onDone: () => void): PausableTimer {
+  let remaining = ms;
+  let armedAt = 0;
+  let handle: ReturnType<typeof setTimeout> | null = null;
+  const arm = () => {
+    armedAt = Date.now();
+    handle = setTimeout(onDone, remaining);
+  };
+  arm();
+  return {
+    pause: () => {
+      if (handle == null) return;
+      clearTimeout(handle);
+      handle = null;
+      remaining = Math.max(0, remaining - (Date.now() - armedAt));
+    },
+    resume: () => {
+      if (handle != null) return;
+      arm();
+    },
+    cancel: () => {
+      if (handle != null) clearTimeout(handle);
+      handle = null;
+    },
+  };
+}
+
+// 永続化(自動保存/世代バックアップ/助言ロック)の健全性。沈黙する失敗を可視化するための共有状態。
+export type PersistKind = 'autosave' | 'backup' | 'lock';
+// 助言ロックの表示状態: holding=このセッションが編集ロックを保持 / readonly=取得できず読み取り専用。
+export type LockUiState = 'holding' | 'readonly';
+const PERSIST_FAIL_MESSAGE: Record<PersistKind, string> = {
+  autosave: '自動保存に失敗しました（空き容量をご確認ください）。編集は続けられます。',
+  backup: 'バックアップの保存に失敗しました（空き容量をご確認ください）。',
+  lock: '編集ロックを更新できませんでした（別の場所で同時に開いていないかご確認ください）。',
+};
 
 export interface ConfirmOpts {
   title?: string;
@@ -204,14 +255,40 @@ interface UIState {
   inspectorOpen: boolean;
   setInspectorOpen: (open: boolean) => void;
 
+  /** フローの I/O アイコン/チップをクリックしたとき、インスペクタの該当 I/O 項目まで
+      スクロール＆フォーカスするためのシグナル（seq でトリガ）。null=非アクティブ。 */
+  inspectorIoFocus: { io: 'inputs' | 'outputs'; ioId?: Id; seq: number } | null;
+  focusInspectorIo: (io: 'inputs' | 'outputs', ioId?: Id) => void;
+
+  /** 両窓編集同期: 作成した工程をその場リネームで開くよう、対象ペイン（表/フロー）へ依頼するシグナル。
+      発信元の窓で focusHint を受けた dualwindow ランタイムが set し、TableView/FlowCanvas が購読して
+      該当ノード/行の名前編集を開く（seq でトリガ）。null=非アクティブ。 */
+  renameRequest: { taskId: Id; surface: 'table' | 'flow'; seq: number } | null;
+  requestRename: (taskId: Id, surface: 'table' | 'flow') => void;
+
   /** アウトライン表の折りたたみ状態（コマンド/非マウント時も保持するためここに置く。非永続）。 */
   outlineCollapsed: Set<Id>;
   toggleOutlineCollapsed: (id: Id) => void;
   setOutlineCollapsed: (ids: Set<Id>) => void;
 
+  /** アウトライン表のクイックフィルタ文字列。ビュー切替（表⇄フロー・粒度変更）で FlowCanvas/
+      TableView が再マウントされても揮発しないよう、ローカル state ではなくここに置く（#26。非永続）。 */
+  outlineFilter: string;
+  setOutlineFilter: (query: string) => void;
+
+  /** 表の複数選択（marked）を全体へミラーした工程 ID。コマンドパレットが「選択中の n 件に適用」を
+      出すために購読する（正本は各表ビューの useRowMultiSelect。非永続）。 */
+  markedTaskIds: Id[];
+  setMarkedTaskIds: (ids: Id[]) => void;
+
   /** 使い方ツアーの現在ステップ（null=非表示）。 */
   tourStep: number | null;
   setTourStep: (step: number | null) => void;
+
+  /** 空スタート経路で、最初の工程が作られたらツアーを提示するために保留中か（非永続）。
+      サンプル/テンプレート/取り込みは即時開始するのでこのフラグは使わない。 */
+  tourPendingFirstTask: boolean;
+  setTourPendingFirstTask: (pending: boolean) => void;
 
   /** 重い処理中の全画面スピナー（メッセージ＝表示中）。取り込みなどで無応答に見えるのを防ぐ。 */
   busy: string | null;
@@ -241,6 +318,19 @@ interface UIState {
   toasts: ToastItem[];
   toast: (message: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
+
+  /** 直近の自動保存(localStorage への未保存退避)が成功した時刻(epoch ms)。null=まだ成功なし。 */
+  lastAutosaveAt: number | null;
+  /** 直近の永続化失敗(自動保存/バックアップ/ロック更新)。null=正常。StatusBar とトーストの元。 */
+  persistFailure: { kind: PersistKind; at: number } | null;
+  /** 助言ロックの表示状態(holding/readonly)。null=ファイル未割当(新規/取込/ブラウザ)。 */
+  lockState: LockUiState | null;
+  /** 永続化の成功を記録(autosave は時刻を更新、同種の失敗表示が残っていれば解除)。 */
+  notePersistOk: (kind: PersistKind) => void;
+  /** 永続化の失敗を記録。状態が変わったときだけトーストを1回出す(リトライ連打でスパムしない)。 */
+  notePersistFailure: (kind: PersistKind) => void;
+  /** 助言ロックの表示状態を反映する(persistence 層から呼ぶ)。 */
+  setLockState: (state: LockUiState | null) => void;
 }
 
 const initialTheme = readInitialTheme();
@@ -401,6 +491,14 @@ export const useUI = create<UIState>((set, get) => ({
   inspectorOpen: false,
   setInspectorOpen: (open) => set({ inspectorOpen: open }),
 
+  inspectorIoFocus: null,
+  focusInspectorIo: (io, ioId) =>
+    set((s) => ({ inspectorIoFocus: { io, ioId, seq: (s.inspectorIoFocus?.seq ?? 0) + 1 } })),
+
+  renameRequest: null,
+  requestRename: (taskId, surface) =>
+    set((s) => ({ renameRequest: { taskId, surface, seq: (s.renameRequest?.seq ?? 0) + 1 } })),
+
   outlineCollapsed: new Set<Id>(),
   toggleOutlineCollapsed: (id) => {
     const next = new Set(get().outlineCollapsed);
@@ -409,6 +507,14 @@ export const useUI = create<UIState>((set, get) => ({
     set({ outlineCollapsed: next });
   },
   setOutlineCollapsed: (ids) => set({ outlineCollapsed: ids }),
+
+  outlineFilter: '',
+  setOutlineFilter: (outlineFilter) => set({ outlineFilter }),
+
+  markedTaskIds: [],
+  // 空→空の更新はスキップ（表マウント/アンマウントのたびに無用な再レンダーを起こさない）。
+  setMarkedTaskIds: (ids) =>
+    set((s) => (s.markedTaskIds.length === 0 && ids.length === 0 ? s : { markedTaskIds: ids })),
 
   columnVisibility: readInitialColumns(),
   toggleColumn: (key) => {
@@ -444,6 +550,9 @@ export const useUI = create<UIState>((set, get) => ({
 
   tourStep: null,
   setTourStep: (tourStep) => set({ tourStep }),
+
+  tourPendingFirstTask: false,
+  setTourPendingFirstTask: (tourPendingFirstTask) => set({ tourPendingFirstTask }),
 
   busy: null,
   setBusy: (busy) => set({ busy }),
@@ -490,6 +599,13 @@ export const useUI = create<UIState>((set, get) => ({
       transient();
       return true;
     }
+    // 使い方ツアーは最下層のレイヤ。Esc で（今回だけ）閉じられるようにする。
+    // ツアー中は blocked で全ショートカットが止まるため、Esc で抜けられないと
+    // undo などが効かない。永続的な「表示しない」は 閉じる/完了 ボタン側に任せる。
+    if (s.tourStep !== null) {
+      s.setTourStep(null);
+      return true;
+    }
     return false;
   },
   registerOverlayCloser: (closer) => {
@@ -514,4 +630,20 @@ export const useUI = create<UIState>((set, get) => ({
     set({ toasts: [...get().toasts, { id, message, tone }] });
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+
+  lastAutosaveAt: null,
+  persistFailure: null,
+  lockState: null,
+  notePersistOk: (kind) =>
+    set((s) => ({
+      lastAutosaveAt: kind === 'autosave' ? Date.now() : s.lastAutosaveAt,
+      // 同種の失敗表示が残っていれば「回復した」ものとして解除する。
+      persistFailure: s.persistFailure?.kind === kind ? null : s.persistFailure,
+    })),
+  notePersistFailure: (kind) => {
+    // 状態変化時のみ 1 回トースト(同種の連続失敗＝リトライではスパムしない)。
+    if (get().persistFailure?.kind !== kind) get().toast(PERSIST_FAIL_MESSAGE[kind], 'error');
+    set({ persistFailure: { kind, at: Date.now() } });
+  },
+  setLockState: (lockState) => set({ lockState }),
 }));
