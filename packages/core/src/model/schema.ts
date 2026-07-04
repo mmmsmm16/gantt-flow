@@ -121,7 +121,13 @@ const FlowNode = z.discriminatedUnion('kind', [
     targetNodeId: z.string(),
     visible: z.boolean(),
   }),
-  z.object({ ...xy, kind: z.literal('comment'), text: z.string(), laneId: z.string().optional() }),
+  z.object({
+    ...xy,
+    kind: z.literal('comment'),
+    text: z.string(),
+    laneId: z.string().optional(),
+    targetNodeId: z.string().optional(),
+  }),
 ]);
 
 const FlowEdge = z.object({

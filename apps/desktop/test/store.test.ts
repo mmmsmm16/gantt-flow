@@ -571,6 +571,37 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.values(view0(s).nodes).some((n) => n.kind === 'task')).toBe(true); // 工程は残る
   });
 
+  it('setCommentTarget: 付箋を工程ノードへ結ぶ/解除する。不正な対象は no-op', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const task = taskNodes(s)[0]!;
+    s.getState().addComment('メモ');
+    const note = Object.values(view0(s).nodes).find((n) => n.kind === 'comment')!;
+
+    // 実在する工程ノードを対象に設定できる。
+    s.getState().setCommentTarget(note.id, task.id);
+    const linked = view0(s).nodes[note.id]!;
+    expect(linked.kind === 'comment' && linked.targetNodeId).toBe(task.id);
+
+    // 不在ノード・自分自身は無効（no-op：直前の対象を保つ、履歴も汚さない）。
+    const canUndoBefore = s.getState().canUndo;
+    s.getState().setCommentTarget(note.id, 'no-such-node');
+    s.getState().setCommentTarget(note.id, note.id);
+    const still = view0(s).nodes[note.id]!;
+    expect(still.kind === 'comment' && still.targetNodeId).toBe(task.id);
+    expect(s.getState().canUndo).toBe(canUndoBefore); // no-op は履歴に積まれない
+
+    // 解除できる（undefined）。
+    s.getState().setCommentTarget(note.id, undefined);
+    const cleared = view0(s).nodes[note.id]!;
+    expect(cleared.kind === 'comment' && cleared.targetNodeId).toBeUndefined();
+
+    // undo で対象設定が元に戻る（結び→解除の 2 手を戻すと結び直った状態へ）。
+    s.getState().undo();
+    const back = view0(s).nodes[note.id]!;
+    expect(back.kind === 'comment' && back.targetNodeId).toBe(task.id);
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');

@@ -89,6 +89,7 @@ export function FlowCanvas() {
   const duplicateTask = useApp((s) => s.duplicateTask);
   const insertTaskOnEdge = useApp((s) => s.insertTaskOnEdge);
   const updateComment = useApp((s) => s.updateComment);
+  const setCommentTarget = useApp((s) => s.setCommentTarget);
   // 表側編集の同期で追加されたノードを一時ハイライト（どこが変わったかを示すフラッシュ）。
   const lastSyncAdded = useApp((s) => s.lastSyncAdded);
   const flashIds = useFlashIds(lastSyncAdded);
@@ -118,6 +119,14 @@ export function FlowCanvas() {
       confirmLabel: '設定',
     });
     if (l !== null) setEdgeLabel(edgeId, l);
+  };
+
+  // フロー上の I/O 表示（集約アイコン・出所チップ）をクリック → その工程を選択し、詳細パネルの
+  // 該当 I/O 項目まで寄せる（追加もそこから既存 UI で。ダブルクリックでの新規工程作成は防ぐ）。
+  const openIoInInspector = (taskId: string, io: 'inputs' | 'outputs', ioId?: string) => {
+    select(taskId);
+    useUI.getState().setInspectorOpen(true);
+    useUI.getState().focusInspectorIo(io, ioId);
   };
 
   // 付箋のテキストを編集（右クリックメニュー）。
@@ -151,6 +160,8 @@ export function FlowCanvas() {
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   // フロー上で工程名をその場編集している対象（ダブルクリック / F2）。
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  // 付箋の「対象工程を設定」待機中（この付箋 id を保持）。次に工程ノードをクリックで対象を確定、Esc で取消。
+  const [commentLink, setCommentLink] = useState<FlowNodeId | null>(null);
   // キーボードピッカー。mode='connect'(c)は接続先、'parallel'(Shift+P)は並行化の基準工程を、
   // 起点から候補(距離順)を Tab/矢印で循環し Enter(またはクリック)で確定する。
   const [kbConnect, setKbConnect] = useState<{
@@ -320,6 +331,19 @@ export function FlowCanvas() {
     return () => window.removeEventListener('keydown', onEscCapture, true);
   }, []);
 
+  // 付箋の対象工程を選ぶ待機中は Escape で取消（capture で受けて選択解除などへ流さない）。
+  useEffect(() => {
+    if (!commentLink) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setCommentLink(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [commentLink]);
+
   // 接続モードの現候補へ視点を追従(候補が画面外だと何を選んでいるか分からないため)。
   // 'nearest' なので見えている間はスクロールせず、枠外のときだけ最小限寄せる。
   useEffect(() => {
@@ -419,7 +443,9 @@ export function FlowCanvas() {
   // 空白をダブルクリック → その位置に工程を新規作成（ノード上は各自の編集に委ねる）。
   const onCanvasDoubleClick = (e: React.MouseEvent) => {
     const el = e.target as HTMLElement;
-    if (el.closest('.node, .ms-diamond, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar')) return;
+    // I/O 表示（集約アイコン・出所チップ）上のダブルクリックは編集オープンに割り当てるため除外
+    // （新規工程の量産を防ぐ。onDoubleClick でも伝播を止めているが closest でも二重に弾く）。
+    if (el.closest('.node, .ms-diamond, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar, .io-icon, .io-source')) return;
     if ((e.target as Element).closest('svg.edges')) {
       // 矢印（edge-hit）上のダブルクリックはラベル編集に委ねるため、線以外の余白だけで作成。
       if ((e.target as HTMLElement).classList.contains('edge-hit')) return;
@@ -1203,17 +1229,33 @@ export function FlowCanvas() {
   }
 
   // I/O 集約アイコン（入力=左上 / 出力=右下に重ね、複数は1枚に名前を縦列挙）。
+  // クリックで工程を選択し、詳細パネルの該当 I/O へ寄せる（名前クリックはその項目、地の形は先頭項目）。
+  // ダブルクリックは伝播を止めて空白の新規工程作成を防ぐ（編集は詳細パネルへ）。
   const renderIoIcon = (
+    taskId: string,
     taskPos: { x: number; y: number },
     io: 'input' | 'output',
     items: { id: string; name: string; kind: 'doc' | 'info' }[],
   ) => {
     if (!items.length) return null;
     const r = ioIconRect(taskPos, io, items.length);
+    const ioFull = io === 'input' ? 'inputs' : 'outputs';
     // 形＝種類（DESIGN §8・色非依存で白黒可読）: 帳票(doc)=角丸矩形＋右上ドッグイアの書類形 /
     // 情報(info)=3 角丸＋1 角を立てたタグ形。種類は同側 I/O の先頭で代表（既存仕様）。
     return (
-      <g className={`io-icon io-${io}${items.some((it) => flashIoIds.has(it.id)) ? ' node-flash' : ''}`}>
+      <g
+        className={`io-icon io-clickable io-${io}${items.some((it) => flashIoIds.has(it.id)) ? ' node-flash' : ''}`}
+        role="button"
+        aria-label={`${io === 'input' ? '入力' : '出力'}を編集`}
+        onClick={(e) => {
+          e.stopPropagation();
+          openIoInInspector(taskId, ioFull, items[0]?.id);
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation(); // 空白ダブルクリックの新規工程作成へ流さない
+          openIoInInspector(taskId, ioFull, items[0]?.id);
+        }}
+      >
         {items[0]?.kind === 'info' ? (
           <path className="io-main" d={ioInfoChipPath(r, io)} />
         ) : (
@@ -1229,6 +1271,10 @@ export function FlowCanvas() {
             x={r.x + r.w / 2}
             y={r.y + IO_ICON.padTop + i * IO_ICON.line + IO_ICON.line - 3}
             textAnchor="middle"
+            onClick={(e) => {
+              e.stopPropagation();
+              openIoInInspector(taskId, ioFull, it.id);
+            }}
           >
             {it.name || '帳票'}
           </text>
@@ -1248,7 +1294,7 @@ export function FlowCanvas() {
     e.stopPropagation();
     const p = posOf(n);
     const s = nodeSize(n);
-    // 開始辺の中点からプレビュー線を引く（確定後の経路は routeEdge が再計算＝従来どおり右辺起点）。
+    // 開始辺の中点からプレビュー線を引く（確定後の経路は routeEdge が相対位置から自然な辺を再選択する）。
     const mid = {
       top: { x: p.x + s.w / 2, y: p.y },
       right: { x: p.x + s.w, y: p.y + s.h / 2 },
@@ -1503,7 +1549,11 @@ export function FlowCanvas() {
             <Icons.Plus />
           </button>
         </span>
-        {kbConnect ? (
+        {commentLink ? (
+          <span className="palette-hint connect-hint">
+            付箋の対象: 結びたい工程をクリックで選択（Esc で取消）
+          </span>
+        ) : kbConnect ? (
           <span className="palette-hint connect-hint">
             {kbConnect.mode === 'parallel'
               ? '並行化: 矢印（hjkl）で基準の工程を選び Enter で確定（クリックでも可 / Esc で取消）'
@@ -1820,6 +1870,17 @@ export function FlowCanvas() {
               return <line key={`il-${n.id}`} x1={a.cx} y1={a.cy} x2={b.x} y2={b.y} className="issue-line" />;
             })}
 
+          {/* 付箋の対象工程リンク（課題の注釈線と同じ細い薄線・矢頭なし）。対象ノードが消えている
+              場合は線を描かない＝ダングリング描画禁止（reconcile は付箋を触らないので防御は描画側）。 */}
+          {nodes.map((n) => {
+            if (n.kind !== 'comment' || !n.targetNodeId) return null;
+            const target = view.nodes[n.targetNodeId];
+            if (!target) return null;
+            const a = center(n);
+            const b = center(target);
+            return <line key={`cl-${n.id}`} x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} className="issue-line" />;
+          })}
+
         </svg>
 
         {/* 選択中の矢印に小さなツールバー（ラベル編集 / 削除）を浮かべて、操作を見えるようにする。 */}
@@ -1916,6 +1977,8 @@ export function FlowCanvas() {
                     ? ' droppable'
                     : ''
                 : '';
+          // 付箋の対象工程を選ぶ待機中は、選べる工程ノードを droppable として強調する。
+          const linkCls = commentLink && n.kind === 'task' && n.id !== commentLink ? ' droppable' : '';
           const activate = () => {
             if (n.kind === 'task') {
               if (n.taskId === selectedTaskId) {
@@ -1943,7 +2006,7 @@ export function FlowCanvas() {
               key={n.id}
               id={focusable ? `fn-${n.id}` : undefined}
               data-nodeid={n.id}
-              className={cls + connCls + multiCls + flashCls}
+              className={cls + connCls + linkCls + multiCls + flashCls}
               style={
                 n.kind === 'issue'
                   ? { left: p.x, top: p.y } // 課題は内容に応じて自動サイズ（CSS）
@@ -1998,6 +2061,14 @@ export function FlowCanvas() {
                 e.stopPropagation();
                 if (movedRef.current) {
                   movedRef.current = false; // ドラッグで動かした直後の click は選択しない
+                  return;
+                }
+                if (commentLink) {
+                  // 付箋の対象工程を選ぶ待機中: 工程ノードのクリックで対象を確定（他種別は無視して待機継続）。
+                  if (n.kind === 'task') {
+                    setCommentTarget(commentLink, n.id);
+                    setCommentLink(null);
+                  }
                   return;
                 }
                 if (kbConnect && kbCandSet?.has(n.id)) {
@@ -2192,15 +2263,29 @@ export function FlowCanvas() {
             const sourced = inputs.filter((it) => it.source?.trim());
             return (
               <g key={`io-${n.id}`}>
-                {renderIoIcon(p, 'input', plain)}
-                {renderIoIcon(p, 'output', d?.outputs ?? [])}
+                {renderIoIcon(n.taskId, p, 'input', plain)}
+                {renderIoIcon(n.taskId, p, 'output', d?.outputs ?? [])}
                 {/* 出所付きの入力帳票: 出所部署のレーンに置き、工程へ矢印を引く
-                    （レーン照合・チップ矩形・「外部:」表示の規則は画像出力と共有: sourceChipLayout）。 */}
+                    （レーン照合・チップ矩形・「外部:」表示の規則は画像出力と共有: sourceChipLayout）。
+                    クリックで工程を選択し詳細パネルの該当入力へ寄せる（ダブルクリックは伝播を止める）。 */}
                 {sourced.map((it, i) => {
                   const chip = sourceChipLayout(p, it.source ?? '', i, boxes);
                   const cx = chip.x + chip.w / 2;
                   return (
-                    <g key={`src-${it.id}`} className="io-source">
+                    <g
+                      key={`src-${it.id}`}
+                      className="io-source io-clickable"
+                      role="button"
+                      aria-label={`入力「${it.name || '帳票'}」を編集`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openIoInInspector(n.taskId, 'inputs', it.id);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        openIoInInspector(n.taskId, 'inputs', it.id);
+                      }}
+                    >
                       <line
                         className="io-source-line"
                         x1={chip.line.x1}
@@ -2490,16 +2575,29 @@ export function FlowCanvas() {
             );
           }
           if (n.kind === 'comment') {
+            const commentId = n.id;
+            const hasTarget = !!n.targetNodeId;
             return (
               <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
-                <ContextItem label="テキストを編集" onClick={() => void editCommentText(n.id, n.text)} />
+                <ContextItem label="テキストを編集" onClick={() => void editCommentText(commentId, n.text)} />
+                {/* 対象工程リンク: 設定は「次のクリックで工程を選ぶ」待機モードへ（Esc で取消）。 */}
+                <ContextItem
+                  label={hasTarget ? '対象工程を変更…' : '対象工程を設定…'}
+                  onClick={() => {
+                    setSel({ kind: 'node', id: commentId });
+                    setCommentLink(commentId);
+                  }}
+                />
+                {hasTarget && (
+                  <ContextItem label="対象工程を解除" onClick={() => setCommentTarget(commentId, undefined)} />
+                )}
                 <div className="menu-sep" role="separator" />
                 <ContextItem
                   label="削除"
                   action="flow.delete"
                   danger
                   onClick={() => {
-                    deleteFlowNode(n.id);
+                    deleteFlowNode(commentId);
                     setSel(null);
                   }}
                 />

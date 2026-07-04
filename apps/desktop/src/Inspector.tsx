@@ -68,6 +68,8 @@ export function Inspector() {
   const addToBePredecessor = useApp((s) => s.addToBePredecessor);
   const removeToBePredecessor = useApp((s) => s.removeToBePredecessor);
   const tobeEnabled = useUI((s) => s.tobeEnabled);
+  // フロー側の I/O クリックからの「該当セクションへスクロール/フォーカス」シグナル（seq でトリガ）。
+  const inspectorIoFocus = useUI((s) => s.inspectorIoFocus);
 
   // 入出力/課題を追加した直後、その新しい入力欄へフォーカス＆全選択（既定文字が選択され打てば置換）。
   const asideRef = useRef<HTMLElement>(null);
@@ -86,6 +88,30 @@ export function Inspector() {
     }
     setAddFocus(null);
   }, [addFocus, project]);
+
+  // フローの I/O アイコン/チップクリック時: 該当 I/O 項目（あれば）まで寄せてハイライト＆入力へフォーカス。
+  // seq が変わるたびに発火（同じ工程を続けてクリックしても再度スクロールできる）。個別 ioId が無ければ
+  // I/O セクションの見出しへ寄せる。
+  useLayoutEffect(() => {
+    if (!inspectorIoFocus) return;
+    const root = asideRef.current;
+    if (!root) return;
+    const { ioId } = inspectorIoFocus;
+    const row = ioId
+      ? root.querySelector<HTMLElement>(`.io-row[data-ioid="${CSS.escape(ioId)}"]`)
+      : null;
+    const target = row ?? root.querySelector<HTMLElement>('.io-section');
+    if (!target) return;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const name = row?.querySelector<HTMLInputElement>('.io-name');
+    if (name) {
+      name.focus();
+      name.select();
+    }
+    target.classList.add('io-flash');
+    const timer = setTimeout(() => target.classList.remove('io-flash'), 1400);
+    return () => clearTimeout(timer);
+  }, [inspectorIoFocus]);
 
   if (!taskId) return null;
   const task = project.core.tasks[taskId];
@@ -370,7 +396,7 @@ export function Inspector() {
         )}
 
         {!ms && (
-        <section>
+        <section className="io-section">
           <h3>
             入力 / 出力
             {ios.length > 0 && <span className="insp-count">{ios.length}</span>}
@@ -391,7 +417,7 @@ export function Inspector() {
             ))}
           </datalist>
           {ios.map(({ item, io }) => (
-            <div className={`io-row ${io === 'inputs' ? 'in' : 'out'}`} key={item.id}>
+            <div className={`io-row ${io === 'inputs' ? 'in' : 'out'}`} key={item.id} data-ioid={item.id}>
               <span className="io-tag">{io === 'inputs' ? '入' : '出'}</span>
               <input
                 className="io-name"

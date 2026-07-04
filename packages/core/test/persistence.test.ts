@@ -56,6 +56,27 @@ describe('persistence: JSON ラウンドトリップ', () => {
     expect(tryDeserializeProject(JSON.stringify(raw)).ok).toBe(false);
   });
 
+  it('付箋(comment)の targetNodeId は保持され、旧ファイル(未設定)もそのまま読める', () => {
+    const p = sampleProject();
+    const view = p.flow.byLevel[0]!;
+    const task = Object.values(view.nodes).find((n) => n.kind === 'task')!;
+    view.nodes['cmt-old'] = { id: 'cmt-old', kind: 'comment', text: '旧メモ', x: 10, y: 10 };
+    view.nodes['cmt-new'] = {
+      id: 'cmt-new',
+      kind: 'comment',
+      text: '新メモ',
+      x: 20,
+      y: 20,
+      targetNodeId: task.id,
+    };
+    const back = deserializeProject(serializeProject(p));
+    const bv = back.flow.byLevel[0]!;
+    const oldC = bv.nodes['cmt-old']!;
+    const newC = bv.nodes['cmt-new']!;
+    expect(oldC.kind === 'comment' && oldC.targetNodeId).toBeUndefined(); // 後方互換（未設定OK）
+    expect(newC.kind === 'comment' && newC.targetNodeId).toBe(task.id); // 新フィールドは保持
+  });
+
   it('壊れた JSON / スキーマ不一致は弾く', () => {
     expect(tryDeserializeProject('{ not json').ok).toBe(false);
     // schemaVersion を欠いた不正データ

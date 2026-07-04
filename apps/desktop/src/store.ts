@@ -368,6 +368,9 @@ export interface AppState {
   addComment: (text: string, x?: number, y?: number) => void;
   /** 付箋のテキストを変更。 */
   updateComment: (nodeId: FlowNodeId, text: string) => void;
+  /** 付箋の対象ノード（細い薄線で結ぶ相手）を設定/解除。undefined で解除。
+      対象は実在する工程ノードのみ（自分自身・不在ノードは no-op）。同期は触らない（付箋はユーザー所有）。 */
+  setCommentTarget: (nodeId: FlowNodeId, targetNodeId: FlowNodeId | undefined) => void;
   /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
   /** 自動整列。selectedIds を渡すと、その工程ノードだけを整列し他は固定（部分整列）。 */
   tidyFlow: (selectedIds?: FlowNodeId[]) => void;
@@ -1304,6 +1307,19 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         if (!n || n.kind !== 'comment' || n.text === t) return false;
         n.text = t;
       }, 'メモを編集'),
+    setCommentTarget: (nodeId, targetNodeId) =>
+      editView((view) => {
+        const n = view.nodes[nodeId];
+        if (!n || n.kind !== 'comment') return false;
+        // 対象は実在する工程ノードのみ（自分自身・不在ノードは無効＝ダングリング参照を作らない）。
+        if (targetNodeId !== undefined) {
+          const t = view.nodes[targetNodeId];
+          if (!t || t.kind !== 'task' || targetNodeId === nodeId) return false;
+        }
+        if ((n.targetNodeId ?? undefined) === (targetNodeId ?? undefined)) return false;
+        if (targetNodeId === undefined) delete n.targetNodeId;
+        else n.targetNodeId = targetNodeId;
+      }, targetNodeId ? '付箋の対象を設定' : '付箋の対象を解除'),
     tidyFlow: (selectedIds) =>
       editView((view, p) => {
         // 部分整列: 選択した工程ノード以外を固定扱い（位置・レーン高さを保つ）。

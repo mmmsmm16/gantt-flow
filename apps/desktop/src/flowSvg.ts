@@ -199,6 +199,18 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     );
   }
 
+  // 付箋の対象工程リンク（課題線と同じ細い薄線。対象が消えていれば描かない＝ダングリング禁止）。
+  for (const n of nodes) {
+    if (n.kind !== 'comment' || !n.targetNodeId) continue;
+    const t = view.nodes[n.targetNodeId];
+    if (!t) continue;
+    const c = issueLineTarget(t, nodes, project.details);
+    const cs = nodeSize(n);
+    parts.push(
+      `<line x1="${n.x + cs.w / 2}" y1="${n.y + cs.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"/>`,
+    );
+  }
+
   // nodes
   for (const n of nodes) {
     if (isMs(n)) continue; // マイルストーンは菱形で別描画（レーン内には出さない）

@@ -255,6 +255,11 @@ interface UIState {
   inspectorOpen: boolean;
   setInspectorOpen: (open: boolean) => void;
 
+  /** フローの I/O アイコン/チップをクリックしたとき、インスペクタの該当 I/O 項目まで
+      スクロール＆フォーカスするためのシグナル（seq でトリガ）。null=非アクティブ。 */
+  inspectorIoFocus: { io: 'inputs' | 'outputs'; ioId?: Id; seq: number } | null;
+  focusInspectorIo: (io: 'inputs' | 'outputs', ioId?: Id) => void;
+
   /** アウトライン表の折りたたみ状態（コマンド/非マウント時も保持するためここに置く。非永続）。 */
   outlineCollapsed: Set<Id>;
   toggleOutlineCollapsed: (id: Id) => void;
@@ -479,6 +484,10 @@ export const useUI = create<UIState>((set, get) => ({
 
   inspectorOpen: false,
   setInspectorOpen: (open) => set({ inspectorOpen: open }),
+
+  inspectorIoFocus: null,
+  focusInspectorIo: (io, ioId) =>
+    set((s) => ({ inspectorIoFocus: { io, ioId, seq: (s.inspectorIoFocus?.seq ?? 0) + 1 } })),
 
   outlineCollapsed: new Set<Id>(),
   toggleOutlineCollapsed: (id) => {

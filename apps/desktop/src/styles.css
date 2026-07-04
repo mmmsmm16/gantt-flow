@@ -6018,3 +6018,31 @@ input.colored-text {
     animation: none;
   }
 }
+
+/* =========================================================================
+   実機FB その1: フローの I/O クリック編集 ＆ 付箋の対象工程リンク
+   ========================================================================= */
+/* I/O 表示（集約アイコン・出所チップ）はクリックで詳細パネルの該当 I/O へ寄せる。
+   io-overlay は既定 pointer-events:none なので、対象の g だけ操作可へ戻す
+   （子要素は pointer-events を継承して当たり判定を持つ）。 */
+.io-clickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.io-clickable:hover .io-main,
+.io-clickable:hover .io-source-chip {
+  filter: brightness(0.96);
+}
+/* フローの I/O クリックで開いた詳細パネルの該当項目/セクションを一時ハイライト。
+   既存の sync-flash（box-shadow フェード）を流用して見た目を揃える。 */
+.io-row.io-flash,
+.io-section.io-flash {
+  animation: sync-flash 1.5s var(--ease);
+  border-radius: var(--radius-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .io-row.io-flash,
+  .io-section.io-flash {
+    animation: none;
+  }
+}
