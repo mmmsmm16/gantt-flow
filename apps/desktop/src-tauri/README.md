@@ -38,7 +38,8 @@ npx tauri build --config apps/desktop/src-tauri/tauri.conf.json
 
 フロントの保存/開くは [`apps/desktop/src/persistence.ts`](../src/persistence.ts) が
 `__TAURI__` 検出（`isTauri()`）で分岐し、Tauri 配下では
-`window.__TAURI__.core.invoke('save_project', { path, contents })` 等を呼んで
+`window.__TAURI__.core.invoke('save_project', { path, contentsB64 })` 等を呼んで
+（ファイル内容は base64 のバイト列で受け渡す）、
 共有フォルダへ**アトミック保存＋助言ロック**で書く（ブラウザ配下は File System
 Access API／ダウンロードにフォールバック）。パス選択は `pick_save_path` /
 `pick_open_path`（`tauri-plugin-dialog`、`main.rs` で登録済み）を経由し、選ばれた
@@ -46,7 +47,8 @@ Access API／ダウンロードにフォールバック）。パス選択は `pi
 
 ## ファイル形式と関連付け（`.gflow`）
 
-プロジェクトの保存拡張子は **`.gflow`**（中身は JSON）。`tauri.conf.json` の
+プロジェクトの保存拡張子は **`.gflow`**（中身は v2 ZIP コンテナ＝`project.json`＋`assets/`。
+旧単一 JSON も読み込みのみ後方互換）。`tauri.conf.json` の
 `bundle.fileAssociations` で OS に関連付けるため、インストール後は **`.gflow` の既定アプリが
 gantt-flow になり、専用アイコンが付く**（テキストエディタへの誤関連付けを避けられる）。
 開く際は旧 `.json` も受け付ける（後方互換）。

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deserializeProject, type Project, isMilestone } from '@gantt-flow/core';
+import { type Project, isMilestone } from '@gantt-flow/core';
 import { Workspace } from '../src/session.js';
+import { loadProjectFile } from '../src/fileio.js';
 import { runBatch, type BatchOp } from '../src/batch.js';
 import { auditLeafTasks, formatAudit } from '../src/audit.js';
 
@@ -15,7 +16,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
-const reload = async (p: string): Promise<Project> => deserializeProject(await readFile(p, 'utf8'));
+/** ディスクへ書き戻された Project を読み直す（write-through の検証用。v2 ZIP/旧 JSON 両対応）。 */
+const reload = async (p: string): Promise<Project> => loadProjectFile(p);
 
 describe('runBatch（一括構築）', () => {
   it('ref 参照で工程・依存・担当・詳細・IO・課題を1回で構築', async () => {

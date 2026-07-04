@@ -2,7 +2,14 @@
 // Tauri 環境は window.__TAURI__.core.invoke をモックして再現する（node 環境のため DOM 依存の
 // エクスポート系: exportPngFile 等はここでは対象外）。
 import { describe, it, expect, afterEach } from 'vitest';
-import { createSampleProject, serializeProject, type LockInfo } from '@gantt-flow/core';
+import {
+  createSampleProject,
+  serializeProject,
+  serializeContainer,
+  deserializeContainer,
+  type LockInfo,
+  type Project,
+} from '@gantt-flow/core';
 import {
   saveProjectToFile,
   openProjectFromFile,
@@ -10,11 +17,17 @@ import {
   readTableFile,
   localDateYmd,
 } from '../src/persistence';
+import { bytesToB64, b64ToBytes } from '../src/b64';
 
 const gen = (prefix: string) => {
   let n = 0;
   return () => `${prefix}-${++n}`;
 };
+
+// open_project は base64 文字列を返す（Task 2 の IPC 契約）。
+// v2 = ZIP コンテナ、legacy = 旧単一 JSON（後方互換）の base64 をそれぞれ組み立てる。
+const containerB64 = (p: Project): string => bytesToB64(serializeContainer(p));
+const legacyJsonB64 = (p: Project): string => bytesToB64(new TextEncoder().encode(serializeProject(p)));
 
 type Handler = (args: Record<string, unknown>) => unknown;
 
@@ -53,7 +66,7 @@ describe('saveProjectToFile（Tauri: アトミック保存＋競合検知）', (
     installTauri({
       pick_save_path: () => '/tmp/プロジェクト.json',
       save_project: (a) => {
-        saved.push(a['contents'] as string);
+        saved.push(a['contentsB64'] as string);
         mtime = String(Number(mtime) + 1);
         return null;
       },
@@ -66,7 +79,12 @@ describe('saveProjectToFile（Tauri: アトミック保存＋競合検知）', (
     const r1 = await saveProjectToFile(p);
     expect(r1).toEqual({ kind: 'saved', name: 'プロジェクト.json' });
     expect(saved).toHaveLength(1);
-    expect(saved[0]).toBe(serializeProject(p));
+    // save_project へは ZIP コンテナのバイト列を base64 で渡す。
+    const bytes = b64ToBytes(saved[0]!);
+    expect(bytes[0]).toBe(0x50); // 'P'
+    expect(bytes[1]).toBe(0x4b); // 'K' → ZIP ヘッダ
+    // 復号 → コンテナ展開で元のプロジェクトに戻せる（Zod パースでキー順は変わるため deep-equal）。
+    expect(deserializeContainer(bytes).project).toEqual(p);
 
     // 2 回目: 変更なし → そのまま上書きできる
     const r2 = await saveProjectToFile(p);
@@ -201,11 +219,11 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     installTauri({
       pick_open_path: () => '/tmp/open.json',
       stat_updated_at: () => mtime,
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: () => ({ ok: true }),
       release_lock: () => null,
       save_project: (a) => {
-        saved.push(a['contents'] as string);
+        saved.push(a['contentsB64'] as string);
         return null;
       },
       pick_save_path: () => {
@@ -222,12 +240,28 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     expect(saved).toHaveLength(0);
   });
 
+  it('旧 JSON（v1 単一 JSON）ファイルも後方互換で開ける', async () => {
+    const sample = createSampleProject(gen('o1b'));
+    installTauri({
+      pick_open_path: () => '/tmp/legacy.json',
+      stat_updated_at: () => '1',
+      // ZIP ではなく旧単一 JSON の base64（拡張前に保存されたファイル相当）。
+      open_project: () => legacyJsonB64(sample),
+      acquire_lock: () => ({ ok: true }),
+      refresh_lock: () => null,
+      release_lock: () => null,
+    });
+    const p = await openProjectFromFile();
+    expect(p?.meta.id).toBe(sample.meta.id);
+    expect(p).toEqual(sample); // 旧 JSON も現行と同じプロジェクトに復元される（キー順非依存）
+  });
+
   it('他セッションが編集中（stale でない）→ cancel なら開かない', async () => {
     const sample = createSampleProject(gen('o2'));
     const calls = installTauri({
       pick_open_path: () => '/tmp/locked.json',
       stat_updated_at: () => '1',
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: () => ({ ok: false, held: heldByOther, stale: false }),
     });
     const seen: { stale: boolean }[] = [];
@@ -248,7 +282,7 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     const calls = installTauri({
       pick_open_path: () => '/tmp/locked.json',
       stat_updated_at: () => '1',
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: () => ({ ok: false, held: null, stale: false }),
     });
     const seen: { held: unknown; stale: boolean }[] = [];
@@ -269,7 +303,7 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     installTauri({
       pick_open_path: () => '/tmp/locked.json',
       stat_updated_at: () => '1',
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: () => ({ ok: false, held: heldByOther, stale: false }),
     });
     const p = await openProjectFromFile({ confirmLock: () => Promise.resolve('proceed') });
@@ -281,7 +315,7 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     const calls = installTauri({
       pick_open_path: () => '/tmp/same.json',
       stat_updated_at: () => '1',
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: () => ({ ok: true }),
       refresh_lock: () => null,
       release_lock: () => null,
@@ -301,7 +335,7 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     const calls = installTauri({
       pick_open_path: () => pickPath,
       stat_updated_at: () => '1',
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: (a) =>
         a['path'] === '/tmp/first.json' ? { ok: true } : { ok: false, held: heldByOther, stale: false },
       refresh_lock: () => null,
@@ -320,7 +354,7 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     const calls = installTauri({
       pick_open_path: () => pickPath,
       stat_updated_at: () => '1',
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: () => ({ ok: true }),
       refresh_lock: () => null,
       release_lock: () => null,
@@ -342,7 +376,7 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     const calls = installTauri({
       pick_open_path: () => '/tmp/stale.json',
       stat_updated_at: () => '1',
-      open_project: () => serializeProject(sample),
+      open_project: () => containerB64(sample),
       acquire_lock: () => ({ ok: false, held: heldByOther, stale: true }),
       steal_lock: (a) => {
         expect(a['expected']).toEqual(heldByOther);

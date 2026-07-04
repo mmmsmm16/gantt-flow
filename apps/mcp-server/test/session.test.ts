@@ -7,7 +7,7 @@ import {
   addDependency,
   updateTaskDetail,
   updateTaskToBe,
-  deserializeProject,
+  serializeProject,
   computeCompare,
   uuid,
   type Project,
@@ -35,9 +35,9 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-/** ディスクへ書き戻された Project を読み直す（write-through の検証用）。 */
+/** ディスクへ書き戻された Project を読み直す（write-through の検証用。v2 ZIP/旧 JSON 両対応）。 */
 async function reload(p: string): Promise<Project> {
-  return deserializeProject(await readFile(p, 'utf8'));
+  return loadProjectFile(p);
 }
 
 describe('Workspace ライフサイクル', () => {
@@ -196,5 +196,29 @@ describe('apply: write-through と reconcile 同期', () => {
     expect(s2.path).toBe(other);
     const onDisk = await loadProjectFile(other);
     expect(onDisk.meta.title).toBe('A');
+  });
+
+  it('旧 JSON ファイルを開け、保存で v2 (ZIP) になる', async () => {
+    // 旧バージョンが書き出した単一 JSON ファイルを模す（seed で有効な Project を用意し、
+    // 素の JSON テキストとして書き込む＝アプリを介さない「レガシー保存」相当）。
+    const seedWs = new Workspace();
+    const seed = await seedWs.create(join(dir, 'seed.gflow'), { title: 'レガシー' });
+    const file = join(dir, 'legacy.gflow');
+    await writeFile(file, serializeProject(seed.project), 'utf8');
+
+    const ws = new Workspace();
+    const s = await ws.open(file);
+    expect(s.project.meta.title).toBe('レガシー');
+
+    const a = uuid();
+    await s.apply((p) => addTask(p, { name: '軽い編集', level: 'medium', id: a }, uuid));
+
+    // ファイル先頭 2 バイトが 'PK'（保存で v2 ZIP 化された）
+    const head = new Uint8Array(await readFile(file)).subarray(0, 2);
+    expect(Array.from(head)).toEqual([0x50, 0x4b]);
+
+    // 再オープンしても内容が一致（reload と deep-equal）
+    const reopened = await ws.open(file);
+    expect(reopened.project).toEqual(s.project);
   });
 });
