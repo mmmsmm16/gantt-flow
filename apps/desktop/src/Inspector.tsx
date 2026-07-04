@@ -4,7 +4,7 @@ import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLeve
 import { computeCodes, effortRollupMinutes, effortMinutesToHours, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
-import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
+import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { collectIoNames, prevCandidates } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
@@ -617,7 +617,9 @@ export function Inspector() {
                           placeholder={asisLt != null ? `現状 ${asisLt}日` : '—'}
                           onKeyDown={cancelEditOnEscape}
                           onBlur={(e) =>
-                            updateToBe(taskId, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })
+                            updateToBe(taskId, {
+                              ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
+                            })
                           }
                         />
                         {tobeLt != null && asisLt != null && tobeLt !== asisLt && (

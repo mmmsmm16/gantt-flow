@@ -1,7 +1,7 @@
 // 工数欄の入力ガード。1e308 のような「有限だが ×60 で溢れる」値が Infinity として
 // 保存され、JSON では null になってファイルが開けなくなる事故を防ぐ。
 import { describe, it, expect } from 'vitest';
-import { parseEffortHoursToMinutes, validateEffort, EFFORT_RULE_MESSAGE, isEffortBlurUnchanged, normalizeEffortInput } from '../src/parseEffort';
+import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, EFFORT_RULE_MESSAGE, isEffortBlurUnchanged, normalizeEffortInput } from '../src/parseEffort';
 import { effortMinutesToHours } from '@gantt-flow/core';
 
 // #3 工数入力の統一（type=number → type=text）。カンマ小数「1,5」を黙殺せず 1.5h として扱う
@@ -54,6 +54,32 @@ describe('parseEffortHoursToMinutes', () => {
   it('Infinity になる値は null＝棄却（1e999 はもちろん、×60 で溢れる 1e308 も）', () => {
     expect(parseEffortHoursToMinutes('1e999')).toBeNull();
     expect(parseEffortHoursToMinutes('1e308')).toBeNull();
+  });
+});
+
+// To-Be リードタイム欄（日）も工数欄と同じ正規化を通す。raw Number() のままだと
+// カンマ小数「1,5」が NaN になり黙殺されていた（工数欄と同じ #3 系の回帰）。
+describe('parseLtDaysInput: リードタイムも工数欄と同じ正規化に統一', () => {
+  it("カンマ小数'1,5'は1.5日として扱う（従来は NaN で棄却）", () => {
+    expect(parseLtDaysInput('1,5')).toBe(1.5);
+  });
+  it('全角「２，５」も 2.5・全角ピリオド「１．５」は 1.5', () => {
+    expect(parseLtDaysInput('２，５')).toBe(2.5);
+    expect(parseLtDaysInput('１．５')).toBe(1.5);
+  });
+  it('空欄（空白のみ含む）は undefined＝解除', () => {
+    expect(parseLtDaysInput('')).toBeUndefined();
+    expect(parseLtDaysInput('   ')).toBeUndefined();
+  });
+  it('通常の値はそのまま日数として扱う', () => {
+    expect(parseLtDaysInput('2')).toBe(2);
+    expect(parseLtDaysInput('0.5')).toBe(0.5);
+    expect(parseLtDaysInput('0')).toBe(0);
+  });
+  it('数値でない・負の値・Infinity は null＝棄却', () => {
+    expect(parseLtDaysInput('abc')).toBeNull();
+    expect(parseLtDaysInput('-1')).toBeNull();
+    expect(parseLtDaysInput('1e999')).toBeNull();
   });
 });
 

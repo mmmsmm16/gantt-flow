@@ -43,7 +43,7 @@ import { ComparisonDialog } from './ui/ComparisonDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
-import { confirmReplace, gatedImport } from './replaceOps';
+import { confirmReplace, gatedImport, gatedOpen } from './replaceOps';
 import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
@@ -291,9 +291,12 @@ export function App() {
     });
     return ok ? 'proceed' : 'cancel';
   };
+  // 開く(Ctrl+O)も他の置換系(新規/取り込み/サンプル/テンプレ/最近のファイル)と同じ基準で、
+  // 未保存があるときだけ確認する（gatedOpen が confirmReplace→openProjectFromFile の順序を
+  // 保証する。openProjectFromFile はキャンセル時に一切呼ばれない＝ピッカーも開かない）。
   const onOpen = async () => {
     try {
-      const p = await openProjectFromFile({ confirmLock });
+      const p = await gatedOpen(() => openProjectFromFile({ confirmLock }));
       if (p) {
         useApp.getState().loadProject(p);
         useUI.getState().setOutlineCollapsed(new Set());

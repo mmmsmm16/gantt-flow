@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { useApp } from '../src/store';
 import { useUI } from '../src/ui/useUI';
-import { confirmReplace, gatedImport } from '../src/replaceOps';
+import { confirmReplace, gatedImport, gatedOpen } from '../src/replaceOps';
 
 describe('replaceOps.confirmReplace', () => {
   it('クリーン(dirty でない)なら確認ダイアログを出さず即 true', async () => {
@@ -73,6 +73,48 @@ describe('replaceOps.gatedImport（取り込みの全入口が経由する実際
     const ok = await gatedImport(openPicker);
     expect(ok).toBe(true);
     expect(openPicker).toHaveBeenCalledTimes(1);
+    expect(useUI.getState().dialog).toBeNull();
+  });
+});
+
+describe('replaceOps.gatedOpen（開く(Ctrl+O)が経由する実際のハンドラ連鎖）', () => {
+  it('dirty のとき: doOpen は確認ダイアログが解決するまで一切呼ばれない', async () => {
+    useApp.getState().newProject();
+    useApp.getState().addTask('受付');
+    expect(useApp.getState().dirty).toBe(true);
+
+    const doOpen = vi.fn().mockResolvedValue({ ok: true });
+    const pr = gatedOpen(doOpen);
+    // 確認ダイアログが出た時点では、まだファイル選択ダイアログ(doOpen)は絶対に開かれていない。
+    expect(useUI.getState().dialog?.kind).toBe('confirm');
+    expect(useUI.getState().dialog?.title).toBe('ファイルを開く');
+    expect(doOpen).not.toHaveBeenCalled();
+
+    useUI.getState().resolveDialog(true);
+    expect(await pr).toEqual({ ok: true });
+    expect(doOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('dirty でキャンセル: doOpen は一度も呼ばれず null を返す（ピッカーは開かない）', async () => {
+    useApp.getState().newProject();
+    useApp.getState().addTask('受付');
+
+    const doOpen = vi.fn().mockResolvedValue({ ok: true });
+    const pr = gatedOpen(doOpen);
+    expect(useUI.getState().dialog?.kind).toBe('confirm');
+    useUI.getState().resolveDialog(false);
+    expect(await pr).toBeNull();
+    expect(doOpen).not.toHaveBeenCalled();
+  });
+
+  it('クリーンなら確認なしで即 doOpen を呼ぶ', async () => {
+    useApp.getState().newProject();
+    expect(useApp.getState().dirty).toBe(false);
+
+    const doOpen = vi.fn().mockResolvedValue({ ok: true });
+    const result = await gatedOpen(doOpen);
+    expect(result).toEqual({ ok: true });
+    expect(doOpen).toHaveBeenCalledTimes(1);
     expect(useUI.getState().dialog).toBeNull();
   });
 });

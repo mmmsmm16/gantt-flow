@@ -23,6 +23,17 @@ export function parseEffortHoursToMinutes(raw: string): number | undefined | nul
   return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
 }
 
+// To-Be リードタイム欄（日）の入力を数値へ変換する共通ヘルパ。工数欄と同じ正規化
+// （全角数字/全角ピリオド/カンマ小数の吸収）を通し、raw Number() での '1,5'→NaN 棄却を防ぐ。
+// 空欄=undefined（解除）、数値でない/負/無限大=null（不正・棄却、呼び出し側は
+// parseEffortHoursToMinutes と同じ流儀で `?? undefined` にして「解除」扱いへ寄せる）。
+export function parseLtDaysInput(raw: string): number | undefined | null {
+  const norm = normalizeEffortInput(raw);
+  if (!norm) return undefined;
+  const days = Number(norm);
+  return Number.isFinite(days) && days >= 0 ? days : null;
+}
+
 export const EFFORT_RULE_MESSAGE = '工数は 0 以上の数値（時間）で入力してください';
 
 // 工数入力の検証結果。ビュー側はこれで「値を残したまま不正表示し、commit だけブロック」を統一実装する。

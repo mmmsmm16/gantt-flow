@@ -29,3 +29,16 @@ export async function gatedImport(openPicker: () => void): Promise<boolean> {
   openPicker();
   return true;
 }
+
+/**
+ * 「開く」(Ctrl+O・ツールバー・コマンドパレット・Welcome) の入口をゲートする。
+ * gatedImport と同じ構造: confirmReplace を必ず doOpen より前に通し、キャンセル時は
+ * doOpen を一切呼ばない(= ファイル選択ダイアログそのものを開かない)。openProjectFromFile は
+ * ダイアログ表示から読み込みまでを1つの非同期関数で担うため、gatedImport のように
+ * 「picker を開く副作用」と「結果を待つ」を分離できない。代わりに doOpen の戻り値
+ * (読み込んだ Project、またはユーザーがキャンセルして null)をそのまま返す。
+ */
+export async function gatedOpen<T>(doOpen: () => Promise<T | null>): Promise<T | null> {
+  if (!(await confirmReplace('ファイルを開く'))) return null;
+  return doOpen();
+}
