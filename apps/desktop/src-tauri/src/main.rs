@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use fsstore::{AcquireResult, LockInfo};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
@@ -48,11 +49,14 @@ fn ensure_allowed(allowed: &AllowedPaths, path: &str) -> Result<PathBuf, String>
 #[tauri::command]
 async fn save_project(
     path: String,
-    contents: String,
+    contents_b64: String,
     allowed: tauri::State<'_, AllowedPaths>,
 ) -> Result<(), String> {
     let path = ensure_allowed(&allowed, &path)?;
-    fsstore::atomic_save(&path, contents.as_bytes()).map_err(|e| e.to_string())
+    let bytes = B64
+        .decode(contents_b64.as_bytes())
+        .map_err(|e| format!("base64 decode error: {e}"))?;
+    fsstore::atomic_save(&path, &bytes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -62,7 +66,7 @@ async fn open_project(
 ) -> Result<String, String> {
     let path = ensure_allowed(&allowed, &path)?;
     let bytes = fsstore::load(&path).map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|e| e.to_string())
+    Ok(B64.encode(&bytes))
 }
 
 #[tauri::command]

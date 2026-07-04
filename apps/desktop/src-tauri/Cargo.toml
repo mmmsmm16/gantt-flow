@@ -13,3 +13,4 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fsstore = { path = "../../../crates/fsstore" }
+base64 = "0.22"
