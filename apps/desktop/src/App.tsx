@@ -43,6 +43,7 @@ import { ComparisonDialog } from './ui/ComparisonDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
 import { takeAutosaveForRestore, clearAutosave } from './autosave';
+import { confirmReplace, gatedImport } from './replaceOps';
 import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
@@ -316,18 +317,8 @@ export function App() {
       }
     }
   };
-  // サンプル/テンプレート/新規/取り込みで現在のプロジェクトを置き換える前の確認。
-  // 未保存(dirty)のときだけ確認し、失うものが無いクリーンな状態では即座に切り替える
-  // (置換系すべてで同じ基準に揃える＝新規のクリーン時の過剰確認と、取り込みの無警告置換の両方を解消)。
-  const confirmReplace = async (title: string): Promise<boolean> => {
-    if (!useApp.getState().dirty) return true;
-    return useUI.getState().confirm({
-      title,
-      message: '未保存の変更があります。続行すると失われます。よろしいですか？',
-      confirmLabel: '続行',
-      danger: true,
-    });
-  };
+  // サンプル/テンプレート/新規/取り込みで現在のプロジェクトを置き換える前の確認は
+  // replaceOps.confirmReplace に集約(単体テスト対象。App のクロージャに埋めない)。
   const onNew = async () => {
     if (!(await confirmReplace('新規プロジェクト'))) return;
     forgetFileHandle(); // 新規は保存先を引き継がない
@@ -339,45 +330,47 @@ export function App() {
   const onImport = async () => {
     // 取り込みは新規プロジェクト生成＝現在の内容を丸ごと置換する(取り込み後は履歴も reset され
     // Ctrl+Z で戻せない)。他の置換系(サンプル/テンプレ/開く)と同じ基準で、未保存があるときだけ
-    // 確認する(唯一のデータ喪失導線だったのを塞ぐ。UX#7)。
-    if (!(await confirmReplace('CSV / Excel を取り込む'))) return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv,.xlsx,text/csv';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      try {
-        useUI.getState().setBusy('取り込んでいます…');
-        // スピナーを描画してから重い処理へ（同期処理で固まる前に 1 フレーム譲る）。
-        await new Promise((r) => requestAnimationFrame(() => r(undefined)));
-        forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
-        syncFileName();
-        const report = useApp.getState().importRows(await readTableFile(file));
-        useUI.getState().setOutlineCollapsed(new Set());
-        useUI.getState().setWelcomeDismissed(true);
-        if (!tourDone()) useUI.getState().setTourStep(0); // 取り込み直後にも初回ツアーを提示（結果ダイアログの下層）
-        const c = report.created;
-        let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
-        if (report.unresolvedDeps.length)
-          msg += `\n\n未解決の前工程: ${report.unresolvedDeps.length}件（行 ${report.unresolvedDeps
-            .map((u) => u.row)
-            .join(', ')}）`;
-        if (report.hierarchyIssues.length) msg += `\n粒度/親の問題: ${report.hierarchyIssues.length}件`;
-        if (report.warnings.length) msg += `\n警告: ${report.warnings.join(' / ')}`;
-        void useUI.getState().confirm({
-          title: '取り込み結果',
-          message: msg,
-          confirmLabel: '閉じる',
-          hideCancel: true,
-        });
-      } catch {
-        useUI.getState().toast('取り込みに失敗しました（CSV / Excel を確認してください）。', 'error');
-      } finally {
-        useUI.getState().setBusy(null);
-      }
-    };
-    input.click();
+    // 確認する(唯一のデータ喪失導線だったのを塞ぐ。UX#7)。gatedImport が
+    // confirmReplace→openPicker の順序を保証する(openPicker はキャンセル時に一切呼ばれない)。
+    await gatedImport(() => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.csv,.xlsx,text/csv';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          useUI.getState().setBusy('取り込んでいます…');
+          // スピナーを描画してから重い処理へ（同期処理で固まる前に 1 フレーム譲る）。
+          await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+          forgetFileHandle(); // 取り込みは新規プロジェクト＝保存先を引き継がない
+          syncFileName();
+          const report = useApp.getState().importRows(await readTableFile(file));
+          useUI.getState().setOutlineCollapsed(new Set());
+          useUI.getState().setWelcomeDismissed(true);
+          if (!tourDone()) useUI.getState().setTourStep(0); // 取り込み直後にも初回ツアーを提示（結果ダイアログの下層）
+          const c = report.created;
+          let msg = `工程 ${c.tasks} / 入出力 ${c.ios} / 課題 ${c.issues} / 依存 ${c.dependencies} を取り込みました。`;
+          if (report.unresolvedDeps.length)
+            msg += `\n\n未解決の前工程: ${report.unresolvedDeps.length}件（行 ${report.unresolvedDeps
+              .map((u) => u.row)
+              .join(', ')}）`;
+          if (report.hierarchyIssues.length) msg += `\n粒度/親の問題: ${report.hierarchyIssues.length}件`;
+          if (report.warnings.length) msg += `\n警告: ${report.warnings.join(' / ')}`;
+          void useUI.getState().confirm({
+            title: '取り込み結果',
+            message: msg,
+            confirmLabel: '閉じる',
+            hideCancel: true,
+          });
+        } catch {
+          useUI.getState().toast('取り込みに失敗しました（CSV / Excel を確認してください）。', 'error');
+        } finally {
+          useUI.getState().setBusy(null);
+        }
+      };
+      input.click();
+    });
   };
   const onSample = async () => {
     if (!(await confirmReplace('サンプルを開く'))) return;
