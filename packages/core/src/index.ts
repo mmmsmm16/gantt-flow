@@ -23,4 +23,5 @@ export * from './sample';
 export * from './templates';
 export * from './persistence/migrate';
 export * from './persistence/json';
+export * from './persistence/container';
 export * from './persistence/ProjectRepository';
