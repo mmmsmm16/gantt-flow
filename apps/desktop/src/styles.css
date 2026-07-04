@@ -229,6 +229,39 @@
 * {
   box-sizing: border-box;
 }
+
+/* =========================================================================
+   実機FB#3: スクロールバーの軽量化
+   ------------------------------------------------------------------------
+   既定の太い OS スクロールバーは表・フロー双方で圧迫感がある。オーバーレイ風の
+   細いスクロールバーに統一する（機能は変えず見た目のみ）。テーマトークン
+   （--line-strong / --faint）を使うため、ライト/ダーク切替に自動追従する。
+   Firefox は scrollbar-width/-color、Chromium系(Tauri webview含む)は
+   ::-webkit-scrollbar 系で対応。アプリ全体既定（.flow-canvas・outline-scroll・
+   ft-scroll・Inspector 等の主要スクロール領域を個別に列挙しない）。
+   ========================================================================= */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--faint) 55%, transparent);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--faint) 85%, transparent);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html,
 body,
 #root {
@@ -937,6 +970,44 @@ button.danger:hover {
   width: 78px;
   white-space: nowrap;
   text-align: right;
+}
+/* 実機FB#3: 分割ビュー（アウトライン＋フロー）の横スクロールで＋子/×が隠れないよう、
+   操作列を右端に固定する（全項目表の .ft-sticky-r と同じ手法）。狭幅列を追い越して
+   通過するセルの文字が透けて見えないよう、行の状態ごとに不透明な背景を明示する
+   （淡色の状態トークンはそのままだと半透明合成のものがあるため、透過を含まない
+   組み合わせで塗り直す）。 */
+.grid td.c-act,
+.grid th.c-act {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: -1px 0 0 var(--line-strong);
+}
+.grid thead th.c-act {
+  z-index: 3;
+  background: var(--hdr);
+}
+.grid tbody tr:hover td.c-act {
+  background: var(--row-hover);
+}
+.grid tr.selected td.c-act {
+  background: var(--accent-soft);
+}
+.grid tr.is-parent td.c-act {
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--panel));
+}
+.grid tr.is-parent:hover td.c-act {
+  background: var(--row-hover);
+}
+.grid tr.is-parent.selected td.c-act {
+  background: var(--accent-soft);
+}
+.grid tr.is-milestone td.c-act {
+  background: var(--amber-fill);
+}
+.grid tbody tr.marked td.c-act {
+  background: var(--accent-soft);
 }
 .name-cell {
   display: flex;
@@ -5987,34 +6058,6 @@ input.colored-text {
 }
 @media (prefers-reduced-motion: reduce) {
   .mirror-spin {
-    animation: none;
-  }
-}
-
-/* =========================================================================
-   実機FB その1: フローの I/O クリック編集 ＆ 付箋の対象工程リンク
-   ========================================================================= */
-/* I/O 表示（集約アイコン・出所チップ）はクリックで詳細パネルの該当 I/O へ寄せる。
-   io-overlay は既定 pointer-events:none なので、対象の g だけ操作可へ戻す
-   （子要素は pointer-events を継承して当たり判定を持つ）。 */
-.io-clickable {
-  pointer-events: auto;
-  cursor: pointer;
-}
-.io-clickable:hover .io-main,
-.io-clickable:hover .io-source-chip {
-  filter: brightness(0.96);
-}
-/* フローの I/O クリックで開いた詳細パネルの該当項目/セクションを一時ハイライト。
-   既存の sync-flash（box-shadow フェード）を流用して見た目を揃える。 */
-.io-row.io-flash,
-.io-section.io-flash {
-  animation: sync-flash 1.5s var(--ease);
-  border-radius: var(--radius-sm);
-}
-@media (prefers-reduced-motion: reduce) {
-  .io-row.io-flash,
-  .io-section.io-flash {
     animation: none;
   }
 }
