@@ -280,6 +280,19 @@ export function TableView() {
     setFocusId(null);
   }, [focusId, rows.length]);
 
+  // 両窓編集同期: 発信元窓の focusHint が「表での作成→即リネーム」を要求したら、その行を選択して
+  // 作業名入力へフォーカスする（他の追加経路＝addRootAndEdit と同じ select + setFocusId 経路）。
+  // フォロワー窓が、リーダーから届いた新工程 id を受けて開く。seq でトリガ（再マウントの二重発火防止）。
+  const renameRequest = useUI((s) => s.renameRequest);
+  const consumedRenameSeq = useRef(useUI.getState().renameRequest?.seq ?? 0);
+  useEffect(() => {
+    if (renameRequest && renameRequest.surface === 'table' && renameRequest.seq > consumedRenameSeq.current) {
+      consumedRenameSeq.current = renameRequest.seq;
+      select(renameRequest.taskId);
+      setFocusId(renameRequest.taskId);
+    }
+  }, [renameRequest]);
+
   // 選択中の工程が変わったら、その行が画面外のとき視点を寄せる（フロー→表追従）。
   // 'nearest' なので表側の操作で既に見えている時は動かない。畳まれて未描画なら no-op。
   // あわせて roving focus: 表がアクティブかつ編集中でないときは選択行に実 DOM フォーカスを移す

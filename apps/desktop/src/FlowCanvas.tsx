@@ -160,6 +160,17 @@ export function FlowCanvas() {
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   // フロー上で工程名をその場編集している対象（ダブルクリック / F2）。
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  // 両窓編集同期: 発信元窓の focusHint が「フロー面での作成→即リネーム」を要求したら、その場編集を開く。
+  // 作成系の返り値をローカルに得られないフォロワー窓で、リーダーから届いた新工程 id を受けて開く経路。
+  // seq でトリガ（再マウント時に古い要求で開き直さないよう ref で消化済み seq を持つ）。
+  const renameRequest = useUI((s) => s.renameRequest);
+  const consumedRenameSeq = useRef(useUI.getState().renameRequest?.seq ?? 0);
+  useEffect(() => {
+    if (renameRequest && renameRequest.surface === 'flow' && renameRequest.seq > consumedRenameSeq.current) {
+      consumedRenameSeq.current = renameRequest.seq;
+      setEditingTaskId(renameRequest.taskId);
+    }
+  }, [renameRequest]);
   // 付箋の「対象工程を設定」待機中（この付箋 id を保持）。次に工程ノードをクリックで対象を確定、Esc で取消。
   const [commentLink, setCommentLink] = useState<FlowNodeId | null>(null);
   // キーボードピッカー。mode='connect'(c)は接続先、'parallel'(Shift+P)は並行化の基準工程を、
