@@ -119,7 +119,9 @@ export function removeStep(p: Project, taskId: Id, stepId: Id, now: string): Pro
   const next = clone(p);
   const d = next.manual.procedures[taskId];
   if (!d) return next;
-  d.steps = d.steps.filter((s) => s.id !== stepId);
+  const idx = d.steps.findIndex((s) => s.id === stepId);
+  if (idx < 0) return next; // 対象不在は no-op（updatedAt も不変）
+  d.steps.splice(idx, 1);
   d.updatedAt = now;
   return next;
 }
@@ -186,7 +188,9 @@ export function removeStepCond(p: Project, taskId: Id, stepId: Id, condId: Id, n
   const d = next.manual.procedures[taskId];
   const s = d && findStep(d, stepId);
   if (!d || !s) return next;
-  s.conds = s.conds.filter((c) => c.id !== condId);
+  const idx = s.conds.findIndex((c) => c.id === condId);
+  if (idx < 0) return next; // 対象不在は no-op（updatedAt も不変）
+  s.conds.splice(idx, 1);
   d.updatedAt = now;
   return next;
 }
@@ -263,7 +267,9 @@ export function removeStepImage(p: Project, taskId: Id, stepId: Id, imageId: Id,
   const d = next.manual.procedures[taskId];
   const s = d && findStep(d, stepId);
   if (!d || !s) return next;
-  s.images = s.images.filter((i) => i.id !== imageId);
+  const idx = s.images.findIndex((i) => i.id === imageId);
+  if (idx < 0) return next; // 対象不在は no-op（updatedAt も不変）
+  s.images.splice(idx, 1);
   d.updatedAt = now;
   return next;
 }
@@ -277,12 +283,13 @@ export function upsertAsset(
 ): Project {
   const next = clone(p);
   const id = args.id ?? idGen();
-  const asset: AssetRef = {
-    id,
-    name: args.name,
-    ...(args.desc ? { desc: args.desc } : {}),
-    ...(args.locator ? { locator: args.locator } : {}),
-  };
+  const existing = next.manual.assets[id];
+  // 既存があれば merge（updateAsset と同じキー存在ベースの意味論）。
+  // args に無いキー（例: name のみ指定）は既存値を保持する。新規時は既存が無いので name 必須で埋まる。
+  const asset: AssetRef = existing ? clone(existing) : { id, name: args.name };
+  const { id: _id, ...patch } = args;
+  mergePatch(asset, patch);
+  asset.id = id;
   next.manual.assets[id] = asset;
   return next;
 }
