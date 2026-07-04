@@ -8,24 +8,25 @@
 
 ## 2. ファイル形式
 
-### Phase 1: 単一 JSON（`.json`）
-- まずは `Project`（`02-data-model.md`）をそのまま 1 つの JSON にシリアライズ。実装が軽い。
-- `ProjectRepository` IF の背後に実装を隠し、後で差し替え可能にする。
+### 現行: v2 ZIP コンテナ（`.gflow`・実装済み）
 
-### Phase 3 以降: ZIP バンドル（`.gflow`）
-将来、画像等のアセットを同梱したくなったら ZIP バンドルへ拡張する。
+`packages/core/src/persistence/container.ts` が唯一の実装。schemaVersion は 2（`manual` 層を含む）。
 
 ```
 project.gflow  (ZIP)
-├── manifest.json      { schemaVersion, appVersion, title, ids }
-├── core.json          Core
-├── details.json       Record<taskId, TaskDetail>
-├── flow.json          FlowView
-└── assets/            （将来: 画像・ロゴ 等）
+├── project.json       Project 全体（schemaVersion / meta / core / details / flow / manual）
+└── assets/            手順書ステップの画像（内容ハッシュ名。project から参照される分のみ保存時に書く）
 ```
 
-- 利点: 1 ファイルとして共有フォルダへ置ける／メール添付不要、部分復旧しやすい、バイナリ同梱可。
-- ユーザー体験は「1 ファイルを開く／保存する」で一貫。
+- 旧**単一 JSON**（`.gflow`/`.json`・Phase 1 形式）は**読み込みのみ後方互換**。先頭バイト（`PK` vs `{`）で判別し、
+  明示保存時に v2 になる。
+- 画像バイナリは Project（JSON）には入れず ZIP の `assets/` に置く。アプリ実行中はメモリ層
+  （`apps/desktop/src/assetStore.ts`）が保持し、保存時に参照分のみ書き出す（孤児は GC）。
+  localStorage の autosave/backups（§5）は project JSON のみで**画像を含まない**（復旧時の画像欠落は許容仕様）。
+- 利点: 1 ファイルとして共有フォルダへ置ける／メール添付不要、バイナリ同梱可。
+  ユーザー体験は「1 ファイルを開く／保存する」で一貫。
+- 当初案（core.json/details.json 分割＋manifest.json）は採用せず、`project.json` 1 エントリに集約した
+  （検証・マイグレーションを単一 JSON 時代と同一のパイプラインで通すため）。
 
 ## 3. 共有フォルダでの同時編集と安全な書き込み
 

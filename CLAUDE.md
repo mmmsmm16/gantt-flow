@@ -8,6 +8,8 @@
 
 - `packages/core` (`@gantt-flow/core`) — **純粋 TS のドメイン層。React も Tauri も import しない**。
   `model` / `commands` / `sync`(reconcile) / `persistence`(IF) / `import` / `export` / `validate` / `metrics` / `history`。
+  `project.manual` は手順書・資料台帳の層（`commands/manual.ts`、ナビ導出は `sync/procedureNav.ts` —
+  `bands`/`milestoneGuides` と同型の純関数で reconcile には関与しない）。
 - `apps/desktop` (`@gantt-flow/desktop`) — Tauri 2 + React 18 + Vite 5 + Zustand 4。
   `src/` はフラット構成（`App.tsx` `store.ts` `TableView.tsx` `FullTable.tsx` `FlowCanvas.tsx` `flowSvg.ts`
   `Inspector.tsx` `persistence.ts` など約 30 ファイル）＋ダイアログ/共通 UI の `src/ui/`。
@@ -19,8 +21,8 @@
 ## 破ってはいけない設計ルール
 
 1. **`packages/core` は UI/OS 非依存**。React / Tauri / ブラウザ専用 API を core に持ち込まない（Node 上で単体テストできること）。
-2. すべてのコア変更は **commands 経由の純粋関数** `(project, args, idGen) => project'`。
-   commands は **`core` / `details` のみ** 更新し、**`flow` は触らない**（`packages/core/src/commands/index.ts`）。
+2. すべてのコア変更は **commands 経由の純粋関数** `(project, args, idGen) => project'`（手順書系は末尾に `now` も注入）。
+   commands は **`core` / `details` / `manual` のみ** 更新し、**`flow` は触らない**（`packages/core/src/commands/index.ts`）。
 3. flow への反映は **`reconcileFlow(core, details, view, idGen) => { view, report }`**（純粋・決定論・最重要）。
 4. **ID 生成は必ず `idGen`（`ids.ts` の `IdGen`）を注入**する。直接 UUID を呼ばない。
    テストは決定論カウンタ（`test/helpers.ts` の `counter()`）を注入して出力をバイト安定にする。
@@ -58,8 +60,11 @@
   （`apps/desktop/src/flowSvg.ts` + `FlowCanvas.tsx`）。`@xyflow/react` 依存は無い。
 - `docs/01` の `apps/desktop/src/{store,table,flow,shell}/` という階層は **未採用**。実体はフラットな `src/*` ＋ `src/ui/`。
 - 現用の `.gflow` は **v2 ZIP コンテナ**（`project.json`＋`assets/`。`persistence/container.ts`）。
-  旧**単一 JSON**（`.gflow`/`.json`）は読み込みのみ後方互換で、明示保存時に v2 になる。
+  旧**単一 JSON**（`.gflow`/`.json`）は読み込みのみ後方互換で、明示保存時に v2 になる（schemaVersion 2）。
   Tauri IPC は base64 でバイト列を渡す（既定拡張子は `apps/desktop/src/persistence.ts` の `PROJECT_EXT`）。
+- **画像バイナリは Project 外**（`apps/desktop/src/assetStore.ts` のメモリ層。Project には
+  `StepImage.file`＝内容ハッシュ名のみ）。保存時に参照分だけ ZIP へ書き（GC）、メモリは消さない。
+  localStorage の autosave/backups は**画像を含まない**（クラッシュ復旧時の画像欠落は許容仕様）。
 
 ## スタック詳細
 
