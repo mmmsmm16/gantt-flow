@@ -11,6 +11,7 @@
 //    載せない＝重いバイナリを毎編集で配らない）。配布口は dualwindow.ts が setAssetSink で差し込む。
 //
 // UI/OS 依存（Blob/URL）はここに閉じる（core は非依存を保つ）。
+import { bytesToB64 } from './b64';
 
 // file 名 → 実バイト。名前が内容ハッシュ由来なので「同一内容 ⇒ 同名 ⇒ 共有」。
 const bytesByFile = new Map<string, Uint8Array>();
@@ -42,7 +43,9 @@ const EXT_TO_MIME: Record<string, string> = {
 function extForMime(mime: string): string {
   return EXT_BY_MIME[mime.toLowerCase().split(';')[0]!.trim()] ?? 'bin';
 }
-function mimeForFile(file: string): string {
+// 拡張子から MIME を引く（純関数・DOM 非依存）。handbook.ts が opts.assets の bytes を
+// data URI 化する際にも使う（内容ハッシュ名の拡張子は contentHashName 由来で安全）。
+export function mimeForFile(file: string): string {
   const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
   return EXT_TO_MIME[ext] ?? 'application/octet-stream';
 }
@@ -90,6 +93,14 @@ export function getAssetUrl(file: string): string | undefined {
   const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeForFile(file) }));
   urlByFile.set(file, url);
   return url;
+}
+
+/** 自己完結な data URI（DOM 非依存＝node 環境でも使える。blob URL の getAssetUrl と対を成す）。
+    セッションメモリに bytes が無ければ undefined（呼び出し側で「見つからない」表示に使う）。 */
+export function assetDataUri(file: string): string | undefined {
+  const bytes = bytesByFile.get(file);
+  if (!bytes) return undefined;
+  return `data:${mimeForFile(file)};base64,${bytesToB64(bytes)}`;
 }
 
 /** 保存用に参照分だけ抽出（メモリからのコピー参照・GC はしない）。 */

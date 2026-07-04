@@ -3,7 +3,7 @@
 // 単一データソース（project.manual）を core コマンド経由で編集する（reconcile/flow には触らない）。
 // UI の正: design_reference/procedure-mock.html。
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { Core, Id, Manual, ProcessTask, StepRef, TaskDetail } from '@gantt-flow/core';
+import type { Core, Id, Manual, ProcessTask, Project, StepRef } from '@gantt-flow/core';
 import { computeCodes, deriveProcedureNav } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
@@ -12,13 +12,9 @@ import { AssetLedger } from './AssetLedger';
 import { getAssetUrl } from './assetStore';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { isEditableTarget } from './keymap';
+import { hasChildren, isLeaf, ancestorsOf, resolveRef as resolveRefShared } from './procShared';
 
 const LEVEL_LABEL: Record<string, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
-
-const hasChildren = (core: Core, id: Id): boolean =>
-  Object.values(core.tasks).some((t) => (t.parentId ?? undefined) === id);
-
-const isLeaf = (core: Core, id: Id): boolean => !!core.tasks[id] && !hasChildren(core, id);
 
 // 「中工程」= 縦フローナビの配下末端をぶら下げる非末端工程。選択工程/明示指定から決める。
 function resolveMidId(core: Core, selectedTaskId: Id | undefined, procedureMidId: Id | null): Id | undefined {
@@ -46,42 +42,21 @@ function midOf(core: Core, taskId: Id): Id | undefined {
 const byOrder = (ts: ProcessTask[]): ProcessTask[] =>
   [...ts].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 
-// 祖先パス（root..parent、id 自身は含まない）。
-function ancestorsOf(core: Core, id: Id): ProcessTask[] {
-  const out: ProcessTask[] = [];
-  let cur = core.tasks[id]?.parentId;
-  const guard = new Set<Id>();
-  while (cur && core.tasks[cur] && !guard.has(cur)) {
-    guard.add(cur);
-    out.unshift(core.tasks[cur]!);
-    cur = core.tasks[cur]!.parentId;
-  }
-  return out;
-}
-
 function coverageOf(core: Core, manual: Manual, midId: Id): { done: number; total: number } {
   const nav = deriveProcedureNav(core, midId, manual);
   return { done: nav.filter((n) => n.hasProcedure).length, total: nav.length };
 }
 
-// 参照チップの表示解決（見つからない＝ダングリングは broken）。
+// 参照チップの表示解決（見つからない＝ダングリングは broken）。icon/tone は procShared が返す kind から作る
+// （procShared.resolveRef は project 引数の汎用形＝handbook.ts とも共有。表示結果は従来と同一）。
+const REF_ICON: Record<'asset' | 'io' | 'task', string> = { asset: '📚', io: '📄', task: '🔗' };
+const REF_TONE: Record<'asset' | 'io' | 'task', 'ref' | 'io'> = { asset: 'ref', io: 'io', task: 'io' };
 function resolveRef(
   ref: StepRef,
-  core: Core,
-  details: Record<Id, TaskDetail>,
-  manual: Manual,
+  project: Project,
 ): { icon: string; label: string; broken: boolean; tone: 'ref' | 'io' } {
-  if (ref.kind === 'asset') {
-    const a = manual.assets[ref.assetId];
-    return { icon: '📚', label: a?.name ?? '削除された資料', broken: !a, tone: 'ref' };
-  }
-  if (ref.kind === 'io') {
-    const d = details[ref.taskId];
-    const item = [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((i) => i.id === ref.ioId);
-    return { icon: '📄', label: item?.name ?? '消えた帳票', broken: !item, tone: 'io' };
-  }
-  const t = core.tasks[ref.taskId];
-  return { icon: '🔗', label: t?.name ?? '消えた工程', broken: !t, tone: 'io' };
+  const r = resolveRefShared(project, ref);
+  return { icon: REF_ICON[r.kind], label: r.label, broken: r.broken, tone: REF_TONE[r.kind] };
 }
 
 // 単一行の非制御入力（defaultValue + onBlur コミット + Escape 取消 + フォーカス全選択）。
@@ -539,7 +514,7 @@ export function ProcedureView(): JSX.Element {
                     {step.refs.length > 0 && (
                       <div className="proc-chips">
                         {step.refs.map((ref, ri) => {
-                          const r = resolveRef(ref, core, details, manual);
+                          const r = resolveRef(ref, project);
                           return (
                             <span
                               className={`proc-chip ${r.broken ? 'broken' : r.tone}`}
