@@ -8,8 +8,12 @@ import { useUI } from './ui/useUI';
  * 工程へジャンプ: 選択し、粒度をその工程に合わせ、詳細パネルを開く。
  * 全体スコープで俯瞰中はスコープを維持（どの工程も見えている）。特定の親に絞って
  * 見ているときだけ、対象工程の文脈（親）へスコープを追従させる。
+ *
+ * revealInFlow: パレット検索ジャンプ専用。分割＋詳細表示では activePane='table' のとき
+ * フローペインが畳まれ、ジャンプ先のノードが見えない（#5）。この経路に限りフローを
+ * アクティブにして必ず見せる（表クリックやフロー→表の「表で表示」経路では倒さない）。
  */
-export function revealTask(taskId: string): void {
+export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): void {
   const app = useApp.getState();
   const t = app.project.core.tasks[taskId];
   if (!t) return;
@@ -17,7 +21,9 @@ export function revealTask(taskId: string): void {
   app.select(taskId);
   app.setLevel(t.level);
   if (wasScoped) app.setScope(t.parentId);
-  useUI.getState().setInspectorOpen(true);
+  const ui = useUI.getState();
+  if (opts?.revealInFlow) ui.setActivePane('flow');
+  ui.setInspectorOpen(true);
 }
 
 /**

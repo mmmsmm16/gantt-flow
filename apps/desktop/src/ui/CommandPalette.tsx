@@ -262,6 +262,8 @@ function PaletteBody(handlers: FileHandlers) {
   const canUndo = useApp((s) => s.canUndo);
   const canRedo = useApp((s) => s.canRedo);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
+  // 表の複数選択（marked）件数。担当設定など一括対応コマンドを「選択中の n 件に適用」に切り替える。
+  const markedCount = useUI((s) => s.markedTaskIds.length);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   // 引数モード: 選択中のコマンド（null=コマンド一覧）。Esc / 空欄 Backspace で一覧へ戻る。
@@ -312,10 +314,11 @@ function PaletteBody(handlers: FileHandlers) {
       addTaskQuickCommand(hasSel),
       // ---- 引数付きコマンド（選択中の工程に対する編集） ----
       {
+        // 表で複数選択中は選択全体に一括適用（既存の setAssigneeManyByName を流用）。
         id: 'arg-assignee',
-        label: '担当を設定…',
+        label: markedCount > 1 ? `担当を設定（選択中の ${markedCount} 件）…` : '担当を設定…',
         keywords: 'assignee tantou 担当 部署 設定 set',
-        available: hasSel,
+        available: hasSel || markedCount > 1,
         repeatable: true,
         arg: {
           placeholder: '担当（部門 / 個人）。空欄で未割当',
@@ -328,7 +331,9 @@ function PaletteBody(handlers: FileHandlers) {
         },
         runWithArg: (v) => {
           const a = useApp.getState();
-          if (a.selectedTaskId) a.setAssigneeByName(a.selectedTaskId, v);
+          const mk = useUI.getState().markedTaskIds;
+          if (mk.length > 1) a.setAssigneeManyByName(mk, v);
+          else if (a.selectedTaskId) a.setAssigneeByName(a.selectedTaskId, v);
         },
       },
       {
@@ -783,7 +788,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },
     ];
-  }, [handlers, canUndo, canRedo, selectedTaskId, recentFiles]);
+  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles]);
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 
@@ -926,7 +931,7 @@ function PaletteBody(handlers: FileHandlers) {
         }
         runAndClose(item.c.run);
       }
-    } else runAndClose(() => revealTask(item.t.id));
+    } else runAndClose(() => revealTask(item.t.id, { revealInFlow: true }));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {

@@ -105,7 +105,9 @@ export function TableView() {
   const setCollapsed = useUI((s) => s.setOutlineCollapsed);
   // クイックフィルタ(Ctrl/⌘+F)。表示のみの絞り込みで、行追加・移動などのデータ操作には触れない。
   // フィルタ中は折りたたみを無視して全展開で探す(畳まれた配下の一致を取りこぼさない)。
-  const [findQuery, setFindQuery] = useState('');
+  // 文字列は useUI に置く＝表⇄フロー切替や粒度変更で TableView が再マウントされても揮発しない(#26)。
+  const findQuery = useUI((s) => s.outlineFilter);
+  const setFindQuery = useUI((s) => s.setOutlineFilter);
   const findRef = useRef<HTMLInputElement>(null);
   const findActive = findQuery.trim() !== '';
   const { rows, matched } = filterOutlineRows(

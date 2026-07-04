@@ -100,6 +100,13 @@ export function useRowMultiSelect(opts: {
   const [marked, setMarked] = useState<Set<Id>>(new Set());
   const [anchor, setAnchor] = useState<Id | null>(null);
 
+  // marked を useUI へミラーする（コマンドパレットが「選択中の n 件に適用」を出すため）。
+  // 正本はこのフックのまま。表がアンマウントされたら空へ戻す（別ビューへ持ち越さない）。
+  useEffect(() => {
+    useUI.getState().setMarkedTaskIds([...marked]);
+  }, [marked]);
+  useEffect(() => () => useUI.getState().setMarkedTaskIds([]), []);
+
   const clear = () => setMarked((m) => (m.size ? new Set() : m));
 
   const onRowClick = (e: MouseEvent, id: Id) => {

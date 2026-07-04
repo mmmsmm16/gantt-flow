@@ -260,6 +260,16 @@ interface UIState {
   toggleOutlineCollapsed: (id: Id) => void;
   setOutlineCollapsed: (ids: Set<Id>) => void;
 
+  /** アウトライン表のクイックフィルタ文字列。ビュー切替（表⇄フロー・粒度変更）で FlowCanvas/
+      TableView が再マウントされても揮発しないよう、ローカル state ではなくここに置く（#26。非永続）。 */
+  outlineFilter: string;
+  setOutlineFilter: (query: string) => void;
+
+  /** 表の複数選択（marked）を全体へミラーした工程 ID。コマンドパレットが「選択中の n 件に適用」を
+      出すために購読する（正本は各表ビューの useRowMultiSelect。非永続）。 */
+  markedTaskIds: Id[];
+  setMarkedTaskIds: (ids: Id[]) => void;
+
   /** 使い方ツアーの現在ステップ（null=非表示）。 */
   tourStep: number | null;
   setTourStep: (step: number | null) => void;
@@ -478,6 +488,14 @@ export const useUI = create<UIState>((set, get) => ({
     set({ outlineCollapsed: next });
   },
   setOutlineCollapsed: (ids) => set({ outlineCollapsed: ids }),
+
+  outlineFilter: '',
+  setOutlineFilter: (outlineFilter) => set({ outlineFilter }),
+
+  markedTaskIds: [],
+  // 空→空の更新はスキップ（表マウント/アンマウントのたびに無用な再レンダーを起こさない）。
+  setMarkedTaskIds: (ids) =>
+    set((s) => (s.markedTaskIds.length === 0 && ids.length === 0 ? s : { markedTaskIds: ids })),
 
   columnVisibility: readInitialColumns(),
   toggleColumn: (key) => {

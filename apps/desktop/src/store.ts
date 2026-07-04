@@ -157,6 +157,62 @@ function nextTaskPos(
   return { x: Math.round(x), y: Math.round(y) };
 }
 
+// 段積み配置: base（左上）から右下へ 1 枠ずつずらし、既存の箱ノード（工程/制御/付箋）と
+// 重ならない最初の位置を返す。制御ノード・付箋を連続追加したとき（特に画面中央スポーン）に
+// 既存ノードの真上へ重なって「追加が効かない」ように見えるのを防ぐ（必ずズレて置かれる）。
+const STACK_DX = 26;
+const STACK_DY = 22;
+function stackSlot(
+  view: FlowLevelView,
+  baseX: number,
+  baseY: number,
+  size: { w: number; h: number },
+): { x: number; y: number } {
+  const boxes = Object.values(view.nodes).filter(
+    (n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment',
+  );
+  for (let k = 0; k <= boxes.length; k++) {
+    const x = Math.round(baseX + k * STACK_DX);
+    const y = Math.round(baseY + k * STACK_DY);
+    const hit = boxes.some((o) => {
+      const s = nodeSize(o);
+      return x < o.x + s.w && x + size.w > o.x && y < o.y + s.h && y + size.h > o.y;
+    });
+    if (!hit) return { x, y };
+  }
+  const k = boxes.length + 1;
+  return { x: Math.round(baseX + k * STACK_DX), y: Math.round(baseY + k * STACK_DY) };
+}
+
+// 部分整列で「固定扱い」にするノード集合（選択した工程ノード以外を固定）。tidyFlow と
+// wouldTidyFlow が同じ規則を使うよう切り出す。selectedIds 空/未指定なら全体整列（固定なし）。
+function tidyKeepFixed(
+  view: FlowLevelView,
+  selectedIds?: FlowNodeId[],
+): Set<FlowNodeId> | undefined {
+  if (!selectedIds || !selectedIds.length) return undefined;
+  const selSet = new Set(selectedIds);
+  return new Set(
+    Object.values(view.nodes)
+      .filter((n) => n.kind === 'task' && !selSet.has(n.id))
+      .map((n) => n.id),
+  );
+}
+
+// 自動整列が変えるのはノードの x/y とレーン高さだけ。この 2 つが全て一致すれば「差分なし」＝
+// 整列しても見た目は変わらない（確認を出さず no-op として扱う判定に使う）。
+function sameLayout(a: FlowLevelView, b: FlowLevelView): boolean {
+  for (const id in a.nodes) {
+    const na = a.nodes[id]!;
+    const nb = b.nodes[id];
+    if (!nb || na.x !== nb.x || na.y !== nb.y) return false;
+  }
+  for (const id in a.lanes) {
+    if ((a.lanes[id]?.height ?? undefined) !== (b.lanes[id]?.height ?? undefined)) return false;
+  }
+  return true;
+}
+
 function initialProject(): Project {
   const now = new Date().toISOString();
   const base: Project = {
@@ -282,6 +338,9 @@ export interface AppState {
   /** 現在のフロービューを自動整列（依存で段組み・レーンで縦配置）。1 undo 単位。 */
   /** 自動整列。selectedIds を渡すと、その工程ノードだけを整列し他は固定（部分整列）。 */
   tidyFlow: (selectedIds?: FlowNodeId[]) => void;
+  /** 自動整列で配置（x/y・レーン高さ）が実際に変わるか（読み取り専用）。確認ダイアログを
+      出す前に「差分の出ない整列」を判定し、no-op トーストへ切り替えるために使う。 */
+  wouldTidyFlow: (selectedIds?: FlowNodeId[]) => boolean;
   /** レーンの高さを変更（手動リサイズ）。下のレーンのノードを連動シフトして整合を保つ。 */
   setLaneHeight: (laneId: Id, height: number) => void;
   /** スイムレーンを 1 つ上(-1)/下(+1)へ入れ替える。中のノードも連動して移動。 */
@@ -537,20 +596,24 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         ? Object.values(view.nodes).find((n) => n.kind === 'task' && n.taskId === newId)
         : undefined;
       if (node) {
+        // 既存の（自分以外の）マイルストーン数。中央スポーン/既定位置いずれも、この本数ぶん
+        // 右へずらして連続追加が既存 MS の真上に重ならないようにする（未紐付け時は node.x が
+        // そのまま菱形の位置になる。milestoneGuides.ts 参照）。
+        const k = Object.values(view!.nodes).filter(
+          (n) => n.kind === 'task' && n.id !== node.id && isMilestone(p.core, n.taskId),
+        ).length;
         if (x != null) {
-          node.x = Math.round(x);
+          node.x = Math.round(x) + k * 40;
           node.y = Math.round(y ?? node.y);
         } else {
-          // 位置指定なし（表/パレットからの追加）: 既存の未紐付け MS と重ならないよう軽く段積み
-          // （未紐付け時は node.x がそのまま菱形の位置になる。milestoneGuides.ts 参照）。
-          const k = Object.values(view!.nodes).filter(
-            (n) => n.kind === 'task' && n.id !== node.id && isMilestone(p.core, n.taskId),
-          ).length;
           node.x = 80 + k * 40;
         }
       }
       pushHistory(p, 'マイルストーンを追加');
       sync({ selectedTaskId: newId });
+      // 作成直後にインスペクタを開く: マイルストーンは対象工程（前工程）を紐付けて初めて意味を持つ。
+      // すぐ設定できるよう詳細パネルを開く（#10。表/フロー/パレットのどこから作っても同じ導線）。
+      useUI.getState().setInspectorOpen(true);
       return newId;
     },
 
@@ -585,28 +648,29 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (trimmed) {
         ({ project: p, assigneeId } = ensureAssigneeId(p, trimmed));
       }
-      let changed = false;
+      let count = 0;
       for (const id of taskIds) {
         if (p.core.tasks[id]) {
           p = cSetAssignee(p, id, assigneeId);
-          changed = true;
+          count += 1;
         }
       }
-      if (changed) commit(p, '担当を変更');
+      // 一括操作は undo ラベルに件数を入れる（「3件の担当を変更」＝何をまとめて戻すか分かる）。
+      if (count) commit(p, count > 1 ? `${count}件の担当を変更` : '担当を変更');
     },
 
     removeManyTasks: (taskIds) => {
       let p = get().project;
-      let changed = false;
+      let count = 0;
       for (const id of taskIds) {
         if (p.core.tasks[id]) {
           p = cDeleteTaskKeepChildren(p, id);
-          changed = true;
+          count += 1;
         }
       }
-      if (changed) {
+      if (count) {
         clearScopeIfRemoved(p);
-        commit(p, '工程を削除');
+        commit(p, count > 1 ? `${count}件を削除` : '工程を削除');
         clearSelectionIfRemoved();
       }
     },
@@ -777,7 +841,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           p = cSetAssignee(r.project, nid, r.assigneeId);
         }
       }
-      if (count) commit(p, '工程を貼り付け');
+      if (count) commit(p, count > 1 ? `${count}件を貼り付け` : '工程を貼り付け');
       return count;
     },
 
@@ -1187,19 +1251,18 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     addControlNode: (control, x, y) =>
       editView((view) => {
         const id = uuid();
-        const k = Object.values(view.nodes).filter((n) => n.kind === 'control').length;
-        // 位置指定あり（画面中央など）＝そこへ。同じ点への連続追加は少しずらして重なりを防ぐ。
-        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420 + k * 28;
-        const py = y != null ? Math.round(y) + (k % 5) * 14 : 44 + k * 18;
-        view.nodes[id] = { id, kind: 'control', control, x: px, y: py };
+        // 位置指定あり（画面中央など）＝そこを起点に、既存の箱ノードと重ならない位置へ段積み。
+        // k%5 の周回だと 5 個目で真上に戻り「追加が効かない」誤認を招いていた（累積で必ずズレる）。
+        const base = x != null ? { x: Math.round(x), y: Math.round(y ?? 44) } : { x: 420, y: 44 };
+        const pos = stackSlot(view, base.x, base.y, SIZE.control);
+        view.nodes[id] = { id, kind: 'control', control, x: pos.x, y: pos.y };
       }, '制御ノードを追加'),
     addComment: (text, x, y) =>
       editView((view) => {
         const id = uuid();
-        const k = Object.values(view.nodes).filter((n) => n.kind === 'comment').length;
-        const px = x != null ? Math.round(x) + (k % 5) * 18 : 420;
-        const py = y != null ? Math.round(y) + (k % 5) * 14 : 320 + k * 24;
-        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: px, y: py };
+        const base = x != null ? { x: Math.round(x), y: Math.round(y ?? 320) } : { x: 420, y: 320 };
+        const pos = stackSlot(view, base.x, base.y, SIZE.comment);
+        view.nodes[id] = { id, kind: 'comment', text: text || 'メモ', x: pos.x, y: pos.y };
       }, 'メモを追加'),
     updateComment: (nodeId, text) =>
       editView((view) => {
@@ -1211,17 +1274,20 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     tidyFlow: (selectedIds) =>
       editView((view, p) => {
         // 部分整列: 選択した工程ノード以外を固定扱い（位置・レーン高さを保つ）。
-        let keepFixed: Set<FlowNodeId> | undefined;
-        if (selectedIds && selectedIds.length) {
-          const selSet = new Set(selectedIds);
-          keepFixed = new Set(
-            Object.values(view.nodes)
-              .filter((n) => n.kind === 'task' && !selSet.has(n.id))
-              .map((n) => n.id),
-          );
-        }
-        p.flow.byLevel[p.flow.byLevel.indexOf(view)] = tidyFlowView(p.core, p.details, view, keepFixed);
+        const keepFixed = tidyKeepFixed(view, selectedIds);
+        const tidied = tidyFlowView(p.core, p.details, view, keepFixed);
+        // 差分の出ない整列は履歴・dirty を汚さない（no-op。呼び出し側で案内トーストを出す）。
+        if (sameLayout(view, tidied)) return false;
+        p.flow.byLevel[p.flow.byLevel.indexOf(view)] = tidied;
       }, '自動整列'),
+    wouldTidyFlow: (selectedIds) => {
+      const { level, scopeParentId } = get();
+      const view = findView(get().project, level, scopeParentId);
+      if (!view) return false;
+      const keepFixed = tidyKeepFixed(view, selectedIds);
+      const tidied = tidyFlowView(get().project.core, get().project.details, view, keepFixed);
+      return !sameLayout(view, tidied);
+    },
     setLaneHeight: (laneId, height) =>
       editView((view) => {
         const lane = view.lanes[laneId];
@@ -1401,6 +1467,9 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         labelCursor -= 1;
         sync();
         useUI.getState().toast(`元に戻しました: ${undone ?? LABEL_FALLBACK}`);
+      } else {
+        // 履歴の端。キーボード（Ctrl+Z）は端でも呼ばれるため、無反応にせず案内する（#10）。
+        useUI.getState().toast('これ以上戻せません', 'info');
       }
     },
     redo: () => {
@@ -1410,6 +1479,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         const redone = labels[labelCursor];
         sync();
         useUI.getState().toast(`やり直しました: ${redone ?? LABEL_FALLBACK}`);
+      } else {
+        useUI.getState().toast('これ以上やり直せません', 'info');
       }
     },
     markSaved: (saved) => {

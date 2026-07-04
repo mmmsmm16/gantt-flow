@@ -56,9 +56,11 @@ describe('undo/redo のラベル付きフィードバック', () => {
     expect(lastToast()).toBe('元に戻しました: 前工程を追加');
   });
 
-  it('undo できないときはトーストを出さない', () => {
-    const s = createAppStore(); // 初期状態は undo 不可
+  it('履歴の端では「これ以上戻せません/やり直せません」を案内する（#10 無反応にしない）', () => {
+    const s = createAppStore(); // 初期状態は undo/redo とも不可
     s.getState().undo();
-    expect(useUI.getState().toasts).toHaveLength(0);
+    expect(lastToast()).toBe('これ以上戻せません');
+    s.getState().redo();
+    expect(lastToast()).toBe('これ以上やり直せません');
   });
 });

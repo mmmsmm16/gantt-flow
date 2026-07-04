@@ -4,7 +4,7 @@ import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
 import { chordKeys, getActiveKeymap, isImeKeyEvent, isInteractiveTarget } from './keymap';
-import { clampScale, zoomScroll } from './flowZoom';
+import { clampScale, zoomScroll, loadFlowViewport, saveFlowViewport } from './flowZoom';
 import { confirmRemoveTasks, revealTask } from './taskOps';
 import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
@@ -57,6 +57,9 @@ export function FlowCanvas() {
   const scopeParentId = useApp((s) => s.scopeParentId);
   const showIssues = useApp((s) => s.showIssues);
   const showMinimap = useUI((s) => s.minimap);
+  // palette-hint の文言をキー割り当ての実効状態に連動させる（#9a）。singleKey トグルで
+  // getActiveKeymap のキャッシュが無効化されるので、再計算のトリガーに購読する。
+  const singleKey = useUI((s) => s.singleKey);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const moveNode = useApp((s) => s.moveNode);
@@ -73,6 +76,7 @@ export function FlowCanvas() {
   const deleteEdge = useApp((s) => s.deleteEdge);
   const deleteFlowNode = useApp((s) => s.deleteFlowNode);
   const tidyFlow = useApp((s) => s.tidyFlow);
+  const wouldTidyFlow = useApp((s) => s.wouldTidyFlow);
   const setLaneHeight = useApp((s) => s.setLaneHeight);
   const moveLane = useApp((s) => s.moveLane);
   const renameAssignee = useApp((s) => s.renameAssignee);
@@ -156,12 +160,15 @@ export function FlowCanvas() {
     idx: number;
   } | null>(null);
   const [conn, setConn] = useState<{ from: FlowNodeId; fx: number; fy: number; x: number; y: number } | null>(null);
-  const [scale, setScale] = useState(1);
+  // #4 マウント時に退避済みのビューポート倍率で復元（詳細開閉・表⇄フロー切替の再マウントで
+  // 100% にリセットされないように）。スクロール位置は下の layout effect で戻す。
+  const [scale, setScale] = useState(() => loadFlowViewport()?.scale ?? 1);
   const [panning, setPanning] = useState(false);
   // フロー固有要素（制御ノード/付箋/矢印）の選択。Delete で削除・Esc で解除。
   const [sel, setSel] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null);
-  // 右クリックメニュー（ノード/矢印）。位置はカーソルの画面座標（fixed 配置）。
-  const [ctxMenu, setCtxMenu] = useState<{ kind: 'node' | 'edge'; id: string; x: number; y: number } | null>(null);
+  // 右クリックメニュー（ノード/矢印/複数選択）。位置はカーソルの画面座標（fixed 配置）。
+  // kind='multi' は複数選択を右クリックしたとき（選択を維持したまま一括メニューを出す）。
+  const [ctxMenu, setCtxMenu] = useState<{ kind: 'node' | 'edge' | 'multi'; id: string; x: number; y: number } | null>(null);
   // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
   // B1: ドラッグ/接続中の端オートスクロール。lastPointer=最新カーソル(client)+Alt、
@@ -260,6 +267,33 @@ export function FlowCanvas() {
     });
   };
   const zoomBy = (f: number) => zoomAt(f);
+
+  // #9a フロー下部の操作ヒント。接続モード(c)はシングルキー OFF だと無効なので、実効キーマップに
+  // その割り当てが残っているときだけ「〈キー〉で接続モード」を出す（見えるものと効くものを一致）。
+  const flowHint = useMemo(() => {
+    const connect = getActiveKeymap().find((b) => b.action === 'flow.connect');
+    const pieces = ['○ドラッグで矢印'];
+    if (connect) pieces.push(`${chordKeys(connect.chord, connect.leader).join('')} で接続モード`);
+    pieces.push('Shift+ドラッグで範囲選択', 'Delete で削除');
+    return pieces.join(' / ');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [singleKey]);
+
+  // #4 ビューポートのスクロール位置を退避/復元する。倍率は上の useState 初期値で復元済み。
+  // マウント時: 退避値があれば実 DOM のスクロールを戻す（layout フェーズ＝描画前に反映）。
+  // アンマウント時: 現在の倍率＋スクロールを退避する（scaleRef は毎レンダ最新の scale を指す）。
+  useLayoutEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const vp = loadFlowViewport();
+    if (vp) {
+      el.scrollLeft = vp.left;
+      el.scrollTop = vp.top;
+    }
+    return () => {
+      saveFlowViewport({ scale: scaleRef.current, left: el.scrollLeft, top: el.scrollTop });
+    };
+  }, []);
 
   // 'flow' コンテキストのキーボードアクション(矢印移動・ズーム・リネーム・接続モード)。
   // ハンドラ本体は描画後半(fitView 等の定義後)で ref に流し込み、登録自体は初回のみ行う。
@@ -1426,7 +1460,17 @@ export function FlowCanvas() {
           onClick={async () => {
             // 2件以上を選択中は「選択した工程だけ」を整列（他は固定＝手で整えた配置を壊さない）。
             if (multiSel.size >= 2) {
+              // 差分が出ない整列は no-op（配置は既に整っている）。案内トーストだけ出して何もしない（#8）。
+              if (!wouldTidyFlow([...multiSel])) {
+                useUI.getState().toast('選択した工程はすでに整列されています', 'info');
+                return;
+              }
               tidyFlow([...multiSel]);
+              return;
+            }
+            // 全体整列も差分が無ければ確認を出さず no-op トースト（「整列したのに変わらない」を防ぐ）。
+            if (!wouldTidyFlow()) {
+              useUI.getState().toast('すでに整列されています（配置は変わりません）', 'info');
               return;
             }
             const ok = await useUI.getState().confirm({
@@ -1466,7 +1510,7 @@ export function FlowCanvas() {
               : '接続モード: 矢印（hjkl）で接続先を選び Enter で接続（Tab=順送り / Esc で取消）'}
           </span>
         ) : (
-          <span className="palette-hint">○ドラッグで矢印 / c で接続モード / Shift+ドラッグで範囲選択 / Delete で削除</span>
+          <span className="palette-hint">{flowHint}</span>
         )}
       </div>
 
@@ -1936,7 +1980,10 @@ export function FlowCanvas() {
                 if (n.kind === 'issue') return; // 課題は集約表示のみ（操作は表/インスペクタから）
                 e.preventDefault();
                 e.stopPropagation();
-                selectNodeById(n.id); // メニューの対象を選択で明示（Delete 等のキー操作とも揃う）
+                // 複数選択中のノードを右クリックしたら選択を維持し、一括メニューを出す（#7。
+                // 従来は selectNodeById が multiSel を捨てて単一選択に化けていた）。単一選択時は従来どおり。
+                const inMulti = multiSelRef.current.has(n.id) && multiSelRef.current.size > 1;
+                if (!inMulti) selectNodeById(n.id); // メニューの対象を選択で明示（Delete 等のキー操作とも揃う）
                 // キーボード起動(メニューキー/Shift+F10)は clientX/Y が (0,0) で届くため、
                 // ノード中央をアンカーにする(画面左上角にメニューが飛ばないように)。
                 let { clientX: x, clientY: y } = e;
@@ -1945,7 +1992,7 @@ export function FlowCanvas() {
                   x = r.left + r.width / 2;
                   y = r.top + r.height / 2;
                 }
-                setCtxMenu({ kind: 'node', id: n.id, x, y });
+                setCtxMenu({ kind: inMulti ? 'multi' : 'node', id: n.id, x, y });
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1991,6 +2038,10 @@ export function FlowCanvas() {
                 if (n.kind === 'task') {
                   e.stopPropagation();
                   setEditingTaskId(n.taskId); // その場で名前を編集
+                } else if (n.kind === 'comment') {
+                  // 付箋も工程ノードと同じくダブルクリックで編集を始める（#6 統一）。
+                  e.stopPropagation();
+                  void editCommentText(n.id, n.text);
                 }
               }}
             >
@@ -2295,6 +2346,41 @@ export function FlowCanvas() {
       {ctxMenu &&
         (() => {
           const close = () => setCtxMenu(null);
+          if (ctxMenu.kind === 'multi') {
+            // 複数選択の一括メニュー（既存の一括アクションを呼ぶだけ）。工程/制御/付箋を仕分けて
+            // 削除、工程は複製・選択整列。工程が無ければ複製は出さない。
+            const ids = [...multiSel];
+            const taskIds = ids.flatMap((id) => {
+              const nd = view.nodes[id];
+              return nd?.kind === 'task' ? [nd.taskId] : [];
+            });
+            const flowSpecific = ids.filter((id) => {
+              const k = view.nodes[id]?.kind;
+              return k === 'control' || k === 'comment';
+            });
+            return (
+              <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                {taskIds.length > 0 && (
+                  <ContextItem
+                    label={`複製（${taskIds.length}件）`}
+                    onClick={() => taskIds.forEach((tid) => duplicateTask(tid))}
+                  />
+                )}
+                <ContextItem label={`選択を整列（${ids.length}件・他は固定）`} onClick={() => tidyFlow(ids)} />
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label={`削除（${ids.length}件）`}
+                  action="flow.delete"
+                  danger
+                  onClick={() => {
+                    if (flowSpecific.length) deleteFlowNodes(flowSpecific);
+                    if (taskIds.length) void confirmRemoveTasks(taskIds);
+                    setMultiSel(new Set());
+                  }}
+                />
+              </FlowContextMenu>
+            );
+          }
           if (ctxMenu.kind === 'edge') {
             const e = view.edges[ctxMenu.id];
             if (!e) return null;
@@ -2335,6 +2421,14 @@ export function FlowCanvas() {
               return (
                 <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
                   <ContextItem label="名前を変更" action="flow.rename" onClick={() => setEditingTaskId(taskId)} />
+                  {/* マイルストーンは対象工程（前工程）を紐付けて初めて意味を持つ。詳細パネルを開くだけ（#10）。 */}
+                  <ContextItem
+                    label="対象工程を設定…"
+                    onClick={() => {
+                      select(taskId);
+                      useUI.getState().setInspectorOpen(true);
+                    }}
+                  />
                   <ContextItem label="複製" onClick={() => duplicateTask(taskId)} />
                   <ContextItem label="表で表示" onClick={() => revealTask(taskId)} />
                   <div className="menu-sep" role="separator" />
