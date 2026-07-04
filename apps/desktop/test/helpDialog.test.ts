@@ -22,9 +22,10 @@ function findItem(groups: ReturnType<typeof build>, label: string) {
 describe('HelpDialog: buildKeymapGroupsFrom(UX#12 シングルキーの可視化)', () => {
   it('シングルキーOFFでも行は消えず、薄く(off:true)表示される', () => {
     const groups = build({}, false);
-    const collapse = findItem(groups, '折りたたみ(アウトライン)');
-    expect(collapse).toBeDefined();
-    expect(collapse?.off).toBe(true);
+    // 表モード切替(v)は単キーで lowRisk でないため、OFF では無効=薄く(off:true)表示される。
+    const item = findItem(groups, '表モード切替(アウトライン⇄全項目)');
+    expect(item).toBeDefined();
+    expect(item?.off).toBe(true);
   });
 
   it('lowRisk(表の n=次工程追加)はOFF設定でも off にならない(既定で有効)', () => {
@@ -35,10 +36,17 @@ describe('HelpDialog: buildKeymapGroupsFrom(UX#12 シングルキーの可視化
     expect(rowAdd?.keys).toEqual(['N']);
   });
 
+  it('P2 で lowRisk にした操作(折りたたみ/ズーム/接続)はOFFでも off にならない', () => {
+    const groups = build({}, false);
+    expect(findItem(groups, '折りたたみ(アウトライン)')?.off).toBe(false);
+    expect(findItem(groups, 'ズームイン')?.off).toBe(false);
+    expect(findItem(groups, '接続モード(矢印で候補 → Enter)')?.off).toBe(false);
+  });
+
   it('シングルキーONなら OFF 表示は出ない', () => {
     const groups = build({}, true);
-    const collapse = findItem(groups, '折りたたみ(アウトライン)');
-    expect(collapse?.off).toBe(false);
+    const item = findItem(groups, '表モード切替(アウトライン⇄全項目)');
+    expect(item?.off).toBe(false);
   });
 
   it('残った代替キー(↓)がある行は、代表キー(j)がOFFでも off:true にならない', () => {

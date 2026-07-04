@@ -1,7 +1,7 @@
 // 行の複数選択（一括操作）の共有ロジック。DOM 非依存の遷移関数 nextMarked と、
 // taskOps の一括担当設定 bulkSetAssignee（マイルストーン除外）を検証する。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { nextMarked } from '../src/ui/useRowMultiSelect';
+import { nextMarked, markExtendByKey } from '../src/ui/useRowMultiSelect';
 import { bulkSetAssignee } from '../src/taskOps';
 import { useApp } from '../src/store';
 import { useUI } from '../src/ui/useUI';
@@ -59,6 +59,39 @@ describe('nextMarked: 行クリックのマーク遷移', () => {
     const r = nextMarked(cur, 'zz', ids, 'c', { shift: true, ctrl: false });
     expect(r.marked).toBe(cur); // 同一参照＝変更なし
     expect(r.activate).toBe(false);
+  });
+});
+
+describe('markExtendByKey: Shift+↑/↓ の行マーク拡張（キーボード）', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+
+  it('選択行から下方向へ 1 つ広げ、選択カーソルも隣へ移す（起点＝最初の選択行）', () => {
+    const r = markExtendByKey(new Set(), null, 'b', ids, 1);
+    expect(r).not.toBeNull();
+    expect([...r!.marked].sort()).toEqual(['b', 'c']);
+    expect(r!.anchor).toBe('b');
+    expect(r!.sel).toBe('c');
+  });
+
+  it('連続で押すとアンカーを固定したまま範囲が伸びる（Shift+クリックと同じ和）', () => {
+    const first = markExtendByKey(new Set(), null, 'b', ids, 1)!;
+    const second = markExtendByKey(first.marked, first.anchor, first.sel, ids, 1)!;
+    expect([...second.marked].sort()).toEqual(['b', 'c', 'd']);
+    expect(second.anchor).toBe('b');
+    expect(second.sel).toBe('d');
+  });
+
+  it('上方向にも同じ規則で広げる', () => {
+    const r = markExtendByKey(new Set(), null, 'c', ids, -1)!;
+    expect([...r.marked].sort()).toEqual(['b', 'c']);
+    expect(r.sel).toBe('b');
+  });
+
+  it('未選択・端（移動先なし）・可視行に無い選択は null＝通常の↑↓へ委ねる', () => {
+    expect(markExtendByKey(new Set(), null, null, ids, 1)).toBeNull();
+    expect(markExtendByKey(new Set(), null, 'd', ids, 1)).toBeNull(); // 末尾で下
+    expect(markExtendByKey(new Set(), null, 'a', ids, -1)).toBeNull(); // 先頭で上
+    expect(markExtendByKey(new Set(), null, 'zz', ids, 1)).toBeNull(); // 可視行に無い
   });
 });
 

@@ -59,7 +59,15 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   // --- グローバル ---
   { id: 'palette', action: 'global.palette', context: 'global', chord: { key: 'k', mod: true }, help: { group: G.global, label: 'コマンドパレット / 検索' } },
   { id: 'palette-slash', action: 'global.palette', context: 'global', chord: { key: '/' } , help: { group: G.global, label: 'コマンドパレットを開く' } },
-  { id: 'save', action: 'global.save', context: 'global', chord: { key: 's', mod: true }, help: { group: G.global, label: '保存' } },
+  { id: 'save', action: 'global.save', context: 'global', chord: { key: 's', mod: true, shift: false }, help: { group: G.global, label: '保存' } },
+  // ファイル操作(OS 標準に倣う)。Ctrl+N/Ctrl+O はブラウザ既定(新規ウィンドウ/ファイルを開く)と
+  // 衝突するため、発火時に preventDefault で奪う(dispatch が true を返すと useGlobalHotkeys が実行)。
+  // Tauri では既定動作が無いので問題ない。編集中(入力欄フォーカス)は useGlobalHotkeys の editable
+  // ガードで通さない(誤って新規作成が走らないよう、ネイティブに委ねる)。
+  { id: 'file-new', action: 'global.new', context: 'global', chord: { key: 'n', mod: true, shift: false }, help: { group: G.global, label: '新規プロジェクト' } },
+  { id: 'file-open', action: 'global.open', context: 'global', chord: { key: 'o', mod: true }, help: { group: G.global, label: '保存ファイルを開く' } },
+  // Ctrl+Shift+S=別名保存。save(Ctrl+S)は上で shift:false に固定したので影に隠れない。
+  { id: 'save-as', action: 'global.saveAs', context: 'global', chord: { key: 's', mod: true, shift: true }, help: { group: G.global, label: '名前を付けて保存' } },
   { id: 'undo', action: 'global.undo', context: 'global', chord: { key: 'z', mod: true, shift: false }, help: { group: G.global, label: '元に戻す' } },
   { id: 'undo-u', action: 'global.undo', context: 'global', chord: { key: 'u' } },
   { id: 'redo', action: 'global.redo', context: 'global', chord: { key: 'y', mod: true }, help: { group: G.global, label: 'やり直し' } },
@@ -89,11 +97,13 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   // --- g リーダー(画面移動) ---
   // 小文字 g t / g f = 分割のままそのペインをアクティブ化（フォーカス移動）。
   // Shift 版 g T / g F = そのペインを全画面トグル。shift は明示（未指定だと Shift 版と二重一致する）。
-  { id: 'go-table', action: 'pane.table', context: 'global', chord: { key: 't', shift: false }, leader: true, help: { group: G.nav, label: '工程表ペインをアクティブ（分割）' } },
-  { id: 'go-flow', action: 'pane.flow', context: 'global', chord: { key: 'f', shift: false }, leader: true, help: { group: G.nav, label: 'フローペインをアクティブ（分割）' } },
+  // g リーダーの画面移動は編集を伴わないビュー切替＝低リスク。既定で有効(UX#12。表示先を変える
+  // だけで元に戻すのも一手)。少なくとも t/f/d(表/フロー/分割)を常時使えるようにする。
+  { id: 'go-table', action: 'pane.table', context: 'global', chord: { key: 't', shift: false }, leader: true, lowRisk: true, help: { group: G.nav, label: '工程表ペインをアクティブ（分割）' } },
+  { id: 'go-flow', action: 'pane.flow', context: 'global', chord: { key: 'f', shift: false }, leader: true, lowRisk: true, help: { group: G.nav, label: 'フローペインをアクティブ（分割）' } },
   { id: 'go-table-full', action: 'layout.tableToggle', context: 'global', chord: { key: 't', shift: true }, leader: true, help: { group: G.nav, label: '工程表を全画面 / 分割に戻す' } },
   { id: 'go-flow-full', action: 'layout.flowToggle', context: 'global', chord: { key: 'f', shift: true }, leader: true, help: { group: G.nav, label: 'フローを全画面 / 分割に戻す' } },
-  { id: 'go-split', action: 'layout.split', context: 'global', chord: { key: 'd' }, leader: true, help: { group: G.nav, label: '分割表示（工程表＋フロー）' } },
+  { id: 'go-split', action: 'layout.split', context: 'global', chord: { key: 'd' }, leader: true, lowRisk: true, help: { group: G.nav, label: '分割表示（工程表＋フロー）' } },
   { id: 'go-issues', action: 'view.issues', context: 'global', chord: { key: 'i' }, leader: true, help: { group: G.nav, label: '課題一覧を開く' } },
   { id: 'go-summary', action: 'view.summary', context: 'global', chord: { key: 's' }, leader: true, help: { group: G.nav, label: 'サマリを開く' } },
   { id: 'go-level-1', action: 'level.large', context: 'global', chord: { key: '1' }, leader: true, help: { group: G.nav, label: '粒度: 大' } },
@@ -118,14 +128,16 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   // n=次工程追加は誤操作しても即 undo できる低リスクな操作なので、シングルキー設定に
   // 関わらず既定で有効にする(UX#12。他の単キー行操作は引き続き設定でON)。
   { id: 'row-add', action: 'table.addSibling', context: 'table', chord: { key: 'n', shift: false }, lowRisk: true, help: { group: G.table, label: '次に工程を追加して編集' } },
-  { id: 'row-add-child', action: 'table.addChild', context: 'table', chord: { key: 'n', shift: true }, help: { group: G.table, label: '子工程を追加して編集' } },
+  // 子工程追加も兄弟追加(row-add)と同じく誤操作しても即 undo でき、実害が小さいので既定で有効(UX#12)。
+  { id: 'row-add-child', action: 'table.addChild', context: 'table', chord: { key: 'n', shift: true }, lowRisk: true, help: { group: G.table, label: '子工程を追加して編集' } },
   { id: 'row-move-up', action: 'table.moveUp', context: 'table', chord: { key: 'arrowup', alt: true }, help: { group: G.table, label: '行を上へ移動' } },
   { id: 'row-move-down', action: 'table.moveDown', context: 'table', chord: { key: 'arrowdown', alt: true }, help: { group: G.table, label: '行を下へ移動' } },
   { id: 'row-indent', action: 'table.indent', context: 'table', chord: { key: 'tab', shift: false }, fixed: true, help: { group: G.table, label: '字下げ(子にする)' } },
   { id: 'row-outdent', action: 'table.outdent', context: 'table', chord: { key: 'tab', shift: true }, fixed: true, help: { group: G.table, label: '字上げ(親に出す)' } },
   { id: 'row-duplicate', action: 'table.duplicate', context: 'table', chord: { key: 'd', mod: true }, help: { group: G.table, label: '行を複製' } },
   { id: 'row-delete', action: 'table.delete', context: 'table', chord: { key: 'delete' }, fixed: true, help: { group: G.table, label: '行を削除(確認あり)' } },
-  { id: 'row-collapse', action: 'table.collapse', context: 'table', chord: { key: ' ' }, help: { group: G.table, label: '折りたたみ(アウトライン)' } },
+  // 折りたたみはビュー操作のみ(データを変えない)＝低リスク。既定で有効(UX#12)。
+  { id: 'row-collapse', action: 'table.collapse', context: 'table', chord: { key: ' ' }, lowRisk: true, help: { group: G.table, label: '折りたたみ(アウトライン)' } },
   // アウトラインのクイックフィルタ。ブラウザ既定の検索と重なるため preventDefault 前提で奪う
   // (「/」は global.palette 済みなので使わない)。
   { id: 'table-find', action: 'table.find', context: 'table', chord: { key: 'f', mod: true }, help: { group: G.table, label: 'クイックフィルタ(作業名・担当)' } },
@@ -161,14 +173,16 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'node-align-up-k', action: 'flow.alignUp', context: 'flow', chord: { code: 'KeyK', alt: true, shift: true } },
   { id: 'node-align-down', action: 'flow.alignDown', context: 'flow', chord: { key: 'arrowdown', alt: true, shift: true } },
   { id: 'node-align-down-j', action: 'flow.alignDown', context: 'flow', chord: { code: 'KeyJ', alt: true, shift: true } },
-  { id: 'zoom-in', action: 'flow.zoomIn', context: 'flow', chord: { key: '+' }, help: { group: G.flow, label: 'ズームイン' } },
-  { id: 'zoom-in-eq', action: 'flow.zoomIn', context: 'flow', chord: { key: '=' } },
-  { id: 'zoom-out', action: 'flow.zoomOut', context: 'flow', chord: { key: '-' }, help: { group: G.flow, label: 'ズームアウト' } },
-  { id: 'zoom-reset', action: 'flow.zoomReset', context: 'flow', chord: { key: '0' }, help: { group: G.flow, label: 'ズームを 100% に' } },
-  { id: 'zoom-fit', action: 'flow.fit', context: 'flow', chord: { key: 'f' }, help: { group: G.flow, label: '全体表示(フィット)' } },
+  // ズームはデータを変えないビュー操作＝低リスク。既定で有効(UX#12。0/f でいつでも戻せる)。
+  { id: 'zoom-in', action: 'flow.zoomIn', context: 'flow', chord: { key: '+' }, lowRisk: true, help: { group: G.flow, label: 'ズームイン' } },
+  { id: 'zoom-in-eq', action: 'flow.zoomIn', context: 'flow', chord: { key: '=' }, lowRisk: true },
+  { id: 'zoom-out', action: 'flow.zoomOut', context: 'flow', chord: { key: '-' }, lowRisk: true, help: { group: G.flow, label: 'ズームアウト' } },
+  { id: 'zoom-reset', action: 'flow.zoomReset', context: 'flow', chord: { key: '0' }, lowRisk: true, help: { group: G.flow, label: 'ズームを 100% に' } },
+  { id: 'zoom-fit', action: 'flow.fit', context: 'flow', chord: { key: 'f' }, lowRisk: true, help: { group: G.flow, label: '全体表示(フィット)' } },
   { id: 'node-rename', action: 'flow.rename', context: 'flow', chord: { key: 'enter' }, fixed: true, help: { group: G.flow, label: '工程名をその場編集' } },
   { id: 'node-rename-f2', action: 'flow.rename', context: 'flow', chord: { key: 'f2' }, fixed: true },
-  { id: 'connect-mode', action: 'flow.connect', context: 'flow', chord: { key: 'c' }, help: { group: G.flow, label: '接続モード(矢印で候補 → Enter)' } },
+  // 接続モードは Esc 一発で取消でき(接続を確定するまで何も変えない)＝低リスク。既定で有効(UX#12)。
+  { id: 'connect-mode', action: 'flow.connect', context: 'flow', chord: { key: 'c' }, lowRisk: true, help: { group: G.flow, label: '接続モード(矢印で候補 → Enter)' } },
   // 次工程の追加(表の n / Shift+N=行追加と同じ体系)。n=右隣へ作成して依存を接続し名前編集まで、
   // Shift+N=接続なしで追加。未選択時はビューポート中央へ(接続なし)。
   { id: 'node-add-next', action: 'flow.addNext', context: 'flow', chord: { key: 'n', shift: false }, help: { group: G.flow, label: '次工程を追加して接続(名前を編集)' } },
@@ -393,7 +407,9 @@ export function findConflict(
 // lowRisk: true の単キー(表の n=次工程追加)は例外で、設定に関わらず既定で有効(UX#12)。
 
 export function isSingleKeyChord(c: Chord): boolean {
-  if (c.mod || c.alt) return false;
+  // Shift 単独も「修飾あり」として扱う(mod/alt と同列)。Shift+P / Shift+N のような明示的な
+  // 修飾つき打鍵は誤爆しにくいので、シングルキーOFFの巻き添えで無効化しない(UX#12)。
+  if (c.mod || c.alt || c.shift) return false;
   if (c.key && c.key.length === 1) return true;
   // 防御: code ベース(KeyJ/Digit1 等)で単キーを割り当てた場合も拾う
   if (!c.key && !!c.code && /^(Key|Digit)/.test(c.code)) return true;

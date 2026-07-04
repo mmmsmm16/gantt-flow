@@ -110,6 +110,9 @@ function setPaneLayoutFocused(mode: 'split' | 'table' | 'flow'): void {
 export interface GlobalHotkeyHandlers {
   onSave: () => void;
   onPrint: () => void;
+  onNew: () => void;
+  onOpen: () => void;
+  onSaveAs: () => void;
 }
 
 export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
@@ -144,6 +147,15 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
           return true;
         case 'global.save':
           handlers.onSave();
+          return true;
+        case 'global.saveAs':
+          handlers.onSaveAs();
+          return true;
+        case 'global.new':
+          handlers.onNew();
+          return true;
+        case 'global.open':
+          handlers.onOpen();
           return true;
         case 'global.print':
           handlers.onPrint();
@@ -278,8 +290,11 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       }
 
       // g 単打 → リーダー待機開始(編集外・修飾なしのみ。Shift+G は別バインド)。
-      // シングルキー操作 OFF のときはリーダー自体を無効化(チップも出さない)。
-      if (ui.singleKey && !editable && !leaderActive && !mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g' && !e.repeat) {
+      // シングルキー操作 ON なら全リーダーが対象。OFF でも、フィルタを生き残った低リスクな
+      // リーダー(go-table/go-flow/go-split = 画面移動)があれば待機を許可する(UX#12)。無ければ
+      // 待機自体を無効化(チップも出さない=2 打目を無駄に飲み込まない)。
+      const hasActiveLeader = keymap.some((b) => b.leader);
+      if ((ui.singleKey || hasActiveLeader) && !editable && !leaderActive && !mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g' && !e.repeat) {
         leader.arm();
         ui.setLeaderPending(true);
         e.preventDefault();

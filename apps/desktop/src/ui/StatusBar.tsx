@@ -123,7 +123,7 @@ export function StatusBar() {
               : '↑↓ 移動・Enter 編集・⌘K コマンド・? 一覧'
             : singleKey
               ? '矢印で選択・Alt+矢印で移動・c 接続・? 一覧'
-              : '矢印で選択・Alt+矢印で移動・⌘K コマンド・? 一覧'}
+              : '矢印で選択・c 接続・⌘K コマンド・? 一覧'}
         </span>
       )}
       <span className="st-sep" aria-hidden="true" />
@@ -137,9 +137,9 @@ export function StatusBar() {
           <span
             className={`st-item st-autosave${persist.autosave.failed ? ' is-failed' : ''}`}
             aria-live="polite"
-            title="未保存データの自動退避（クラッシュ復旧用）の直近状況"
+            title="未保存データの自動退避（クラッシュ復旧用）の直近状況。ファイルへの保存（Ctrl+S）とは別物です"
           >
-            自動保存: {persist.autosave.text}
+            退避: {persist.autosave.text}
           </span>
         </>
       )}

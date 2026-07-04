@@ -98,10 +98,12 @@ describe('keymap: findBinding', () => {
     expect(findBinding(ev({ key: 'N', shiftKey: true }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe(
       'flow.addNextNoConnect',
     );
-    // 表の n(row-add)と同じく単キーなので、シングルキーOFFでは消える
+    // n(接続あり)は単キーなのでシングルキーOFFで消えるが、Shift+N は「修飾つき」扱いになったので残る。
     const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
     expect(findBinding(ev({ key: 'n' }), off, ['flow'], false)).toBeUndefined();
-    expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['flow'], false)).toBeUndefined();
+    expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['flow'], false)?.action).toBe(
+      'flow.addNextNoConnect',
+    );
   });
 
   it('flow コンテキストでは j/矢印=選択ナビ、Alt+矢印=ノード移動、Alt+Shift=整列ジャンプ', () => {
@@ -496,15 +498,12 @@ describe('useUI: closeTopLayer(Esc の一元規則)', () => {
 describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
   const byId = (id: string) => DEFAULT_KEYMAP.find((b) => b.id === id)!;
 
-  it('修飾なし単キー(j/n/+/=/-/0/Space/G/N)とリーダー(gg/g t)はシングルキー判定', () => {
+  it('修飾なし単キー(j/n/+/=/-/0/Space)とリーダー(gg/g t)はシングルキー判定', () => {
     for (const id of [
       'row-next', // j
       'row-add', // n
-      'row-add-child', // Shift+N
-      'row-last', // G(Shift+g)
       'row-collapse', // Space
       'node-add-next', // n(フロー)
-      'node-add-next-plain', // Shift+N(フロー)
       'zoom-in', // +
       'zoom-in-eq', // =
       'zoom-out', // -
@@ -520,8 +519,12 @@ describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
     }
   });
 
-  it('矢印・Alt+矢印・mod系・F2/F6・fixed(?/Enter/Delete/Tab)は対象外', () => {
+  it('Shift つき単字(Shift+N/G/P)・矢印・Alt+矢印・mod系・F2/F6・fixed(?/Enter/Delete/Tab)は対象外', () => {
     for (const id of [
+      'row-add-child', // Shift+N(shift は修飾扱い＝対象外)
+      'row-last', // G(Shift+g)
+      'node-add-next-plain', // Shift+N(フロー)
+      'make-parallel', // Shift+P
       'row-next-arrow', // ↓
       'row-move-up', // Alt+↑
       'palette', // ⌘K
@@ -541,7 +544,8 @@ describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
     const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
     expect(findBinding(ev({ key: 'j' }), off, ['table'], false)).toBeUndefined();
     expect(findBinding(ev({ key: 'arrowdown' }), off, ['table'], false)?.action).toBe('table.next'); // 矢印は残る
-    expect(findBinding(ev({ key: 't' }), off, ['global'], true)).toBeUndefined(); // リーダーも消える
+    expect(findBinding(ev({ key: 'i' }), off, ['global'], true)).toBeUndefined(); // 非lowRiskなリーダー(g i)は消える
+    expect(findBinding(ev({ key: 't' }), off, ['global'], true)?.action).toBe('pane.table'); // lowRisk なリーダー(g t)は残る
     const on = filterKeymapForSingleKey(DEFAULT_KEYMAP, true);
     expect(findBinding(ev({ key: 'j' }), on, ['table'], false)?.action).toBe('table.next');
     // フロー: h(単キー)は消えるが、矢印の選択ナビと Alt+矢印の移動は残る
@@ -556,8 +560,8 @@ describe('keymap: シングルキー操作(Vim 風)のフィルタ', () => {
     expect(isSingleKeyBinding(rowAdd)).toBe(true); // 判定自体は単キーのまま(ヘルプ分類等に使う)
     const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
     expect(findBinding(ev({ key: 'n' }), off, ['table'], false)?.action).toBe('table.addSibling');
-    // 兄弟(Shift+N=子工程追加)は lowRisk ではないので、引き続き OFF で消える
-    expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['table'], false)).toBeUndefined();
+    // 子追加(Shift+N)も lowRisk＋修飾つき扱いになり、OFF でも残る(UX#12)
+    expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['table'], false)?.action).toBe('table.addChild');
   });
 
   it('lowRisk でもユーザーが無効化(null)すれば OFF 中と同じく消える(上書きが優先)', () => {
@@ -614,5 +618,57 @@ describe('keymap: chordKeys(表示)', () => {
     expect(chordKeys({ key: 't' }, true)).toEqual(['g', 'T']);
     expect(chordKeys({ key: 'arrowup', alt: true })).toContain('↑');
     expect(chordKeys({ key: ' ' })).toEqual(['Space']);
+  });
+});
+
+describe('keymap: ファイル操作ショートカット(#9)', () => {
+  it('Ctrl+N=新規 / Ctrl+O=開く / Ctrl+Shift+S=別名保存、Ctrl+S=保存は据え置き', () => {
+    expect(findBinding(ev({ key: 'n', ctrlKey: true }), DEFAULT_KEYMAP, ['global'], false)?.action).toBe('global.new');
+    expect(findBinding(ev({ key: 'o', ctrlKey: true }), DEFAULT_KEYMAP, ['global'], false)?.action).toBe('global.open');
+    expect(findBinding(ev({ key: 's', ctrlKey: true }), DEFAULT_KEYMAP, ['global'], false)?.action).toBe('global.save');
+    expect(
+      findBinding(ev({ key: 'S', ctrlKey: true, shiftKey: true }), DEFAULT_KEYMAP, ['global'], false)?.action,
+    ).toBe('global.saveAs');
+    // ⌘ でも同じ(mod は Ctrl/⌘ どちらでも)
+    expect(findBinding(ev({ key: 'n', metaKey: true }), DEFAULT_KEYMAP, ['global'], false)?.action).toBe('global.new');
+  });
+
+  it('mod 付きなのでシングルキーOFFでも有効、既存キーと衝突しない', () => {
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'o', ctrlKey: true }), off, ['global'], false)?.action).toBe('global.open');
+    expect(findBinding(ev({ key: 'n', ctrlKey: true }), off, ['global'], false)?.action).toBe('global.new');
+    for (const id of ['file-new', 'file-open', 'save-as', 'save']) {
+      const b = DEFAULT_KEYMAP.find((x) => x.id === id)!;
+      expect(findConflict(DEFAULT_KEYMAP, b, b.chord), id).toBeUndefined();
+    }
+  });
+});
+
+describe('keymap: 低リスク単キーの既定有効化(P2/UX#12)', () => {
+  it('ズーム(+/-/0/f)・Space折りたたみ・c接続はシングルキーOFFでも残る', () => {
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: '+' }), off, ['flow'], false)?.action).toBe('flow.zoomIn');
+    expect(findBinding(ev({ key: '-' }), off, ['flow'], false)?.action).toBe('flow.zoomOut');
+    expect(findBinding(ev({ key: '0' }), off, ['flow'], false)?.action).toBe('flow.zoomReset');
+    expect(findBinding(ev({ key: 'f' }), off, ['flow'], false)?.action).toBe('flow.fit');
+    expect(findBinding(ev({ key: ' ' }), off, ['table'], false)?.action).toBe('table.collapse');
+    expect(findBinding(ev({ key: 'c' }), off, ['flow'], false)?.action).toBe('flow.connect');
+  });
+
+  it('gリーダーの画面移動(g t / g f / g d)はシングルキーOFFでも残る、課題/サマリ等は消える', () => {
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 't' }), off, ['global'], true)?.action).toBe('pane.table');
+    expect(findBinding(ev({ key: 'f' }), off, ['global'], true)?.action).toBe('pane.flow');
+    expect(findBinding(ev({ key: 'd' }), off, ['global'], true)?.action).toBe('layout.split');
+    expect(findBinding(ev({ key: 'i' }), off, ['global'], true)).toBeUndefined();
+    // OFF でも「有効なリーダーが 1 つ以上ある」＝ g の待機開始を許可してよい状態
+    expect(off.some((b) => b.leader)).toBe(true);
+  });
+
+  it('Shift+P(並行化ピッカー)は shift 修飾扱いになりシングルキーOFFでも残る(巻き添え解消)', () => {
+    const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
+    expect(findBinding(ev({ key: 'P', shiftKey: true }), off, ['flow'], false)?.action).toBe('flow.makeParallel');
+    // p(並行追加・修飾なし)は引き続き OFF で消える
+    expect(findBinding(ev({ key: 'p' }), off, ['flow'], false)).toBeUndefined();
   });
 });

@@ -135,6 +135,10 @@ export function addTaskQuickCommand(hasSelection: boolean): Cmd {
   };
 }
 
+// ファイル操作コマンド。検索時に同名末尾の「〜を開く」系オーバーレイ名(設定を開く/サマリを開く等)へ
+// 埋もれないよう軽く優先する(例:「開く」で『保存ファイルを開く』が上位に来る)。id で判定。
+const FILE_CMD_IDS = new Set(['new', 'open', 'open-recent', 'import', 'save', 'save-as']);
+
 // 部分一致＋連続一致を軽く評価するファジー。query の全文字が順に現れれば一致。
 function fuzzyScore(query: string, text: string): number | null {
   if (!query) return 0;
@@ -787,8 +791,13 @@ function PaletteBody(handlers: FileHandlers) {
   const { cmdHits, taskHits } = useMemo(() => {
     if (argCmd) return { cmdHits: [] as Cmd[], taskHits: [] as ProcessTask[] };
     const cmds = commands.filter((c) => c.available !== false);
+    const q = query.trim();
     const scoredCmds = cmds
-      .map((c) => ({ c, s: fuzzyScore(query, `${c.label} ${c.keywords}`) }))
+      .map((c) => {
+        const base = fuzzyScore(query, `${c.label} ${c.keywords}`);
+        // ブーストは検索中のみ(空欄時の既定並び=「もう一度」/工程追加… を崩さない)。
+        return { c, s: base === null ? null : base + (q && FILE_CMD_IDS.has(c.id) ? 30 : 0) };
+      })
       .filter((x) => x.s !== null)
       .sort((a, b) => (b.s ?? 0) - (a.s ?? 0))
       .map((x) => x.c);

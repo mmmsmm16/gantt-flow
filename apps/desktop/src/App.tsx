@@ -316,22 +316,31 @@ export function App() {
       }
     }
   };
-  const onNew = async () => {
-    const ok = await useUI.getState().confirm({
-      title: '新規プロジェクト',
-      message: '新規プロジェクトを作成します。未保存の変更は失われます。',
-      confirmLabel: '作成',
+  // サンプル/テンプレート/新規/取り込みで現在のプロジェクトを置き換える前の確認。
+  // 未保存(dirty)のときだけ確認し、失うものが無いクリーンな状態では即座に切り替える
+  // (置換系すべてで同じ基準に揃える＝新規のクリーン時の過剰確認と、取り込みの無警告置換の両方を解消)。
+  const confirmReplace = async (title: string): Promise<boolean> => {
+    if (!useApp.getState().dirty) return true;
+    return useUI.getState().confirm({
+      title,
+      message: '未保存の変更があります。続行すると失われます。よろしいですか？',
+      confirmLabel: '続行',
       danger: true,
     });
-    if (ok) {
-      forgetFileHandle(); // 新規は保存先を引き継がない
-      useApp.getState().newProject();
-      useUI.getState().setOutlineCollapsed(new Set());
-      useUI.getState().setWelcomeDismissed(true); // Welcome に戻さず空の編集画面へ
-      syncFileName();
-    }
   };
-  const onImport = () => {
+  const onNew = async () => {
+    if (!(await confirmReplace('新規プロジェクト'))) return;
+    forgetFileHandle(); // 新規は保存先を引き継がない
+    useApp.getState().newProject();
+    useUI.getState().setOutlineCollapsed(new Set());
+    useUI.getState().setWelcomeDismissed(true); // Welcome に戻さず空の編集画面へ
+    syncFileName();
+  };
+  const onImport = async () => {
+    // 取り込みは新規プロジェクト生成＝現在の内容を丸ごと置換する(取り込み後は履歴も reset され
+    // Ctrl+Z で戻せない)。他の置換系(サンプル/テンプレ/開く)と同じ基準で、未保存があるときだけ
+    // 確認する(唯一のデータ喪失導線だったのを塞ぐ。UX#7)。
+    if (!(await confirmReplace('CSV / Excel を取り込む'))) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.csv,.xlsx,text/csv';
@@ -369,16 +378,6 @@ export function App() {
       }
     };
     input.click();
-  };
-  // サンプル/テンプレートで現在のプロジェクトを置き換える前の確認（未保存があるときだけ）。
-  const confirmReplace = async (title: string): Promise<boolean> => {
-    if (!useApp.getState().dirty) return true;
-    return useUI.getState().confirm({
-      title,
-      message: '未保存の変更があります。続行すると失われます。よろしいですか？',
-      confirmLabel: '続行',
-      danger: true,
-    });
   };
   const onSample = async () => {
     if (!(await confirmReplace('サンプルを開く'))) return;
@@ -492,7 +491,13 @@ export function App() {
 
   // グローバルショートカット(キーマップ駆動)。keymap.ts が単一の真実、
   // ディスパッチは useGlobalHotkeys に一元化(IME・編集中・オーバーレイのガード込み)。
-  useGlobalHotkeys({ onSave: () => void onSave(), onPrint });
+  useGlobalHotkeys({
+    onSave: () => void onSave(),
+    onPrint,
+    onNew: () => void onNew(),
+    onOpen: () => void onOpen(),
+    onSaveAs: () => void onSaveAs(),
+  });
 
   // タブ/タスクバーでも「どのファイルを編集中か・未保存か」が分かるようにタイトルへ同期。
   useEffect(() => {
@@ -653,6 +658,12 @@ export function App() {
                   </span>
                 </MenuItem>
               ))}
+              {/* 誤操作からの回復導線。パニック時に検索語を思い出さずに済むよう、最近ファイルの
+                  末尾に常設する（この端末に残る直近世代から復旧＝BackupsDialog を開くだけ）。 */}
+              <div className="menu-sep" aria-hidden="true" />
+              <MenuItem onClick={() => useUI.getState().setOverlay('backups')}>
+                バックアップから復元…
+              </MenuItem>
             </Menu>
           )}
           <button

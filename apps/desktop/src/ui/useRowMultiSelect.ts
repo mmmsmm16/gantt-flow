@@ -4,10 +4,12 @@
 //   通常クリック     … 複数選択を解除し、onActivate（単一選択・詳細表示など）を呼ぶ
 //   Esc             … 複数選択だけを解除（選択・インスペクタは維持。もう一度 Esc で通常の選択解除へ）
 // 一括操作（削除・担当設定）は taskOps に集約したものを呼ぶ（両ビューで実装を共有）。
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { Id } from '@gantt-flow/core';
+import { useApp } from '../store';
 import { useUI } from './useUI';
 import { isEditableTarget, isImeKeyEvent } from '../keymap';
+import { scrollRowIntoView } from './useRowSelectionKeys';
 import { confirmRemoveTasks, bulkSetAssignee } from '../taskOps';
 
 export interface ClickMods {
@@ -49,6 +51,31 @@ export function nextMarked(
   }
   // 修飾なし: 複数選択を解除して単一選択へ。
   return { marked: new Set(), anchor: id, activate: true };
+}
+
+/**
+ * Shift+↑/↓ による行マーク拡張（キーボード。DOM 非依存の純粋関数）。
+ * 選択行(sel)をカーソルとして dir 方向の隣接行へ選択を 1 つ動かしつつ、アンカーからその行までを
+ * 範囲マークする（Shift+クリックと同じ nextMarked を流用＝マウスと挙動を一致させる）。
+ * 未選択・端（移動先なし）・sel が可視行に無いときは null を返す（通常の↑↓へ委ねる）。
+ */
+export function markExtendByKey(
+  cur: Set<Id>,
+  anchor: Id | null,
+  sel: Id | null,
+  orderedIds: readonly Id[],
+  dir: 1 | -1,
+): { marked: Set<Id>; anchor: Id; sel: Id } | null {
+  if (!sel) return null;
+  const i = orderedIds.indexOf(sel);
+  if (i < 0) return null;
+  const j = i + dir;
+  if (j < 0 || j >= orderedIds.length) return null; // 端: これ以上広げない
+  const target = orderedIds[j]!;
+  // 起点(アンカー)は既存アンカーが可視ならそれ、無ければ現在行。以後の Shift 連打で伸縮する基準。
+  const eff = anchor && orderedIds.indexOf(anchor) >= 0 ? anchor : sel;
+  const res = nextMarked(cur, eff, orderedIds, target, { shift: true, ctrl: false });
+  return { marked: res.marked, anchor: eff, sel: target };
 }
 
 export interface RowMultiSelect {
@@ -102,6 +129,44 @@ export function useRowMultiSelect(opts: {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [marked.size]);
+
+  // Shift+↑/↓ でキーボードから範囲マークを作る/広げる（マウスの Shift+クリックと同じ nextMarked）。
+  // グローバルの ↑↓（行移動）より先に捕まえて消費するため capture 段階で受ける。表が非アクティブ・
+  // ダイアログ/オーバーレイ表示中・セル編集中は横取りせず通常の行移動へ委ねる。最新状態は ref 経由で
+  // 読み、初回のみ登録する（orderedIds は毎レンダ変わりうるため deps に入れず再登録の揺れを避ける）。
+  const markedRef = useRef(marked);
+  markedRef.current = marked;
+  const anchorRef = useRef(anchor);
+  anchorRef.current = anchor;
+  const orderedRef = useRef(opts.orderedIds);
+  orderedRef.current = opts.orderedIds;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || isImeKeyEvent(e)) return;
+      const ui = useUI.getState();
+      if (ui.activePane !== 'table') return; // 表がアクティブなときだけ
+      if (ui.dialog || ui.overlay || ui.busy || ui.tourStep !== null || ui.hasTransientLayer()) return;
+      if (isEditableTarget(document.activeElement)) return; // セル編集中は通常のセル移動を優先
+      const sel = useApp.getState().selectedTaskId ?? null;
+      const res = markExtendByKey(
+        markedRef.current,
+        anchorRef.current,
+        sel,
+        orderedRef.current,
+        e.key === 'ArrowDown' ? 1 : -1,
+      );
+      if (!res) return; // 未選択・端: 通常の↑↓（選択移動）へ委ねる
+      e.preventDefault();
+      e.stopImmediatePropagation(); // グローバルの table.next/prev（行移動）を撃たせない
+      setMarked(res.marked);
+      setAnchor(res.anchor);
+      useApp.getState().select(res.sel);
+      scrollRowIntoView(res.sel);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
 
   const bulkAssign = async () => {
     if (await bulkSetAssignee([...marked])) clear();
