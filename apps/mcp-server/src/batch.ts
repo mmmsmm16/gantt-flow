@@ -158,7 +158,7 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           break;
         }
         case 'set_procedure': {
-          p = upsertProcedure(p, requireTaskRef(o.task), { purpose: o.purpose }, now);
+          p = upsertProcedure(p, requireTaskRef(o.task), o.purpose === undefined ? {} : { purpose: o.purpose }, now);
           break;
         }
         case 'add_step': {

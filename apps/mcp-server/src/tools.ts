@@ -1067,7 +1067,7 @@ export function registerTools(server: McpServer, ws: Workspace): void {
         requireTask(s.project, taskId);
         const now = new Date().toISOString();
         await s.apply((p) => {
-          let next = upsertProcedure(p, taskId, { purpose }, now);
+          let next = upsertProcedure(p, taskId, purpose === undefined ? {} : { purpose }, now);
           if (steps) {
             const existingIds = (next.manual.procedures[taskId]?.steps ?? []).map((st) => st.id);
             for (const id of existingIds) next = removeStep(next, taskId, id, now);

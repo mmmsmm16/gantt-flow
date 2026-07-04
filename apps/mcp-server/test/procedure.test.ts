@@ -123,6 +123,36 @@ describe('手順書ツール（upsert_procedure / get_procedure 相当）', () =
     expect(text).toContain('img/x.png');
     expect(text).toContain('検品の様子');
   });
+
+  it('purpose 省略時は既存の purpose が保持される（upsert_procedure の purpose 未指定）', async () => {
+    const ws = new Workspace();
+    const s = await ws.create(path(), {});
+    const t = uuid();
+    await s.apply((p) => addTask(p, { name: '検品', level: 'detail', id: t }, uuid));
+
+    // 最初の手順書作成で purpose を設定
+    const now1 = new Date().toISOString();
+    await s.apply((p) => upsertProcedure(p, t, { purpose: '検品を正確に行う' }, now1));
+    expect(s.project.manual.procedures[t]?.purpose).toBe('検品を正確に行う');
+
+    // purpose を指定せず（undefined）steps のみで upsert_procedure 実行
+    const now2 = new Date().toISOString();
+    await s.apply((p) => {
+      let next = upsertProcedure(p, t, {}, now2); // purpose 省略
+      next = addStep(next, t, { action: '数量確認', why: '過不足防止' }, uuid, now2);
+      return next;
+    });
+
+    // purpose が保持されていることを確認
+    const proc = s.project.manual.procedures[t]!;
+    expect(proc.purpose).toBe('検品を正確に行う');
+    expect(proc.steps).toHaveLength(1);
+    expect(proc.steps[0]!.action).toBe('数量確認');
+
+    // reload でも deep-equal を確認
+    const onDisk = await reload(path());
+    expect(onDisk.manual.procedures[t]).toEqual(proc);
+  });
 });
 
 describe('資料台帳ツール（upsert_asset 相当）', () => {
