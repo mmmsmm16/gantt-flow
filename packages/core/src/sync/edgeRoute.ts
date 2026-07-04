@@ -5,8 +5,9 @@
 // 経路の形は 2 種類:
 //   HVH   : 出口 → 縦の通り道(midX) → 入口    (従来形。midX を賢く選ぶ)
 //   HVHVH : 出口 → 横の通り道(channelY) → 入口 (HVH で避け切れないときの迂回)
-// 出入りする辺(接続ハンドル)は両ノードの相対位置から自動選択する: 相手が右なら右辺→左辺、
-// 真下なら下辺→上辺、等(chooseEdgeDir)。実装は 4 方位を鏡映/転置で canonical 系
+// 出入りする辺(接続ハンドル)は両ノードの相対位置から自動選択する(chooseEdgeDir)。原則は常に
+// right(右辺→左辺)。例外は「相手がほぼ真上/真下(down/up)」と「相手が左側で明確に逆向き(left)」
+// の2つだけで、斜め前方(右上/右下)はすべて right に丸める。実装は 4 方位を鏡映/転置で canonical 系
 // (=ソース右辺→ターゲット左辺の従来系)へ移し、下の routeForward で経路を作って逆変換で戻す。
 
 import type { Rect } from './autoPlace';
@@ -107,14 +108,30 @@ const TRANSFORMS: Record<EdgeDir, Transform> = {
 };
 
 /**
- * ソース/ターゲットの中心相対位置から、幾何的に自然な出入り辺(＝方位)を決める。
- * 主軸の距離が等しいときは水平を優先し、決定論(同入力→同出力)を保つ。
+ * ソース/ターゲットの相対位置から、幾何的に自然な出入り辺(＝方位)を決める。
+ * 原則は常に right(ソース右辺→ターゲット左辺)。例外は2つだけ:
+ *   1. 相手がほぼ真上/真下: x範囲([x, x+w])が重なる → dy の符号で down/up。
+ *   2. 相手が左側で明確に逆向き: ターゲットの右端がソースの左端より左 → left
+ *      (U字の後ろ向きではなく、左辺から出て相手の右辺へ入る現行の left 方位)。
+ * 斜め前方(右上/右下)はこのどちらにも当たらないため right に丸まる。決定論(同入力→同出力)を保つ。
  */
 export function chooseEdgeDir(source: Rect, target: Rect): EdgeDir {
-  const dx = target.x + target.w / 2 - (source.x + source.w / 2);
-  const dy = target.y + target.h / 2 - (source.y + source.h / 2);
-  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left';
-  return dy >= 0 ? 'down' : 'up';
+  const sLo = source.x;
+  const sHi = source.x + source.w;
+  const tLo = target.x;
+  const tHi = target.x + target.w;
+
+  // 例外1: x範囲が重なる(ほぼ真上/真下)
+  if (tLo < sHi && sLo < tHi) {
+    const dy = target.y + target.h / 2 - (source.y + source.h / 2);
+    return dy >= 0 ? 'down' : 'up';
+  }
+
+  // 例外2: ターゲットの右端がソースの左端より左(明確に逆向き)
+  if (tHi < sLo) return 'left';
+
+  // 原則: 常に right
+  return 'right';
 }
 
 /**

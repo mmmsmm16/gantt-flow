@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { routeEdge, type Rect, type Pt } from '../src/sync/edgeRoute';
+import { routeEdge, chooseEdgeDir, type Rect, type Pt } from '../src/sync/edgeRoute';
 
 const R = (x: number, y: number, w = 120, h = 44): Rect => ({ x, y, w, h });
 
@@ -128,11 +128,25 @@ describe('routeEdge: 相対位置による出入り辺の自動選択(4方位)',
     expect(r.points[1]!.y).toBeLessThan(r.points[0]!.y); // 上向き
   });
 
-  it('主軸(水平/垂直)の優勢で辺が切り替わる', () => {
-    // 水平ずれ小・垂直ずれ大 → 下辺から
+  it('x範囲が重なるかどうかで down/right が切り替わる', () => {
+    // x範囲がほぼ重なる(ずれ20 < w120) → ほぼ真下 → 下辺から
     expect(routeEdge(R(0, 0), R(20, 300), []).points[0]).toEqual({ x: 60, y: 44 });
-    // 斜めでも水平が優勢 → 右辺から
+    // x範囲が重ならない斜め前方 → dy が dx より大きくても right に丸める
     expect(routeEdge(R(0, 0), R(400, 120), []).points[0]).toEqual({ x: 120, y: 22 });
+  });
+
+  it('原則: 常に right。例外は「x範囲が重なる(down/up)」と「明確に逆向き(left)」の2つだけ', () => {
+    // 斜め右下(dy(300) > dx(200) だが x範囲は重ならない) → 原則どおり right
+    expect(chooseEdgeDir(R(0, 0), R(200, 300))).toBe('right');
+    // 斜め右上も同様に right
+    expect(chooseEdgeDir(R(0, 300), R(200, 0))).toBe('right');
+    // x範囲が重なる真下(x範囲[0,120]と[80,200]が交差) → down
+    expect(chooseEdgeDir(R(0, 0), R(80, 300))).toBe('down');
+    // x範囲が重なる真上 → up
+    expect(chooseEdgeDir(R(0, 300), R(80, 0))).toBe('up');
+    // 逆向き(ターゲット右端(120)がソース左端(400)より左) → down/up の軸判定によらず left
+    // (dy(500) > |dx|(400) で従来の主軸判定なら down になるはずのケース)
+    expect(chooseEdgeDir(R(400, 0), R(0, 500))).toBe('left');
   });
 
   it('縦方向でも障害物を避ける(下辺から出て相手を迂回)', () => {
