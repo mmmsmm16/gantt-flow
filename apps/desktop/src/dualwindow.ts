@@ -17,7 +17,7 @@ import {
   type FocusIntent,
   useApp,
 } from './store';
-import { useUI } from './ui/useUI';
+import { useUI, type ToastTone } from './ui/useUI';
 
 /** 同一オリジン内でリーダーとフォロワーを結ぶチャネル名（閲覧専用ミラーの gf-mirror とは別）。 */
 export const SYNC_CHANNEL = 'gf-sync';
@@ -166,7 +166,7 @@ export interface FocusRequest {
 
 export type SyncMessage =
   | { type: 'hello' } // フォロワー→リーダー（接続時に現在状態を要求）
-  | { type: 'bye' } // どちらか→相手（離脱通知。フォロワーは接続待ちへ）
+  | { type: 'bye'; role: WindowRole; id: string } // 離脱通知。role/id で発信元を識別（リーダー離脱だけがフォロワーを接続待ちへ落とす）
   | { type: 'snapshot'; snapshot: RemoteSnapshot } // リーダー→フォロワー（現在状態）
   | { type: 'action'; name: string; args: unknown[]; origin: string; focus?: FocusRequest }; // フォロワー→リーダー（編集転送）
 
@@ -266,6 +266,7 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
   const ch = opts.channel ?? openSyncChannel();
   if (!ch) return () => {}; // 非対応環境: 同期無効（単独窓として普通に動く）
   const debounceMs = opts.debounceMs ?? 40;
+  const windowId = opts.windowId ?? MY_WINDOW_ID;
   let last: RemoteSnapshot | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -288,14 +289,18 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
       publishNow(); // 新しいフォロワー接続に現在状態で即応答
     } else if (msg?.type === 'action' && !opts.readOnly) {
       // フォロワーの編集をリーダーの store に直列適用（両窓編集同期の要）。
-      applyForwardedAction(store, msg, opts.windowId ?? MY_WINDOW_ID);
+      applyForwardedAction(store, msg, windowId);
       // 適用結果はすぐ配る（focusHint を含む最新スナップショットを 1 発で届ける）。
       publishNow();
     }
   };
   const unsub = store.subscribe(schedule);
 
-  const onHide = () => ch.postMessage({ type: 'bye' });
+  // リーダー起動（再起動を含む）時に現在状態を先んじて 1 発配る（leader re-announce）。
+  // これで、リーダーだけが再読込された後も既存フォロワーが「接続待ち」に取り残されない。
+  publishNow();
+
+  const onHide = () => ch.postMessage({ type: 'bye', role: 'leader', id: windowId });
   const wired = typeof window !== 'undefined';
   if (wired) window.addEventListener('pagehide', onHide);
 
@@ -310,7 +315,10 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
 // フォロワーから転送された 1 アクションをリーダーの store に適用する。
 //  - forward 以外（未分類・leaderOnly 等）は握りつぶす（フォロワー UI 側で既に拒否済みの保険）。
 //  - 作成系の返り値（新工程 id）を捕まえ、focus 指定があれば focusHint を立てる（発信元窓が後処理）。
-//  - フォロワー代行の副作用でリーダー自身の選択/詳細/トーストを動かさない（表示は窓ごと独立）。
+//  - フォロワー代行がリーダーで出した表示副作用（選択・詳細・トースト）は巻き戻し、発信元窓へ寄せる。
+//    ※ zustand の set() は毎回新しい state オブジェクトを作る。巻き戻し判定は必ず「実行後の
+//      最新読み取り（useUI.getState()）」と prev を比較する。実行前にキャプチャした古い state を
+//      比べると常に不変扱いになり、巻き戻しが発火しない（死んだコードになる）。
 export function applyForwardedAction(
   store: StoreApi<AppState>,
   msg: Extract<SyncMessage, { type: 'action' }>,
@@ -322,31 +330,40 @@ export function applyForwardedAction(
 
   // リーダー自身の表示状態（選択・詳細・トースト）は、フォロワー代行では動かさない。
   const prevSel = store.getState().selectedTaskId;
-  const ui = typeof useUI?.getState === 'function' ? useUI.getState() : null;
-  const prevInspector = ui?.inspectorOpen;
-  const prevToasts = ui?.toasts;
+  const prevInspector = useUI.getState().inspectorOpen;
+  const prevToasts = useUI.getState().toasts;
 
   const ret = (fn as (...a: unknown[]) => unknown)(...msg.args);
 
-  if (msg.focus) {
+  // フォロワー代行アクションがリーダーで出したトースト（undo/redo の結果・境界メッセージ「これ以上
+  // 戻せません」等）を捕まえ、発信元窓へ回すため取り置く（同期実行なので追加分は末尾に積まれる）。
+  const afterToasts = useUI.getState().toasts;
+  const produced = afterToasts.length > prevToasts.length ? afterToasts.slice(prevToasts.length) : [];
+  const lastToast = produced[produced.length - 1];
+  const toast: { message: string; tone: ToastTone } | undefined = lastToast
+    ? { message: lastToast.message, tone: lastToast.tone }
+    : undefined;
+
+  // 作成系の focus 後処理、または発信元へ回すトーストがあれば focusHint を立てて運ぶ
+  // （snapshot に載って発信元窓の handleIncomingFocus が origin 一致・seq 一度きりで実行する）。
+  if (msg.focus || toast) {
     const taskId = typeof ret === 'string' ? ret : undefined;
     const seq = (store.getState().focusHint?.seq ?? 0) + 1;
     const hint: FocusHint = {
       taskId,
       origin: msg.origin,
-      intent: msg.focus.intent,
-      surface: msg.focus.surface,
+      intent: msg.focus?.intent,
+      surface: msg.focus?.surface,
+      toast,
       seq,
     };
     store.setState({ focusHint: hint });
   }
 
-  // 表示状態を巻き戻す（フォロワーの作成で選択が動いた等をリーダー窓へ波及させない）。
+  // 表示状態を巻き戻す（フォロワーの代行でリーダー窓の選択/詳細/トーストを動かさない）。最新読み取りで比較。
   if (store.getState().selectedTaskId !== prevSel) store.setState({ selectedTaskId: prevSel });
-  if (ui && prevInspector !== undefined && ui.inspectorOpen !== prevInspector) {
-    ui.setInspectorOpen(prevInspector);
-  }
-  if (ui && prevToasts && ui.toasts !== prevToasts) useUI.setState({ toasts: prevToasts });
+  if (useUI.getState().inspectorOpen !== prevInspector) useUI.getState().setInspectorOpen(prevInspector);
+  if (useUI.getState().toasts !== prevToasts) useUI.setState({ toasts: prevToasts });
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +376,8 @@ export interface FollowerOptions {
   activePane?: () => 'table' | 'flow';
   /** true のとき受信反映のみ行い、編集の転送・focusHint 後処理はしない（reflect-only）。 */
   readOnly?: boolean;
+  /** 未接続のあいだ hello を再送する間隔（既定 2000ms）。リーダー再起動後の再接続に使う。 */
+  reHelloMs?: number;
 }
 
 /** フォロワー同期を開始する。編集アクションを転送に差し替え、snapshot 受信で自窓を更新する。 */
@@ -367,6 +386,7 @@ export function createFollowerSync(store: StoreApi<AppState>, opts: FollowerOpti
   if (!ch) return () => {}; // 非対応環境: 同期無効
   const windowId = opts.windowId ?? MY_WINDOW_ID;
   const activePane = opts.activePane ?? (() => useUI.getState().activePane);
+  const reHelloMs = opts.reHelloMs ?? 2000;
 
   let handledFocusSeq = -1;
 
@@ -388,22 +408,33 @@ export function createFollowerSync(store: StoreApi<AppState>, opts: FollowerOpti
     if (msg?.type === 'snapshot') {
       store.getState().applyRemoteSnapshot(msg.snapshot);
       if (!useDualWindow.getState().connected) useDualWindow.setState({ connected: true });
-      // 発信元フォーカスヒント（作成→即リネーム等）の後処理。reflect-only では行わない。
+      // 発信元フォーカスヒント（作成→即リネーム／undo/redo トースト等）の後処理。reflect-only では行わない。
       if (!opts.readOnly) {
         handleIncomingFocus(store, windowId, () => handledFocusSeq, (s) => (handledFocusSeq = s));
       }
     } else if (msg?.type === 'bye') {
-      useDualWindow.setState({ connected: false }); // リーダー離脱＝接続待ち（編集ロック）
+      // リーダーの離脱だけが「接続待ち（編集ロック）」を意味する。ピアのフォロワー離脱は無視
+      // する（別のサブ窓が閉じただけで、このサブ窓を接続待ちに落とさない）。
+      if (msg.role === 'leader') useDualWindow.setState({ connected: false });
     }
   };
 
   post({ type: 'hello' }); // 接続時に現在状態を要求（最初の snapshot まで編集禁止）
 
-  const onHide = () => post({ type: 'bye' });
+  // 未接続のあいだ hello を再送する（初回接続前・リーダー再起動後の再接続）。接続中は何もしない
+  // ＝実質停止（leader re-announce と合わせ、どちらが先に立ち上がっても取り残されない）。
+  const helloTimer = setInterval(() => {
+    if (!useDualWindow.getState().connected) post({ type: 'hello' });
+  }, reHelloMs);
+  // テスト（未クリーンアップ）や実行時にプロセス/タブを掴んだままにしないよう、可能なら unref。
+  (helloTimer as unknown as { unref?: () => void }).unref?.();
+
+  const onHide = () => post({ type: 'bye', role: 'follower', id: windowId });
   const wired = typeof window !== 'undefined';
   if (wired) window.addEventListener('pagehide', onHide);
 
   return () => {
+    clearInterval(helloTimer);
     if (wired) window.removeEventListener('pagehide', onHide);
     ch.close();
   };
@@ -489,10 +520,12 @@ function handleIncomingFocus(
   runFocusHint(hint);
 }
 
-/** focusHint の後処理（発信元の窓で実行）。rename=その場リネーム要求 / inspector=詳細を開く /
+/** focusHint の後処理（発信元の窓で実行）。まずトースト（undo/redo の結果・境界メッセージ）を
+    発信元窓で出す（taskId が無くても行う）。続いて rename=その場リネーム要求 / inspector=詳細を開く /
     select=選択のみ。rename の実体は FlowCanvas/TableView が useUI.renameRequest を購読して開く。 */
 export function runFocusHint(hint: FocusHint): void {
-  if (!hint.taskId) return;
+  if (hint.toast) useUI.getState().toast(hint.toast.message, hint.toast.tone);
+  if (!hint.taskId || !hint.intent) return;
   if (hint.intent === 'rename') {
     useUI.getState().requestRename(hint.taskId, hint.surface ?? 'flow');
   } else if (hint.intent === 'inspector') {

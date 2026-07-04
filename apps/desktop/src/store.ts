@@ -66,7 +66,7 @@ import {
   isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
-import { useUI } from './ui/useUI';
+import { useUI, type ToastTone } from './ui/useUI';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
 const LEVELS: ProcessLevel[] = ['large', 'medium', 'small', 'detail'];
@@ -276,8 +276,11 @@ export type FocusIntent = 'rename' | 'inspector' | 'select';
 export interface FocusHint {
   taskId?: Id;
   origin: string;
-  intent: FocusIntent;
+  /** 後処理の種別。トーストだけを運ぶ hint（undo/redo の結果など）では省略できる。 */
+  intent?: FocusIntent;
   surface?: 'table' | 'flow';
+  /** 発信元窓へ届けるトースト（undo/redo の結果・境界メッセージ）。リーダーでは巻き戻して出さない。 */
+  toast?: { message: string; tone: ToastTone };
   seq: number;
 }
 

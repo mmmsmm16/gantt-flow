@@ -12,6 +12,7 @@ import {
   applyForwardedAction,
   shouldHandleFocus,
   runFocusHint,
+  useDualWindow,
   type SyncChannel,
   type SyncMessage,
 } from '../src/dualwindow';
@@ -119,13 +120,16 @@ describe('dualwindow: リーダー配信 / フォロワー受信（skeleton）',
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('リーダーは編集のたびデバウンスして最新スナップショットを配る（hello には即応答）', () => {
+  it('リーダーは起動時に現在状態を再告知し、編集のたびデバウンスして最新を配る（hello には即応答）', () => {
     const leader = createAppStore();
     const { ch, sent, emit } = recorder();
     createLeaderSync(leader, { channel: ch, debounceMs: 40 });
 
-    emit({ type: 'hello' }); // 接続時に即応答
+    // 起動時 re-announce（既存フォロワーの「接続待ち」を解消するため 1 発配る）。
     expect(sent.filter((m) => m.type === 'snapshot')).toHaveLength(1);
+
+    emit({ type: 'hello' }); // 接続時に即応答（+1）
+    expect(sent.filter((m) => m.type === 'snapshot')).toHaveLength(2);
 
     leader.getState().addTask('A');
     leader.getState().addTask('B');
@@ -303,5 +307,142 @@ describe('dualwindow S3: 発信元フォーカスヒントの後処理', () => {
     leader.setState({ focusHint: { taskId: 'zzz', origin: 'w-OTHER', intent: 'rename', surface: 'flow', seq: 99 } });
     leader.getState().addTask('trigger'); // 変化を起こして snapshot を配らせる
     expect(useUI.getState().renameRequest).toBeNull();
+  });
+});
+
+// 発見1: リーダーがフォロワー代行で出す表示副作用（詳細を開く・undo/redo トースト）を
+// リーダー窓で巻き戻し、発信元窓へ focusHint 経由で寄せる（旧実装は古い state 比較で死んでいた）。
+describe('dualwindow F1: 代行の表示副作用をリーダーで抑制し発信元へ寄せる', () => {
+  beforeEach(() => {
+    useUI.setState({ toasts: [], inspectorOpen: false, renameRequest: null });
+  });
+
+  it('代行 addMilestone: リーダーの詳細は開かず、発信元へ inspector focusHint を返す', () => {
+    const leader = createAppStore();
+    applyForwardedAction(
+      leader,
+      { type: 'action', name: 'addMilestone', args: [], origin: 'w-follower', focus: { intent: 'inspector', surface: 'flow' } },
+      'w-leader',
+    );
+    // マイルストーンは作られる（リーダーが唯一の真実）
+    expect(Object.keys(leader.getState().project.core.tasks)).toHaveLength(1);
+    // だがリーダー窓の詳細は開いたまま残さない（巻き戻し。旧実装ではここが開きっぱなしだった）
+    expect(useUI.getState().inspectorOpen).toBe(false);
+    // 発信元窓向けに inspector 後処理を運ぶ focusHint（作成 id・origin 付き）
+    const hint = leader.getState().focusHint!;
+    expect(hint.origin).toBe('w-follower');
+    expect(hint.intent).toBe('inspector');
+    expect(hint.taskId).toBe(Object.keys(leader.getState().project.core.tasks)[0]);
+  });
+
+  it('代行 undo: リーダーにトーストを出さず、発信元へトースト focusHint を返す', () => {
+    const leader = createAppStore();
+    leader.getState().addTask('A'); // 履歴を進める（canUndo=true）
+    useUI.setState({ toasts: [] });
+    applyForwardedAction(leader, { type: 'action', name: 'undo', args: [], origin: 'w-follower' }, 'w-leader');
+    // リーダー窓にはトーストを残さない（巻き戻し）
+    expect(useUI.getState().toasts).toHaveLength(0);
+    // 発信元へ運ぶトーストが focusHint に載る
+    const hint = leader.getState().focusHint!;
+    expect(hint.origin).toBe('w-follower');
+    expect(hint.toast?.message).toContain('元に戻しました');
+  });
+
+  it('代行 境界 undo（これ以上戻せません）も抑制し、境界メッセージを発信元へ運ぶ（UX#10 復活）', () => {
+    const leader = createAppStore(); // 空履歴＝これ以上戻せない
+    useUI.setState({ toasts: [] });
+    applyForwardedAction(leader, { type: 'action', name: 'undo', args: [], origin: 'w-follower' }, 'w-leader');
+    expect(useUI.getState().toasts).toHaveLength(0); // リーダーには出さない
+    const hint = leader.getState().focusHint!;
+    expect(hint.origin).toBe('w-follower');
+    expect(hint.toast?.message).toBe('これ以上戻せません'); // 境界メッセージを発信元へ
+  });
+
+  it('runFocusHint: toast 付き hint は（taskId 無しでも）その窓でトーストを出す', () => {
+    useUI.setState({ toasts: [] });
+    runFocusHint({ origin: 'w', toast: { message: 'これ以上戻せません', tone: 'info' }, seq: 1 });
+    expect(useUI.getState().toasts.map((t) => t.message)).toEqual(['これ以上戻せません']);
+  });
+});
+
+// 発見2/3: リーダー再起動後の再接続（re-hello ループ）と、bye の発信元識別。
+describe('dualwindow F2/F3: 再接続の re-hello と bye の発信元識別', () => {
+  const savedDW = useDualWindow.getState();
+  afterEach(() => useDualWindow.setState({ role: savedDW.role, connected: savedDW.connected }));
+
+  it('未接続のあいだ hello を再送し、接続後（snapshot 受信）は再送を止める', () => {
+    vi.useFakeTimers();
+    try {
+      useDualWindow.setState({ role: 'follower', connected: false });
+      const follower = createAppStore();
+      const { ch, sent, emit } = recorder();
+      createFollowerSync(follower, { channel: ch, windowId: 'w-f', readOnly: true, reHelloMs: 2000 });
+
+      const hellos = () => sent.filter((m) => m.type === 'hello').length;
+      expect(hellos()).toBe(1); // 起動時の hello
+      vi.advanceTimersByTime(2000);
+      expect(hellos()).toBe(2); // 未接続なので再送
+      vi.advanceTimersByTime(2000);
+      expect(hellos()).toBe(3);
+
+      // リーダーから snapshot が届いて接続確立 → 以降は再送しない
+      emit({ type: 'snapshot', snapshot: pickSnapshot(createAppStore().getState()) });
+      expect(useDualWindow.getState().connected).toBe(true);
+      const atConnect = hellos();
+      vi.advanceTimersByTime(6000);
+      expect(hellos()).toBe(atConnect); // 接続後は増えない（ループ実質停止）
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('接続が切れたら（leader bye）再び hello を再送して復帰できる', () => {
+    vi.useFakeTimers();
+    try {
+      useDualWindow.setState({ role: 'follower', connected: true });
+      const follower = createAppStore();
+      const { ch, sent, emit } = recorder();
+      createFollowerSync(follower, { channel: ch, windowId: 'w-f', readOnly: true, reHelloMs: 2000 });
+      const hellos = () => sent.filter((m) => m.type === 'hello').length;
+      // 接続中は再送しない
+      vi.advanceTimersByTime(4000);
+      expect(hellos()).toBe(1);
+      // リーダー離脱 → 接続待ちへ → 再送再開
+      emit({ type: 'bye', role: 'leader', id: 'w-leader' });
+      expect(useDualWindow.getState().connected).toBe(false);
+      vi.advanceTimersByTime(2000);
+      expect(hellos()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('follower の bye は他のフォロワーを接続待ちに落とさない（leader の bye だけが落とす）', () => {
+    useDualWindow.setState({ role: 'follower', connected: true });
+    const follower = createAppStore();
+    const { ch, emit } = recorder();
+    createFollowerSync(follower, { channel: ch, windowId: 'w-B', readOnly: true });
+
+    // 別のサブ窓（フォロワー）が閉じた → 無視（接続維持）
+    emit({ type: 'bye', role: 'follower', id: 'w-A' });
+    expect(useDualWindow.getState().connected).toBe(true);
+    // リーダーが閉じた → 接続待ち
+    emit({ type: 'bye', role: 'leader', id: 'w-leader' });
+    expect(useDualWindow.getState().connected).toBe(false);
+  });
+
+  it('往復: フォロワーの境界 undo はサブ窓（発信元）にだけトーストを出す', () => {
+    useDualWindow.setState({ role: 'leader', connected: true });
+    const leader = createAppStore();
+    const follower = createAppStore();
+    const { a, b } = pairChannels();
+    createLeaderSync(leader, { channel: a, debounceMs: 0 });
+    createFollowerSync(follower, { channel: b, windowId: 'w-follower' });
+    expect(useDualWindow.getState().connected).toBe(true); // handshake 済み
+    useUI.setState({ toasts: [] });
+
+    follower.getState().undo(); // 空履歴＝境界。転送 → リーダーで抑制 → 発信元へトースト
+    // リーダーは抑制、発信元（この JS 文脈＝サブ窓）にだけ 1 件出る
+    expect(useUI.getState().toasts.map((t) => t.message)).toEqual(['これ以上戻せません']);
   });
 });
