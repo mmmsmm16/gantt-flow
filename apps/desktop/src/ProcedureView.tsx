@@ -283,6 +283,7 @@ export function ProcedureView(): JSX.Element {
     if (!core.tasks[taskId]) return;
     const targetMid = midOf(core, taskId);
     if (targetMid && targetMid !== midId) {
+      setSelStep(null);
       useApp.getState().select(taskId);
       setProcedureMidId(targetMid);
       setPendingScroll(taskId);
@@ -659,7 +660,18 @@ export function ProcedureView(): JSX.Element {
         </div>
 
         {prevMid && (
-          <div className="proc-entry" role="button" tabIndex={0} onClick={() => gotoMid(prevMid.id)}>
+          <div
+            className="proc-entry"
+            role="button"
+            tabIndex={0}
+            onClick={() => gotoMid(prevMid.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                gotoMid(prevMid.id);
+              }
+            }}
+          >
             ▲ 前の工程: {nameOf(prevMid.id)}
           </div>
         )}
@@ -671,7 +683,18 @@ export function ProcedureView(): JSX.Element {
         )}
 
         {nextMid && (
-          <div className="proc-entry tail" role="button" tabIndex={0} onClick={() => gotoMid(nextMid.id)}>
+          <div
+            className="proc-entry tail"
+            role="button"
+            tabIndex={0}
+            onClick={() => gotoMid(nextMid.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                gotoMid(nextMid.id);
+              }
+            }}
+          >
             ▼ 次の工程: {nameOf(nextMid.id)}
           </div>
         )}
