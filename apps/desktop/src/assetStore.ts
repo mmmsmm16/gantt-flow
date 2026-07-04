@@ -4,7 +4,9 @@
 //  - 画像バイナリは Project の外に置く（undo/autosave/dirty に一切乗らない）。Project が持つのは
 //    StepImage.file（内容ハッシュ由来の安定名）だけ。実バイトはこの Map に保持し、描画は blob URL。
 //  - 保存時は「現 project が参照する分のみ」を ZIP assets へ書く（= 保存時 GC）。ただし本メモリは
-//    消さない（保存後に undo で画像が復活しても生きているように）。
+//    消さない（保存後に undo で画像が復活しても生きているように）。同じ理由で store.ts の
+//    removeStepImage は Project 側の参照を消すだけで、ここ（bytesByFile/urlByFile）には触れない
+//    （画像を消す undo で復活しても生きているように、意図して残す）。
 //  - 二窓では画像追加時に bytes を BroadcastChannel の専用 asset メッセージで配る（snapshot には
 //    載せない＝重いバイナリを毎編集で配らない）。配布口は dualwindow.ts が setAssetSink で差し込む。
 //
@@ -119,12 +121,20 @@ export function broadcastAsset(file: string, bytes: Uint8Array): void {
   sink?.(file, bytes);
 }
 
-/** テスト専用: メモリ層をクリアする（blob URL も解放）。 */
-export function __resetAssetStoreForTest(): void {
+/** メモリ層を空にする（生成済み blob URL は revokeObjectURL してから解放）。
+    プロジェクト切替（＝undo 履歴をリセットするアクション: newProject/loadSample/loadTemplate/
+    loadProject/restoreProject）で呼び、前プロジェクトの画像で溜まり続けないようにする。
+    reloadFromExternal（同一プロジェクトの外部更新）では呼ばない＝undo 継続中に既存画像が要る。 */
+export function clearAssetStore(): void {
   if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
     for (const u of urlByFile.values()) URL.revokeObjectURL(u);
   }
   bytesByFile.clear();
   urlByFile.clear();
+}
+
+/** テスト専用: メモリ層をクリアする（blob URL も解放）＋ sink も外す。 */
+export function __resetAssetStoreForTest(): void {
+  clearAssetStore();
   sink = null;
 }

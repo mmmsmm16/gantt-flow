@@ -84,7 +84,7 @@ import {
   isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
-import { contentHashName, putAsset, broadcastAsset } from './assetStore';
+import { contentHashName, putAsset, broadcastAsset, clearAssetStore } from './assetStore';
 import { useUI, type ToastTone } from './ui/useUI';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
@@ -1714,6 +1714,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     loadProject: (project) => {
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
+      clearAssetStore();
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId);
     },
@@ -1731,6 +1733,8 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (selectedTaskId && project.core.tasks[selectedTaskId]) set({ selectedTaskId });
     },
     restoreProject: (project) => {
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
+      clearAssetStore();
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId, true); // 未保存扱い
     },
@@ -1746,14 +1750,22 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
       return report;
     },
-    newProject: () => adopt(initialProject(), 'medium', undefined),
+    newProject: () => {
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
+      clearAssetStore();
+      adopt(initialProject(), 'medium', undefined);
+    },
     loadTemplate: (key) => {
       const tpl = TEMPLATES.find((t) => t.key === key);
       if (!tpl) return;
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
+      clearAssetStore();
       const p = tpl.create(uuid, new Date().toISOString());
       adopt(p, 'medium', undefined); // 既定は全体スコープ(大をまたいで業務全体を俯瞰)
     },
     loadSample: () => {
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
+      clearAssetStore();
       const sample = createSampleProject(uuid, new Date().toISOString());
       adopt(sample, 'medium', undefined); // 既定は全体スコープ
     },

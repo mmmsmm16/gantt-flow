@@ -317,8 +317,12 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
 
   ch.onmessage = (msg) => {
     if (msg?.type === 'hello') {
+      // asset(bytes) を snapshot より先に送る（順序が重要）。putAsset はプレーンな Map への
+      // 代入で再レンダーを起こさないため、snapshot が先着すると「画像が見つかりません」状態で
+      // 一度レンダーされ、後着の bytes は誰も見ていない Map を更新するだけで画面に反映されず、
+      // 次の無関係な更新まで壊れた表示が固着する。必ず bytes を先に届けてから snapshot を送る。
+      resendReferencedAssets(store, ch); // 後起動フォロワーへ既存画像 bytes を追いつかせる（必須・snapshot より先）
       publishNow(); // 新しいフォロワー接続に現在状態で即応答
-      resendReferencedAssets(store, ch); // 後起動フォロワーへ既存画像 bytes を追いつかせる（必須）
     } else if (msg?.type === 'asset') {
       putAsset(msg.file, msg.bytes); // 他窓（フォロワー等）が配った画像 bytes を取り込む
     } else if (msg?.type === 'action' && !opts.readOnly) {

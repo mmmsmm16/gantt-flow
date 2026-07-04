@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   contentHashName,
   putAsset,
   getAssetBytes,
+  getAssetUrl,
   hasAsset,
   snapshotAssets,
   ingestAssets,
+  clearAssetStore,
   __resetAssetStoreForTest,
 } from '../src/assetStore';
 
@@ -77,5 +79,33 @@ describe('put/get/has/snapshot/ingest', () => {
     ingestAssets({ 'p.png': new Uint8Array([7]), 'q.png': new Uint8Array([8]) });
     expect(getAssetBytes('p.png')).toEqual(new Uint8Array([7]));
     expect(getAssetBytes('q.png')).toEqual(new Uint8Array([8]));
+  });
+});
+
+// レビュー指摘: プロジェクト切替（newProject/loadSample/loadTemplate/loadProject/restoreProject）で
+// 前プロジェクトの画像がメモリに積み上がらないよう、store.ts から呼ぶクリア関数。
+describe('clearAssetStore', () => {
+  it('put → URL 生成 → clear で Map が空になり blob URL も revoke される（再 put は新規 URL）', () => {
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL');
+    const bytes = new Uint8Array([1, 2, 3]);
+    putAsset('clear.png', bytes);
+    const url1 = getAssetUrl('clear.png');
+    expect(url1).toBeTruthy();
+    expect(hasAsset('clear.png')).toBe(true);
+
+    clearAssetStore();
+
+    expect(revokeSpy).toHaveBeenCalledWith(url1);
+    expect(hasAsset('clear.png')).toBe(false);
+    expect(getAssetBytes('clear.png')).toBeUndefined();
+
+    // 再度同じ内容を put すれば通常どおり格納・URL 生成できる（キャッシュが生きたままでない）。
+    putAsset('clear.png', bytes);
+    const url2 = getAssetUrl('clear.png');
+    expect(hasAsset('clear.png')).toBe(true);
+    expect(url2).toBeTruthy();
+    expect(url2).not.toBe(url1); // 古い URL はもう有効ではない前提の新規発行
+
+    revokeSpy.mockRestore();
   });
 });
