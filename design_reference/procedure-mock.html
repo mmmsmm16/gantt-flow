@@ -1,0 +1,445 @@
+<title>手順書・ノウハウ層 モック</title>
+<style>
+  :root {
+    --paper: #f5f6f8;
+    --panel: #ffffff;
+    --ink: #22293a;
+    --ink-soft: #5a6478;
+    --line: #dfe3ea;
+    --accent: #3556c7;
+    --accent-soft: #eaeefc;
+    --amber: #b45309;
+    --amber-soft: #fdf3e2;
+    --amber-line: #ecd3a8;
+    --teal: #0f766e;
+    --teal-soft: #e4f4f2;
+    --danger: #b3382e;
+    --danger-soft: #fbecea;
+    --ok: #1d7a46;
+    --ok-soft: #e6f4ec;
+    --shadow: 0 1px 3px rgba(30, 38, 60, .08), 0 6px 20px rgba(30, 38, 60, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #14161c;
+      --panel: #1d2029;
+      --ink: #e6e9f0;
+      --ink-soft: #9aa3b5;
+      --line: #333846;
+      --accent: #8ba3f0;
+      --accent-soft: #262d45;
+      --amber: #e2a04a;
+      --amber-soft: #2e2617;
+      --amber-line: #4a3c22;
+      --teal: #5cc2b8;
+      --teal-soft: #17302d;
+      --danger: #e08078;
+      --danger-soft: #372020;
+      --ok: #6fc294;
+      --ok-soft: #1b2f24;
+      --shadow: 0 1px 3px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #f5f6f8; --panel: #ffffff; --ink: #22293a; --ink-soft: #5a6478; --line: #dfe3ea;
+    --accent: #3556c7; --accent-soft: #eaeefc; --amber: #b45309; --amber-soft: #fdf3e2; --amber-line: #ecd3a8;
+    --teal: #0f766e; --teal-soft: #e4f4f2; --danger: #b3382e; --danger-soft: #fbecea; --ok: #1d7a46; --ok-soft: #e6f4ec;
+    --shadow: 0 1px 3px rgba(30,38,60,.08), 0 6px 20px rgba(30,38,60,.06);
+  }
+  :root[data-theme="dark"] {
+    --paper: #14161c; --panel: #1d2029; --ink: #e6e9f0; --ink-soft: #9aa3b5; --line: #333846;
+    --accent: #8ba3f0; --accent-soft: #262d45; --amber: #e2a04a; --amber-soft: #2e2617; --amber-line: #4a3c22;
+    --teal: #5cc2b8; --teal-soft: #17302d; --danger: #e08078; --danger-soft: #372020; --ok: #6fc294; --ok-soft: #1b2f24;
+    --shadow: 0 1px 3px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3);
+  }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.65; margin: 0; padding: 28px 20px 60px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  h1 { font-size: 20px; margin: 0; }
+  .lede { color: var(--ink-soft); margin: 6px 0 0; max-width: 62em; }
+
+  /* ---------- annotation callout chips ---------- */
+  .callout {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 11px; font-weight: 700;
+    vertical-align: text-top; margin-left: 6px; flex: none;
+  }
+  :root[data-theme="dark"] .callout, .dark .callout { color: #14161c; }
+
+  /* ---------- app frame ---------- */
+  .frame {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 14px; padding: 8px 14px;
+    border-bottom: 1px solid var(--line); font-size: 13px;
+  }
+  .topbar .proj { font-weight: 700; }
+  .tabs { display: flex; gap: 2px; background: var(--paper); border-radius: 7px; padding: 2px; }
+  .tab { padding: 4px 14px; border-radius: 5px; color: var(--ink-soft); }
+  .tab.on { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .topbar .sp { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12.5px;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  :root[data-theme="dark"] .btn.primary { color: #14161c; }
+
+  .cols { display: flex; min-height: 620px; }
+  /* sidebar tree */
+  .side {
+    width: 218px; flex: none; border-right: 1px solid var(--line);
+    padding: 12px 8px; font-size: 13px; background: color-mix(in srgb, var(--paper) 55%, var(--panel));
+  }
+  .side .cap { font-size: 11px; color: var(--ink-soft); letter-spacing: .08em; padding: 0 8px 6px; }
+  .tnode { padding: 4px 8px; border-radius: 6px; display: flex; align-items: center; gap: 6px; color: var(--ink); }
+  .tnode .lv { font-size: 10px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; flex: none; }
+  .tnode.sel { background: var(--accent-soft); font-weight: 700; }
+  .tnode.d1 { margin-left: 14px; }
+  .tnode.d2 { margin-left: 28px; }
+  .tnode .cov { margin-left: auto; font-size: 11px; }
+  .cov.ok { color: var(--ok); } .cov.none { color: var(--ink-soft); }
+
+  /* sidebar mini-flow nav */
+  .mg-h { font-size: 12px; font-weight: 700; padding: 8px 8px 4px; display: flex; align-items: center; gap: 6px; }
+  .mg-h .lv2 { font-size: 10px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-weight: 400; }
+  .mg-h.dim { color: var(--ink-soft); font-weight: 400; }
+  .mflow { display: flex; flex-direction: column; align-items: stretch; padding: 2px 8px 6px 16px; }
+  .mnode {
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; background: var(--panel);
+    font-size: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .mnode .cov { margin-left: auto; font-size: 11px; }
+  .mnode.todo { border-style: dashed; color: var(--ink-soft); }
+  .mnode.here {
+    border-color: var(--accent); background: var(--accent-soft); font-weight: 700;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .mnode.here .now {
+    font-size: 9.5px; font-weight: 700; color: #fff; background: var(--accent);
+    border-radius: 8px; padding: 0 6px; flex: none;
+  }
+  :root[data-theme="dark"] .mnode.here .now { color: #14161c; }
+  .mlink { width: 2px; height: 15px; background: var(--ink-soft); opacity: .45; margin-left: calc(50% - 1px); position: relative; }
+  .mlink::after {
+    content: ""; position: absolute; bottom: -1px; left: 50%; transform: translateX(-50%);
+    border: 3.5px solid transparent; border-top: 5px solid var(--ink-soft);
+  }
+
+  /* screenshot figure in steps */
+  .shot { margin: 10px 0 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; max-width: 400px; background: var(--panel); }
+  .shot svg { display: block; width: 100%; height: auto; }
+  .shot figcaption { font-size: 11.5px; color: var(--ink-soft); padding: 4px 10px 6px; border-top: 1px solid var(--line); }
+
+  /* main doc */
+  .main { flex: 1; min-width: 0; padding: 22px 30px 30px; overflow-x: auto; }
+  .crumb { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+  .doc-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .doc-h h2 { font-size: 19px; margin: 0; }
+  .covbar { font-size: 12px; color: var(--ink-soft); }
+  .covbar b { color: var(--ok); }
+  .purpose {
+    margin: 12px 0 20px; padding: 10px 14px; border-left: 3px solid var(--accent);
+    background: var(--accent-soft); border-radius: 0 8px 8px 0; max-width: 60em;
+  }
+  .purpose .tag { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .06em; }
+
+  .chap { margin: 0 0 26px; }
+  .chap-h { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+  .chap-h h3 { font-size: 15.5px; margin: 0; }
+  .chap-h .meta { font-size: 12px; color: var(--ink-soft); }
+  .chap-h .flowlink { font-size: 12px; color: var(--accent); margin-left: auto; }
+  .chap-purpose { font-size: 13px; color: var(--ink-soft); margin: 6px 0 12px; }
+  .chap-purpose b { color: var(--ink); font-weight: 600; }
+
+  .step { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
+  .step:last-child { border-bottom: 0; }
+  .stepno {
+    flex: none; width: 24px; height: 24px; border-radius: 50%; margin-top: 1px;
+    background: var(--paper); border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--ink-soft);
+  }
+  .step .body { min-width: 0; flex: 1; }
+  .step .act { font-weight: 700; }
+  .step .why { font-size: 12.5px; color: var(--ink-soft); margin-top: 1px; }
+  .step .why::before { content: "目的: "; color: var(--accent); font-weight: 700; }
+  .step .detail { margin: 6px 0 0; font-size: 13px; color: var(--ink); max-width: 58em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+    border: 1px solid var(--line); border-radius: 20px; padding: 1px 10px; color: var(--ink-soft); background: var(--panel);
+  }
+  .chip.ref { border-color: color-mix(in srgb, var(--teal) 40%, var(--line)); color: var(--teal); background: var(--teal-soft); }
+  .chip.io { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .chip.broken { color: var(--danger); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+  .cond {
+    margin-top: 8px; padding: 8px 12px; border: 1px solid var(--amber-line);
+    background: var(--amber-soft); border-radius: 8px; font-size: 13px; max-width: 56em;
+  }
+  .cond .c-if { font-weight: 700; color: var(--amber); }
+  .cond .c-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .empty-proc {
+    margin: 8px 0 0; padding: 12px 14px; border: 1px dashed var(--line); border-radius: 8px;
+    color: var(--ink-soft); font-size: 13px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+
+  /* vertical process flow rail */
+  .entry { font-size: 11.5px; color: var(--ink-soft); margin: 2px 0 14px; }
+  .entry.tail { margin: 10px 0 0; }
+  .prow { display: flex; gap: 20px; }
+  .rail { flex: none; width: 190px; display: flex; flex-direction: column; align-items: center; }
+  .pnode {
+    width: 100%; box-sizing: border-box; background: var(--panel);
+    border: 1.5px solid color-mix(in srgb, var(--ink-soft) 65%, var(--line));
+    border-radius: 8px; padding: 8px 10px; text-align: center; box-shadow: var(--shadow);
+  }
+  .pnode .nm { font-weight: 700; font-size: 13.5px; }
+  .pnode .who { font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+  .pnode.todo { border-style: dashed; }
+  .pnode.todo .nm { color: var(--ink-soft); }
+  .branch {
+    margin-top: 7px; font-size: 11px; color: var(--amber);
+    border: 1px dashed var(--amber-line); background: var(--amber-soft);
+    border-radius: 6px; padding: 2px 8px; max-width: 100%;
+  }
+  .vline { width: 2px; flex: 1; min-height: 30px; background: var(--ink-soft); opacity: .5; position: relative; margin: 7px 0 1px; }
+  .vline::after {
+    content: ""; position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top: 8px solid var(--ink-soft);
+  }
+  .pdetail { flex: 1; min-width: 0; padding-bottom: 26px; }
+  .pdetail .goal { font-size: 13px; color: var(--ink-soft); margin: 2px 0 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .pdetail .goal b { color: var(--ink); font-weight: 600; }
+  .pdetail .goal .flowlink { margin-left: auto; font-size: 12px; color: var(--accent); white-space: nowrap; }
+  .fold { font-size: 12.5px; color: var(--accent); margin-top: 4px; }
+
+  /* right drawer: 資料台帳 */
+  .drawer {
+    width: 264px; flex: none; border-left: 1px solid var(--line); padding: 14px;
+    background: color-mix(in srgb, var(--paper) 55%, var(--panel)); font-size: 12.5px;
+  }
+  .drawer h4 { margin: 0 0 10px; font-size: 13px; display: flex; align-items: center; }
+  .asset { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 10px; margin-bottom: 8px; }
+  .asset .nm { font-weight: 700; }
+  .asset .path { font-size: 11px; color: var(--ink-soft); word-break: break-all; margin: 2px 0; }
+  .asset .use { font-size: 11px; color: var(--teal); }
+  .asset.err { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+  .asset.err .warn { color: var(--danger); font-size: 11px; font-weight: 700; }
+  .drawer .btn { width: 100%; justify-content: center; margin-top: 4px; }
+
+  /* ---------- reader mode mini mock ---------- */
+  .reader-grid { display: flex; gap: 18px; flex-wrap: wrap; }
+  .reader {
+    flex: 1 1 340px; max-width: 480px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: var(--shadow); padding: 16px 18px;
+  }
+  .reader .rh { font-size: 12px; color: var(--ink-soft); }
+  .reader h3 { margin: 4px 0 2px; font-size: 16px; }
+  .reader .why2 { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 10px; }
+  .check { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line); align-items: baseline; }
+  .check:last-child { border-bottom: 0; }
+  .box { flex: none; width: 15px; height: 15px; border: 1.5px solid var(--ink-soft); border-radius: 4px; position: relative; top: 2px; }
+  .box.done { background: var(--ok); border-color: var(--ok); }
+  .box.done::after { content: "✓"; color: #fff; font-size: 11px; position: absolute; top: -3px; left: 2px; }
+  .check .t { flex: 1; }
+  .check .t small { display: block; color: var(--ink-soft); }
+  .reader-note { flex: 1 1 300px; font-size: 13px; color: var(--ink-soft); max-width: 40em; }
+  .reader-note ul { padding-left: 1.3em; margin: 8px 0; }
+
+  /* ---------- annotation cards ---------- */
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 13px; }
+  .note .callout { margin: 0 6px 0 0; }
+  .note b { display: inline; }
+  .note p { margin: 6px 0 0; color: var(--ink-soft); }
+
+  section > h2.sec { font-size: 15px; margin: 0 0 10px; }
+  a { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>手順書・ノウハウ層 — 画面モック</h1>
+    <p class="lede">「手順書」タブを新設し、<b>サイドバーに配下工程の縦フロー（オブジェクト＋矢印）、本文に各工程の手順</b>が並ぶイメージです。縦フローは工程ツリーと依存関係から自動生成され、スクロールに追従する「いまここ」で現在地がわかります。現場の人が見るのもこの画面そのもの（編集UIを除いただけ）です。丸数字は下の解説カードに対応します。</p>
+  </header>
+
+  <!-- ======================= editor view ======================= -->
+  <div class="frame" role="img" aria-label="手順書ビューのモック">
+    <div class="topbar">
+      <span class="proj">受注業務改革.gflow</span>
+      <nav class="tabs">
+        <span class="tab">表</span><span class="tab">フロー</span><span class="tab on">手順書<span class="callout">1</span></span>
+      </nav>
+      <span class="sp"></span>
+      <span class="btn">資料台帳</span>
+      <span class="btn primary">ハンドブック出力<span class="callout">5</span></span>
+    </div>
+    <div class="cols">
+
+      <aside class="side">
+        <div class="cap">工程フロー<span class="callout">7</span></div>
+        <div class="mg-h dim">1. 受注〜出荷<span class="lv2">大</span></div>
+        <div class="mg-h">2. 受注管理<span class="lv2">中</span><span class="cov ok" style="margin-left:auto">4/6</span></div>
+        <nav class="mflow">
+          <div class="mnode here">注文内容の確認<span class="now">いまここ</span></div>
+          <div class="mlink"></div>
+          <div class="mnode todo">与信確認<span class="cov none">—</span></div>
+          <div class="mlink"></div>
+          <div class="mnode">在庫引当<span class="cov ok">✓</span></div>
+        </nav>
+        <div class="mg-h dim">3. 出荷指示<span class="lv2">中</span><span class="cov none" style="margin-left:auto">0/4</span></div>
+      </aside>
+
+      <main class="main">
+        <div class="crumb">1. 受注〜出荷 / <b>2. 受注管理</b></div>
+        <div class="doc-h">
+          <h2>2. 受注管理</h2>
+          <span class="covbar">手順書 <b>4</b>/6 工程 作成済み<span class="callout">4</span></span>
+        </div>
+        <div class="purpose">
+          <span class="tag">この工程群の目的</span><br>
+          顧客からの注文を正確に受け付け、与信・在庫の裏付けを取ったうえで出荷可能な「確定受注」に変換する。
+        </div>
+
+        <div class="entry">▲ 前の工程: 1.2 注文書の受領（営業）</div>
+
+        <!-- 2.1.1 -->
+        <article class="chap">
+          <div class="chap-h">
+            <h3>2.1.1 注文内容の確認</h3>
+            <span class="meta">担当: 営業事務 ・ 15分</span>
+            <span class="flowlink">フローで表示 →</span>
+          </div>
+          <p class="chap-purpose"><b>目的:</b> 注文書の記載不備・単価相違をこの時点で潰し、後工程への手戻りをなくす。</p>
+
+          <div class="step">
+            <span class="stepno">1</span>
+            <div class="body">
+              <div class="act">注文書の記載内容を受注台帳と突合する<span class="callout">2</span></div>
+              <div class="why">品目コード・単価・納期の3点は誤りが最も多く、後工程で直すと出荷遅延に直結するため。</div>
+              <p class="detail">受信フォルダの注文書PDFを開き、受注台帳の該当顧客シートと品目コード・単価・希望納期を1行ずつ照合する。単価は「最新の見積書」ではなく<b>単価契約一覧</b>を正とする（見積側が古いことがある）。</p>
+              <div class="chips">
+                <span class="chip io">📄 注文書（入力）</span>
+                <span class="chip ref">📚 単価契約一覧 §2</span>
+                <span class="chip ref">📚 受注台帳記入要領</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="stepno">2</span>
+            <div class="body">
+              <div class="act">記載不備の有無を判定する</div>
+              <div class="why">不備注文を後工程に流さない最後の関所。</div>
+              <div class="cond"><span class="c-if">⚠ 記載不備・単価相違がある場合:</span>
+                営業担当へ差し戻す（→ <span class="c-link">工程 1.2 注文書修正依頼</span>）。修正版の再受領までこの注文は保留とし、受注台帳の状態を「差戻中」にする。<span class="callout">3</span></div>
+              <div class="cond"><span class="c-if">⚠ 新規顧客の場合:</span>
+                与信登録が未了のため、先に <span class="c-link">工程 2.2 与信確認</span> を実施してから受付処理に戻る。</div>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="stepno">3</span>
+            <div class="body">
+              <div class="act">受注台帳へ登録し受付番号を採番する</div>
+              <div class="why">以降の全工程がこの受付番号で追跡されるため。</div>
+              <p class="detail">販売管理システムの「受注入力」画面から登録。摘要欄には注文書の特記事項を転記する（空欄のまま登録すると出荷時に特記が落ちる — 過去に誤出荷の原因になった）。</p>
+              <figure class="shot">
+                <svg viewBox="0 0 400 132" role="img" aria-label="受注入力画面のスクリーンショット例">
+                  <rect x="0" y="0" width="400" height="132" style="fill:var(--paper)"/>
+                  <rect x="0" y="0" width="400" height="20" style="fill:var(--line)"/>
+                  <circle cx="10" cy="10" r="3.5" style="fill:var(--ink-soft)"/>
+                  <text x="22" y="14" font-size="9.5" style="fill:var(--ink-soft)">販売管理システム — 受注入力</text>
+                  <text x="16" y="42" font-size="10" style="fill:var(--ink-soft)">品目コード</text>
+                  <rect x="90" y="30" width="130" height="17" rx="3" style="fill:var(--panel);stroke:var(--line)"/>
+                  <text x="16" y="68" font-size="10" style="fill:var(--ink-soft)">単価</text>
+                  <rect x="90" y="56" width="130" height="17" rx="3" style="fill:var(--panel);stroke:var(--line)"/>
+                  <text x="16" y="94" font-size="10" style="fill:var(--ink-soft)">摘要</text>
+                  <rect x="90" y="82" width="280" height="17" rx="3" style="fill:var(--panel);stroke:var(--line)"/>
+                  <rect x="84" y="77" width="292" height="27" rx="6" fill="none" stroke="#d43d2a" stroke-width="2"/>
+                  <text x="90" y="120" font-size="10" fill="#d43d2a">← 特記事項を必ず転記</text>
+                  <rect x="310" y="30" width="60" height="17" rx="3" style="fill:var(--accent)"/>
+                  <text x="322" y="42" font-size="9.5" fill="#fff">登録</text>
+                </svg>
+                <figcaption>📷 受注入力画面 — 摘要欄への転記位置<span class="callout">8</span></figcaption>
+              </figure>
+              <div class="chips">
+                <span class="chip io">📄 受注台帳（出力）</span>
+                <span class="chip ref">📚 過去事例: 2025-11 誤出荷の再発防止策</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 2.2 : no procedure yet -->
+        <article class="chap">
+          <div class="chap-h">
+            <h3>2.2 与信確認</h3>
+            <span class="meta">担当: 管理部</span>
+            <span class="flowlink">フローで表示 →</span>
+          </div>
+          <div class="empty-proc">
+            この工程の手順書は未作成です。
+            <span class="btn">＋ 手順を書く</span>
+            <span class="btn">✨ ヒアリングメモからドラフト生成<span class="callout">6</span></span>
+          </div>
+        </article>
+
+        <!-- 2.3 : collapsed -->
+        <article class="chap">
+          <div class="chap-h">
+            <h3>2.3 在庫引当</h3>
+            <span class="meta">担当: 倉庫 ・ 10分</span>
+            <span class="flowlink">フローで表示 →</span>
+          </div>
+          <p class="chap-purpose"><b>目的:</b> 確定受注に対して出荷可能な在庫を確保し、欠品を出荷指示前に検知する。</p>
+          <div class="fold">手順 2件を表示 ▸</div>
+        </article>
+
+        <div class="entry tail">▼ 次の工程: 3. 出荷指示（倉庫）</div>
+      </main>
+
+      <aside class="drawer">
+        <h4>資料台帳<span class="callout">4</span></h4>
+        <div class="asset">
+          <div class="nm">📚 単価契約一覧</div>
+          <div class="path">\\share\営業\契約\単価契約一覧.xlsx</div>
+          <div class="use">使用: 3工程・5ステップ</div>
+        </div>
+        <div class="asset">
+          <div class="nm">📚 受注台帳記入要領</div>
+          <div class="path">\\share\営業事務\要領\受注台帳記入要領.pdf</div>
+          <div class="use">使用: 2工程・2ステップ</div>
+        </div>
+        <div class="asset err">
+          <div class="nm">📚 与信管理規程</div>
+          <div class="path">\\share\管理\規程\与信管理規程_v3.pdf</div>
+          <div class="warn">⚠ リンク切れ（ファイルが見つかりません）</div>
+        </div>
+        <span class="btn">＋ 資料を追加</span>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ======================= annotations ======================= -->
+  <section>
+    <h2 class="sec">Excel からの主な変化</h2>
+    <div class="notes">
+      <div class="note"><span class="callout">1</span><b>「手順書」タブ新設</b><p>表・フローと同じデータの3つ目の顔。中工程を開く＝Excelの1ファイルに相当。工程のフローはサイドバーに集約し、本文は手順そのものに集中する。工程名や順序を直せばここも勝手に直る。</p></div>
+      <div class="note"><span class="callout">2</span><b>ステップ＝目的1文＋本文</b><p>アクション名と「何のためにやるか」は1文ずつ、手順本文は必要なだけ詳しく書ける。ノウハウ（過去の失敗理由など）は本文に自然に残る。</p></div>
+      <div class="note"><span class="callout">3</span><b>条件は他工程へリンク</b><p>「〜の場合 → ○○へ」の飛び先が実際の工程リンクになり、クリックでその手順書やフロー上の位置へ移動できる。</p></div>
+      <div class="note"><span class="callout">4</span><b>台帳と網羅率</b><p>参照資料はプロジェクトの資料台帳に一元化。リンク切れ検出、「この資料はどの工程で使う？」の逆引き、手順書の作成済み率（4/6）が見える。</p></div>
+      <div class="note"><span class="callout">5</span><b>現場が見るのも同じ画面</b><p>閲覧用の別デザインは作らない。構想A＝この画面から編集UIを除いた見た目をHTML 1ファイルに焼いて渡す。構想B＝同じアプリを読み取り専用で開く（＋担当で絞る）。フロー図・手順書・資料一覧が丸ごと載る。</p></div>
+      <div class="note"><span class="callout">6</span><b>AIドラフト（次々サイクル）</b><p>ヒアリングメモから手順書の下書きを生成し、1件ずつ承認して取り込む。「メモ→工程の提案」と同じ承認フローに乗る。</p></div>
+      <div class="note"><span class="callout">7</span><b>サイドバー＝縦フローのナビ</b><p>章立てではなく工程フローそのものをナビにする。スクロールに合わせて「いまここ」が追従し、箱をクリックすればその工程へ飛べる。</p></div>
+      <div class="note"><span class="callout">8</span><b>画像・スクリーンショット</b><p>クリップボードから貼り付けてステップに載せられる。画像はプロジェクトファイルに同梱（.gflow を ZIP 束ねに拡張・既存ファイルもそのまま開ける）。ハンドブック出力にも埋め込まれる。</p></div>
+      <div class="note"><span class="callout">9</span><b>AI が読める骨組み</b><p>目的・アクション・条件・参照リンクは構造データ、本文は Markdown。将来「手順書を読んで仕事をレビューする／実行する AI」にそのまま渡せる形にしておく（MCP 経由で読み書き可能）。</p></div>
+    </div>
+  </section>
+</div>
