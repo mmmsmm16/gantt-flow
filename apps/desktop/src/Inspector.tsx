@@ -5,6 +5,7 @@ import { computeCodes, effortRollupMinutes, effortMinutesToHours, formatHours, d
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { parseEffortHoursToMinutes, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
+import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { collectIoNames, prevCandidates } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
@@ -165,19 +166,20 @@ export function Inspector() {
           <div className="two-col">
             <div>
               <label>担当 / 部署</label>
-              <select
-                value={assigneeName}
-                onChange={(e) => {
+              {/* select → input+datalist に統一（表と同じく自由入力＝新規部署の直接追加が可能・
+                  既存の選択肢は datalist#insp-depts で提示。#6/#8: 全選択・Escape 取り消しも揃える）。 */}
+              <input
+                list="insp-depts"
+                defaultValue={assigneeName}
+                key={`asg-${assigneeName}`}
+                placeholder="（未割当）"
+                aria-label="担当 / 部署"
+                {...selectAllOnFocus}
+                onKeyDown={cancelEditOnEscape}
+                onBlur={(e) => {
                   if (e.target.value !== assigneeName) setAssigneeByName(taskId, e.target.value);
                 }}
-              >
-                <option value="">（未割当）</option>
-                {deptNames.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div>
               <label>粒度</label>
@@ -230,16 +232,19 @@ export function Inspector() {
           <input
             defaultValue={task.code ?? ''}
             placeholder={computeCodes(project.core)[taskId] ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(task.code, e.target.value.trim(), (v) => setTaskCode(taskId, v))}
           />
           <label>業務内容（どうやって）</label>
           <textarea
             defaultValue={d?.how ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.how, e.target.value, (v) => updateDetail(taskId, { how: v }))}
           />
           <label>使用システム</label>
           <textarea
             defaultValue={d?.system ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.system, e.target.value, (v) => updateDetail(taskId, { system: v }))}
           />
           <label>工数（時間・0.5刻み）</label>
@@ -250,11 +255,12 @@ export function Inspector() {
             </div>
           ) : (
             <input
-              type="number"
-              min={0}
-              step={0.5}
+              // #3 type=number をやめて text + inputMode=decimal（ホイール誤変更・カンマ黙殺を解消）。
+              type="text"
+              inputMode="decimal"
               placeholder="例: 2 / 0.5"
               defaultValue={d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : ''}
+              onKeyDown={cancelEditOnEscape}
               onBlur={(e) => {
                 const res = validateEffort(e.target.value);
                 if (!res.ok) {
@@ -272,6 +278,7 @@ export function Inspector() {
           <label>備考</label>
           <textarea
             defaultValue={d?.note ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.note, e.target.value, (v) => updateDetail(taskId, { note: v }))}
           />
         </section>
@@ -356,6 +363,7 @@ export function Inspector() {
             <h3>備考</h3>
             <textarea
               defaultValue={d?.note ?? ''}
+              onKeyDown={cancelEditOnEscape}
               onBlur={(e) => commitOptText(d?.note, e.target.value, (v) => updateDetail(taskId, { note: v }))}
             />
           </section>
@@ -390,6 +398,8 @@ export function Inspector() {
                 list="insp-io-names"
                 defaultValue={item.name}
                 key={`ion-${item.name}`}
+                {...selectAllOnFocus}
+                onKeyDown={cancelEditOnEscape}
                 onBlur={(e) => commitText(item.name, e.target.value, (v) => updateIo(taskId, item.id, { name: v }))}
               />
               <select
@@ -403,6 +413,7 @@ export function Inspector() {
                 className="io-form"
                 placeholder="様式・保管"
                 defaultValue={item.formInfo ?? ''}
+                onKeyDown={cancelEditOnEscape}
                 onBlur={(e) =>
                   commitOptText(item.formInfo, e.target.value, (v) => updateIo(taskId, item.id, { formInfo: v }))
                 }
@@ -415,6 +426,7 @@ export function Inspector() {
                   defaultValue={item.source ?? ''}
                   key={`src-${item.source ?? ''}`}
                   title="この帳票がどの部署から来るか（工程が無くてもフローに出所を描きます）"
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) =>
                     commitOptText(item.source, e.target.value, (v) => updateIo(taskId, item.id, { source: v }))
                   }
@@ -449,12 +461,14 @@ export function Inspector() {
                   className="iss-text"
                   defaultValue={iss.issue}
                   placeholder="課題"
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) => commitText(iss.issue, e.target.value, (v) => updateIssue(taskId, iss.id, { issue: v }))}
                 />
                 <input
                   className="iss-measure"
                   defaultValue={iss.measure ?? ''}
                   placeholder="方策"
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) =>
                     commitOptText(iss.measure, e.target.value, (v) => updateIssue(taskId, iss.id, { measure: v }))
                   }
@@ -493,11 +507,13 @@ export function Inspector() {
           <label>処理件数・ボリューム</label>
           <input
             defaultValue={d?.volume ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.volume, e.target.value, (v) => updateDetail(taskId, { volume: v }))}
           />
           <label>例外・イレギュラー</label>
           <textarea
             defaultValue={d?.exception ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.exception, e.target.value, (v) => updateDetail(taskId, { exception: v }))}
           />
           <div className="two-col">
@@ -529,11 +545,13 @@ export function Inspector() {
           <label>データ連携先</label>
           <input
             defaultValue={d?.dataLink ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.dataLink, e.target.value, (v) => updateDetail(taskId, { dataLink: v }))}
           />
           <label>関連規程・統制</label>
           <input
             defaultValue={d?.regulation ?? ''}
+            onKeyDown={cancelEditOnEscape}
             onBlur={(e) => commitOptText(d?.regulation, e.target.value, (v) => updateDetail(taskId, { regulation: v }))}
           />
         </section>
@@ -578,6 +596,7 @@ export function Inspector() {
                           inputMode="decimal"
                           defaultValue={tobeEffH ?? ''}
                           placeholder={asisEffH != null ? `現状 ${r1(asisEffH)}h` : '—'}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) => {
                             if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
                             updateToBe(taskId, {
@@ -596,6 +615,7 @@ export function Inspector() {
                           inputMode="decimal"
                           defaultValue={tobeLt ?? ''}
                           placeholder={asisLt != null ? `現状 ${asisLt}日` : '—'}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) =>
                             updateToBe(taskId, { ltDays: e.target.value.trim() === '' ? undefined : Number(e.target.value) })
                           }
@@ -639,6 +659,7 @@ export function Inspector() {
                 <textarea
                   defaultValue={tb?.rationale ?? ''}
                   rows={2}
+                  onKeyDown={cancelEditOnEscape}
                   onBlur={(e) => updateToBe(taskId, { rationale: e.target.value.trim() || undefined })}
                 />
                 <label>前工程（To-Be）</label>

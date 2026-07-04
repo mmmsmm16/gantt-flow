@@ -9,6 +9,7 @@ import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
+import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
@@ -161,6 +162,7 @@ export function FullTable() {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const renameTask = useApp((s) => s.renameTask);
+  const removeTask = useApp((s) => s.removeTask);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
   const updateDetail = useApp((s) => s.updateDetail);
   const addIo = useApp((s) => s.addIo);
@@ -690,7 +692,20 @@ export function FullTable() {
                           aria-label={c.label}
                           data-task={t.id}
                           key={`name-${t.name}`}
+                          {...selectAllOnFocus}
                           // Enter/Tab のセル移動は表全体の onGridKeyDown(editNavKeyDown)が担う。
+                          // Escape: 未コミット新規行(name==='')は行削除、既存行はリネーム取り消し(#1/#2)。
+                          onKeyDown={(e) => {
+                            if (isImeKeyEvent(e)) return;
+                            if (e.key !== 'Escape') return;
+                            e.stopPropagation();
+                            if (nameEscapeAction(t.name) === 'remove') {
+                              removeTask(t.id);
+                              return;
+                            }
+                            e.currentTarget.value = t.name;
+                            e.currentTarget.blur();
+                          }}
                           onBlur={(e) => e.target.value !== t.name && renameTask(t.id, e.target.value)}
                         />
                       </span>
@@ -728,6 +743,8 @@ export function FullTable() {
                         placeholder="（未割当）"
                         aria-label="担当"
                         key={`asg-${assigneeName}`}
+                        {...selectAllOnFocus}
+                        onKeyDown={cancelEditOnEscape}
                         onBlur={(e) => e.target.value !== assigneeName && setAssigneeByName(t.id, e.target.value)}
                       />
                     </td>
@@ -805,13 +822,14 @@ export function FullTable() {
                         <input
                           className={`ft-in ft-num${cellCursorCls(t.id, 'effort')}`}
                           data-cell="effort"
-                          type="number"
-                          min={0}
-                          step={0.5}
+                          // #3 type=number をやめて text + inputMode=decimal（ホイール誤変更・カンマ黙殺を解消）。
+                          type="text"
+                          inputMode="decimal"
                           defaultValue={d?.effortMinutes != null ? effortMinutesToHours(d.effortMinutes) : ''}
                           placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           key={`eff-${d?.effortMinutes ?? ''}`}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) => {
                             const res = validateEffort(e.target.value);
                             if (!res.ok) {
@@ -1025,6 +1043,7 @@ function AutoTextarea({
       key={`v-${value ?? ''}`}
       ref={grow}
       onInput={(e) => grow(e.currentTarget)}
+      onKeyDown={cancelEditOnEscape}
       onBlur={(e) => e.target.value !== (value ?? '') && onCommit(e.target.value)}
     />
   );
@@ -1075,7 +1094,7 @@ function IoCell({
           // 色は入出力の向き（フローと統一）。種別(帳票/情報)はセレクトの値で区別。
           <span className={`ft-iochip ${direction}`} key={it.id}>
             {/* 触れただけの blur で履歴と未保存フラグを汚さない（変化があるときだけコミット）。 */}
-            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" onBlur={(e) => e.target.value !== it.name && onRename(it.id, e.target.value)} />
+            <input className="ft-io-name" list="ft-io-names" defaultValue={it.name} key={`ion-${it.name}`} aria-label="名称" {...selectAllOnFocus} onKeyDown={cancelEditOnEscape} onBlur={(e) => e.target.value !== it.name && onRename(it.id, e.target.value)} />
             <select className="ft-io-kind" value={it.kind} aria-label="種別" onChange={(e) => onKind(it.id, e.target.value as IoKind)}>
               <option value="doc">帳票</option>
               <option value="info">情報</option>

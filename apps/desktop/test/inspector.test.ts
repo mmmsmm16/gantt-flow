@@ -1,8 +1,38 @@
 // 工数欄の入力ガード。1e308 のような「有限だが ×60 で溢れる」値が Infinity として
 // 保存され、JSON では null になってファイルが開けなくなる事故を防ぐ。
 import { describe, it, expect } from 'vitest';
-import { parseEffortHoursToMinutes, validateEffort, EFFORT_RULE_MESSAGE, isEffortBlurUnchanged } from '../src/parseEffort';
+import { parseEffortHoursToMinutes, validateEffort, EFFORT_RULE_MESSAGE, isEffortBlurUnchanged, normalizeEffortInput } from '../src/parseEffort';
 import { effortMinutesToHours } from '@gantt-flow/core';
+
+// #3 工数入力の統一（type=number → type=text）。カンマ小数「1,5」を黙殺せず 1.5h として扱う
+// （number 型では value からカンマが消えて「15」の10倍誤入力になっていた回帰を防ぐ）。
+describe('normalizeEffortInput（全角・カンマを JS が解釈できる小数へ）', () => {
+  it('カンマ小数を小数点へ（1,5 → 1.5・全角カンマも）', () => {
+    expect(normalizeEffortInput('1,5')).toBe('1.5');
+    expect(normalizeEffortInput('2，5')).toBe('2.5');
+  });
+  it('全角数字・全角ピリオドを半角へ（１．５ → 1.5）', () => {
+    expect(normalizeEffortInput('１．５')).toBe('1.5');
+    expect(normalizeEffortInput('３')).toBe('3');
+  });
+  it('前後の空白を除去する', () => {
+    expect(normalizeEffortInput('  2 ')).toBe('2');
+    expect(normalizeEffortInput('')).toBe('');
+  });
+});
+
+describe('parseEffortHoursToMinutes: カンマ小数を10倍誤入力にしない（#3）', () => {
+  it("'1,5' は 90 分（1.5h）として扱う（従来は NaN で棄却→打ち直し）", () => {
+    expect(parseEffortHoursToMinutes('1,5')).toBe(90);
+  });
+  it('全角「１．５」も 90 分・全角カンマ「２，５」は 150 分', () => {
+    expect(parseEffortHoursToMinutes('１．５')).toBe(90);
+    expect(parseEffortHoursToMinutes('２，５')).toBe(150);
+  });
+  it('無編集判定もカンマ表記を吸収する（1,5 と保存90分は同値＝書き換えない）', () => {
+    expect(isEffortBlurUnchanged('1,5', 90)).toBe(true);
+  });
+});
 
 describe('parseEffortHoursToMinutes', () => {
   it('空欄（空白のみ含む）は undefined＝解除', () => {

@@ -5,6 +5,7 @@ import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
+import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
@@ -78,6 +79,7 @@ export function TableView() {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
   const renameTask = useApp((s) => s.renameTask);
+  const removeTask = useApp((s) => s.removeTask);
   const setTaskLevel = useApp((s) => s.setTaskLevel);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
   const updateDetail = useApp((s) => s.updateDetail);
@@ -533,13 +535,19 @@ export function TableView() {
                           placeholder="作業名"
                           aria-label="作業名"
                           onClick={(e) => e.stopPropagation()}
+                          {...selectAllOnFocus}
                           onKeyDown={(e) => {
                             if (isImeKeyEvent(e)) return; // IME 変換の確定 Enter/Tab/Esc を編集操作にしない
                             // Enter/Tab は表全体の editNavKeyDown(両ビュー共通のセル移動規約)に任せる。
                             // インデントは行選択モードの Tab(table.indent)に一本化した。
                             if (e.key === 'Escape') {
                               e.stopPropagation(); // グローバルの Esc(選択解除)を発火させない
-                              e.currentTarget.value = t.name;
+                              // #1 直前作成の未コミット行(name==='')は Escape で行ごと削除しゴーストを残さない。
+                              if (nameEscapeAction(t.name) === 'remove') {
+                                removeTask(t.id);
+                                return;
+                              }
+                              e.currentTarget.value = t.name; // 既存行は従来どおりリネーム取り消し
                               e.currentTarget.blur();
                             } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
                               e.preventDefault();
@@ -566,6 +574,8 @@ export function TableView() {
                           placeholder="（未割当）"
                           aria-label="担当"
                           onClick={(e) => e.stopPropagation()}
+                          {...selectAllOnFocus}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) => {
                             if (e.target.value !== assigneeName) setAssigneeByName(t.id, e.target.value);
                           }}
@@ -629,13 +639,15 @@ export function TableView() {
                         <input
                           className={`effort-input${cellCursorCls(t.id, 'effort')}`}
                           data-cell="effort"
-                          type="number"
-                          min={0}
-                          step={0.5}
+                          // #3 type=number をやめて text + inputMode=decimal に統一（ホイール誤変更・
+                          // カンマ黙殺を解消。カンマ/全角は parseEffort が正規化）。To-Be 欄と同じ型。
+                          type="text"
+                          inputMode="decimal"
                           defaultValue={detail?.effortMinutes != null ? effortMinutesToHours(detail.effortMinutes) : ''}
                           placeholder="例: 2 / 0.5"
                           aria-label="工数（時間）"
                           onClick={(e) => e.stopPropagation()}
+                          onKeyDown={cancelEditOnEscape}
                           onBlur={(e) => {
                             const res = validateEffort(e.target.value);
                             if (!res.ok) {
@@ -704,6 +716,7 @@ export function TableView() {
                               // 折りたたまれた親の下に作ると新しい行が見えないため、先に展開する。
                               if (collapsed.has(t.id)) toggleCollapse(t.id);
                               select(nid);
+                              setFocusId(nid); // #6 他の追加経路と同じく作業名へ即フォーカス＆全選択
                             }
                           }}
                         >

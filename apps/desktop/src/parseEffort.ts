@@ -1,12 +1,25 @@
 import { effortMinutesToHours } from '@gantt-flow/core';
 
+// 工数・リードタイム欄の入力を JS が Number() で解釈できる小数表記へ正規化する。
+// type=number をやめて type=text + inputMode=decimal へ統一した副作用で、全角数字や
+// カンマ小数がそのまま value に残るため、換算前にここで吸収する（#3: 「1,5」を黙殺して
+// 「15」の10倍誤入力にしていた事故の解消）。全角数字→半角・全角ピリオド→'.'・カンマ→'.'。
+export function normalizeEffortInput(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)) // 全角数字→半角
+    .replace(/．/g, '.') // 全角ピリオド→小数点
+    .replace(/[，,]/g, '.'); // 全角/半角カンマ→小数点（工数は千区切りを取らない）
+}
+
 // 工数欄（時間）の入力を分へ変換する共通ヘルパ。インスペクタ・全項目表・アウトラインの
 // 工数 onBlur で共用する（ビューごとに素の Number()×60 を残すと、不正値の混入経路が復活する）。
 // 空欄=undefined（解除）、数値でない/負/無限大=null（不正・棄却）。
 // ×60 した後で有限性を見る（1e308 のような有限の入力も分換算で Infinity に溢れ、保存ファイルが壊れるため）。
 export function parseEffortHoursToMinutes(raw: string): number | undefined | null {
-  if (!raw.trim()) return undefined;
-  const minutes = Math.round(Number(raw) * 60);
+  const norm = normalizeEffortInput(raw);
+  if (!norm) return undefined;
+  const minutes = Math.round(Number(norm) * 60);
   return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
 }
 
@@ -43,8 +56,8 @@ export function clearEffortInvalid(input: HTMLInputElement): void {
 // （例: 100分 → 表示 1.7h → 再パースで 102 分。100 !== 102 で誤って上書きされる）。
 // 「編集したか」は入力欄の生値（時間）と表示値（丸め後の時間）を同じ単位で比べて判定する。
 export function isEffortBlurUnchanged(rawInput: string, storedMinutes: number | undefined): boolean {
-  const trimmed = rawInput.trim();
-  const inputHours = trimmed === '' ? undefined : Number(trimmed);
+  const norm = normalizeEffortInput(rawInput); // カンマ小数「1,5」も表示値と同単位で比較する
+  const inputHours = norm === '' ? undefined : Number(norm);
   const displayedHours = storedMinutes != null ? effortMinutesToHours(storedMinutes) : undefined;
   return inputHours === displayedHours;
 }
