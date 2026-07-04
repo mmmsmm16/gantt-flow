@@ -22,6 +22,8 @@ import {
 import { bytesToB64, b64ToBytes } from './b64';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
 import { snapshotAssets, ingestAssets, hasAsset } from './assetStore';
+import { buildHandbookHtml } from './handbook';
+import { loadLocationAliases } from './locationAliases';
 import { useUI, type LockUiState } from './ui/useUI';
 
 // 助言ロックの状態変化・更新失敗を UI へ伝える(沈黙させない)。UI 未初期化でも落とさない(fail-open)。
@@ -551,6 +553,18 @@ export async function exportPngFile(project: Project, view: FlowLevelView): Prom
   } finally {
     URL.revokeObjectURL(url);
   }
+  return name;
+}
+
+// ハンドブック（自己完結 HTML 1 ファイル）出力。場所エイリアス・画像バイトはここで組んで
+// buildHandbookHtml（純関数）へ渡す（生成器自身は localStorage/assetStore に触れない）。
+export function exportHandbookFile(project: Project): string {
+  const name = `${safeName(project.meta.title)}-handbook.html`;
+  const html = buildHandbookHtml(project, {
+    aliases: loadLocationAliases(),
+    assets: snapshotAssets(collectReferencedAssetFiles(project)),
+  });
+  download(name, html, 'text/html;charset=utf-8');
   return name;
 }
 

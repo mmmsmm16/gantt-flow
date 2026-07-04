@@ -112,7 +112,12 @@ const commitOpt = (cur: string | undefined, next: string, write: (v: string | un
   if (v !== (cur ?? undefined)) write(v);
 };
 
-export function ProcedureView(): JSX.Element {
+export interface ProcedureViewProps {
+  /** ハンドブック(HTML)出力。ファイル系操作＝リーダー専用のため、フォロワーでは渡さない(未指定ならボタン非表示)。 */
+  onExportHandbook?: () => void;
+}
+
+export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JSX.Element {
   const project = useApp((s) => s.project);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const procedureMidId = useUI((s) => s.procedureMidId);
@@ -738,6 +743,11 @@ export function ProcedureView(): JSX.Element {
             📚 資料台帳
             {assetOptions.length > 0 && <span className="proc-ledger-count">{assetOptions.length}</span>}
           </button>
+          {onExportHandbook && (
+            <button type="button" className="proc-btn" onClick={onExportHandbook}>
+              📖 ハンドブック出力
+            </button>
+          )}
         </div>
         <div className="proc-purpose">
           <span className="proc-purpose-tag">この工程群の目的</span>

@@ -20,6 +20,7 @@ import {
   exportCsvFile,
   exportSvgFile,
   exportPngFile,
+  exportHandbookFile,
   printProjectAndFlow,
   forgetFileHandle,
   openRecentFile,
@@ -516,6 +517,11 @@ export function App() {
       useUI.getState().toast('PNG の出力に失敗しました。', 'error');
     }
   };
+  const onExportHandbook = async () => {
+    if (!(await confirmEmptyOutput())) return;
+    const name = exportHandbookFile(useApp.getState().project);
+    useUI.getState().toast(`出力しました（${name}）`, 'success');
+  };
   const onPrint = async () => {
     if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
@@ -771,6 +777,7 @@ export function App() {
             <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
             <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
             <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
+            <MenuItem onClick={onExportHandbook}>ハンドブック (HTML)</MenuItem>
           </Menu>
         )}
 
@@ -916,7 +923,7 @@ export function App() {
           onStartEmpty={onStartEmpty}
         />
       ) : mainView === 'procedure' ? (
-        <ProcedureView />
+        <ProcedureView onExportHandbook={isFollower ? undefined : onExportHandbook} />
       ) : (
         <div
           className={`panes${showInspector ? ' with-inspector' : ''}${
@@ -1047,6 +1054,7 @@ export function App() {
         onExportCsv={onExportCsv}
         onExportSvg={onExportSvg}
         onExportPng={onExportPng}
+        onExportHandbook={onExportHandbook}
         onPrint={onPrint}
       />
       <HelpDialog />
