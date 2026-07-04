@@ -300,13 +300,24 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
   const windowId = opts.windowId ?? MY_WINDOW_ID;
   let last: RemoteSnapshot | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // 直近に配信した project の meta.id（別ファイルへの切替検知用。初期値は起動時点の project）。
+  let lastProjectId = store.getState().project.meta.id;
 
   const publishNow = () => {
     if (timer) {
       clearTimeout(timer);
       timer = undefined;
     }
-    last = pickSnapshot(store.getState());
+    const state = store.getState();
+    const currentId = state.project.meta.id;
+    if (currentId !== lastProjectId) {
+      // リーダーが別ファイルへ切り替えた（loadProject/restoreProject等）＝既に接続中のフォロワーは
+      // 旧ファイルの画像 bytes しか持っていない。hello 応答と同じ経路で新ファイルの参照分を
+      // 配り直す（snapshot より先＝putAsset→再描画の順序を保つ。resendReferencedAssets 参照）。
+      resendReferencedAssets(store, ch);
+      lastProjectId = currentId;
+    }
+    last = pickSnapshot(state);
     ch.postMessage({ type: 'snapshot', snapshot: last });
   };
   const schedule = () => {

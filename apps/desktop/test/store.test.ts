@@ -1,9 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createAppStore, useApp, findView } from '../src/store';
 import { revealTask, confirmRemoveTasks } from '../src/taskOps';
 import { useUI } from '../src/ui/useUI';
 import { serializeProject, deserializeProject, ROW_SUB, SIZE, laneLayout } from '@gantt-flow/core';
 import type { FlowTaskNode, FlowDocNode } from '@gantt-flow/core';
+import {
+  contentHashName,
+  putAsset,
+  ingestAssets,
+  hasAsset,
+  __resetAssetStoreForTest,
+} from '../src/assetStore';
 
 const view0 = (s: ReturnType<typeof createAppStore>) => s.getState().project.flow.byLevel[0]!;
 const taskNodes = (s: ReturnType<typeof createAppStore>) =>
@@ -1352,5 +1359,67 @@ describe('同期フラッシュ用の一時 state（lastSyncAdded / lastAssignee
     const node = taskNodes(s)[0]!;
     s.getState().moveNode(node.id, node.x + 50, node.y); // 同じレーン内の横移動
     expect(s.getState().lastAssigneeSync.seq).toBe(0);
+  });
+});
+
+// migration-safety Critical 回帰防止: プロジェクト切替アクションは assetStore を「全消し」ではなく
+// 「新プロジェクトが参照する画像だけ残すプルーン」で処理する。開くフローは persistence が
+// ingestAssets（画像をメモリへ）した後に store.loadProject を呼ぶため、全消しにすると開いた
+// 直後に画像が消え、次の保存で ZIP からも永久消失する（100% 再現の Critical）。
+describe('画像 assetStore の参照保持プルーン（開いた直後の画像消失防止 / Critical）', () => {
+  beforeEach(() => __resetAssetStoreForTest());
+  afterEach(() => __resetAssetStoreForTest());
+
+  // 手順書に画像を 1 枚貼った Project を作って返す（bytes と 内容ハッシュ由来の file 名も返す）。
+  // 副作用で assetStore にも bytes が入るが、各テストは直後に reset して開くフローを組み立て直す。
+  const seedProjectWithImage = () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const mime = 'image/png';
+    const file = contentHashName(bytes, mime);
+    const s = createAppStore();
+    s.getState().addTask('工程');
+    const taskId = Object.keys(s.getState().project.core.tasks)[0]!;
+    s.getState().upsertProcedurePurpose(taskId, '');
+    const stepId = s.getState().addStep(taskId, { action: 'x' })!;
+    s.getState().addStepImage(taskId, stepId, bytes, mime);
+    return { project: s.getState().project, bytes, file };
+  };
+
+  it('ingestAssets → loadProject の順でも、新プロジェクトが参照する画像が生存する（Critical 再発防止）', () => {
+    const { project, bytes, file } = seedProjectWithImage();
+    const app = createAppStore();
+    // 開くフローを再現: メモリを空にしてから persistence が先に取り込み、次に store.loadProject。
+    __resetAssetStoreForTest();
+    expect(hasAsset(file)).toBe(false);
+    ingestAssets({ [file]: bytes }); // openProjectFromFile 相当（loadProject より前に取り込む）
+    app.getState().loadProject(project); // 後から load しても開いたばかりの画像を消さない
+    expect(hasAsset(file)).toBe(true);
+  });
+
+  it('restoreProject（同一プロジェクトの復元）でも参照画像が生存する', () => {
+    const { project, bytes, file } = seedProjectWithImage();
+    const app = createAppStore();
+    __resetAssetStoreForTest();
+    ingestAssets({ [file]: bytes });
+    app.getState().restoreProject(project);
+    expect(hasAsset(file)).toBe(true);
+  });
+
+  it('newProject 等の切替では前プロジェクトの画像がプルーンされる（メモリ回収の意図固定）', () => {
+    putAsset('old-project-image.png', new Uint8Array([9, 9, 9])); // 前プロジェクトの画像
+    expect(hasAsset('old-project-image.png')).toBe(true);
+    createAppStore().getState().newProject(); // 新規プロジェクトは画像を参照しない＝keep は空
+    expect(hasAsset('old-project-image.png')).toBe(false);
+  });
+
+  it('loadProject: 前プロジェクトの画像は落とし、開いたファイルの画像だけ残す（同時確認）', () => {
+    const { project, bytes, file } = seedProjectWithImage();
+    const app = createAppStore();
+    __resetAssetStoreForTest();
+    putAsset('stale-from-previous.png', new Uint8Array([7, 7])); // 前プロジェクトの遺物
+    ingestAssets({ [file]: bytes }); // これから開くファイルの画像
+    app.getState().loadProject(project);
+    expect(hasAsset(file)).toBe(true); // 開いたファイルの参照画像は生存
+    expect(hasAsset('stale-from-previous.png')).toBe(false); // 参照外の前プロジェクト画像は回収
   });
 });

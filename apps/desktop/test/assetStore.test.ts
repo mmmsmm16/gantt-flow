@@ -8,6 +8,7 @@ import {
   snapshotAssets,
   ingestAssets,
   clearAssetStore,
+  pruneAssetStore,
   __resetAssetStoreForTest,
 } from '../src/assetStore';
 

@@ -121,16 +121,39 @@ export function broadcastAsset(file: string, bytes: Uint8Array): void {
   sink?.(file, bytes);
 }
 
-/** メモリ層を空にする（生成済み blob URL は revokeObjectURL してから解放）。
-    プロジェクト切替（＝undo 履歴をリセットするアクション: newProject/loadSample/loadTemplate/
-    loadProject/restoreProject）で呼び、前プロジェクトの画像で溜まり続けないようにする。
-    reloadFromExternal（同一プロジェクトの外部更新）では呼ばない＝undo 継続中に既存画像が要る。 */
-export function clearAssetStore(): void {
-  if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
-    for (const u of urlByFile.values()) URL.revokeObjectURL(u);
+/** メモリ層から「keep に無いエントリ」だけ削除する（生成済み blob URL は revokeObjectURL
+    してから解放）。プロジェクト切替（＝undo 履歴をリセットするアクション: newProject/
+    loadSample/loadTemplate/loadProject/restoreProject/importCsvText/importRows）で、
+    採用する新プロジェクトが参照するファイル名の集合（core の collectReferencedAssetFiles）を
+    keep に渡して呼ぶ。
+    「全消し」ではなく「参照保持プルーン」にしているのは、loadProject の直前に
+    openProjectFromFile が ingestAssets で開いたファイルの画像 bytes を先に取り込んでいるため
+    ＝ここで keep を無視して全消しすると、開いたばかりのファイルの画像まで消してしまう
+    （実際に踏んだ Critical リグレッション）。new/sample/template/import 系は生成した
+    プロジェクトが画像を参照しないため keep が空集合になり、結果として従来どおり前プロジェクトの
+    画像を丸ごと解放する（メモリ回収という目的は変わらない）。
+    reloadFromExternal（同一プロジェクトの外部更新）では呼ばない: pollExternal が
+    ingestAssets → onChange(reloadFromExternal) の順で呼ぶため、ここでプルーンすると同型の事故
+    （直前に取り込んだ bytes を巻き添えで消す）が起きる。加えて undo 継続中は編集前の画像も
+    要るため、そもそも参照分だけに絞ってはいけない。 */
+export function pruneAssetStore(keep: Set<string>): void {
+  const revocable = typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function';
+  const files = new Set<string>([...bytesByFile.keys(), ...urlByFile.keys()]);
+  for (const file of files) {
+    if (keep.has(file)) continue;
+    const url = urlByFile.get(file);
+    if (url) {
+      if (revocable) URL.revokeObjectURL(url);
+      urlByFile.delete(file);
+    }
+    bytesByFile.delete(file);
   }
-  bytesByFile.clear();
-  urlByFile.clear();
+}
+
+/** メモリ層を空にする（pruneAssetStore(空集合) の別名）。テストのリセット等、
+    「本当に全部消したい」場面でのみ使う。 */
+export function clearAssetStore(): void {
+  pruneAssetStore(new Set());
 }
 
 /** テスト専用: メモリ層をクリアする（blob URL も解放）＋ sink も外す。 */

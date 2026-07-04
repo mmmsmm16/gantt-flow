@@ -30,6 +30,7 @@ import {
   stopExternalWatch,
   acknowledgeExternalChange,
   isEmptyProjectForOutput,
+  missingReferencedAssets,
 } from './persistence';
 import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
@@ -248,6 +249,21 @@ export function App() {
   const doSave = async (opts: { saveAs?: boolean; force?: boolean } = {}) => {
     // 保存した内容そのものを markSaved に渡す（書き込み待ちの間の編集を保存済み扱いにしない）。
     const snapshot = useApp.getState().project;
+    // 保存前の最後の安全網: 参照している画像の bytes がメモリに無い（クラッシュ復旧・localStorage
+    // 復元で画像抜きに戻った等）と、保存で ZIP assets/ から永久に消える。黙って消さず確認する。
+    // force はこの確認を通過済みの競合リトライ経路なので二重には出さない。
+    if (!opts.force) {
+      const missing = missingReferencedAssets(snapshot);
+      if (missing.length > 0) {
+        const ok = await useUI.getState().confirm({
+          title: '画像データが見つかりません',
+          message: `${missing.length} 件の画像データが見つかりません。このまま保存すると、これらの画像は失われます。\n（アプリの再起動やクラッシュ復旧の後などに起こることがあります）\n保存を続けますか？`,
+          confirmLabel: '保存する',
+          danger: true,
+        });
+        if (!ok) return; // 保存中止（dirty と未保存の内容はそのまま残す）
+      }
+    }
     try {
       const result = await saveProjectToFile(snapshot, opts);
       if (result.kind === 'cancelled') return; // ピッカーをキャンセル

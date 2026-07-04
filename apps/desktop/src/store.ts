@@ -82,9 +82,10 @@ import {
   updateAsset as cUpdateAsset,
   removeAsset as cRemoveAsset,
   isMilestone,
+  collectReferencedAssetFiles,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
-import { contentHashName, putAsset, broadcastAsset, clearAssetStore } from './assetStore';
+import { contentHashName, putAsset, broadcastAsset, pruneAssetStore } from './assetStore';
 import { useUI, type ToastTone } from './ui/useUI';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
@@ -1714,8 +1715,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     },
 
     loadProject: (project) => {
-      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
-      clearAssetStore();
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す
+      // （全消しにすると、直前に openProjectFromFile が ingestAssets した開いたばかりの
+      //  ファイルの画像まで消してしまう＝Critical リグレッション）。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId);
     },
@@ -1733,44 +1736,50 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (selectedTaskId && project.core.tasks[selectedTaskId]) set({ selectedTaskId });
     },
     restoreProject: (project) => {
-      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
-      clearAssetStore();
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       const first = project.flow.byLevel[0];
       adopt(project, first?.level ?? 'medium', first?.scopeParentId, true); // 未保存扱い
     },
     importCsvText: (text) => {
       const { project, report } = importCsv(text, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
-      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
-      clearAssetStore();
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す
+      // （取込直後は画像を参照しないため、実質は前プロジェクトの画像の全消し＝メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
       return report;
     },
     importRows: (rows) => {
       const { project, report } = rowsToProject(rows, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
-      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
-      clearAssetStore();
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新プロジェクトが参照する画像だけ残す
+      // （取込直後は画像を参照しないため、実質は前プロジェクトの画像の全消し＝メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(project));
       adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
       return report;
     },
     newProject: () => {
-      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
-      clearAssetStore();
-      adopt(initialProject(), 'medium', undefined);
+      const p = initialProject();
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝新規プロジェクトは画像を参照しないため、
+      // 実質は前プロジェクトの画像の全消し（メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(p));
+      adopt(p, 'medium', undefined);
     },
     loadTemplate: (key) => {
       const tpl = TEMPLATES.find((t) => t.key === key);
       if (!tpl) return;
-      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
-      clearAssetStore();
       const p = tpl.create(uuid, new Date().toISOString());
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝テンプレートは画像を参照しないため、
+      // 実質は前プロジェクトの画像の全消し（メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(p));
       adopt(p, 'medium', undefined); // 既定は全体スコープ(大をまたいで業務全体を俯瞰)
     },
     loadSample: () => {
-      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
-      clearAssetStore();
       const sample = createSampleProject(uuid, new Date().toISOString());
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝サンプルは画像を参照しないため、
+      // 実質は前プロジェクトの画像の全消し（メモリ回収）。
+      pruneAssetStore(collectReferencedAssetFiles(sample));
       adopt(sample, 'medium', undefined); // 既定は全体スコープ
     },
 

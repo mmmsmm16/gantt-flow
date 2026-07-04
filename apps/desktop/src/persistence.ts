@@ -21,7 +21,7 @@ import {
 } from '@gantt-flow/core';
 import { bytesToB64, b64ToBytes } from './b64';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
-import { snapshotAssets, ingestAssets } from './assetStore';
+import { snapshotAssets, ingestAssets, hasAsset } from './assetStore';
 import { useUI, type LockUiState } from './ui/useUI';
 
 // 助言ロックの状態変化・更新失敗を UI へ伝える(沈黙させない)。UI 未初期化でも落とさない(fail-open)。
@@ -292,6 +292,14 @@ export type SaveOutcome =
 // を待ってから次を実行する。アトミック保存のリネームで変わる自分の mtime を、並行した
 // 2 回目の保存が「他者の変更」と誤検出するのを防ぐ。
 let saveQueue: Promise<unknown> = Promise.resolve();
+
+/** 保存前チェック（最後の安全網）: project が参照する画像のうち、assetStore に bytes が無い
+ *  ＝このまま保存すると ZIP assets/ へ書けず永久に失われるファイル名の一覧を返す（純粋・OS 非依存）。
+ *  クラッシュ復旧（localStorage・画像なし）後などに起こりうる無言の画像消失を、App の doSave が
+ *  この結果を見て確認ダイアログで食い止めるために使う。空配列なら欠落なし＝そのまま保存してよい。 */
+export function missingReferencedAssets(project: Project): string[] {
+  return [...collectReferencedAssetFiles(project)].filter((file) => !hasAsset(file));
+}
 
 export function saveProjectToFile(
   project: Project,
