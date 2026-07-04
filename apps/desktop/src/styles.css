@@ -6718,6 +6718,66 @@ input.colored-text {
   opacity: 1;
 }
 
+/* ---- ステップ画像（スクリーンショット等） ---- */
+.proc-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.proc-shot {
+  margin: 0;
+  max-width: 260px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 4px;
+}
+.proc-shot img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+.proc-shot-missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  padding: var(--sp-2);
+  font-size: var(--fs-label);
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: 4px;
+}
+.proc-shot figcaption {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.proc-shot-cap {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-label);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+.proc-shot-cap:focus {
+  outline: none;
+  background: var(--input-bg);
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+  color: var(--ink);
+}
+.proc-img-add {
+  cursor: pointer;
+}
+
 /* ---- 追加系ボタン / 未作成プレースホルダ ---- */
 .proc-step-add {
   margin-top: var(--sp-2);

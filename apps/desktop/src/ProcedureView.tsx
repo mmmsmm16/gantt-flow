@@ -9,6 +9,7 @@ import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { MarkdownLite } from './markdownLite';
 import { AssetLedger } from './AssetLedger';
+import { getAssetUrl } from './assetStore';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { isEditableTarget } from './keymap';
 
@@ -321,6 +322,22 @@ export function ProcedureView(): JSX.Element {
     }
   };
 
+  // 画像取り込み（ファイル選択・貼り付け共通）。bytes は assetStore へ入り Project には file 名だけ。
+  const addImagesFromFiles = async (taskId: Id, stepId: Id, files: Iterable<File>) => {
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith('image/')) continue; // 画像以外は無視（テキスト等はここへ来ない）
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      useApp.getState().addStepImage(taskId, stepId, bytes, f.type || 'image/png');
+    }
+  };
+  // ステップ内の貼り付け。クリップボードに画像ファイルがある時だけ奪う（textarea へのテキスト貼付は妨げない）。
+  const onStepPaste = (taskId: Id, stepId: Id) => (e: React.ClipboardEvent) => {
+    const imgs = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (imgs.length === 0) return; // テキスト貼り付けは既定動作に任せる
+    e.preventDefault();
+    void addImagesFromFiles(taskId, stepId, imgs);
+  };
+
   const renderChapter = (taskId: Id) => {
     const t = core.tasks[taskId];
     if (!t) return null;
@@ -373,6 +390,7 @@ export function ProcedureView(): JSX.Element {
                   data-stepid={step.id}
                   className={`proc-step${selected ? ' selected' : ''}`}
                   onClick={() => setSelStep({ taskId, stepId: step.id })}
+                  onPaste={onStepPaste(taskId, step.id)}
                 >
                   <span className="proc-stepno">{i + 1}</span>
                   <div className="proc-step-body">
@@ -543,7 +561,59 @@ export function ProcedureView(): JSX.Element {
                       </div>
                     )}
 
+                    {step.images.length > 0 && (
+                      <div className="proc-shots">
+                        {step.images.map((img) => {
+                          const url = getAssetUrl(img.file);
+                          return (
+                            <figure className="proc-shot" key={img.id}>
+                              {url ? (
+                                <img src={url} alt={img.caption || 'ステップ画像'} />
+                              ) : (
+                                <div className="proc-shot-missing">画像が見つかりません</div>
+                              )}
+                              <figcaption>
+                                <EditLine
+                                  className="proc-shot-cap"
+                                  value={img.caption ?? ''}
+                                  placeholder="キャプション"
+                                  ariaLabel="画像のキャプション"
+                                  onCommit={(v) =>
+                                    commitOpt(img.caption, v, (x) =>
+                                      useApp.getState().updateStepImage(taskId, step.id, img.id, { caption: x }),
+                                    )
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  className="proc-mini danger"
+                                  title="画像を削除"
+                                  onClick={() => useApp.getState().removeStepImage(taskId, step.id, img.id)}
+                                >
+                                  ×
+                                </button>
+                              </figcaption>
+                            </figure>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     <div className="proc-step-add">
+                      <label className="proc-linkbtn proc-img-add">
+                        ＋ 画像
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const fs = e.target.files;
+                            if (fs && fs.length) void addImagesFromFiles(taskId, step.id, fs);
+                            e.target.value = ''; // 同じファイルを続けて選べるようリセット
+                          }}
+                        />
+                      </label>
                       <button
                         type="button"
                         className="proc-linkbtn"

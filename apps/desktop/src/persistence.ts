@@ -9,6 +9,7 @@ import {
   serializeProject,
   serializeContainer,
   deserializeContainer,
+  collectReferencedAssetFiles,
   projectToRows,
   projectToCsv,
   computeCodes,
@@ -20,6 +21,7 @@ import {
 } from '@gantt-flow/core';
 import { bytesToB64, b64ToBytes } from './b64';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
+import { snapshotAssets, ingestAssets } from './assetStore';
 import { useUI, type LockUiState } from './ui/useUI';
 
 // 助言ロックの状態変化・更新失敗を UI へ伝える(沈黙させない)。UI 未初期化でも落とさない(fail-open)。
@@ -316,7 +318,9 @@ async function doSave(
   project: Project,
   opts: { saveAs?: boolean; force?: boolean },
 ): Promise<SaveOutcome> {
-  const bytes = serializeContainer(project);
+  // 保存時 GC: 現 project から参照される画像だけを ZIP assets/ へ書く（assetStore のメモリは消さない
+  // ＝保存後に undo で画像が復活しても生きている）。参照されない孤児はここで自然に落ちる（意図）。
+  const bytes = serializeContainer(project, snapshotAssets(collectReferencedAssetFiles(project)));
   const suggested = `${safeName(project.meta.title)}${PROJECT_EXT}`;
   if (isTauri()) return saveTauri(bytes, suggested, opts);
   if (fsSupported()) {
@@ -425,7 +429,9 @@ async function pollExternal(onChange: (project: Project) => void): Promise<void>
     // 変化なし / 自分の保存後で既知 / 既に通知済みの同一変更 ならスキップ。
     if (mtime === null || mtime === lastKnownMtime || mtime === lastSeenExternalMtime) return;
     const b64 = await invoke<string>('open_project', { path: filePath });
-    const project = deserializeContainer(b64ToBytes(b64)).project; // 書き込み途中の壊れた中間状態なら throw → 次回拾う
+    const c = deserializeContainer(b64ToBytes(b64)); // 書き込み途中の壊れた中間状態なら throw → 次回拾う
+    ingestAssets(c.assets); // 外部変更で増減した画像をメモリ層へ取り込む
+    const project = c.project;
     lastSeenExternalMtime = mtime;
     onChange(project);
   } catch {
@@ -623,7 +629,9 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
     // mtime は読む「前」に取る（読んでいる間の変更を、次の保存で競合として拾う側に倒す）。
     const mtime = await statMtime(path);
     const b64 = await invoke<string>('open_project', { path });
-    const project = deserializeContainer(b64ToBytes(b64)).project; // 不正なら throw
+    const c = deserializeContainer(b64ToBytes(b64)); // 不正なら throw
+    ingestAssets(c.assets); // 開いたファイルの画像をメモリ層へ
+    const project = c.project;
     // 助言ロックの付け替え。同じファイルの開き直しは保持中のロックをそのまま使う
     //（一度手放すと、確認のキャンセルや取得失敗で「今の状態のまま」ロックだけ失ってしまう）。
     if (lockPath !== path) {
@@ -651,7 +659,9 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
     const handle = handles[0];
     if (!handle) return null;
     const file = await handle.getFile();
-    const project = deserializeContainer(new Uint8Array(await file.arrayBuffer())).project; // 不正なら throw
+    const c = deserializeContainer(new Uint8Array(await file.arrayBuffer())); // 不正なら throw
+    ingestAssets(c.assets);
+    const project = c.project;
     fileHandle = handle; // 検証成功後にだけ保存先として採用
     filePath = null;
     void rememberRecent(handle);
@@ -669,7 +679,9 @@ export async function openProjectFromFile(opts: OpenOptions = {}): Promise<Proje
       }
       try {
         const buf = new Uint8Array(await file.arrayBuffer());
-        const project = deserializeContainer(buf).project; // 不正なら throw（Zod）
+        const c = deserializeContainer(buf); // 不正なら throw（Zod）
+        ingestAssets(c.assets);
+        const project = c.project;
         fileHandle = null; // input 経由は上書き不可（毎回ダウンロード保存）
         filePath = null;
         resolve(project);
@@ -758,7 +770,9 @@ export async function openRecentFile(name: string): Promise<Project | null> {
     if (perm !== 'granted') return null;
   }
   const file = await handle.getFile();
-  const project = deserializeContainer(new Uint8Array(await file.arrayBuffer())).project;
+  const c = deserializeContainer(new Uint8Array(await file.arrayBuffer()));
+  ingestAssets(c.assets);
+  const project = c.project;
   fileHandle = handle;
   filePath = null;
   void rememberRecent(handle);

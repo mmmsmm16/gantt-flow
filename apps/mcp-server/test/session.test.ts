@@ -8,6 +8,9 @@ import {
   updateTaskDetail,
   updateTaskToBe,
   serializeProject,
+  serializeContainer,
+  deserializeContainer,
+  createSampleProject,
   computeCompare,
   uuid,
   type Project,
@@ -220,6 +223,70 @@ describe('apply: write-through と reconcile 同期', () => {
     // 再オープンしても内容が一致（reload と deep-equal）
     const reopened = await ws.open(file);
     expect(reopened.project).toEqual(s.project);
+  });
+});
+
+describe('assets write-through（外部作成の v2 画像を落とさない）', () => {
+  const NOW = '2026-07-05T00:00:00.000Z';
+
+  // こちらでは作っていない「外部作成の v2」（assets 入り）を手で組み立ててディスクへ書く。
+  const writeExternalV2 = async (
+    file: string,
+    assets: Record<string, Uint8Array>,
+  ): Promise<{ path: string; taskId: string }> => {
+    const base = createSampleProject(uuid);
+    const taskId = Object.keys(base.core.tasks)[0]!;
+    const withImg: Project = {
+      ...base,
+      manual: {
+        procedures: {
+          [taskId]: {
+            taskId,
+            updatedAt: NOW,
+            revisions: [],
+            steps: [{ id: 's1', action: '手順', conds: [], refs: [], images: [{ id: 'i1', file }] }],
+          },
+        },
+        assets: {},
+      },
+    };
+    const p = path();
+    await writeFile(p, serializeContainer(withImg, assets));
+    return { path: p, taskId };
+  };
+
+  it('open→編集→save で参照 assets が落ちず、孤児 asset は GC で落ちる（意図）', async () => {
+    const img = new Uint8Array([1, 2, 3, 4, 5]);
+    const orphan = new Uint8Array([9, 9, 9]);
+    const { path: file } = await writeExternalV2('a.png', { 'a.png': img, 'orphan.png': orphan });
+
+    const ws = new Workspace();
+    const s = await ws.open(file);
+    // 画像に無関係な編集（工程追加）。reconcile は manual を温存＝画像参照は残る。
+    await s.apply((p) => addTask(p, { name: '追加', level: 'medium', id: uuid() }, uuid));
+
+    const out = deserializeContainer(new Uint8Array(await readFile(file)));
+    // 参照されている a.png はバイト同一で残る（write-through で落とさない）
+    expect(out.assets['a.png']).toEqual(img);
+    // どのステップからも参照されない orphan.png は保存時 GC で落ちる（意図どおり）
+    expect(out.assets['orphan.png']).toBeUndefined();
+  });
+
+  it('画像を参照する工程を削除すると、その asset は次の保存で GC される', async () => {
+    const img = new Uint8Array([7, 7, 7, 7]);
+    const { path: file, taskId } = await writeExternalV2('b.png', { 'b.png': img });
+
+    const ws = new Workspace();
+    const s = await ws.open(file);
+    // 参照元の手順書ごと工程を消す → b.png は参照されなくなる。
+    await s.apply((p) => {
+      const next = structuredClone(p);
+      delete next.manual.procedures[taskId];
+      return next;
+    });
+
+    const out = deserializeContainer(new Uint8Array(await readFile(file)));
+    expect(out.assets['b.png']).toBeUndefined();
   });
 });
 

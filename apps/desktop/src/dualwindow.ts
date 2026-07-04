@@ -18,6 +18,8 @@ import {
   useApp,
 } from './store';
 import { useUI, type ToastTone } from './ui/useUI';
+import { putAsset, snapshotAssets, setAssetSink } from './assetStore';
+import { collectReferencedAssetFiles } from '@gantt-flow/core';
 
 /** 同一オリジン内でリーダーとフォロワーを結ぶチャネル名（閲覧専用ミラーの gf-mirror とは別）。 */
 export const SYNC_CHANNEL = 'gf-sync';
@@ -99,6 +101,9 @@ export const ACTION_CLASS: Record<string, ActionClass> = {
   removeStepCond: 'forward',
   addStepRef: 'forward',
   removeStepRef: 'forward',
+  addStepImage: 'forward',
+  updateStepImage: 'forward',
+  removeStepImage: 'forward',
   upsertAsset: 'forward',
   updateAsset: 'forward',
   removeAsset: 'forward',
@@ -182,7 +187,8 @@ export type SyncMessage =
   | { type: 'hello' } // フォロワー→リーダー（接続時に現在状態を要求）
   | { type: 'bye'; role: WindowRole; id: string } // 離脱通知。role/id で発信元を識別（リーダー離脱だけがフォロワーを接続待ちへ落とす）
   | { type: 'snapshot'; snapshot: RemoteSnapshot } // リーダー→フォロワー（現在状態）
-  | { type: 'action'; name: string; args: unknown[]; origin: string; focus?: FocusRequest }; // フォロワー→リーダー（編集転送）
+  | { type: 'action'; name: string; args: unknown[]; origin: string; focus?: FocusRequest } // フォロワー→リーダー（編集転送）
+  | { type: 'asset'; file: string; bytes: Uint8Array }; // 画像 bytes を全窓へ配布（snapshot とは別経路）
 
 export interface SyncChannel {
   postMessage(msg: SyncMessage): void;
@@ -203,6 +209,17 @@ export function openSyncChannel(): SyncChannel | null {
   };
   ch.onmessage = (e: MessageEvent) => wrap.onmessage?.(e.data as SyncMessage);
   return wrap;
+}
+
+/** 現 project が参照する画像 bytes を（assetStore にある分だけ）asset メッセージで一括再送する。
+    後から開いた窓（フォロワー）が hello してきたときに呼び、既存画像を追いつかせる（必須）。
+    putAsset は冪等なので重複配布は無害。 */
+export function resendReferencedAssets(store: StoreApi<AppState>, ch: SyncChannel): void {
+  const referenced = collectReferencedAssetFiles(store.getState().project);
+  const assets = snapshotAssets(referenced);
+  for (const [file, bytes] of Object.entries(assets)) {
+    ch.postMessage({ type: 'asset', file, bytes });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +318,9 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
   ch.onmessage = (msg) => {
     if (msg?.type === 'hello') {
       publishNow(); // 新しいフォロワー接続に現在状態で即応答
+      resendReferencedAssets(store, ch); // 後起動フォロワーへ既存画像 bytes を追いつかせる（必須）
+    } else if (msg?.type === 'asset') {
+      putAsset(msg.file, msg.bytes); // 他窓（フォロワー等）が配った画像 bytes を取り込む
     } else if (msg?.type === 'action' && !opts.readOnly) {
       // フォロワーの編集をリーダーの store に直列適用（両窓編集同期の要）。
       applyForwardedAction(store, msg, windowId);
@@ -308,6 +328,8 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
       publishNow();
     }
   };
+  // 自窓（リーダー）で追加した画像 bytes を全窓へ配る送出口を登録（store の addStepImage が使う）。
+  setAssetSink((file, bytes) => ch.postMessage({ type: 'asset', file, bytes }));
   const unsub = store.subscribe(schedule);
 
   // リーダー起動（再起動を含む）時に現在状態を先んじて 1 発配る（leader re-announce）。
@@ -321,6 +343,7 @@ export function createLeaderSync(store: StoreApi<AppState>, opts: LeaderOptions 
   return () => {
     if (timer) clearTimeout(timer);
     unsub();
+    setAssetSink(null);
     if (wired) window.removeEventListener('pagehide', onHide);
     ch.close();
   };
@@ -426,12 +449,18 @@ export function createFollowerSync(store: StoreApi<AppState>, opts: FollowerOpti
       if (!opts.readOnly) {
         handleIncomingFocus(store, windowId, () => handledFocusSeq, (s) => (handledFocusSeq = s));
       }
+    } else if (msg?.type === 'asset') {
+      putAsset(msg.file, msg.bytes); // リーダー/他窓が配った画像 bytes を取り込む（snapshot とは別経路）
     } else if (msg?.type === 'bye') {
       // リーダーの離脱だけが「接続待ち（編集ロック）」を意味する。ピアのフォロワー離脱は無視
       // する（別のサブ窓が閉じただけで、このサブ窓を接続待ちに落とさない）。
       if (msg.role === 'leader') useDualWindow.setState({ connected: false });
     }
   };
+
+  // 自窓（フォロワー）で貼った画像 bytes を全窓へ配る送出口を登録。フォロワーの編集アクションは
+  // リーダーへ forward されるが、それとは別に画像 bytes は全窓へ実バイトを直接配る。
+  setAssetSink((file, bytes) => ch.postMessage({ type: 'asset', file, bytes }));
 
   post({ type: 'hello' }); // 接続時に現在状態を要求（最初の snapshot まで編集禁止）
 
@@ -449,6 +478,7 @@ export function createFollowerSync(store: StoreApi<AppState>, opts: FollowerOpti
 
   return () => {
     clearInterval(helloTimer);
+    setAssetSink(null);
     if (wired) window.removeEventListener('pagehide', onHide);
     ch.close();
   };

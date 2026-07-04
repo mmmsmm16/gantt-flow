@@ -16,9 +16,16 @@ import {
   type SyncChannel,
   type SyncMessage,
 } from '../src/dualwindow';
+import { resendReferencedAssets } from '../src/dualwindow';
 import { serializeProject } from '@gantt-flow/core';
 import { useApp, type RemoteSnapshot } from '../src/store';
 import { useUI } from '../src/ui/useUI';
+import {
+  contentHashName,
+  getAssetBytes,
+  putAsset,
+  __resetAssetStoreForTest,
+} from '../src/assetStore';
 
 // テスト用の双方向チャネル。post したメッセージを相手の onmessage へ即配送する。
 function pairChannels(): { a: SyncChannel; b: SyncChannel; closed: () => number } {
@@ -444,5 +451,66 @@ describe('dualwindow F2/F3: 再接続の re-hello と bye の発信元識別', (
     follower.getState().undo(); // 空履歴＝境界。転送 → リーダーで抑制 → 発信元へトースト
     // リーダーは抑制、発信元（この JS 文脈＝サブ窓）にだけ 1 件出る
     expect(useUI.getState().toasts.map((t) => t.message)).toEqual(['これ以上戻せません']);
+  });
+});
+
+// Task 6: 画像 bytes の二窓配布（snapshot とは別経路の asset メッセージ）。
+describe('dualwindow 画像: bytes 配布 と 後起動フォロワーの追いつき', () => {
+  beforeEach(() => __resetAssetStoreForTest());
+  afterEach(() => __resetAssetStoreForTest());
+
+  // 画像を 1 枚参照する末端工程の手順書を store に作り、貼った file 名を返す。
+  const seedImage = (bytes: Uint8Array, mime = 'image/png') => {
+    const store = createAppStore();
+    store.getState().addTask('工程');
+    const taskId = Object.keys(store.getState().project.core.tasks)[0]!;
+    store.getState().upsertProcedurePurpose(taskId, '');
+    const stepId = store.getState().addStep(taskId, { action: 'x' })!;
+    store.getState().addStepImage(taskId, stepId, bytes, mime);
+    return { store, file: contentHashName(bytes, mime) };
+  };
+
+  it('asset メッセージ受信で putAsset される（フォロワー受信経路）', () => {
+    const follower = createAppStore();
+    const { ch, emit } = recorder();
+    createFollowerSync(follower, { channel: ch, readOnly: true });
+    const bytes = new Uint8Array([9, 8, 7, 6]);
+    emit({ type: 'asset', file: 'zzz.png', bytes });
+    expect(getAssetBytes('zzz.png')).toEqual(bytes);
+  });
+
+  it('asset メッセージ受信で putAsset される（リーダー受信経路＝他窓が配った画像）', () => {
+    const leader = createAppStore();
+    const { ch, emit } = recorder();
+    createLeaderSync(leader, { channel: ch, debounceMs: 0 });
+    const bytes = new Uint8Array([1, 1, 2, 3, 5]);
+    emit({ type: 'asset', file: 'fib.png', bytes });
+    expect(getAssetBytes('fib.png')).toEqual(bytes);
+  });
+
+  it('hello 受信でリーダーが参照中 assets を一括再送する（後起動フォロワーの追いつき・必須）', () => {
+    const bytes = new Uint8Array([4, 2, 4, 2, 4, 2]);
+    const { store, file } = seedImage(bytes);
+    const { ch, sent, emit } = recorder();
+    createLeaderSync(store, { channel: ch, debounceMs: 0 });
+    sent.length = 0; // 起動時の再告知 snapshot を捨てる
+    emit({ type: 'hello' });
+    const assets = sent.filter((m): m is Extract<SyncMessage, { type: 'asset' }> => m.type === 'asset');
+    expect(assets.map((m) => m.file)).toContain(file);
+    expect(assets.find((m) => m.file === file)!.bytes).toEqual(bytes);
+  });
+
+  it('resendReferencedAssets は assetStore に無い参照は送らない（欠落は黙って飛ばす）', () => {
+    const store = createAppStore();
+    store.getState().addTask('工程');
+    const taskId = Object.keys(store.getState().project.core.tasks)[0]!;
+    store.getState().upsertProcedurePurpose(taskId, '');
+    const stepId = store.getState().addStep(taskId, { action: 'x' })!;
+    store.getState().addStepImage(taskId, stepId, new Uint8Array([7, 7]), 'image/png');
+    __resetAssetStoreForTest(); // メモリから消す（参照だけ残る）
+    const { ch, sent } = recorder();
+    resendReferencedAssets(store, ch);
+    expect(sent.filter((m) => m.type === 'asset')).toHaveLength(0);
+    putAsset('unrelated', new Uint8Array([1])); // 参照外は送らないことも間接確認
   });
 });

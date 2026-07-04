@@ -75,12 +75,16 @@ import {
   removeStepCond as cRemoveStepCond,
   addStepRef as cAddStepRef,
   removeStepRef as cRemoveStepRef,
+  addStepImage as cAddStepImage,
+  updateStepImage as cUpdateStepImage,
+  removeStepImage as cRemoveStepImage,
   upsertAsset as cUpsertAsset,
   updateAsset as cUpdateAsset,
   removeAsset as cRemoveAsset,
   isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
+import { contentHashName, putAsset, broadcastAsset } from './assetStore';
 import { useUI, type ToastTone } from './ui/useUI';
 
 const RANK: Record<ProcessLevel, number> = { large: 0, medium: 1, small: 2, detail: 3 };
@@ -404,6 +408,12 @@ export interface AppState {
   removeStepCond: (taskId: Id, stepId: Id, condId: Id) => void;
   addStepRef: (taskId: Id, stepId: Id, ref: StepRef) => void;
   removeStepRef: (taskId: Id, stepId: Id, index: number) => void;
+  // ---- ステップ画像（manual の StepImage）。Project には file 名だけ入り、実バイトは assetStore
+  // （メモリ層）に持つ＝undo/autosave に乗らない。追加時に二窓へ bytes を配布する。 ----
+  /** 画像 bytes を assetStore へ格納・二窓へ配布し、内容ハッシュ名だけを手順書へ追加する。 */
+  addStepImage: (taskId: Id, stepId: Id, bytes: Uint8Array, mime: string, caption?: string) => void;
+  updateStepImage: (taskId: Id, stepId: Id, imageId: Id, patch: { caption?: string }) => void;
+  removeStepImage: (taskId: Id, stepId: Id, imageId: Id) => void;
   // ---- 資料台帳（manual.assets）。手順書のステップから参照される資料の唯一の実体。 ----
   /** 資産を追加/更新する（id 指定時は既存レコードへ merge）。事前 uuid を注入し、新規/対象 ID を返す。 */
   upsertAsset: (args: { id?: Id; name: string; desc?: string; locator?: AssetLocator }) => Id | undefined;
@@ -1085,6 +1095,30 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(cAddStepRef(get().project, taskId, stepId, ref, new Date().toISOString()), '参照を追加'),
     removeStepRef: (taskId, stepId, index) =>
       commit(cRemoveStepRef(get().project, taskId, stepId, index, new Date().toISOString()), '参照を削除'),
+
+    // 画像追加: 内容ハッシュで命名 → メモリ層へ格納 → 二窓へ bytes 配布 → Project には file 名だけ commit。
+    // bytes は undo/autosave/snapshot に載せない（肥大・重複配布を避ける）。フォロワーで貼った場合は
+    // このアクション自体が引数(bytes 含む)ごとリーダーへ forward され、リーダーがここを実行する。
+    addStepImage: (taskId, stepId, bytes, mime, caption) => {
+      const file = contentHashName(bytes, mime);
+      putAsset(file, bytes);
+      broadcastAsset(file, bytes);
+      commit(
+        cAddStepImage(
+          get().project,
+          taskId,
+          stepId,
+          { file, ...(caption ? { caption } : {}) },
+          uuid,
+          new Date().toISOString(),
+        ),
+        '画像を追加',
+      );
+    },
+    updateStepImage: (taskId, stepId, imageId, patch) =>
+      commit(cUpdateStepImage(get().project, taskId, stepId, imageId, patch, new Date().toISOString()), '画像を編集'),
+    removeStepImage: (taskId, stepId, imageId) =>
+      commit(cRemoveStepImage(get().project, taskId, stepId, imageId, new Date().toISOString()), '画像を削除'),
 
     upsertAsset: (args) => {
       const id = args.id ?? uuid();
