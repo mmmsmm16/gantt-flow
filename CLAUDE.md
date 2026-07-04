@@ -57,8 +57,9 @@
 - `docs/01` はフロー描画に **@xyflow/react (React Flow)** を想定するが、**実装は自前 SVG**
   （`apps/desktop/src/flowSvg.ts` + `FlowCanvas.tsx`）。`@xyflow/react` 依存は無い。
 - `docs/01` の `apps/desktop/src/{store,table,flow,shell}/` という階層は **未採用**。実体はフラットな `src/*` ＋ `src/ui/`。
-- `docs/05` の `.gflow` **ZIP バンドル**は未実装。現用の `.gflow` は**単一 JSON**（旧 `.json` も後方互換で
-  開ける。`persistence/json.ts`、既定拡張子は `apps/desktop/src/persistence.ts` の `PROJECT_EXT`）。
+- 現用の `.gflow` は **v2 ZIP コンテナ**（`project.json`＋`assets/`。`persistence/container.ts`）。
+  旧**単一 JSON**（`.gflow`/`.json`）は読み込みのみ後方互換で、明示保存時に v2 になる。
+  Tauri IPC は base64 でバイト列を渡す（既定拡張子は `apps/desktop/src/persistence.ts` の `PROJECT_EXT`）。
 
 ## スタック詳細
 
