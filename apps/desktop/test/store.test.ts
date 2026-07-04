@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createAppStore, useApp, findView } from '../src/store';
 import { revealTask, confirmRemoveTasks } from '../src/taskOps';
 import { useUI } from '../src/ui/useUI';
-import { serializeProject, deserializeProject, ROW_SUB, SIZE } from '@gantt-flow/core';
+import { serializeProject, deserializeProject, ROW_SUB, SIZE, laneLayout } from '@gantt-flow/core';
 import type { FlowTaskNode, FlowDocNode } from '@gantt-flow/core';
 
 const view0 = (s: ReturnType<typeof createAppStore>) => s.getState().project.flow.byLevel[0]!;
@@ -1114,6 +1114,34 @@ describe('taskOps（store と UI をまたぐ手続き）', () => {
     const n1 = taskNodes(s).find((n) => n.taskId === id1)!;
     const n2 = taskNodes(s).find((n) => n.taskId === id2)!;
     expect(n1.y).not.toBe(n2.y);
+  });
+
+  it('addParallel: 既定のレーン高さでは収まらない場合、元工程と同じレーン内に収まるようレーン高さを自動拡張する（実機FB）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = idByName(s, 'A');
+    s.getState().setAssigneeByName(a, '営業'); // lane0, y=80（既定高さ156）
+    s.getState().addTask('B');
+    const b = idByName(s, 'B');
+    s.getState().setAssigneeByName(b, '倉庫'); // lane1, y=236
+
+    const newId = s.getState().addParallel(a)!;
+    const lane0 = Object.values(view0(s).lanes).find((l) => l.order === 0)!;
+    const box0 = laneLayout(view0(s).lanes).find((bx) => bx.lane.id === lane0.id)!;
+    const newNode = taskNodes(s).find((n) => n.taskId === newId)!;
+    const bNode = taskNodes(s).find((n) => n.taskId === b)!;
+
+    // 新ノードは元工程(A)と同じレーンの範囲内に収まる（次レーンへはみ出さない＝実機FBの再現条件）。
+    expect(newNode.y).toBeGreaterThanOrEqual(box0.top);
+    expect(newNode.y + SIZE.task.h).toBeLessThanOrEqual(box0.top + box0.height);
+
+    expect(newNode.y).toBe(144); // 直下のサブ行自体は従来どおり（A.y=80 + ROW_SUB=64）
+    expect(view0(s).lanes[lane0.id]!.height).toBe(220); // 156→220 = 2 段ぶんへ自動拡張
+    expect(bNode.y).toBe(300); // 拡張ぶん、下のレーン(倉庫)は連動シフト（236+64）
+
+    s.getState().undo(); // 作成・配置・レーン拡張が 1 undo 単位でまとめて戻る
+    expect(view0(s).lanes[lane0.id]!.height).toBeUndefined();
+    expect(taskNodes(s).find((n) => n.taskId === b)!.y).toBe(236);
   });
 
   it('makeParallelTo: X→Y→B→C が X→{Y,B}→C になり、B は基準の直下へ寄る', () => {

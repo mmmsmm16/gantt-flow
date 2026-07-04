@@ -80,22 +80,55 @@ export const findView = (
     (v) => v.level === level && (v.scopeParentId ?? undefined) === (scopeParentId ?? undefined),
   );
 
+// 対象レーンが元工程のノードを収めきれない場合、必要ぶんだけ高さを拡張する
+// （setLaneHeight と同じ規則: 拡張前の次レーン基準 y 以降のノードを delta ぶん下へシフト）。
+// 下端の余白はレーン上端の余白（box.base - box.top）と対称にし、tidyFlowView の
+// LANE_PAD 計算と同じ見た目（行数に依らず一定の余白）になるよう揃える。
+// 実機FB「並行工程を追加するとスイムレーンをまたいでしまう」対策＝追加時のみレーン内に収める。
+function growLaneToFit(view: FlowLevelView, laneId: Id, neededBottom: number): void {
+  const lane = view.lanes[laneId];
+  const box = laneLayout(view.lanes).find((b) => b.lane.id === laneId);
+  if (!lane || !box) return;
+  const cur = laneHeight(lane);
+  const topInset = box.base - box.top;
+  const required = Math.max(cur, Math.ceil(neededBottom - box.top + topInset));
+  const delta = required - cur;
+  if (delta <= 0) return;
+  const threshold = laneTaskBaseY(view.lanes, lane.order + 1);
+  lane.height = required;
+  for (const n of Object.values(view.nodes)) {
+    if (n.y >= threshold) n.y += delta;
+  }
+}
+
 // 基準ノードの直下の空きサブ行（y = ref.y + k*ROW_SUB、x は同じ）を探す。
-// 並行追加・並行化の連打でノードが重ならないようにする。
+// 並行追加・並行化の連打でノードが重ならないようにする。基準がレーンに属していれば、
+// そのレーンの範囲内に収まる候補だけを採用し、収まらなければレーンを拡張する（ドラッグ移動時の
+// 自動追従はしない＝手動レーン高さ設定と衝突するため、追加時のみのガード）。基準が未割当
+// レーン（レーン外）のときは従来どおりレーン無視で下へ積む。
 function parallelSlotBelow(
   view: FlowLevelView,
-  ref: { x: number; y: number },
+  ref: { x: number; y: number; laneId?: Id },
   excludeId?: FlowNodeId,
 ): { x: number; y: number } {
   const taken = Object.values(view.nodes).filter(
     (n) => (n.kind === 'task' || n.kind === 'control') && n.id !== excludeId,
   );
+  const occupied = (y: number) =>
+    taken.some((n) => Math.abs(n.x - ref.x) < SIZE.task.w && Math.abs(n.y - y) < SIZE.task.h);
+  const lane = ref.laneId ? view.lanes[ref.laneId] : undefined;
+  const box = lane ? laneLayout(view.lanes).find((b) => b.lane.id === lane.id) : undefined;
+  const bottom = box ? box.top + box.height : undefined;
+
+  let y = ref.y + ROW_SUB;
   for (let k = 1; k <= taken.length + 1; k++) {
-    const y = ref.y + k * ROW_SUB;
-    const occupied = taken.some(
-      (n) => Math.abs(n.x - ref.x) < SIZE.task.w && Math.abs(n.y - y) < SIZE.task.h,
-    );
-    if (!occupied) return { x: ref.x, y };
+    y = ref.y + k * ROW_SUB;
+    if (bottom !== undefined && y + SIZE.task.h > bottom) break; // レーン内に空きなし → 拡張へ
+    if (!occupied(y)) return { x: ref.x, y };
+  }
+  if (lane) {
+    growLaneToFit(view, lane.id, y + SIZE.task.h);
+    return { x: ref.x, y };
   }
   return { x: ref.x, y: ref.y + ROW_SUB }; // 到達しない保険
 }
