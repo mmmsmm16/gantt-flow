@@ -6089,3 +6089,71 @@ input.colored-text {
     animation: none;
   }
 }
+
+/* 実機FB: アウトラインの「入出」「課題」を別列に分離。件数バッジ（.io-pop-trigger）を
+   クリックで名称一覧のポップオーバー（.io-pop）を開く。ポップオーバーは .outline-scroll の
+   overflow に切られないよう .menu の見た目を流用しつつ fixed で出す（座標は JS が付与）。 */
+.c-io {
+  width: 122px;
+}
+.c-issue {
+  width: 102px;
+}
+.io-pop-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+.io-pop-trigger:hover,
+.io-pop-trigger[aria-expanded='true'] {
+  color: var(--ink);
+  background: var(--panel-2);
+}
+.io-pop {
+  position: fixed;
+  top: auto;
+  right: auto;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow: auto;
+}
+.io-pop .menu-caption {
+  padding: 6px 12px 2px;
+  font-size: var(--fs-label);
+  color: var(--faint);
+}
+.io-pop .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  max-width: 300px;
+}
+.io-pop .io-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.io-pop .io-dot.in {
+  background: var(--in);
+}
+.io-pop .io-dot.out {
+  background: var(--out);
+}
+.io-pop .io-dot.issue {
+  background: var(--red);
+}
+.io-pop-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

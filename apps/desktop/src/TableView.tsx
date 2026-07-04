@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ProcessTask, ProcessLevel, Id } from '@gantt-flow/core';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { ProcessTask, ProcessLevel, Id, TaskDetail } from '@gantt-flow/core';
 import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
@@ -8,7 +8,7 @@ import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnch
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
-import { Menu, MenuCheckItem } from './ui/Menu';
+import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
@@ -72,6 +72,136 @@ function TreeGuides({ depth, ancestorLines, isLast }: Omit<Row, 'task'>) {
     }
   }
   return <span className="tree-guides" aria-hidden="true">{segs}</span>;
+}
+
+// 実機FB: アウトラインの「入出」列＝入力→出力の順、「課題」列＝課題文の一覧。
+// 件数バッジをクリックするとポップオーバーで名称/課題文を並べ、項目クリックで
+// インスペクタの該当セクションへ寄せる（受け口 focusInspectorIo は FB-1 の I/O 経路を再利用）。
+export type OutlineIoGroup = 'inputs' | 'outputs';
+export interface OutlineIoItem {
+  id: Id;
+  name: string;
+  io: OutlineIoGroup;
+}
+export interface OutlineIssueItem {
+  id: Id;
+  text: string;
+}
+
+// 入出セルの一覧項目（入力→出力の順）。各項目は Inspector の該当 I/O へ寄せる io/ioId を持つ。
+export function outlineIoItems(detail: TaskDetail | undefined): OutlineIoItem[] {
+  return [
+    ...(detail?.inputs ?? []).map((it) => ({ id: it.id, name: it.name, io: 'inputs' as const })),
+    ...(detail?.outputs ?? []).map((it) => ({ id: it.id, name: it.name, io: 'outputs' as const })),
+  ];
+}
+
+// 課題セルの一覧項目。課題文（issue）だけを並べる（方策 measure は Inspector 側で見る）。
+export function outlineIssueItems(detail: TaskDetail | undefined): OutlineIssueItem[] {
+  return (detail?.issues ?? []).map((it) => ({ id: it.id, text: it.issue }));
+}
+
+// セル内ポップオーバー。.outline-scroll の overflow に切られないよう fixed で出し、外側クリック /
+// Esc（registerTransientLayer 経由）/ 再スクロールで閉じる。トリガは <button> なので Enter/Space で
+// 開き、開いたら先頭項目へフォーカスして ↑↓/Home/End で移動できる（Menu と同じ規約）。
+function CellPopover({
+  label,
+  title,
+  ariaLabel,
+  children,
+}: {
+  label: ReactNode;
+  title: string;
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const openedAt = useRef(0);
+
+  const openAt = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 260)), top: r.bottom + 4 });
+    openedAt.current = performance.now();
+    setOpen(true);
+  };
+  const close = () => {
+    setOpen(false);
+    btnRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (btnRef.current?.contains(target) || popRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    // スクロールで固定配置がトリガから離れるため閉じる。ただし開いた直後は、行選択に伴う
+    // 自動スクロール（selectedTaskId の scrollRowIntoView）で即閉じないよう猶予を置く。
+    const onScroll = () => {
+      if (performance.now() - openedAt.current > 300) setOpen(false);
+    };
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('scroll', onScroll, true); // capture=内側スクローラも拾う
+    const unregister = useUI.getState().registerTransientLayer(() => setOpen(false));
+    popRef.current?.querySelector<HTMLElement>('.menu-item')?.focus(); // 開いたら先頭項目へ
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      unregister();
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="io-pop-trigger"
+        title={title}
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => (open ? close() : openAt())}
+      >
+        {label}
+      </button>
+      {open && pos && (
+        <div
+          ref={popRef}
+          className="menu io-pop"
+          role="menu"
+          style={{ left: pos.left, top: pos.top }}
+          onClick={() => setOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              close();
+              return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const items = Array.from(popRef.current?.querySelectorAll<HTMLElement>('.menu-item') ?? []);
+            if (items.length === 0) return;
+            const i = items.indexOf(document.activeElement as HTMLElement);
+            let next: number;
+            if (e.key === 'Home') next = 0;
+            else if (e.key === 'End') next = items.length - 1;
+            else if (i < 0) next = e.key === 'ArrowDown' ? 0 : items.length - 1;
+            else next = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items[next]!.focus();
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </>
+  );
 }
 
 export function TableView() {
@@ -222,6 +352,19 @@ export function TableView() {
 
   const commitName = (t: ProcessTask, value: string) => {
     if (value !== t.name) renameTask(t.id, value);
+  };
+
+  // 入出/課題セルのポップオーバー項目クリック: 工程を選択し詳細パネルを開く。I/O は FB-1 の
+  // 受け口（focusInspectorIo）で該当項目まで寄せる。課題はセクションを開くだけ（受け口を追加しない）。
+  const openIoInspector = (taskId: Id, io: OutlineIoGroup, ioId: Id) => {
+    select(taskId);
+    const ui = useUI.getState();
+    ui.setInspectorOpen(true);
+    ui.focusInspectorIo(io, ioId);
+  };
+  const openIssueInspector = (taskId: Id) => {
+    select(taskId);
+    useUI.getState().setInspectorOpen(true);
   };
 
   // ＋大/＋中: 追加した工程を選択（→ useEffect が行を可視化）し、名前入力へフォーカスして
@@ -380,11 +523,18 @@ export function TableView() {
                 <th className="c-level" role="columnheader">粒度</th>
                 <th className="c-name" role="columnheader">作業名</th>
                 <th className="c-assignee" role="columnheader">担当</th>
-                {visibleOptionalColumns.map((c) => (
-                  <th key={c.key} className={`c-${c.key}`} role="columnheader">
-                    {c.label}
-                  </th>
-                ))}
+                {visibleOptionalColumns.flatMap((c) =>
+                  c.key === 'io'
+                    ? [
+                        <th key="io" className="c-io" role="columnheader">入出</th>,
+                        <th key="issue" className="c-issue" role="columnheader">課題</th>,
+                      ]
+                    : [
+                        <th key={c.key} className={`c-${c.key}`} role="columnheader">
+                          {c.label}
+                        </th>,
+                      ],
+                )}
                 <th className="c-act" role="columnheader"></th>
               </tr>
             </thead>
@@ -395,8 +545,10 @@ export function TableView() {
                 const assigneeName = t.assigneeId
                   ? project.core.assignees[t.assigneeId]?.name ?? ''
                   : '';
-                const ioCount = (detail?.inputs?.length ?? 0) + (detail?.outputs?.length ?? 0);
-                const issueCount = detail?.issues?.length ?? 0;
+                const ioItems = outlineIoItems(detail);
+                const inItems = ioItems.filter((i) => i.io === 'inputs');
+                const outItems = ioItems.filter((i) => i.io === 'outputs');
+                const issueItems = outlineIssueItems(detail);
                 const hasChildren = parentsWithChildren.has(t.id);
                 const preds = deps.filter((dep) => dep.to === t.id);
                 const candidates = columnVisibility.prev ? prevCandidatesFor(t.id) : [];
@@ -667,45 +819,76 @@ export function TableView() {
                     </td>
                     )}
                     {columnVisibility.io && (
-                    <td
-                      className={`c-io${cellCursorCls(t.id, 'io')}`}
-                      role="gridcell"
-                      data-cell="io"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {/* 24/22: アウトラインは入/出/課題のドット＋件数の要約のみ。
-                          深掘り編集はクリックでインスペクタ、または全項目表で行う。 */}
-                      <div
-                        className="io-summary"
-                        title="クリックで詳細（入出力・課題を編集）"
-                        onClick={() => {
-                          select(t.id);
-                          useUI.getState().setInspectorOpen(true);
-                        }}
-                      >
-                        {ioCount === 0 && issueCount === 0 ? (
-                          <span className="io-empty">—</span>
-                        ) : (
-                          <>
-                            {(detail?.inputs?.length ?? 0) > 0 && (
-                              <span className="io-pip in">
-                                <span className="io-dot" />入{detail?.inputs?.length}
-                              </span>
-                            )}
-                            {(detail?.outputs?.length ?? 0) > 0 && (
-                              <span className="io-pip out">
-                                <span className="io-dot" />出{detail?.outputs?.length}
-                              </span>
-                            )}
-                            {issueCount > 0 && (
-                              <span className="io-pip issue">
-                                <span className="io-dot" />課題{issueCount}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
+                      <>
+                        {/* 実機FB: 入出（入力→出力）と課題を別列に分離。件数バッジをクリックで
+                            名称/課題文のポップオーバー、項目クリックでインスペクタの該当箇所へ。 */}
+                        <td
+                          className={`c-io${cellCursorCls(t.id, 'io')}`}
+                          role="gridcell"
+                          data-cell="io"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {ioItems.length === 0 ? (
+                            <span className="io-empty">—</span>
+                          ) : (
+                            <CellPopover
+                              title="入力・出力の名称一覧（クリックで詳細へ）"
+                              ariaLabel={`入力 ${inItems.length} 件・出力 ${outItems.length} 件（クリックで名称一覧）`}
+                              label={
+                                <>
+                                  {inItems.length > 0 && (
+                                    <span className="io-pip in">
+                                      <span className="io-dot" />入{inItems.length}
+                                    </span>
+                                  )}
+                                  {outItems.length > 0 && (
+                                    <span className="io-pip out">
+                                      <span className="io-dot" />出{outItems.length}
+                                    </span>
+                                  )}
+                                </>
+                              }
+                            >
+                              {inItems.length > 0 && <div className="menu-caption">入力</div>}
+                              {inItems.map((it) => (
+                                <MenuItem key={it.id} onClick={() => openIoInspector(t.id, 'inputs', it.id)}>
+                                  <span className="io-dot in" />
+                                  <span className="io-pop-name">{it.name || '（名称なし）'}</span>
+                                </MenuItem>
+                              ))}
+                              {outItems.length > 0 && <div className="menu-caption">出力</div>}
+                              {outItems.map((it) => (
+                                <MenuItem key={it.id} onClick={() => openIoInspector(t.id, 'outputs', it.id)}>
+                                  <span className="io-dot out" />
+                                  <span className="io-pop-name">{it.name || '（名称なし）'}</span>
+                                </MenuItem>
+                              ))}
+                            </CellPopover>
+                          )}
+                        </td>
+                        <td className="c-issue" role="gridcell" data-cell="issue" onClick={(e) => e.stopPropagation()}>
+                          {issueItems.length === 0 ? (
+                            <span className="io-empty">—</span>
+                          ) : (
+                            <CellPopover
+                              title="課題の一覧（クリックで詳細へ）"
+                              ariaLabel={`課題 ${issueItems.length} 件（クリックで一覧）`}
+                              label={
+                                <span className="io-pip issue">
+                                  <span className="io-dot" />課題{issueItems.length}
+                                </span>
+                              }
+                            >
+                              {issueItems.map((it) => (
+                                <MenuItem key={it.id} onClick={() => openIssueInspector(t.id)}>
+                                  <span className="io-dot issue" />
+                                  <span className="io-pop-name">{it.text || '（内容なし）'}</span>
+                                </MenuItem>
+                              ))}
+                            </CellPopover>
+                          )}
+                        </td>
+                      </>
                     )}
                     <td className="c-act" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       {t.level !== 'detail' && !ms && (
@@ -740,7 +923,7 @@ export function TableView() {
               {/* 末尾ゴースト行: 「一番下の空行へ直接入力」の入口。検索絞り込み中は出さない。 */}
               {!findActive && rows.length > 0 && (
                 <tr className="outline-ghost" role="row" onClick={addGhostRow}>
-                  <td colSpan={6 + visibleOptionalColumns.length} role="gridcell">＋ 新しい工程…</td>
+                  <td colSpan={6 + visibleOptionalColumns.length + (columnVisibility.io ? 1 : 0)} role="gridcell">＋ 新しい工程…</td>
                 </tr>
               )}
             </tbody>
