@@ -167,11 +167,37 @@ const ProjectMeta = z.object({
   appVersion: z.string(),
 });
 
+const StepCond = z.object({ id: z.string(), when: z.string(), thenMd: z.string(), targetTaskId: z.string().optional() });
+const StepRef = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('asset'), assetId: z.string() }),
+  z.object({ kind: z.literal('io'), taskId: z.string(), ioId: z.string() }),
+  z.object({ kind: z.literal('task'), taskId: z.string() }),
+]);
+const StepImage = z.object({ id: z.string(), file: z.string(), caption: z.string().optional(), overlay: z.unknown().optional() });
+const ProcedureStep = z.object({
+  id: z.string(), action: z.string(), why: z.string().optional(), bodyMd: z.string().optional(),
+  conds: z.array(StepCond), refs: z.array(StepRef), images: z.array(StepImage),
+});
+const Revision = z.object({ at: z.string(), note: z.string().optional(), by: z.string().optional() });
+const ProcedureDoc = z.object({
+  taskId: z.string(), purpose: z.string().optional(),
+  steps: z.array(ProcedureStep), updatedAt: z.string(), revisions: z.array(Revision),
+});
+const AssetRef = z.object({
+  id: z.string(), name: z.string(), desc: z.string().optional(),
+  locator: z.union([z.object({ alias: z.string(), relPath: z.string() }), z.object({ url: z.string() })]).optional(),
+});
+const Manual = z.object({
+  procedures: z.record(z.string(), ProcedureDoc),
+  assets: z.record(z.string(), AssetRef),
+});
+
 export const ProjectSchema = z.object({
   schemaVersion: z.number().finite(),
   meta: ProjectMeta,
   core: Core,
   details: z.record(z.string(), TaskDetail),
   flow: FlowView,
+  manual: Manual,
   quarantine: z.array(z.unknown()).optional(),
 });

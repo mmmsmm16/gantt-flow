@@ -81,9 +81,11 @@ export function deserializeContainer(bytes: Uint8Array, opts?: DeserializeOption
     if (!entry) throw new ContainerFormatError(`コンテナ内に ${PROJECT_ENTRY} がありません`);
     const assets: Record<string, Uint8Array> = {};
     for (const [path, data] of Object.entries(files)) {
-      if (path.startsWith(ASSETS_DIR) && path.length > ASSETS_DIR.length && !path.endsWith('/')) {
-        assets[path.slice(ASSETS_DIR.length)] = data;
-      }
+      if (!path.startsWith(ASSETS_DIR) || path.length <= ASSETS_DIR.length || path.endsWith('/')) continue;
+      const name = path.slice(ASSETS_DIR.length);
+      // path traversal 予防: 親参照(..)・絶対パス・空セグメント(//)・ドライブレターは無視する
+      if (name.includes('..') || name.startsWith('/') || name.includes('//') || /^[a-zA-Z]:/.test(name)) continue;
+      assets[name] = data;
     }
     return { project: deserializeProject(strFromU8(entry), opts), assets, format };
   }

@@ -55,6 +55,7 @@ function builder(idGen: IdGen) {
       core: { tasks, dependencies, assignees },
       details,
       flow: { byLevel: [] },
+      manual: { procedures: {}, assets: {} },
     };
     project = ensureLevelView(project, 'large');
     project = ensureLevelView(project, 'medium', defaultScope);

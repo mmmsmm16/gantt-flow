@@ -1,7 +1,7 @@
 // スキーマ versioning とマイグレーション（`docs/05-persistence.md` §4）。
 // 版の昇順に純粋関数を適用。読込時はメモリ上でのみ適用し、明示保存まで書き戻さない（呼び出し側の責務）。
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface Migration {
   to: number; // この版へ引き上げる
@@ -9,7 +9,15 @@ export interface Migration {
 }
 
 // v1 が初版。以後の破壊的変更はここに up を追加する。
-export const migrations: Migration[] = [];
+export const migrations: Migration[] = [
+  {
+    to: 2,
+    up: (raw) => ({
+      ...raw,
+      manual: (raw.manual as unknown) ?? { procedures: {}, assets: {} }, // 既存 manual は温存
+    }),
+  },
+];
 
 // raw.schemaVersion から現行まで、該当するマイグレーションを順に適用する。
 export function migrate(

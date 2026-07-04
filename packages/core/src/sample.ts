@@ -179,6 +179,7 @@ export function createSampleProject(idGen: IdGen, now = '2026-01-01T00:00:00.000
     core: { tasks, dependencies, assignees },
     details,
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   };
 
   // 既定で開くビュー（中・スコープ=受注業務）と全体ビュー（大）を用意して同期する。

@@ -48,11 +48,12 @@ describe('buildFlowSvg のスイムレーン描画', () => {
   // 背景・下端の帯線・縦の仕切り線）は常に描く。hasLanes を「実際のレーン件数」ではなく
   // 「このビューはレーンが定義され得るか（＝大/全体ではないか）」で判定する変更の検証。
   const emptyProject = (): Project => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     meta: { id: 'p', title: 'test', createdAt: '', updatedAt: '', appVersion: '0' },
     core: { tasks: {}, dependencies: {}, assignees: {} },
     details: {},
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   });
   const emptyView = (level: FlowLevelView['level'], scopeParentId?: string): FlowLevelView => ({
     level,

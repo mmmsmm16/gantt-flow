@@ -247,3 +247,39 @@ describe('persistence: マイグレーション', () => {
     expect(back.schemaVersion).toBe(1);
   });
 });
+
+describe('migration v1 -> v2 (manual)', () => {
+  const v1 = {
+    schemaVersion: 1,
+    meta: { id: 'p', title: 't', createdAt: '', updatedAt: '', appVersion: '0' },
+    core: { tasks: {}, dependencies: {}, assignees: {} },
+    details: {},
+    flow: { byLevel: [] },
+  };
+  it('CURRENT_SCHEMA_VERSION は 2', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(2);
+  });
+  it('v1 に manual を付与して v2 へ', () => {
+    const out = migrate(structuredClone(v1));
+    expect(out.schemaVersion).toBe(2);
+    expect(out.manual).toEqual({ procedures: {}, assets: {} });
+  });
+  it('現行版(v2)は no-op（manual を上書きしない）', () => {
+    const v2 = { ...structuredClone(v1), schemaVersion: 2, manual: { procedures: { a: { taskId: 'a', steps: [], updatedAt: '', revisions: [] } }, assets: {} } };
+    const out = migrate(structuredClone(v2));
+    expect(out).toEqual(v2);
+  });
+  it('serialize→deserialize 往復で manual が保持される', () => {
+    const p = sampleProject();
+    const id = taskIdByName(p, '受付');
+    const withManual: Project = {
+      ...p,
+      manual: {
+        procedures: { [id]: { taskId: id, purpose: '受注内容を確認する', steps: [], updatedAt: '2026-01-01T00:00:00.000Z', revisions: [] } },
+        assets: {},
+      },
+    };
+    const back = deserializeProject(serializeProject(withManual));
+    expect(back.manual).toEqual(withManual.manual);
+  });
+});

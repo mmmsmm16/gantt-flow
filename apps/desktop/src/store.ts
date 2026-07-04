@@ -254,6 +254,7 @@ function initialProject(): Project {
     core: { tasks: {}, dependencies: {}, assignees: {} },
     details: {},
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   };
   return reconcileProject(ensureLevelView(base, 'medium'), uuid);
 }

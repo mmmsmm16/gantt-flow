@@ -33,6 +33,7 @@ function emptyProject(title: string): Project {
     core: { tasks: {}, dependencies: {}, assignees: {} },
     details: {},
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   };
   // 新規はデスクトップ版 initialProject と同じく medium ビューを 1 枚用意して reconcile。
   return reconcileProject(ensureLevelView(base, 'medium'), uuid);

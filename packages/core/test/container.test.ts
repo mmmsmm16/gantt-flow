@@ -85,4 +85,28 @@ describe('container', () => {
     const r = tryDeserializeContainer(new Uint8Array([0, 1, 2]));
     expect(r.ok).toBe(false);
   });
+
+  it('assets サブディレクトリ名 (a/b.png) が往復する', () => {
+    const img = new Uint8Array([1, 2, 3]);
+    const bytes = serializeContainer(sampleProject(), { 'a/b.png': img });
+    const out = deserializeContainer(bytes);
+    expect(Object.keys(out.assets)).toEqual(['a/b.png']);
+    expect(Array.from(out.assets['a/b.png']!)).toEqual([1, 2, 3]);
+  });
+
+  it('assets 省略 ≡ {} でバイト同一', () => {
+    const p = sampleProject();
+    expect(Array.from(serializeContainer(p))).toEqual(Array.from(serializeContainer(p, {})));
+  });
+
+  it('assets の .. / 絶対パスのエントリを無視する（path traversal 予防）', () => {
+    const evil = zipSync({
+      'project.json': strToU8(serializeProject(sampleProject())),
+      'assets/ok.png': new Uint8Array([9]),
+      'assets/../evil.png': new Uint8Array([6, 6, 6]),
+      'assets//abs.png': new Uint8Array([7]),
+    });
+    const out = deserializeContainer(evil);
+    expect(Object.keys(out.assets)).toEqual(['ok.png']); // evil/abs は落とす
+  });
 });

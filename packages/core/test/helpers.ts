@@ -9,11 +9,12 @@ export function counter(prefix = 'id'): IdGen {
 
 export function emptyProject(): Project {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     meta: { id: 'p', title: 'test', createdAt: '', updatedAt: '', appVersion: '0' },
     core: { tasks: {}, dependencies: {}, assignees: {} },
     details: {},
     flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
   };
 }
 
