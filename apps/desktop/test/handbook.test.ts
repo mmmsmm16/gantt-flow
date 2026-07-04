@@ -1,7 +1,7 @@
 // buildHandbookHtml の規範アサーション（node 環境・renderToStaticMarkup 実証パターン: markdownLite.test.tsx）。
 // サンプルプロジェクト(createSampleProject)は手順書ダミーデータ入りのため、そのままフィクスチャに使う。
 import { describe, it, expect } from 'vitest';
-import { createSampleProject, type Project } from '@gantt-flow/core';
+import { createSampleProject, addTask, addStep, addStepCond, type Project } from '@gantt-flow/core';
 import { buildHandbookHtml, type HandbookOptions } from '../src/handbook';
 
 const gen = (prefix: string) => {
@@ -23,6 +23,50 @@ const hasChildren = (project: Project, id: string): boolean =>
   Object.values(project.core.tasks).some((t) => (t.parentId ?? undefined) === id);
 const leavesOf = (project: Project) => Object.values(project.core.tasks).filter((t) => !hasChildren(project, t.id));
 const taskByName = (project: Project, name: string) => Object.values(project.core.tasks).find((t) => t.name === name)!;
+
+// レビュー指摘(デッドアンカー)の再現フィクスチャ: 大→中→小(非末端・詳細を子に持つ)→詳細 の 4 階層。
+// アンカーは「大工程・大直下の中工程・末端工程」にしか振られないため、非末端の「小」は文書内のどこにも
+// id="hb-task-..." を持たない。この「小」を条件飛び先(targetTaskId)に指定して壊れ方を固定する。
+function fourLevelFixture(): { project: Project; largeId: string; midId: string; smallId: string; detailId: string } {
+  const idGen = gen('t');
+  let p: Project = {
+    schemaVersion: 2,
+    meta: { id: 'p4', title: '4階層テスト', createdAt: NOW, updatedAt: NOW, appVersion: '0' },
+    core: { tasks: {}, dependencies: {}, assignees: {} },
+    details: {},
+    flow: { byLevel: [] },
+    manual: { procedures: {}, assets: {} },
+  };
+  const largeId = 't-large';
+  const midId = 't-mid';
+  const smallId = 't-small';
+  const detailId = 't-detail';
+  p = addTask(p, { name: '大工程', level: 'large', id: largeId }, idGen);
+  p = addTask(p, { name: '中工程', level: 'medium', parentId: largeId, id: midId }, idGen);
+  p = addTask(p, { name: '小工程(非末端)', level: 'small', parentId: midId, id: smallId }, idGen);
+  p = addTask(p, { name: '詳細工程', level: 'detail', parentId: smallId, id: detailId }, idGen);
+  p = addStep(p, detailId, { action: '何かする' }, idGen, NOW);
+  const stepId = p.manual.procedures[detailId]!.steps[0]!.id;
+  p = addStepCond(
+    p,
+    detailId,
+    stepId,
+    { when: '異常時', thenMd: '対処する', targetTaskId: smallId },
+    idGen,
+    NOW,
+  );
+  return { project: p, largeId, midId, smallId, detailId };
+}
+
+// 汎用アサーション: 文書内の href="#..." がすべて実在する id="..." を指すことを機械的に検証する
+// （デッドアンカー再発防止のため、フィクスチャ横断で使う）。
+function assertAllFragmentLinksResolve(html: string): void {
+  const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  const hrefs = [...html.matchAll(/href="#([^"]+)"/g)].map((m) => m[1]!);
+  for (const h of hrefs) {
+    expect(ids.has(h)).toBe(true);
+  }
+}
 
 describe('buildHandbookHtml', () => {
   it('自己完結: <script>/<link> 無し・style に url() 無し・http(s) href は台帳の場所表記のみ', () => {
@@ -129,5 +173,24 @@ describe('buildHandbookHtml', () => {
     const a = buildHandbookHtml(project, opts());
     const b = buildHandbookHtml(project, opts());
     expect(a).toBe(b);
+  });
+
+  it('href="#..." はすべて実在する id を指す(サンプル)', () => {
+    const html = buildHandbookHtml(sample(), opts());
+    assertAllFragmentLinksResolve(html);
+  });
+
+  it('デッドアンカー: 非末端(小)への条件飛び先はリンク化されずプレーンテキスト表記になる（レビュー指摘の再現形）', () => {
+    const { project, smallId } = fourLevelFixture();
+    const html = buildHandbookHtml(project, opts());
+
+    // 「小」はアンカー(id="hb-task-...")を持たない章立てのため、対応する href は出ない。
+    expect(html).not.toContain(`href="#hb-task-${smallId}"`);
+    // ただし工程は実在するので、名前はプレーンテキストとして表示される（消えない）。
+    expect(html).toContain('小工程(非末端)');
+    // 実在する工程なので「リンク切れ」表記にもしない。
+    expect(html).not.toContain('リンク切れ');
+    // 文書内の #アンカー欠落（dangling href）が無いことを機械的に検証する。
+    assertAllFragmentLinksResolve(html);
   });
 });

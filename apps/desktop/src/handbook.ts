@@ -41,6 +41,9 @@ const escapeHtml = (s: string): string =>
 // 手順書本文(bodyMd)・条件の対処(thenMd)を MarkdownLite で読み取り専用レンダリング(XSS 安全実証済み)。
 const md = (text: string): string => renderToStaticMarkup(createElement(MarkdownLite, { text }));
 
+// 意図的にホスト(実行環境)のローカル日付を使う（仕様: 出力日はユーザの体感日付が正）。
+// 注入 now を UTC 深夜近傍で跨ぐとホスト TZ 次第で日付が変わり得るが、それは意図どおりであり
+// UTC 日付に固定する方が「ユーザから見た今日」とずれるため誤り（テストは now を正午付近に固定して回避）。
 function localDateYmd(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -120,18 +123,23 @@ function buildFlowsSection(project: Project): string {
 
 // ---- 本文（大工程 → 中工程 → 末端章） ----
 
+// 画面(ProcedureView.tsx の REF_ICON)と同じ kind 別アイコン。broken でも維持する
+// （レビュー指摘: 従来は broken 時に一律 🔗 になっていて、資料/帳票参照が壊れているのか他工程参照
+// が壊れているのか見た目で判別できなかった。アイコンは種別、トーン/文言だけで壊れを示す）。
+const REF_ICON: Record<StepRef['kind'], string> = { asset: '📚', io: '📄', task: '🔗' };
+
 function buildRefChip(project: Project, opts: HandbookOptions, ref: StepRef): string {
   const r = resolveRef(project, ref);
+  const icon = REF_ICON[ref.kind];
   if (r.broken) {
-    return `<span class="proc-chip broken">🔗 ${escapeHtml(r.label)}（リンク切れ）</span>`;
+    return `<span class="proc-chip broken">${icon} ${escapeHtml(r.label)}（リンク切れ）</span>`;
   }
   if (ref.kind === 'asset') {
     const asset = project.manual.assets[ref.assetId];
     const loc = resolveLocator(asset?.locator, opts.aliases);
     const locHtml = loc.display ? ` — ${locatorHtml(loc)}` : '';
-    return `<span class="proc-chip ref">📚 ${escapeHtml(r.label)}${locHtml}</span>`;
+    return `<span class="proc-chip ref">${icon} ${escapeHtml(r.label)}${locHtml}</span>`;
   }
-  const icon = ref.kind === 'io' ? '📄' : '🔗';
   return `<span class="proc-chip io">${icon} ${escapeHtml(r.label)}</span>`;
 }
 
@@ -144,13 +152,23 @@ function buildShot(opts: HandbookOptions, img: StepImage): string {
   return `<figure class="proc-shot">${body}${caption}</figure>`;
 }
 
-function buildCond(project: Project, codes: Record<Id, string>, c: StepCond): string {
+// c.targetTaskId は任意の工程を指せるが、アンカー(id="hb-task-...")は「大工程・大直下の中工程・
+// 末端工程」にしか振られない（buildLargeChapter/buildMidSection/buildLeafChapter 参照）。よって
+// 「実在するがアンカー未出力」（例: 大→中→小(非末端・詳細を子に持つ)→詳細 の「小」）が起こり得る。
+// この場合は core.tasks に存在する＝リンク切れではないので、リンクなしのプレーンテキスト表記にする
+// （レビュー指摘: 対応 id の無い <a href="#..."> を出さない＝デッドアンカー防止）。
+function buildCond(project: Project, codes: Record<Id, string>, anchored: ReadonlySet<Id>, c: StepCond): string {
   const target = c.targetTaskId ? project.core.tasks[c.targetTaskId] : undefined;
-  const jump = c.targetTaskId
-    ? target
-      ? `<a class="proc-c-link" href="#hb-task-${escapeHtml(c.targetTaskId)}">→ ${escapeHtml(nameOf(project, codes, c.targetTaskId))}</a>`
-      : `<span class="proc-c-link broken">→ リンク切れ</span>`
-    : '';
+  let jump = '';
+  if (c.targetTaskId) {
+    if (!target) {
+      jump = `<span class="proc-c-link broken">→ リンク切れ</span>`;
+    } else if (anchored.has(c.targetTaskId)) {
+      jump = `<a class="proc-c-link" href="#hb-task-${escapeHtml(c.targetTaskId)}">→ ${escapeHtml(nameOf(project, codes, c.targetTaskId))}</a>`;
+    } else {
+      jump = `<span class="proc-c-link plain">→ ${escapeHtml(nameOf(project, codes, c.targetTaskId))}</span>`;
+    }
+  }
   return (
     `<div class="proc-cond">` +
     `<div class="proc-cond-row"><span class="proc-cond-if">⚠ 〜の場合:</span>` +
@@ -161,9 +179,16 @@ function buildCond(project: Project, codes: Record<Id, string>, c: StepCond): st
   );
 }
 
-function buildStep(project: Project, opts: HandbookOptions, codes: Record<Id, string>, step: ProcedureStep, i: number): string {
+function buildStep(
+  project: Project,
+  opts: HandbookOptions,
+  codes: Record<Id, string>,
+  anchored: ReadonlySet<Id>,
+  step: ProcedureStep,
+  i: number,
+): string {
   const bodyHtml = (step.bodyMd ?? '').trim() !== '' ? `<div class="proc-detail">${md(step.bodyMd ?? '')}</div>` : '';
-  const condsHtml = step.conds.map((c) => buildCond(project, codes, c)).join('');
+  const condsHtml = step.conds.map((c) => buildCond(project, codes, anchored, c)).join('');
   const refsHtml =
     step.refs.length > 0
       ? `<div class="proc-chips">${step.refs.map((r) => buildRefChip(project, opts, r)).join('')}</div>`
@@ -187,7 +212,14 @@ function buildStep(project: Project, opts: HandbookOptions, codes: Record<Id, st
 }
 
 // 末端工程 1 件分の章。手順書が無ければ「（手順書未作成）」の 1 行のみ（工程自体は載せる＝全体像を保つ）。
-function buildLeafChapter(project: Project, opts: HandbookOptions, codes: Record<Id, string>, used: Set<Id>, taskId: Id): string {
+function buildLeafChapter(
+  project: Project,
+  opts: HandbookOptions,
+  codes: Record<Id, string>,
+  used: Set<Id>,
+  anchored: ReadonlySet<Id>,
+  taskId: Id,
+): string {
   const t = project.core.tasks[taskId];
   if (!t) return '';
   const d = project.details[taskId];
@@ -201,7 +233,7 @@ function buildLeafChapter(project: Project, opts: HandbookOptions, codes: Record
   const stepsHtml =
     steps.length === 0
       ? `<div class="hb-noproc">（手順書未作成）</div>`
-      : steps.map((s, i) => buildStep(project, opts, codes, s, i)).join('');
+      : steps.map((s, i) => buildStep(project, opts, codes, anchored, s, i)).join('');
 
   return (
     `<article class="proc-chap"${anchorAttr(used, taskId)}>` +
@@ -216,7 +248,14 @@ function buildLeafChapter(project: Project, opts: HandbookOptions, codes: Record
 
 // 中工程 1 件分の節（ProcedureView の「配下末端の縦フローナビ」と同じ deriveProcedureNav 順）。
 // mid 自身が末端(子なし)なら、ProcedureView と同様に mid 自身を単一の末端章として扱う。
-function buildMidSection(project: Project, opts: HandbookOptions, codes: Record<Id, string>, used: Set<Id>, mid: ProcessTask): string {
+function buildMidSection(
+  project: Project,
+  opts: HandbookOptions,
+  codes: Record<Id, string>,
+  used: Set<Id>,
+  anchored: ReadonlySet<Id>,
+  mid: ProcessTask,
+): string {
   const core = project.core;
   const manual = project.manual;
   let navItems = deriveProcedureNav(core, mid.id, manual);
@@ -238,7 +277,7 @@ function buildMidSection(project: Project, opts: HandbookOptions, codes: Record<
   const body =
     navItems.length === 0
       ? `<div class="hb-noproc">この中工程には末端工程がありません。</div>`
-      : navItems.map((n) => buildLeafChapter(project, opts, codes, used, n.taskId)).join('');
+      : navItems.map((n) => buildLeafChapter(project, opts, codes, used, anchored, n.taskId)).join('');
 
   return (
     `<section class="hb-section"${anchorAttr(used, mid.id)}>` +
@@ -253,11 +292,18 @@ function buildMidSection(project: Project, opts: HandbookOptions, codes: Record<
 }
 
 // 大工程 1 件分の章グループ。子(中工程候補)が無ければ自身を唯一の中工程として扱う（取りこぼし防止）。
-function buildLargeChapter(project: Project, opts: HandbookOptions, codes: Record<Id, string>, used: Set<Id>, large: ProcessTask): string {
+function buildLargeChapter(
+  project: Project,
+  opts: HandbookOptions,
+  codes: Record<Id, string>,
+  used: Set<Id>,
+  anchored: ReadonlySet<Id>,
+  large: ProcessTask,
+): string {
   const core = project.core;
   const midCandidates = byOrder(Object.values(core.tasks).filter((t) => t.parentId === large.id));
   const mids = midCandidates.length > 0 ? midCandidates : [large];
-  const sections = mids.map((m) => buildMidSection(project, opts, codes, used, m)).join('');
+  const sections = mids.map((m) => buildMidSection(project, opts, codes, used, anchored, m)).join('');
   return (
     `<section class="hb-chapter"${anchorAttr(used, large.id)}>` +
     `<h2>${escapeHtml(nameOf(project, codes, large.id))}</h2>` +
@@ -266,9 +312,19 @@ function buildLargeChapter(project: Project, opts: HandbookOptions, codes: Recor
   );
 }
 
-function buildMain(project: Project, opts: HandbookOptions, codes: Record<Id, string>, used: Set<Id>): string {
+// used: 実描画で id="hb-task-..." を初出のみ付与するための可変集合（毎回フレッシュに渡すこと）。
+// anchored: 「実際にアンカーが出力される taskId」の確定集合（buildCond のリンク化可否判定に使う）。
+// buildHandbookHtml が 1st pass(使い捨て)で used==anchored として自分自身を渡して確定させ、
+// 2nd pass(実描画)ではフレッシュな used と確定済み anchored を分けて渡す（Important レビュー指摘）。
+function buildMain(
+  project: Project,
+  opts: HandbookOptions,
+  codes: Record<Id, string>,
+  used: Set<Id>,
+  anchored: ReadonlySet<Id>,
+): string {
   const roots = byOrder(Object.values(project.core.tasks).filter((t) => !t.parentId));
-  return `<main>${roots.map((large) => buildLargeChapter(project, opts, codes, used, large)).join('')}</main>`;
+  return `<main>${roots.map((large) => buildLargeChapter(project, opts, codes, used, anchored, large)).join('')}</main>`;
 }
 
 // ---- 資料台帳一覧 ----
@@ -377,6 +433,7 @@ main{padding:0 32px 32px;}
 .proc-cond-label{font-size:11px;color:#5b6573;}
 .proc-c-link{color:#5271a5;text-decoration:underline;text-underline-offset:2px;font-size:12px;}
 .proc-c-link.broken{color:#d6452f;text-decoration:none;}
+.proc-c-link.plain{color:#5b6573;text-decoration:none;}
 
 .proc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
 .proc-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;border:1px solid #e2e6ec;border-radius:999px;padding:2px 10px;color:#5b6573;background:#ffffff;}
@@ -413,11 +470,18 @@ export function buildHandbookHtml(project: Project, opts: HandbookOptions): stri
   const codes = computeCodes(project.core);
   const now = opts.now ? new Date(opts.now) : new Date();
   const title = project.meta.title || 'プロジェクト';
-  const used = new Set<Id>();
 
+  // 1st pass(使い捨て): 実描画と全く同じ組み立て関数を走らせ、「実際に id="hb-task-..." を出力する
+  // taskId」の完全な集合を確定させる（buildCond のリンク化可否判定に使う）。この pass の文字列出力は
+  // 破棄する。used==anchored として同じ Set を渡すため、この pass 中の buildCond のリンク判定は途中
+  // 経過(前方参照未確定)で不正確になり得るが、出力を使わないので無害＝最終的な集合だけが正しければよい。
+  const anchored = new Set<Id>();
+  buildMain(project, opts, codes, anchored, anchored);
+
+  const used = new Set<Id>();
   const toc = buildToc(project, codes);
   const flows = buildFlowsSection(project);
-  const main = buildMain(project, opts, codes, used);
+  const main = buildMain(project, opts, codes, used, anchored);
   const assetsSection = buildAssetsSection(project, opts);
   const footer =
     `<footer class="hb-foot">生成: gantt-flow ／ ${localDateYmd(now)} ／ ` +
