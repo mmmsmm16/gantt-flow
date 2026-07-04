@@ -71,6 +71,12 @@ export const ChevronDown = (p: SVGProps<SVGSVGElement>) => (
     <path d="m6 9 6 6 6-6" />
   </Svg>
 );
+export const NewWindow = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="13" height="10" rx="2" />
+    <path d="M18 9h3v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-1" />
+  </Svg>
+);
 export const Eye = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>
     <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />

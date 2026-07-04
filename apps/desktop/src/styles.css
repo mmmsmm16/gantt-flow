@@ -5835,3 +5835,186 @@ input.colored-text {
   position: absolute;
   inset: -12px -8px;
 }
+
+/* =========================================================================
+   表示専用ミラー窓（?mirror=flow|table・マルチディスプレイ）
+   主窓が発行するスナップショットを閲覧専用で描く別ウィンドウ。操作 UI は持たず、
+   上部に「閲覧専用」バッジ＋ローカルズームのみ。フローは buildFlowSvg（常にライト）、
+   工程表は projectToRows 由来の読み取り専用テーブル。主窓が閉じたら接続待ちを覆う。
+   ========================================================================= */
+.mirror-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas-bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+.mirror-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  z-index: 2;
+}
+.mirror-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.mirror-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.mirror-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.mirror-zoom button {
+  min-width: 34px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--btn-bg);
+  color: var(--ink);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mirror-zoom button:hover {
+  background: var(--hover);
+}
+.mirror-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+}
+.mirror-content {
+  display: inline-block;
+  padding: 12px;
+  will-change: transform;
+}
+.mirror-content svg {
+  display: block;
+}
+.mirror-empty {
+  padding: 40px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.mirror-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--panel);
+  color: var(--ink);
+}
+.mirror-table th,
+.mirror-table td {
+  border: 1px solid var(--line-strong);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 320px;
+}
+.mirror-table th {
+  background: var(--hdr);
+  position: sticky;
+  top: 0;
+  font-weight: 600;
+}
+.mirror-waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(2px);
+  z-index: 3;
+}
+.mirror-waiting-card {
+  text-align: center;
+  padding: 28px 32px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  max-width: 360px;
+}
+.mirror-waiting-title {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.mirror-waiting-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.mirror-spin {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  border: 3px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: mirror-spin 0.9s linear infinite;
+}
+@keyframes mirror-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mirror-spin {
+    animation: none;
+  }
+}
+
+/* =========================================================================
+   実機FB その1: フローの I/O クリック編集 ＆ 付箋の対象工程リンク
+   ========================================================================= */
+/* I/O 表示（集約アイコン・出所チップ）はクリックで詳細パネルの該当 I/O へ寄せる。
+   io-overlay は既定 pointer-events:none なので、対象の g だけ操作可へ戻す
+   （子要素は pointer-events を継承して当たり判定を持つ）。 */
+.io-clickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.io-clickable:hover .io-main,
+.io-clickable:hover .io-source-chip {
+  filter: brightness(0.96);
+}
+/* フローの I/O クリックで開いた詳細パネルの該当項目/セクションを一時ハイライト。
+   既存の sync-flash（box-shadow フェード）を流用して見た目を揃える。 */
+.io-row.io-flash,
+.io-section.io-flash {
+  animation: sync-flash 1.5s var(--ease);
+  border-radius: var(--radius-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .io-row.io-flash,
+  .io-section.io-flash {
+    animation: none;
+  }
+}

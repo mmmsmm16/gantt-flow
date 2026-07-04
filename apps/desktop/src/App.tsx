@@ -49,6 +49,7 @@ import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
 import { Tour, tourDone, shouldStartTourOnFirstTask } from './ui/Tour';
+import { startMirrorPublisher, openMirrorWindow, pickMirrorState } from './mirror';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -512,6 +513,15 @@ export function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
+  // 表示専用ミラー窓（マルチディスプレイ）への発行を開始。project/粒度/スコープ/課題レイヤが
+  // 変わるたびデバウンスしてスナップショットを流す（ミラーが接続すれば即応答）。編集は主窓のみ。
+  useEffect(() => {
+    return startMirrorPublisher({
+      subscribe: (l) => useApp.subscribe(l),
+      getState: () => pickMirrorState(useApp.getState()),
+    });
+  }, []);
+
   // 外部（MCP/AI など別プロセス）のファイル更新をポーリング検知して反映する片方向ライブ同期
   //（Tauri のみ）。未保存(dirty)でないときは自動反映、未保存があるときは破棄確認を挟む。
   useEffect(() => {
@@ -760,6 +770,23 @@ export function App() {
               <Icons.Compare />
             </button>
           )}
+          <Menu
+            className="icon-btn menu-trigger"
+            title="別ウィンドウで表示（マルチディスプレイ）"
+            label={
+              <>
+                <Icons.NewWindow />
+                <Icons.ChevronDown />
+              </>
+            }
+          >
+            <MenuItem onClick={() => openMirrorWindow('flow')}>
+              フローを別ウィンドウで表示（閲覧専用）
+            </MenuItem>
+            <MenuItem onClick={() => openMirrorWindow('table')}>
+              工程表を別ウィンドウで表示（閲覧専用）
+            </MenuItem>
+          </Menu>
         </span>
 
         <button
