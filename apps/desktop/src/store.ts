@@ -267,6 +267,31 @@ export interface AddTaskOptions {
   predecessorId?: Id;
 }
 
+/** 両窓編集同期（dualwindow）: 作成系操作の「発信元の窓だけで実行する後処理」の種別。
+    rename=作成直後にその場リネーム / inspector=詳細を開く / select=選択のみ。 */
+export type FocusIntent = 'rename' | 'inspector' | 'select';
+
+/** リーダー→フォロワーへ、作成した工程 id と発信元の窓 id を伝える一時シグナル（origin 一致の窓だけが実行）。
+    seq で 1 回だけ発火させる（lastSyncAdded と同じ規約）。applyRemoteSnapshot 経由でのみ従属窓へ届く。 */
+export interface FocusHint {
+  taskId?: Id;
+  origin: string;
+  intent: FocusIntent;
+  surface?: 'table' | 'flow';
+  seq: number;
+}
+
+/** リーダーが従属窓へ配る「同期対象フィールド」だけのスナップショット（表示状態＝level/scope/選択は含めない）。 */
+export interface RemoteSnapshot {
+  project: Project;
+  canUndo: boolean;
+  canRedo: boolean;
+  dirty: boolean;
+  lastSyncAdded?: { ids: FlowNodeId[]; seq: number };
+  lastAssigneeSync?: { ids: Id[]; seq: number };
+  focusHint?: FocusHint | null;
+}
+
 export interface AppState {
   project: Project;
   canUndo: boolean;
@@ -281,6 +306,9 @@ export interface AppState {
   lastSyncAdded: { ids: FlowNodeId[]; seq: number };
   /** フローのレーン移動 → 担当書き戻し（逆同期）が起きた工程。表側の担当セルの一時ハイライト用。 */
   lastAssigneeSync: { ids: Id[]; seq: number };
+  /** 両窓編集同期: 発信元の窓へ「作成した工程へリネーム/詳細/選択を寄せる」を伝えるシグナル（null=無し）。
+      リーダーが従属窓の作成操作を代行したとき set し、applyRemoteSnapshot で従属窓へ運ぶ。 */
+  focusHint: FocusHint | null;
 
   addTask: (name: string) => void;
   /** ルート工程を追加し、新しい工程の ID を返す（追加直後に選択＋名前を即編集するため）。
@@ -414,6 +442,14 @@ export interface AppState {
   loadTemplate: (key: string) => void;
   /** 自動退避データから復元（未保存＝dirty 扱い。ファイル保存を促す）。 */
   restoreProject: (project: Project) => void;
+
+  // --- 両窓編集同期（dualwindow） ---
+  /** リーダーが配ったスナップショットを従属窓へ反映する。素の set() のみで、history/savedRef/
+      selectedTaskId/level/scope/showIssues には触れない（表示状態は窓ごとに独立）。 */
+  applyRemoteSnapshot: (snap: RemoteSnapshot) => void;
+  /** 指定 level/scope のフロービューを（無ければ作って）保証・reconcile する冪等操作（undo 対象外）。
+      従属窓の粒度/スコープ切替を共有プロジェクトへ最小反映するためリーダーが実行する。 */
+  ensureView: (level: ProcessLevel, scopeParentId?: Id) => void;
 }
 
 export const appStateCreator: StateCreator<AppState> = (set, get) => {
@@ -602,6 +638,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     showIssues: true,
     lastSyncAdded: { ids: [], seq: 0 },
     lastAssigneeSync: { ids: [], seq: 0 },
+    focusHint: null,
 
     addTask: (name) =>
       commit(
@@ -1609,6 +1646,28 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     loadSample: () => {
       const sample = createSampleProject(uuid, new Date().toISOString());
       adopt(sample, 'medium', undefined); // 既定は全体スコープ
+    },
+
+    // --- 両窓編集同期（dualwindow） ---
+    // 従属窓へのスナップショット反映。canUndo/canRedo/dirty はリーダーの履歴状態をそのまま採用
+    // （従属窓は自前の履歴を持たない）。表示状態（level/scope/選択/showIssues）と savedRef・
+    // history には一切触れない＝窓ごとに独立。focusHint はキーがあるときだけ更新する。
+    applyRemoteSnapshot: (snap) =>
+      set({
+        project: snap.project,
+        canUndo: snap.canUndo,
+        canRedo: snap.canRedo,
+        dirty: snap.dirty,
+        ...(snap.lastSyncAdded ? { lastSyncAdded: snap.lastSyncAdded } : {}),
+        ...(snap.lastAssigneeSync ? { lastAssigneeSync: snap.lastAssigneeSync } : {}),
+        ...('focusHint' in snap ? { focusHint: snap.focusHint ?? null } : {}),
+      }),
+
+    // 指定ビューを保証・reconcile して履歴の先頭を置換（undo 対象外）。ensureLevelView も reconcile も
+    // 冪等なので、2 回目以降は added/removed 空＝プロジェクトは実質不変。
+    ensureView: (level, scopeParentId) => {
+      replaceTop(reconcileProject(ensureLevelView(get().project, level, scopeParentId), uuid));
+      sync();
     },
   };
 };

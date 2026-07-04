@@ -50,6 +50,7 @@ import { BackupsDialog } from './ui/BackupsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
 import { Tour, tourDone, shouldStartTourOnFirstTask } from './ui/Tour';
 import { startMirrorPublisher, openMirrorWindow, pickMirrorState } from './mirror';
+import { useDualWindow, openEditWindow } from './dualwindow';
 
 const LEVELS: { key: ProcessLevel; label: string }[] = [
   { key: 'large', label: '大' },
@@ -111,6 +112,12 @@ export function App() {
   const redo = useApp((s) => s.redo);
 
   const selectedTaskId = useApp((s) => s.selectedTaskId);
+  // 両窓編集同期: この窓が編集フォロワーか、リーダーへ接続済みか。フォロワーはファイル系を
+  // グレーアウトし、未接続（リーダー離脱/起動待ち）のあいだは編集をロックして接続待ちを出す。
+  const windowRole = useDualWindow((s) => s.role);
+  const syncConnected = useDualWindow((s) => s.connected);
+  const isFollower = windowRole === 'follower';
+  const followerWaiting = isFollower && !syncConnected;
   const isEmpty = Object.keys(project.core.tasks).length === 0;
   const fileName = useUI((s) => s.fileName);
   // Welcome は「工程 0 件」かつ「このセッションでまだ離れていない」ときだけ。
@@ -501,8 +508,10 @@ export function App() {
     document.title = formatWindowTitle(fileName, dirty);
   }, [fileName, dirty]);
 
-  // 未保存のまま閉じようとしたら確認（データ消失の防止）。
+  // 未保存のまま閉じようとしたら確認（データ消失の防止）。フォロワー窓はファイルを持たない
+  //（データはリーダーが真実）ので警告しない。
   useEffect(() => {
+    if (isFollower) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (useApp.getState().dirty) {
         e.preventDefault();
@@ -511,20 +520,24 @@ export function App() {
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, []);
+  }, [isFollower]);
 
   // 表示専用ミラー窓（マルチディスプレイ）への発行を開始。project/粒度/スコープ/課題レイヤが
   // 変わるたびデバウンスしてスナップショットを流す（ミラーが接続すれば即応答）。編集は主窓のみ。
+  // フォロワー窓は真実でないためミラーへは発行しない（リーダーだけが発行元）。
   useEffect(() => {
+    if (isFollower) return;
     return startMirrorPublisher({
       subscribe: (l) => useApp.subscribe(l),
       getState: () => pickMirrorState(useApp.getState()),
     });
-  }, []);
+  }, [isFollower]);
 
   // 外部（MCP/AI など別プロセス）のファイル更新をポーリング検知して反映する片方向ライブ同期
   //（Tauri のみ）。未保存(dirty)でないときは自動反映、未保存があるときは破棄確認を挟む。
+  // フォロワー窓はファイルを開かない＝外部監視もしない（リーダーが反映すれば同期で届く）。
   useEffect(() => {
+    if (isFollower) return;
     startExternalWatch(async (incoming) => {
       if (!useApp.getState().dirty) {
         useApp.getState().reloadFromExternal(incoming);
@@ -543,10 +556,12 @@ export function App() {
       acknowledgeExternalChange(); // 再読込しない場合も同じ変更を二度は問わない
     });
     return () => stopExternalWatch();
-  }, []);
+  }, [isFollower]);
 
   // 起動時: 自動退避データがあれば復元を提案（クラッシュ/誤クローズからの復旧）。
+  // フォロワー窓は自動退避を持たない（main.tsx で initAutosave を呼ばない）ので提案もしない。
   useEffect(() => {
+    if (isFollower) return;
     const saved = takeAutosaveForRestore();
     if (!saved) return;
     void (async () => {
@@ -567,7 +582,7 @@ export function App() {
         clearAutosave();
       }
     })();
-  }, []);
+  }, [isFollower]);
 
   return (
     <div className={`app${chromeHidden ? ' focus-mode' : ''}`}>
@@ -604,7 +619,9 @@ export function App() {
         </span>
         <span
           className="file-chip"
-          title={`${fileName ?? UNTITLED_LABEL}${dirty ? '（未保存の変更あり）' : ''}`}
+          title={`${fileName ?? UNTITLED_LABEL}${dirty ? '（未保存の変更あり）' : ''}${
+            isFollower ? '（編集用サブウィンドウ）' : ''
+          }`}
         >
           {dirty && (
             <span className="file-chip-dot" aria-label="未保存の変更あり">
@@ -612,18 +629,24 @@ export function App() {
             </span>
           )}
           <span className="file-chip-name">{fileName ?? UNTITLED_LABEL}</span>
+          {isFollower && (
+            <span className="file-chip-sub" role="status">
+              · 編集サブ窓{followerWaiting ? '（接続待ち）' : ''}
+            </span>
+          )}
         </span>
         <PaneLayoutTabs current={paneLayout} />
         <span className="spacer" />
 
         <span className="tool-group" role="group" aria-label="履歴">
-          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す (Ctrl+Z)">
+          {/* 編集用サブ窓の undo/redo は S2（編集転送）で有効化。骨格段階はリーダー専用。 */}
+          <button className="icon-btn" onClick={undo} disabled={!canUndo || isFollower} aria-label="戻す" title="戻す (Ctrl+Z)">
             <Icons.Undo />
           </button>
           <button
             className="icon-btn"
             onClick={redo}
-            disabled={!canRedo}
+            disabled={!canRedo || isFollower}
             aria-label="やり直し"
             title="やり直し (Ctrl+Y)"
           >
@@ -632,21 +655,34 @@ export function App() {
         </span>
 
         <span className={`tool-group${recentSupported ? ' has-menu' : ''}`} role="group" aria-label="ファイル">
-          <button className="icon-btn" onClick={onNew} aria-label="新規" title="新規プロジェクト">
+          <button
+            className="icon-btn"
+            onClick={onNew}
+            disabled={isFollower}
+            aria-label="新規"
+            title={isFollower ? 'ファイル操作はメインウィンドウで行ってください' : '新規プロジェクト'}
+          >
             <Icons.FilePlus />
           </button>
           <button
             className="icon-btn"
             onClick={onImport}
+            disabled={isFollower}
             aria-label="取り込み"
-            title="取り込み（CSV / Excel）"
+            title={isFollower ? 'ファイル操作はメインウィンドウで行ってください' : '取り込み（CSV / Excel）'}
           >
             <Icons.Upload />
           </button>
-          <button className="icon-btn" onClick={onOpen} aria-label="開く" title="開く">
+          <button
+            className="icon-btn"
+            onClick={onOpen}
+            disabled={isFollower}
+            aria-label="開く"
+            title={isFollower ? 'ファイル操作はメインウィンドウで行ってください' : '開く'}
+          >
             <Icons.FolderOpen />
           </button>
-          {recentSupported && (
+          {recentSupported && !isFollower && (
             <Menu
               className="icon-btn menu-trigger"
               title="最近使ったファイル"
@@ -675,33 +711,38 @@ export function App() {
           <button
             className={`icon-btn${dirty ? ' has-unsaved' : ''}`}
             onClick={() => onSave()}
-            disabled={saving}
+            disabled={saving || isFollower}
             aria-label={saving ? '保存中…' : dirty ? '保存（未保存の変更あり）' : '保存'}
-            title={saving ? '保存中…' : '保存 (Ctrl+S)'}
+            title={isFollower ? 'ファイル操作はメインウィンドウで行ってください' : saving ? '保存中…' : '保存 (Ctrl+S)'}
           >
             {saving ? <span className="icon-spinner" aria-hidden="true" /> : <Icons.Save />}
           </button>
         </span>
 
-        <Menu
-          className="icon-btn menu-trigger"
-          title="出力"
-          label={
-            <>
-              <Icons.Download />
-              <Icons.ChevronDown />
-            </>
-          }
-        >
-          <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
-          <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
-          <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
-          <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
-        </Menu>
+        {/* 出力・印刷はファイル系＝リーダー専用（フォロワーでは非表示）。 */}
+        {!isFollower && (
+          <Menu
+            className="icon-btn menu-trigger"
+            title="出力"
+            label={
+              <>
+                <Icons.Download />
+                <Icons.ChevronDown />
+              </>
+            }
+          >
+            <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
+            <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
+            <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
+            <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
+          </Menu>
+        )}
 
-        <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
-          <Icons.Printer />
-        </button>
+        {!isFollower && (
+          <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
+            <Icons.Printer />
+          </button>
+        )}
 
         <button
           className="icon-btn"
@@ -780,6 +821,10 @@ export function App() {
               </>
             }
           >
+            <MenuItem onClick={() => openEditWindow()}>
+              編集用のサブウィンドウを開く（両窓で同時編集）
+            </MenuItem>
+            <div className="menu-sep" aria-hidden="true" />
             <MenuItem onClick={() => openMirrorWindow('flow')}>
               フローを別ウィンドウで表示（閲覧専用）
             </MenuItem>
@@ -976,6 +1021,18 @@ export function App() {
       <Modal />
       <BusyOverlay />
       <Toaster />
+      {followerWaiting && (
+        <div className="mirror-waiting" role="status" aria-live="polite">
+          <div className="mirror-waiting-card">
+            <div className="mirror-spin" aria-hidden="true" />
+            <p className="mirror-waiting-title">メインウィンドウとの接続を待っています…</p>
+            <p className="mirror-waiting-sub">
+              編集用サブウィンドウです。メインウィンドウ（工程表を開いた最初の窓）を開いたままにしてください。
+              接続すると、この窓でも編集でき、変更は両方の窓に同期されます。
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

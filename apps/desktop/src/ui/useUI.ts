@@ -260,6 +260,12 @@ interface UIState {
   inspectorIoFocus: { io: 'inputs' | 'outputs'; ioId?: Id; seq: number } | null;
   focusInspectorIo: (io: 'inputs' | 'outputs', ioId?: Id) => void;
 
+  /** 両窓編集同期: 作成した工程をその場リネームで開くよう、対象ペイン（表/フロー）へ依頼するシグナル。
+      発信元の窓で focusHint を受けた dualwindow ランタイムが set し、TableView/FlowCanvas が購読して
+      該当ノード/行の名前編集を開く（seq でトリガ）。null=非アクティブ。 */
+  renameRequest: { taskId: Id; surface: 'table' | 'flow'; seq: number } | null;
+  requestRename: (taskId: Id, surface: 'table' | 'flow') => void;
+
   /** アウトライン表の折りたたみ状態（コマンド/非マウント時も保持するためここに置く。非永続）。 */
   outlineCollapsed: Set<Id>;
   toggleOutlineCollapsed: (id: Id) => void;
@@ -488,6 +494,10 @@ export const useUI = create<UIState>((set, get) => ({
   inspectorIoFocus: null,
   focusInspectorIo: (io, ioId) =>
     set((s) => ({ inspectorIoFocus: { io, ioId, seq: (s.inspectorIoFocus?.seq ?? 0) + 1 } })),
+
+  renameRequest: null,
+  requestRename: (taskId, surface) =>
+    set((s) => ({ renameRequest: { taskId, surface, seq: (s.renameRequest?.seq ?? 0) + 1 } })),
 
   outlineCollapsed: new Set<Id>(),
   toggleOutlineCollapsed: (id) => {
