@@ -222,3 +222,18 @@ describe('apply: write-through と reconcile 同期', () => {
     expect(reopened.project).toEqual(s.project);
   });
 });
+
+describe('fileio: 保存の fsync 化（回帰）', () => {
+  it('fsync 化しても保存互換は壊れない: ファイル先頭2バイトが PK、再読込で deep-equal', async () => {
+    const ws = new Workspace();
+    const s = await ws.create(path(), { title: 'FSYNC' });
+    const a = uuid();
+    await s.apply((p) => addTask(p, { name: '工程', level: 'medium', id: a }, uuid));
+
+    const head = new Uint8Array(await readFile(path())).subarray(0, 2);
+    expect(Array.from(head)).toEqual([0x50, 0x4b]); // 'PK'（v2 ZIP コンテナ）
+
+    const onDisk = await reload(path());
+    expect(onDisk).toEqual(s.project);
+  });
+});

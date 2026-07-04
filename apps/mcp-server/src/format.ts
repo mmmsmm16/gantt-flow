@@ -306,6 +306,63 @@ export function formatFlowMermaid(
   return out.join('\n');
 }
 
+// ---- 手順書 / 資料台帳 ----
+
+/** 手順書 1 件を整形（目的・各ステップの action/why/bodyMd・条件分岐・参照・画像）。未作成なら固定文言。 */
+export function formatProcedure(project: Project, taskId: Id): string {
+  const doc = project.manual.procedures[taskId];
+  if (!doc) return '手順書は未作成です。';
+
+  const codes = computeCodes(project.core);
+  const t = project.core.tasks[taskId];
+  const codeOf = (id: Id): string => `${codes[id] ?? '?'} ${project.core.tasks[id]?.name ?? id}`;
+  const ioNameOf = (tid: Id, ioId: Id): string => {
+    const d = project.details[tid];
+    const item = [...(d?.inputs ?? []), ...(d?.outputs ?? [])].find((io) => io.id === ioId);
+    return item?.name ?? ioId;
+  };
+  const assetNameOf = (assetId: Id): string => project.manual.assets[assetId]?.name ?? assetId;
+
+  const out: string[] = [];
+  out.push(`■ 手順書: ${codes[taskId] ?? '?'} ${t?.name || '(無題)'} {id:${taskId}}`);
+  out.push(doc.purpose ? `目的: ${doc.purpose}` : '目的: (未設定)');
+  out.push(`改訂: ${doc.updatedAt}`);
+
+  if (!doc.steps.length) {
+    out.push('', 'ステップはまだありません。');
+    return out.join('\n');
+  }
+
+  doc.steps.forEach((s, i) => {
+    out.push('', `${i + 1}. ${s.action} {stepId:${s.id}}`);
+    if (s.why) out.push(`   なぜ: ${s.why}`);
+    if (s.bodyMd) out.push(`   本文: ${s.bodyMd}`);
+    if (s.conds.length) {
+      out.push('   条件:');
+      for (const c of s.conds) {
+        const dest = c.targetTaskId ? ` → 飛び先: ${codeOf(c.targetTaskId)}` : '';
+        out.push(`     - もし「${c.when}」なら「${c.thenMd}」${dest} {condId:${c.id}}`);
+      }
+    }
+    if (s.refs.length) {
+      out.push('   参照:');
+      for (const r of s.refs) {
+        if (r.kind === 'asset') out.push(`     - 資料: ${assetNameOf(r.assetId)} {assetId:${r.assetId}}`);
+        else if (r.kind === 'io') out.push(`     - 帳票: ${ioNameOf(r.taskId, r.ioId)} {ioId:${r.ioId}}`);
+        else out.push(`     - 工程: ${codeOf(r.taskId)} {taskId:${r.taskId}}`);
+      }
+    }
+    if (s.images.length) {
+      out.push('   画像:');
+      for (const img of s.images) {
+        out.push(`     - ${img.file}${img.caption ? `（${img.caption}）` : ''} {imageId:${img.id}}`);
+      }
+    }
+  });
+
+  return out.join('\n');
+}
+
 /** プロジェクト全体のサマリ（メタ・件数・整合性・As-Is/To-Be ヘッドライン）。 */
 export function formatSummary(project: Project, path: string): string {
   const counts = {

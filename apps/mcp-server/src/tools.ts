@@ -34,11 +34,16 @@ import {
   projectToCsv,
   isProjectIntegrityError,
   uuid,
+  upsertProcedure,
+  addStep,
+  removeStep,
+  upsertAsset,
   type Project,
   type TaskDetailPatch,
   type TaskDetailToBe,
   type IssueTarget,
   type Id,
+  type AssetLocator,
 } from '@gantt-flow/core';
 import { readFile } from 'node:fs/promises';
 import type { Workspace } from './session.js';
@@ -51,6 +56,7 @@ import {
   formatCompare,
   formatSummary,
   formatFlowMermaid,
+  formatProcedure,
 } from './format.js';
 import {
   formatFlowLayout,
@@ -110,6 +116,18 @@ const BatchOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('set_tobe'), task: z.string(), patch: TobePatchShape }),
   z.object({ op: z.literal('add_io'), task: z.string(), io: z.enum(['inputs', 'outputs']), name: z.string(), kind: IoKind, formInfo: z.string().optional(), source: z.string().optional() }),
   z.object({ op: z.literal('add_issue'), task: z.string(), issue: z.string(), measure: z.string().optional() }),
+  z.object({ op: z.literal('set_procedure'), task: z.string(), purpose: z.string().optional() }),
+  z.object({ op: z.literal('add_step'), task: z.string(), action: z.string(), why: z.string().optional(), bodyMd: z.string().optional() }),
+  z.object({
+    op: z.literal('upsert_asset'),
+    ref: z.string().optional(),
+    id: z.string().optional(),
+    name: z.string(),
+    desc: z.string().optional(),
+    alias: z.string().optional(),
+    relPath: z.string().optional(),
+    url: z.string().optional(),
+  }),
 ]);
 
 function text(s: string): CallToolResult {
@@ -216,7 +234,7 @@ export function registerTools(server: McpServer, ws: Workspace): void {
     {
       title: '一括構築',
       description:
-        '工程/依存/担当/詳細/入出力/課題をまとめて1回で原子的に構築する。議事録など非構造テキストから抽出した業務を一気にドラフト化する用途。各 op の ref(エイリアス)を後続 op の parent/from/to/task から参照でき、未確定の工程同士も同一バッチ内で繋げられる。dryRun=true で保存せずプレビュー。',
+        '工程/依存/担当/詳細/入出力/課題/手順書/資料台帳をまとめて1回で原子的に構築する。議事録など非構造テキストから抽出した業務を一気にドラフト化する用途。各 op の ref(エイリアス)を後続 op の parent/from/to/task から参照でき、未確定の工程同士も同一バッチ内で繋げられる。dryRun=true で保存せずプレビュー。',
       inputSchema: {
         operations: z.array(BatchOpSchema).describe('順に適用する操作列。add_task に ref を付けて後続の参照に使う'),
         dryRun: z.boolean().optional().describe('true で保存せず結果プレビューのみ'),
@@ -1002,6 +1020,91 @@ export function registerTools(server: McpServer, ws: Workspace): void {
         requireTask(s.project, taskId);
         await s.apply((p) => removeIssueItem(p, taskId, issueId));
         return `削除しました。\n${formatTaskDetail(s.project, taskId)}`;
+      }),
+  );
+
+  // ============ 手順書 / 資料台帳 ============
+
+  server.registerTool(
+    'get_procedure',
+    {
+      title: '手順書を取得',
+      description: '工程の手順書（目的・各ステップの action/why/bodyMd・条件分岐・参照資料・画像）を返す。未作成なら「手順書は未作成です」。',
+      inputSchema: { taskId: z.string() },
+    },
+    ({ taskId }) =>
+      run(() => {
+        requireTask(ws.current().project, taskId);
+        return formatProcedure(ws.current().project, taskId);
+      }),
+  );
+
+  server.registerTool(
+    'upsert_procedure',
+    {
+      title: '手順書を作成/更新',
+      description:
+        '工程の手順書を作成/更新する。purpose(目的)を渡すと設定し、steps を渡すと既存の全ステップを置換する' +
+        '（各ステップは新規IDで作り直すため、既存ステップの条件分岐/参照/画像は失われる）。purpose/steps とも省略可（省略した側は変更しない）。',
+      inputSchema: {
+        taskId: z.string(),
+        purpose: z.string().optional(),
+        steps: z
+          .array(
+            z.object({
+              action: z.string(),
+              why: z.string().optional(),
+              bodyMd: z.string().optional(),
+            }),
+          )
+          .optional()
+          .describe('渡すと既存の全ステップを置換する（各ステップの条件分岐/参照/画像は空で作り直される）'),
+      },
+    },
+    ({ taskId, purpose, steps }) =>
+      run(async () => {
+        const s = ws.current();
+        requireTask(s.project, taskId);
+        const now = new Date().toISOString();
+        await s.apply((p) => {
+          let next = upsertProcedure(p, taskId, { purpose }, now);
+          if (steps) {
+            const existingIds = (next.manual.procedures[taskId]?.steps ?? []).map((st) => st.id);
+            for (const id of existingIds) next = removeStep(next, taskId, id, now);
+            for (const st of steps) next = addStep(next, taskId, st, uuid, now);
+          }
+          return next;
+        });
+        return `更新しました。\n${formatProcedure(s.project, taskId)}`;
+      }),
+  );
+
+  server.registerTool(
+    'upsert_asset',
+    {
+      title: '資料を登録/更新',
+      description:
+        '資料台帳（手順書の参照から使う資料）を登録/更新する（id 省略で新規作成、指定で更新）。' +
+        '所在地は alias+relPath（プロジェクト内の相対パス）か url のいずれかで指定（両方省略で未設定）。',
+      inputSchema: {
+        id: z.string().optional().describe('省略で新規作成、指定で更新'),
+        name: z.string(),
+        desc: z.string().optional(),
+        alias: z.string().optional().describe('相対パスの起点となるエイリアス（relPath とセットで指定）'),
+        relPath: z.string().optional().describe('alias からの相対パス'),
+        url: z.string().optional(),
+      },
+    },
+    ({ id, name, desc, alias, relPath, url }) =>
+      run(async () => {
+        const s = ws.current();
+        const locator: AssetLocator | undefined =
+          alias && relPath ? { alias, relPath } : url ? { url } : undefined;
+        const before = new Set(Object.keys(s.project.manual.assets));
+        await s.apply((p) => upsertAsset(p, { id, name, desc, locator }, uuid));
+        const assetId = id ?? Object.keys(s.project.manual.assets).find((k) => !before.has(k));
+        const a = assetId ? s.project.manual.assets[assetId] : undefined;
+        return `登録しました {assetId:${assetId ?? '?'}}\n- ${a?.name ?? name}${a?.desc ? `（${a.desc}）` : ''}`;
       }),
   );
 }

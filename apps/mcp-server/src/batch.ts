@@ -15,12 +15,16 @@ import {
   addIoItem,
   addIssueItem,
   setTaskLevel,
+  upsertProcedure,
+  addStep,
+  upsertAsset,
   uuid,
   type Project,
   type ProcessLevel,
   type Id,
   type TaskDetailPatch,
   type TaskDetailToBe,
+  type AssetLocator,
 } from '@gantt-flow/core';
 
 export type BatchOp =
@@ -30,12 +34,15 @@ export type BatchOp =
   | { op: 'set_detail'; task: string; patch: TaskDetailPatch }
   | { op: 'set_tobe'; task: string; patch: Partial<TaskDetailToBe> }
   | { op: 'add_io'; task: string; io: 'inputs' | 'outputs'; name: string; kind: 'doc' | 'info'; formInfo?: string; source?: string }
-  | { op: 'add_issue'; task: string; issue: string; measure?: string };
+  | { op: 'add_issue'; task: string; issue: string; measure?: string }
+  | { op: 'set_procedure'; task: string; purpose?: string }
+  | { op: 'add_step'; task: string; action: string; why?: string; bodyMd?: string }
+  | { op: 'upsert_asset'; ref?: string; id?: string; name: string; desc?: string; alias?: string; relPath?: string; url?: string };
 
 export interface BatchResult {
   project: Project;
-  aliases: Record<string, Id>; // ref -> 生成/解決された taskId
-  created: { tasks: number; dependencies: number; assignees: number; ios: number; issues: number };
+  aliases: Record<string, Id>; // ref -> 生成/解決された taskId（資料は assetId）
+  created: { tasks: number; dependencies: number; assignees: number; ios: number; issues: number; steps: number; assets: number };
   warnings: string[];
 }
 
@@ -61,8 +68,9 @@ function ensureAssignee(p: Project, name: string): { project: Project; id: Id; c
 export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
   let p = p0;
   const aliases: Record<string, Id> = {};
-  const created = { tasks: 0, dependencies: 0, assignees: 0, ios: 0, issues: 0 };
+  const created = { tasks: 0, dependencies: 0, assignees: 0, ios: 0, issues: 0, steps: 0, assets: 0 };
   const warnings: string[] = [];
+  const now = new Date().toISOString(); // 手順書系 op はこの一括内で 1 つの時刻を共有する
 
   // ref(エイリアス) or 既存 taskId を解決。未解決なら警告して undefined。
   const resolve = (token: string | undefined): Id | undefined => {
@@ -147,6 +155,26 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
         case 'add_issue': {
           p = addIssueItem(p, requireTaskRef(o.task), { issue: o.issue, measure: o.measure }, uuid);
           created.issues++;
+          break;
+        }
+        case 'set_procedure': {
+          p = upsertProcedure(p, requireTaskRef(o.task), { purpose: o.purpose }, now);
+          break;
+        }
+        case 'add_step': {
+          p = addStep(p, requireTaskRef(o.task), { action: o.action, why: o.why, bodyMd: o.bodyMd }, uuid, now);
+          created.steps++;
+          break;
+        }
+        case 'upsert_asset': {
+          const wasNew = !o.id || !p.manual.assets[o.id];
+          const locator: AssetLocator | undefined =
+            o.alias && o.relPath ? { alias: o.alias, relPath: o.relPath } : o.url ? { url: o.url } : undefined;
+          const beforeIds = new Set(Object.keys(p.manual.assets));
+          p = upsertAsset(p, { id: o.id, name: o.name, desc: o.desc, locator }, uuid);
+          const newId = o.id ?? Object.keys(p.manual.assets).find((k) => !beforeIds.has(k));
+          if (o.ref && newId) aliases[o.ref] = newId;
+          if (wasNew) created.assets++;
           break;
         }
         default: {
