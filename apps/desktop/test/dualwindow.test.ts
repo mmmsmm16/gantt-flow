@@ -8,9 +8,13 @@ import {
   snapshotChanged,
   createLeaderSync,
   createFollowerSync,
+  installForwarding,
+  applyForwardedAction,
+  shouldHandleFocus,
   type SyncChannel,
   type SyncMessage,
 } from '../src/dualwindow';
+import { serializeProject } from '@gantt-flow/core';
 import type { RemoteSnapshot } from '../src/store';
 
 // テスト用の双方向チャネル。post したメッセージを相手の onmessage へ即配送する。
@@ -136,8 +140,109 @@ describe('dualwindow: リーダー配信 / フォロワー受信（skeleton）',
     const follower = createAppStore();
     const { a, b } = pairChannels();
     createLeaderSync(leader, { channel: a, debounceMs: 0 });
-    createFollowerSync(follower, { channel: b });
+    createFollowerSync(follower, { channel: b, readOnly: true });
     // createFollowerSync が hello を送り、リーダーが即応答 → フォロワーへ現在状態が届く
     expect(Object.values(follower.getState().project.core.tasks).map((t) => t.name)).toEqual(['受付']);
+  });
+});
+
+describe('dualwindow S2: 編集アクションの汎用転送（両窓編集同期）', () => {
+  const wiring = (post: (m: SyncMessage) => void, pane: 'table' | 'flow' = 'flow') => ({
+    windowId: 'w-follower',
+    activePane: () => pane,
+    post,
+    connected: () => true,
+  });
+
+  it('forward アクションはローカル適用せずリーダーへ転送する（作成系は focus 付き）', () => {
+    const follower = createAppStore();
+    const sent: SyncMessage[] = [];
+    installForwarding(follower, wiring((m) => sent.push(m)));
+
+    follower.getState().addTask('X'); // forward・focus なし
+    follower.getState().addTaskAt(300, 40); // forward・rename focus
+
+    expect(Object.keys(follower.getState().project.core.tasks)).toHaveLength(0); // ローカルは不変
+    const actions = sent.filter((m): m is Extract<SyncMessage, { type: 'action' }> => m.type === 'action');
+    expect(actions.map((a) => a.name)).toEqual(['addTask', 'addTaskAt']);
+    expect(actions[0]!.focus).toBeUndefined();
+    expect(actions[1]!.focus).toEqual({ intent: 'rename', surface: 'flow' });
+    expect(actions.every((a) => a.origin === 'w-follower')).toBe(true);
+  });
+
+  it('leaderOnly アクションは転送せず握りつぶす（フォロワーでファイルを触らせない）', () => {
+    const follower = createAppStore();
+    const sent: SyncMessage[] = [];
+    installForwarding(follower, wiring((m) => sent.push(m)));
+    follower.getState().newProject();
+    follower.getState().loadSample();
+    expect(sent.filter((m) => m.type === 'action')).toHaveLength(0);
+  });
+
+  it('setLevel/setScope は表示をローカルに切替え、ensureView だけ転送する', () => {
+    const follower = createAppStore();
+    const sent: SyncMessage[] = [];
+    installForwarding(follower, wiring((m) => sent.push(m)));
+
+    follower.getState().setLevel('large');
+    expect(follower.getState().level).toBe('large'); // 表示はローカルに変わる
+    follower.getState().setScope('parent-x');
+    expect(follower.getState().scopeParentId).toBe('parent-x');
+
+    const actions = sent.filter((m): m is Extract<SyncMessage, { type: 'action' }> => m.type === 'action');
+    expect(actions.map((a) => [a.name, ...a.args])).toEqual([
+      ['ensureView', 'large', undefined],
+      ['ensureView', 'large', 'parent-x'],
+    ]);
+  });
+
+  it('リーダーは転送アクションを適用し、自窓の選択は動かさない（表示は窓ごと独立）', () => {
+    const leader = createAppStore();
+    // リーダーは何も選択していない状態
+    expect(leader.getState().selectedTaskId).toBeUndefined();
+    applyForwardedAction(
+      leader,
+      { type: 'action', name: 'addTaskAt', args: [300, 40], origin: 'w-follower', focus: { intent: 'rename', surface: 'flow' } },
+      'w-leader',
+    );
+    // 工程は作られるが、リーダー自身の選択は addTaskAt が動かした後で元(undefined)へ戻す
+    expect(Object.keys(leader.getState().project.core.tasks)).toHaveLength(1);
+    expect(leader.getState().selectedTaskId).toBeUndefined();
+    // 発信元窓向けの focusHint が立つ（作成 id と origin 付き）
+    const hint = leader.getState().focusHint!;
+    expect(hint.origin).toBe('w-follower');
+    expect(hint.intent).toBe('rename');
+    expect(hint.taskId).toBe(Object.keys(leader.getState().project.core.tasks)[0]);
+  });
+
+  it('ensureView は冪等（2 回目は project が実質不変）', () => {
+    const leader = createAppStore();
+    leader.getState().ensureView('large', undefined);
+    const once = serializeProject(leader.getState().project);
+    leader.getState().ensureView('large', undefined);
+    const twice = serializeProject(leader.getState().project);
+    expect(twice).toBe(once);
+    expect(
+      leader.getState().project.flow.byLevel.filter((v) => v.level === 'large' && !v.scopeParentId),
+    ).toHaveLength(1);
+  });
+
+  it('往復: フォロワーの編集がリーダーで適用され、両窓へ反映される', () => {
+    const leader = createAppStore();
+    const follower = createAppStore();
+    const { a, b } = pairChannels();
+    createLeaderSync(leader, { channel: a, debounceMs: 0 });
+    createFollowerSync(follower, { channel: b, windowId: 'w-follower' });
+
+    follower.getState().addTask('受付'); // 転送 → リーダー適用 → snapshot 返送
+    expect(Object.values(leader.getState().project.core.tasks).map((t) => t.name)).toEqual(['受付']);
+    expect(Object.values(follower.getState().project.core.tasks).map((t) => t.name)).toEqual(['受付']);
+    expect(follower.getState().canUndo).toBe(true); // リーダーの履歴状態が届く
+  });
+
+  it('shouldHandleFocus は origin 一致の窓だけ true', () => {
+    expect(shouldHandleFocus({ origin: 'w1', intent: 'rename', seq: 1 }, 'w1')).toBe(true);
+    expect(shouldHandleFocus({ origin: 'w1', intent: 'rename', seq: 1 }, 'w2')).toBe(false);
+    expect(shouldHandleFocus(null, 'w1')).toBe(false);
   });
 });

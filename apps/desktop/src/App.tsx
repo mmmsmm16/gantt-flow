@@ -639,14 +639,14 @@ export function App() {
         <span className="spacer" />
 
         <span className="tool-group" role="group" aria-label="履歴">
-          {/* 編集用サブ窓の undo/redo は S2（編集転送）で有効化。骨格段階はリーダー専用。 */}
-          <button className="icon-btn" onClick={undo} disabled={!canUndo || isFollower} aria-label="戻す" title="戻す (Ctrl+Z)">
+          {/* 編集用サブ窓の undo/redo はリーダーへ転送して適用する（両窓で履歴を共有）。 */}
+          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す (Ctrl+Z)">
             <Icons.Undo />
           </button>
           <button
             className="icon-btn"
             onClick={redo}
-            disabled={!canRedo || isFollower}
+            disabled={!canRedo}
             aria-label="やり直し"
             title="やり直し (Ctrl+Y)"
           >

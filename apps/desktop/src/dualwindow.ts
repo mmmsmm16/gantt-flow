@@ -507,15 +507,15 @@ export function runFocusHint(hint: FocusHint): void {
 // 起動時の配線（main.tsx から呼ぶ）。role を確定し、リーダー/フォロワーそれぞれのランタイムを開始。
 // ---------------------------------------------------------------------------
 /** 通常窓（リーダー）として同期を開始。返り値でクリーンアップ。
-    S1（骨格）: reflect-only＝配信のみ。フォロワーの編集転送の適用は S2 で有効化する。 */
+    フォロワーから転送された編集アクションを唯一の store で直列適用し、結果を配信する。 */
 export function startLeader(): () => void {
   useDualWindow.setState({ role: 'leader', connected: true });
-  return createLeaderSync(useApp, { readOnly: true });
+  return createLeaderSync(useApp);
 }
 
 /** ?window=edit（フォロワー）として同期を開始。最初の snapshot まで connected=false（編集ロック）。
-    S1（骨格）: reflect-only＝受信反映のみ。編集転送・focusHint は S2/S3 で有効化する。 */
+    編集アクションはリーダーへ転送し、返ってきたスナップショットで自窓を更新する（両窓編集同期）。 */
 export function startFollower(): () => void {
   useDualWindow.setState({ role: 'follower', connected: false });
-  return createFollowerSync(useApp, { readOnly: true });
+  return createFollowerSync(useApp);
 }
