@@ -1741,12 +1741,16 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     importCsvText: (text) => {
       const { project, report } = importCsv(text, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
+      clearAssetStore();
       adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
       return report;
     },
     importRows: (rows) => {
       const { project, report } = rowsToProject(rows, uuid);
       const hasLarge = Object.values(project.core.tasks).some((t) => t.level === 'large');
+      // 別プロジェクトへの置き換え（undo 履歴リセット）＝前プロジェクトの画像はもう使わない。
+      clearAssetStore();
       adopt(project, hasLarge ? 'large' : 'medium', undefined, true);
       return report;
     },
