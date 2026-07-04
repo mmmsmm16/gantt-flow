@@ -6767,3 +6767,251 @@ input.colored-text {
   gap: var(--sp-3);
   flex-wrap: wrap;
 }
+.proc-step-add {
+  margin-top: var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.proc-addref {
+  font-size: var(--fs-label);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.proc-ledger-btn {
+  margin-left: auto;
+}
+.proc-ledger-count {
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+  margin-left: 4px;
+}
+
+/* ============================================================
+   資料台帳ドロワー（AssetLedger）。正: design_reference/procedure-mock.html の .drawer 部分。
+   ============================================================ */
+.drawer {
+  width: 264px;
+  flex: none;
+  border-left: 1px solid var(--line);
+  padding: var(--sp-3);
+  background: var(--panel-2);
+  font-size: var(--fs-label);
+  overflow-y: auto;
+}
+.drawer h4 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-body);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.drawer h4 .count {
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+}
+.drawer h4 .close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: var(--fs-title);
+  line-height: 1;
+  padding: 0 2px;
+}
+.drawer h4 .close:hover {
+  color: var(--danger);
+}
+
+/* ---- 場所エイリアス（各 PC ローカル。.gflow には保存しない） ---- */
+.drawer .alias-box {
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  background: var(--panel);
+}
+.drawer .alias-box summary {
+  cursor: pointer;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.drawer .alias-empty {
+  font-size: var(--fs-caption);
+  color: var(--faint);
+  margin-top: var(--sp-1);
+}
+.drawer .alias-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-caption);
+}
+.drawer .alias-name {
+  font-weight: var(--fw-strong);
+  flex: none;
+}
+.drawer .alias-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.drawer .alias-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: var(--sp-2);
+}
+.drawer .alias-add-name {
+  width: 72px;
+}
+.drawer .alias-add-path {
+  flex: 1;
+  min-width: 100px;
+}
+.drawer .alias-add input {
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-caption);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+/* ---- 資産カード ---- */
+.asset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+.asset .hd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.asset .nm {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--fw-strong);
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 1px 2px;
+  border-radius: var(--radius-sm);
+}
+.asset .nm:focus {
+  outline: none;
+  background: var(--input-bg);
+  box-shadow: var(--ring);
+}
+.asset .desc {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: 1px 2px;
+  border-radius: var(--radius-sm);
+}
+.asset .desc:focus {
+  outline: none;
+  background: var(--input-bg);
+  box-shadow: var(--ring);
+  color: var(--ink);
+}
+.asset .loc-mode {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: 4px;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.asset .loc-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+.asset .loc-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+.asset .alias-input {
+  width: 72px;
+  flex: none;
+}
+.asset .relpath-input,
+.asset .url-input {
+  flex: 1;
+  min-width: 0;
+}
+.asset .alias-input,
+.asset .relpath-input,
+.asset .url-input {
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-caption);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+.asset .path {
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  word-break: break-all;
+  margin: 4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.asset .path.disconnected {
+  color: var(--faint);
+}
+.asset .path .copy {
+  flex: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  color: var(--ink);
+  font-size: var(--fs-caption);
+  padding: 0 6px;
+  cursor: pointer;
+}
+.asset .path .copy:hover {
+  background: var(--hover);
+}
+.asset .use {
+  font-size: var(--fs-caption);
+  color: var(--ok);
+  margin-top: 4px;
+}
+.drawer .add {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}

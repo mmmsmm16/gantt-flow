@@ -8,6 +8,7 @@ import { computeCodes, deriveProcedureNav } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI } from './ui/useUI';
 import { MarkdownLite } from './markdownLite';
+import { AssetLedger } from './AssetLedger';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { isEditableTarget } from './keymap';
 
@@ -170,6 +171,12 @@ export function ProcedureView(): JSX.Element {
   const mainRef = useRef<HTMLDivElement>(null);
   const [hereTaskId, setHereTaskId] = useState<Id | undefined>(undefined);
   const [selStep, setSelStep] = useState<{ taskId: Id; stepId: Id } | null>(null);
+  // 資料台帳ドロワー（右パネル）の開閉。手順書タブ内のローカル表示状態（undo 非対象・非永続）。
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const assetOptions = useMemo(
+    () => Object.values(manual.assets).sort((a, b) => a.name.localeCompare(b.name, 'ja')),
+    [manual.assets],
+  );
   const [pendingScroll, setPendingScroll] = useState<Id | null>(null);
   const [pendingFocus, setPendingFocus] = useState<Id | null>(null);
   const visibleRef = useRef<Map<Id, boolean>>(new Map());
@@ -544,6 +551,40 @@ export function ProcedureView(): JSX.Element {
                       >
                         ＋ 条件
                       </button>
+                      <select
+                        className="proc-addref"
+                        aria-label="参照を追加"
+                        value=""
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!v) return;
+                          if (v.startsWith('asset:')) {
+                            useApp.getState().addStepRef(taskId, step.id, { kind: 'asset', assetId: v.slice(6) });
+                          } else if (v.startsWith('io:')) {
+                            useApp.getState().addStepRef(taskId, step.id, { kind: 'io', taskId, ioId: v.slice(3) });
+                          }
+                        }}
+                      >
+                        <option value="">＋ 参照</option>
+                        {assetOptions.length > 0 && (
+                          <optgroup label="資料">
+                            {assetOptions.map((a) => (
+                              <option key={a.id} value={`asset:${a.id}`}>
+                                📚 {a.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {[...(d?.inputs ?? []), ...(d?.outputs ?? [])].length > 0 && (
+                          <optgroup label="入出力">
+                            {[...(d?.inputs ?? []), ...(d?.outputs ?? [])].map((io) => (
+                              <option key={io.id} value={`io:${io.id}`}>
+                                📄 {io.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -643,6 +684,15 @@ export function ProcedureView(): JSX.Element {
           <span className="proc-covbar">
             手順書 <b>{cov.done}</b>/{cov.total} 工程 作成済み
           </span>
+          <button
+            type="button"
+            className="proc-btn proc-ledger-btn"
+            onClick={() => setLedgerOpen((v) => !v)}
+            aria-pressed={ledgerOpen}
+          >
+            📚 資料台帳
+            {assetOptions.length > 0 && <span className="proc-ledger-count">{assetOptions.length}</span>}
+          </button>
         </div>
         <div className="proc-purpose">
           <span className="proc-purpose-tag">この工程群の目的</span>
@@ -699,6 +749,8 @@ export function ProcedureView(): JSX.Element {
           </div>
         )}
       </main>
+
+      {ledgerOpen && <AssetLedger onClose={() => setLedgerOpen(false)} />}
     </div>
   );
 }

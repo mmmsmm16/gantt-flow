@@ -19,6 +19,7 @@ import {
   type IssueItem,
   type ImportReport,
   type StepRef,
+  type AssetLocator,
   CURRENT_SCHEMA_VERSION,
   uuid,
   serializeProject,
@@ -74,6 +75,9 @@ import {
   removeStepCond as cRemoveStepCond,
   addStepRef as cAddStepRef,
   removeStepRef as cRemoveStepRef,
+  upsertAsset as cUpsertAsset,
+  updateAsset as cUpdateAsset,
+  removeAsset as cRemoveAsset,
   isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
@@ -400,6 +404,11 @@ export interface AppState {
   removeStepCond: (taskId: Id, stepId: Id, condId: Id) => void;
   addStepRef: (taskId: Id, stepId: Id, ref: StepRef) => void;
   removeStepRef: (taskId: Id, stepId: Id, index: number) => void;
+  // ---- 資料台帳（manual.assets）。手順書のステップから参照される資料の唯一の実体。 ----
+  /** 資産を追加/更新する（id 指定時は既存レコードへ merge）。事前 uuid を注入し、新規/対象 ID を返す。 */
+  upsertAsset: (args: { id?: Id; name: string; desc?: string; locator?: AssetLocator }) => Id | undefined;
+  updateAsset: (assetId: Id, patch: { name?: string; desc?: string; locator?: AssetLocator }) => void;
+  removeAsset: (assetId: Id) => void;
   /** フロー上のドラッグ確定。別レーンへ落ちて担当が書き戻った場合は新しい担当名を返す（UI 通知用）。 */
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => string | undefined;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
@@ -1076,6 +1085,14 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(cAddStepRef(get().project, taskId, stepId, ref, new Date().toISOString()), '参照を追加'),
     removeStepRef: (taskId, stepId, index) =>
       commit(cRemoveStepRef(get().project, taskId, stepId, index, new Date().toISOString()), '参照を削除'),
+
+    upsertAsset: (args) => {
+      const id = args.id ?? uuid();
+      commit(cUpsertAsset(get().project, { ...args, id }, uuid), args.id ? '資料を編集' : '資料を追加');
+      return id;
+    },
+    updateAsset: (assetId, patch) => commit(cUpdateAsset(get().project, assetId, patch), '資料を編集'),
+    removeAsset: (assetId) => commit(cRemoveAsset(get().project, assetId), '資料を削除'),
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     // x/y は 0 未満へクランプする（負座標へ落ちると全体表示のスクロールは 0 未満にできず、
