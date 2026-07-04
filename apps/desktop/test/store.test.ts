@@ -602,6 +602,29 @@ describe('app store（command → reconcile → history）', () => {
     expect(back.kind === 'comment' && back.targetNodeId).toBe(task.id);
   });
 
+  it('removeTask: 削除された工程のノードを対象にしていた付箋の targetNodeId が外れる（ダングリング禁止）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    const nodeA = taskNodes(s).find((n) => n.taskId === idByName(s, 'A'))!;
+    const nodeB = taskNodes(s).find((n) => n.taskId === idByName(s, 'B'))!;
+    s.getState().addComment('Aを対象');
+    s.getState().addComment('Bを対象');
+    const noteA = Object.values(view0(s).nodes).find((n) => n.kind === 'comment' && n.text === 'Aを対象')!;
+    const noteB = Object.values(view0(s).nodes).find((n) => n.kind === 'comment' && n.text === 'Bを対象')!;
+    s.getState().setCommentTarget(noteA.id, nodeA.id);
+    s.getState().setCommentTarget(noteB.id, nodeB.id);
+
+    s.getState().removeTask(idByName(s, 'A'));
+
+    // 対象工程ごと消えた付箋は targetNodeId が外れる（描画側ガードで無害でも永続化するとダングリング）。
+    const clearedA = view0(s).nodes[noteA.id]!;
+    expect(clearedA.kind === 'comment' && clearedA.targetNodeId).toBeUndefined();
+    // 無関係（削除していない工程）を対象にした付箋は影響を受けない。
+    const stillB = view0(s).nodes[noteB.id]!;
+    expect(stillB.kind === 'comment' && stillB.targetNodeId).toBe(nodeB.id);
+  });
+
   it('担当を変えると工程ノードがそのレーンの行へ縦移動する', () => {
     const s = createAppStore();
     s.getState().addTask('A');

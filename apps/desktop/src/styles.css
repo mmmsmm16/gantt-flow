@@ -924,22 +924,6 @@ button.danger:hover {
   font-size: var(--fs-label);
   margin-top: 2px;
 }
-.c-io {
-  width: 150px;
-}
-/* 24/22: アウトラインの I/O・課題は入/出/課題のドット＋件数の要約（クリックで詳細）。 */
-.io-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  font-size: var(--fs-caption);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.io-summary:hover {
-  color: var(--ink);
-}
 .io-pip {
   display: inline-flex;
   align-items: center;

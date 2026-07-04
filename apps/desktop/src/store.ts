@@ -556,6 +556,25 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     if (sel && !get().project.core.tasks[sel]) set({ selectedTaskId: undefined });
   };
 
+  // 工程削除で消えるノード（工程/入出力/課題。いずれも taskId を持つ）を指していた付箋の対象参照を
+  // 外す。reconcile はコメント（付箋）を管理しないため、ノード消滅を追従して掃除しないと
+  // targetNodeId がダングリングのまま永続化されてしまう（描画側はガードしているが不変条件違反）。
+  // cDeleteTaskKeepChildren 直後・reconcile 前の p（flow は未変更）に対して呼ぶこと。
+  const clearCommentTargetsFor = (p: Project, taskId: Id) => {
+    for (const view of p.flow.byLevel) {
+      const dead = new Set<FlowNodeId>();
+      for (const n of Object.values(view.nodes)) {
+        if ('taskId' in n && n.taskId === taskId) dead.add(n.id);
+      }
+      if (!dead.size) continue;
+      for (const n of Object.values(view.nodes)) {
+        if (n.kind === 'comment' && n.targetNodeId && dead.has(n.targetNodeId)) {
+          delete n.targetNodeId;
+        }
+      }
+    }
+  };
+
   // reparent は実質変化があるときだけコミット（深さ超過・循環などの no-op で履歴を汚さない）。
   const commitReparent = (
     taskId: Id,
@@ -657,6 +676,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     removeTask: (taskId) => {
       const name = get().project.core.tasks[taskId]?.name?.trim() || '工程';
       const p = cDeleteTaskKeepChildren(get().project, taskId);
+      clearCommentTargetsFor(p, taskId);
       clearScopeIfRemoved(p);
       commit(p, `工程『${name}』を削除`);
       clearSelectionIfRemoved();
@@ -701,6 +721,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       for (const id of taskIds) {
         if (p.core.tasks[id]) {
           p = cDeleteTaskKeepChildren(p, id);
+          clearCommentTargetsFor(p, id);
           count += 1;
         }
       }
