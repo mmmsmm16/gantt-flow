@@ -18,6 +18,7 @@ import {
   type IoItem,
   type IssueItem,
   type ImportReport,
+  type StepRef,
   CURRENT_SCHEMA_VERSION,
   uuid,
   serializeProject,
@@ -63,6 +64,16 @@ import {
   reparentTask as cReparentTask,
   addParallelTask as cAddParallelTask,
   makeParallel as cMakeParallel,
+  upsertProcedure as cUpsertProcedure,
+  addStep as cAddStep,
+  updateStep as cUpdateStep,
+  removeStep as cRemoveStep,
+  moveStep as cMoveStep,
+  addStepCond as cAddStepCond,
+  updateStepCond as cUpdateStepCond,
+  removeStepCond as cRemoveStepCond,
+  addStepRef as cAddStepRef,
+  removeStepRef as cRemoveStepRef,
   isMilestone,
 } from '@gantt-flow/core';
 import { clearLastCommand } from './ui/lastCommand';
@@ -374,6 +385,21 @@ export interface AppState {
   copyAsIsToToBe: (taskId: Id) => void;
   /** To-Be で新設する工程(lifecycle='added')を作る。As-Is には出ない。作成 ID を返す。 */
   addToBeTask: () => Id | undefined;
+
+  // --- 手順書（manual）。core/details/flow は触らず manual のみ更新（各コマンドへ now を注入）。 ---
+  /** 工程の手順書の目的を設定（doc を確保して purpose/updatedAt を立てる。空文字で目的をクリア）。 */
+  upsertProcedurePurpose: (taskId: Id, purpose: string) => void;
+  /** ステップを末尾に追加し、新しいステップ ID を返す（事前 uuid を注入）。 */
+  addStep: (taskId: Id, args: { action: string; why?: string; bodyMd?: string }) => Id | undefined;
+  updateStep: (taskId: Id, stepId: Id, patch: { action?: string; why?: string; bodyMd?: string }) => void;
+  removeStep: (taskId: Id, stepId: Id) => void;
+  moveStep: (taskId: Id, stepId: Id, toIndex: number) => void;
+  /** ステップに条件（〜の場合→対処・飛び先）を追加し、新しい条件 ID を返す。 */
+  addStepCond: (taskId: Id, stepId: Id, args: { when: string; thenMd: string; targetTaskId?: Id }) => Id | undefined;
+  updateStepCond: (taskId: Id, stepId: Id, condId: Id, patch: { when?: string; thenMd?: string; targetTaskId?: Id }) => void;
+  removeStepCond: (taskId: Id, stepId: Id, condId: Id) => void;
+  addStepRef: (taskId: Id, stepId: Id, ref: StepRef) => void;
+  removeStepRef: (taskId: Id, stepId: Id, index: number) => void;
   /** フロー上のドラッグ確定。別レーンへ落ちて担当が書き戻った場合は新しい担当名を返す（UI 通知用）。 */
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => string | undefined;
   /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
@@ -1021,6 +1047,35 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       commit(p, '工程を追加');
       return id;
     },
+
+    // --- 手順書（manual）。core は履歴を持たないので commit 経由で 1 undo 単位。
+    // updatedAt 用の now は各コマンドへ注入（純粋性・決定論を core 側で保つ）。 ---
+    upsertProcedurePurpose: (taskId, purpose) =>
+      commit(cUpsertProcedure(get().project, taskId, { purpose }, new Date().toISOString()), '目的を編集'),
+    addStep: (taskId, args) => {
+      const id = uuid();
+      commit(cAddStep(get().project, taskId, { ...args, id }, uuid, new Date().toISOString()), '手順を追加');
+      return id;
+    },
+    updateStep: (taskId, stepId, patch) =>
+      commit(cUpdateStep(get().project, taskId, stepId, patch, new Date().toISOString()), '手順を編集'),
+    removeStep: (taskId, stepId) =>
+      commit(cRemoveStep(get().project, taskId, stepId, new Date().toISOString()), '手順を削除'),
+    moveStep: (taskId, stepId, toIndex) =>
+      commit(cMoveStep(get().project, taskId, stepId, toIndex, new Date().toISOString()), '手順を並べ替え'),
+    addStepCond: (taskId, stepId, args) => {
+      const id = uuid();
+      commit(cAddStepCond(get().project, taskId, stepId, { ...args, id }, uuid, new Date().toISOString()), '条件を追加');
+      return id;
+    },
+    updateStepCond: (taskId, stepId, condId, patch) =>
+      commit(cUpdateStepCond(get().project, taskId, stepId, condId, patch, new Date().toISOString()), '条件を編集'),
+    removeStepCond: (taskId, stepId, condId) =>
+      commit(cRemoveStepCond(get().project, taskId, stepId, condId, new Date().toISOString()), '条件を削除'),
+    addStepRef: (taskId, stepId, ref) =>
+      commit(cAddStepRef(get().project, taskId, stepId, ref, new Date().toISOString()), '参照を追加'),
+    removeStepRef: (taskId, stepId, index) =>
+      commit(cRemoveStepRef(get().project, taskId, stepId, index, new Date().toISOString()), '参照を削除'),
 
     // フロー上のドラッグ確定。別レーンに落ちたら担当を書き戻す（唯一の逆方向同期）。
     // x/y は 0 未満へクランプする（負座標へ落ちると全体表示のスクロールは 0 未満にできず、

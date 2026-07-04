@@ -106,6 +106,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'go-split', action: 'layout.split', context: 'global', chord: { key: 'd' }, leader: true, lowRisk: true, help: { group: G.nav, label: '分割表示（工程表＋フロー）' } },
   { id: 'go-issues', action: 'view.issues', context: 'global', chord: { key: 'i' }, leader: true, help: { group: G.nav, label: '課題一覧を開く' } },
   { id: 'go-summary', action: 'view.summary', context: 'global', chord: { key: 's' }, leader: true, help: { group: G.nav, label: 'サマリを開く' } },
+  // 手順書タブへ（ビュー切替＝低リスク。既定で有効）。g d/g t/g f で作業ビューへ戻る。
+  { id: 'go-procedure', action: 'view.procedure', context: 'global', chord: { key: 'p' }, leader: true, lowRisk: true, help: { group: G.nav, label: '手順書タブへ' } },
   { id: 'go-level-1', action: 'level.large', context: 'global', chord: { key: '1' }, leader: true, help: { group: G.nav, label: '粒度: 大' } },
   { id: 'go-level-2', action: 'level.medium', context: 'global', chord: { key: '2' }, leader: true, help: { group: G.nav, label: '粒度: 中' } },
   { id: 'go-level-3', action: 'level.small', context: 'global', chord: { key: '3' }, leader: true, help: { group: G.nav, label: '粒度: 小' } },

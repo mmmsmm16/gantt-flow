@@ -9,6 +9,7 @@ import {
 import { TableView } from './TableView';
 import { FullTable } from './FullTable';
 import { FlowCanvas } from './FlowCanvas';
+import { ProcedureView } from './ProcedureView';
 import { buildScenarioFlowSvg } from './scenarioFlow';
 import { Inspector } from './Inspector';
 import {
@@ -77,21 +78,39 @@ const PANE_LAYOUT_TABS: { value: 'split' | 'table' | 'flow'; label: string; titl
 
 function PaneLayoutTabs({ current }: { current: 'split' | 'table' | 'flow' }) {
   const setPaneLayout = useUI((s) => s.setPaneLayout);
+  const mainView = useUI((s) => s.mainView);
+  const setMainView = useUI((s) => s.setMainView);
+  const inProc = mainView === 'procedure';
   return (
-    <span className="view-tabs" role="tablist" aria-label="表示するペイン">
+    <span className="view-tabs" role="tablist" aria-label="表示ビュー">
       {PANE_LAYOUT_TABS.map((t) => (
         <button
           key={t.value}
           type="button"
           role="tab"
-          aria-selected={current === t.value}
-          className={current === t.value ? 'on' : ''}
-          onClick={() => setPaneLayout(t.value)}
+          aria-selected={!inProc && current === t.value}
+          className={!inProc && current === t.value ? 'on' : ''}
+          // 手順書から作業ビューへ戻す（分割操作が効かない事故を防ぐ）＋ペインレイアウトを設定。
+          onClick={() => {
+            setMainView('work');
+            setPaneLayout(t.value);
+          }}
           title={t.title}
         >
           {t.label}
         </button>
       ))}
+      {/* 手順書タブ（第 3 のビュー）。常設ボタンとして分割/表/フローの隣に置く。 */}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={inProc}
+        className={inProc ? 'on' : ''}
+        onClick={() => setMainView('procedure')}
+        title="手順書（工程ごとの実施手順）"
+      >
+        手順書
+      </button>
     </span>
   );
 }
@@ -147,6 +166,7 @@ export function App() {
     () => (tobeEnabled && scenario === 'tobe' ? buildScenarioFlowSvg(project, 'tobe', level, scopeParentId) : ''),
     [tobeEnabled, scenario, project, level, scopeParentId],
   );
+  const mainView = useUI((s) => s.mainView);
   const tableWide = useUI((s) => s.tableWide);
   const flowWide = useUI((s) => s.flowWide);
   const chromeHidden = useUI((s) => s.chromeHidden);
@@ -879,6 +899,8 @@ export function App() {
           onTemplate={onTemplate}
           onStartEmpty={onStartEmpty}
         />
+      ) : mainView === 'procedure' ? (
+        <ProcedureView />
       ) : (
         <div
           className={`panes${showInspector ? ' with-inspector' : ''}${
