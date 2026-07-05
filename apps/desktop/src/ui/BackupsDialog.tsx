@@ -21,6 +21,13 @@ export function BackupsDialog() {
   useFocusTrap(dialogRef, open);
 
   const backups = useMemo(() => (open ? listBackups() : []), [open]);
+  // 現在の工程数（復元前の差分プレビューの基準）。
+  const currentCount = useApp((s) => Object.keys(s.project.core.tasks).length);
+  // 工程数の増減を「＋N／−N／±0」で表す（この世代に戻すと工程がどう変わるか）。
+  const deltaLabel = (backupCount: number): string => {
+    const d = backupCount - currentCount;
+    return d === 0 ? '±0' : d > 0 ? `+${d}` : `${d}`;
+  };
 
   // Esc は useGlobalHotkeys の「最上位レイヤを閉じる」一元処理が担う。復元の confirm が
   // 重なっているときは confirm(最上位)だけが閉じ、このダイアログは残る。
@@ -30,10 +37,15 @@ export function BackupsDialog() {
 
   if (!open) return null;
 
-  const onRestore = async (index: number, label: string) => {
+  const onRestore = async (index: number, label: string, backupCount: number) => {
+    const d = backupCount - currentCount;
+    const diff =
+      d === 0
+        ? '工程数は現在と同じ（0 件差）。'
+        : `工程数: 現在 ${currentCount} 件 → 復元後 ${backupCount} 件（${deltaLabel(backupCount)} 件）。`;
     const ok = await useUI.getState().confirm({
       title: 'バックアップから復元',
-      message: `${label} の状態に戻します。現在の内容は復元後に保存するまで確定しません。`,
+      message: `${label} の状態に戻します。${diff}現在の内容は復元後に保存するまで確定しません。`,
       confirmLabel: '復元する',
     });
     if (!ok) return;
@@ -69,16 +81,27 @@ export function BackupsDialog() {
           </p>
         ) : (
           <ul className="backup-list">
-            {backups.map((b, i) => (
-              <li key={b.at}>
-                <button className="backup-item" onClick={() => void onRestore(i, fmt(b.at))}>
-                  <span className="bk-when">{fmt(b.at)}</span>
-                  <span className="bk-title">{b.title}</span>
-                  <span className="bk-meta">工程 {b.taskCount} 件</span>
-                  {i === 0 && <span className="bk-latest">最新</span>}
-                </button>
-              </li>
-            ))}
+            {backups.map((b, i) => {
+              const d = b.taskCount - currentCount;
+              return (
+                <li key={b.at}>
+                  <button className="backup-item" onClick={() => void onRestore(i, fmt(b.at), b.taskCount)}>
+                    <span className="bk-when">{fmt(b.at)}</span>
+                    <span className="bk-title">{b.title}</span>
+                    <span className="bk-meta">工程 {b.taskCount} 件</span>
+                    {d !== 0 && (
+                      <span
+                        className={`bk-diff${d > 0 ? ' up' : ' down'}`}
+                        title={`復元すると現在の ${currentCount} 件から ${deltaLabel(b.taskCount)} 件`}
+                      >
+                        現在比 {deltaLabel(b.taskCount)}
+                      </span>
+                    )}
+                    {i === 0 && <span className="bk-latest">最新</span>}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
         <p className="backup-foot">保存のたびに自動で残します（この端末の localStorage・最大 5 世代）。</p>

@@ -3315,6 +3315,22 @@ kbd {
   padding: 2px 8px;
   flex-shrink: 0;
 }
+/* 復元前の差分プレビュー: この世代に戻すと工程数がどう変わるか。 */
+.bk-diff {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+.bk-diff.up {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, var(--panel));
+}
+.bk-diff.down {
+  color: var(--amber-ink, var(--amber));
+  background: var(--amber-fill);
+}
 .backup-foot {
   margin: 12px 0 0;
   font-size: var(--fs-label);
