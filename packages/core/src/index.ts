@@ -22,6 +22,7 @@ export * from './metrics';
 export * from './compare';
 export * from './import/importCsv';
 export * from './export/exportRows';
+export * from './export/compareReport';
 export * from './sample';
 export * from './templates';
 export * from './persistence/migrate';
