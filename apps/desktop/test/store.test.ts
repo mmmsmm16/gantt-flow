@@ -1186,22 +1186,26 @@ describe('UX#6: ノード負座標のクランプと救出', () => {
 });
 
 describe('taskOps（store と UI をまたぐ手続き）', () => {
-  it('confirmRemoveTasks: キャンセルで false（削除しない）、OK で削除して true', async () => {
+  it('confirmRemoveTasks: 単一行は確認レスで即削除（トースト＋元に戻すに一本化）、複数件はキャンセルで false', async () => {
     useApp.getState().newProject();
     useApp.getState().addTask('受付');
-    const id = Object.values(useApp.getState().project.core.tasks)[0]!.id;
-    // キャンセル
-    let pr = confirmRemoveTasks([id]);
+    useApp.getState().addTask('検品');
+    const ids = Object.values(useApp.getState().project.core.tasks).map((t) => t.id);
+    // 複数件はモーダル確認あり: キャンセルで削除しない
+    const prMulti = confirmRemoveTasks(ids);
     expect(useUI.getState().dialog?.kind).toBe('confirm');
     useUI.getState().resolveDialog(false);
-    expect(await pr).toBe(false);
-    expect(useApp.getState().project.core.tasks[id]).toBeDefined();
-    // OK（単数形のメッセージ）
-    pr = confirmRemoveTasks([id]);
-    expect(useUI.getState().dialog?.message).toContain('「受付」');
-    useUI.getState().resolveDialog(true);
-    expect(await pr).toBe(true);
-    expect(useApp.getState().project.core.tasks[id]).toBeUndefined();
+    expect(await prMulti).toBe(false);
+    expect(Object.keys(useApp.getState().project.core.tasks)).toHaveLength(2);
+    // 単一行は確認レス（ダイアログを出さず即削除して true）
+    const single = ids[0]!;
+    const prSingle = confirmRemoveTasks([single]);
+    expect(useUI.getState().dialog).toBeNull();
+    expect(await prSingle).toBe(true);
+    expect(useApp.getState().project.core.tasks[single]).toBeUndefined();
+    // undo で復活（ToastAction「元に戻す」と同じ 1 undo）
+    useApp.getState().undo();
+    expect(useApp.getState().project.core.tasks[single]).toBeDefined();
   });
 
   it('confirmRemoveTasks: 複数件は一括削除（1 undo・件数表示）', async () => {

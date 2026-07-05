@@ -79,23 +79,29 @@ export async function confirmRemoveTasks(
   const single = targets.length === 1 ? tasks[targets[0]!] : undefined;
   const flowNodes = opts?.alsoFlowNodes ?? [];
   const withFlow = flowNodes.length > 0;
-  const ok = await useUI.getState().confirm({
-    title: single ? '工程を削除' : '工程を一括削除',
-    message: single
-      ? `「${single.name || '（無題）'}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`
-      : `選択中の ${targets.length} 件の工程を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-    confirmLabel: '削除',
-    danger: true,
-  });
-  if (!ok) return false;
+  // 単一行の削除は確認レス（トースト＋元に戻すの ToastAction 標準に一本化）。
+  // 一括削除・図形を伴う混在削除は影響範囲が広いため従来どおりモーダルで確認する。
+  if (!(single && !withFlow)) {
+    const ok = await useUI.getState().confirm({
+      title: single ? '工程を削除' : '工程を一括削除',
+      message: single
+        ? `「${single.name || '（無題）'}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`
+        : `選択中の ${targets.length} 件の工程を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
+      confirmLabel: '削除',
+      danger: true,
+    });
+    if (!ok) return false;
+  }
   const app = useApp.getState();
   // 図形を伴う混在削除は removeManyTasks に flowNodeIds を渡して 1 undo 単位に畳み込む
   // （単一工程でも removeTask 経路には乗せない＝図形が別 undo 単位に分かれるのを避ける）。
   if (withFlow) app.removeManyTasks(targets, flowNodes);
   else if (single) app.removeTask(single.id);
   else app.removeManyTasks(targets);
+  const hadChildren =
+    single && Object.values(tasks).some((t) => t.parentId === single.id);
   const taskLabel = single
-    ? `「${single.name || '（無題）'}」を削除しました`
+    ? `「${single.name || '（無題）'}」を削除しました${hadChildren ? '（配下は繰り上げ）' : ''}`
     : `${targets.length} 件の工程を削除しました`;
   toastUndo(withFlow ? `${taskLabel}（図形を含む）` : taskLabel);
   return true;

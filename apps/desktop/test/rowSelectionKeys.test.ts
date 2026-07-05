@@ -64,7 +64,7 @@ describe('runTableAction: table.addChild', () => {
 });
 
 describe('runTableAction: table.delete', () => {
-  it('共通の確認ダイアログ（confirmRemoveTasks）を経由し、OK で削除して近い行へ選択を移す', async () => {
+  it('単一行は確認レスで即削除し（confirmRemoveTasks 経由）、近い行へ選択を移す', async () => {
     useApp.getState().addTask('A');
     useApp.getState().addTask('B');
     const a = tasksByName('A').id;
@@ -73,26 +73,25 @@ describe('runTableAction: table.delete', () => {
 
     const handled = runTableAction('table.delete', optsOf([a, b]), col);
     expect(handled).toBe(true);
-    expect(useUI.getState().dialog?.kind).toBe('confirm');
-    expect(useUI.getState().dialog?.message).toContain('「A」');
-    useUI.getState().resolveDialog(true);
+    // 単一行削除はモーダルを出さない（トースト＋元に戻すに一本化）
+    expect(useUI.getState().dialog).toBeNull();
     await new Promise((r) => setTimeout(r, 0));
 
     expect(useApp.getState().project.core.tasks[a]).toBeUndefined();
     expect(useApp.getState().selectedTaskId).toBe(b);
   });
 
-  it('キャンセルでは削除せず選択も動かさない', async () => {
+  it('確認レス削除は 1 undo で復活できる（選択は据え置き）', async () => {
     useApp.getState().addTask('A');
     const a = tasksByName('A').id;
     useApp.getState().select(a);
 
     runTableAction('table.delete', optsOf([a]), col);
-    useUI.getState().resolveDialog(false);
     await new Promise((r) => setTimeout(r, 0));
+    expect(useApp.getState().project.core.tasks[a]).toBeUndefined();
 
+    useApp.getState().undo();
     expect(useApp.getState().project.core.tasks[a]).toBeDefined();
-    expect(useApp.getState().selectedTaskId).toBe(a);
   });
 
   it('最後の 1 行を削除すると選択は解除される', async () => {
@@ -101,7 +100,6 @@ describe('runTableAction: table.delete', () => {
     useApp.getState().select(a);
 
     runTableAction('table.delete', optsOf([a]), col);
-    useUI.getState().resolveDialog(true);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(useApp.getState().project.core.tasks[a]).toBeUndefined();

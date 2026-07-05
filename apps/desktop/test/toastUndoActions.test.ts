@@ -100,15 +100,16 @@ describe('taskOps: 破壊的操作の「元に戻す」トースト', () => {
     expect(lastToast()?.action?.label).toBe('元に戻す');
   });
 
-  it('confirmRemoveTasks: キャンセル時はトーストを出さない', async () => {
+  it('confirmRemoveTasks: 複数件のキャンセル時はトーストを出さない（単一行は確認レスのため対象外）', async () => {
     useApp.getState().addTask('A');
-    const id = idByName('A');
-    const p = confirmRemoveTasks([id]);
+    useApp.getState().addTask('B');
+    const ids = [idByName('A'), idByName('B')];
+    const p = confirmRemoveTasks(ids);
     useUI.getState().resolveDialog(false);
     const ok = await p;
     await flush();
     expect(ok).toBe(false);
-    expect(useApp.getState().project.core.tasks[id]).toBeDefined();
+    expect(useApp.getState().project.core.tasks[ids[0]!]).toBeDefined();
     expect(lastToast()).toBeUndefined();
   });
 });
