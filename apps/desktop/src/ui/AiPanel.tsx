@@ -285,13 +285,13 @@ export function AiPanel(): JSX.Element {
   return (
     <aside className="ai-panel" role="dialog" aria-label="AI アシスト">
       <header className="ai-panel-h">
-        <h4>✨ AI アシスト</h4>
+        <h4>AI アシスト</h4>
         {mode.kind === 'procedureDraft' && (
           <span className="ai-mode" title="手順書ドラフトの対象工程">
             手順書: {targetName}
           </span>
         )}
-        <button type="button" className="close" aria-label="AI パネルを閉じる" onClick={close}>
+        <button type="button" className="x" aria-label="AI パネルを閉じる" onClick={close}>
           ×
         </button>
       </header>

@@ -7175,10 +7175,10 @@ input.colored-text {
 }
 .ai-panel-h h4 {
   margin: 0;
-  font-family: var(--font-serif);
+  /* 明朝はハンドブック系限定。ペイン見出しは Inspector と同じ sans/--fw-strong に揃える。 */
   font-size: var(--fs-title);
   font-weight: var(--fw-strong);
-  letter-spacing: 0.02em;
+  color: var(--ink);
 }
 .ai-panel-h .ai-mode {
   font-size: var(--fs-caption);
@@ -7191,18 +7191,9 @@ input.colored-text {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ai-panel-h .close {
+/* 閉じるボタンは共有 .x を再利用（独自実装を撤去）。右端寄せのみ付与。 */
+.ai-panel-h .x {
   margin-left: auto;
-  border: none;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  font-size: var(--fs-title);
-  line-height: 1;
-  padding: 0 2px;
-}
-.ai-panel-h .close:hover {
-  color: var(--danger);
 }
 .ai-panel-body {
   flex: 1;
