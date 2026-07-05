@@ -5932,13 +5932,13 @@ input.colored-text {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
   letter-spacing: 0.02em;
   color: var(--accent-strong);
   background: var(--accent-soft);
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .mirror-dot {
   width: 8px;
@@ -5959,8 +5959,8 @@ input.colored-text {
   border: 1px solid var(--line-strong);
   background: var(--btn-bg);
   color: var(--ink);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-label);
   cursor: pointer;
 }
 .mirror-zoom button:hover {
@@ -5982,11 +5982,11 @@ input.colored-text {
 .mirror-empty {
   padding: 40px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .mirror-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--fs-label);
   background: var(--panel);
   color: var(--ink);
 }
@@ -6004,7 +6004,7 @@ input.colored-text {
   background: var(--hdr);
   position: sticky;
   top: 0;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 .mirror-waiting {
   position: absolute;
@@ -6021,18 +6021,18 @@ input.colored-text {
   padding: 28px 32px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
   max-width: 360px;
 }
 .mirror-waiting-title {
   margin: 12px 0 6px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
 }
 .mirror-waiting-sub {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--muted);
   line-height: 1.5;
 }
