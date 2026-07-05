@@ -2721,6 +2721,27 @@ kbd {
 .st-save.is-dirty {
   color: var(--amber-ink);
 }
+/* ヒアリング進捗チップ（クリックでサマリへ）。button だが他の st-item と同じ見た目 */
+.st-hearing {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.st-hearing:hover {
+  color: var(--ink);
+}
+.st-hearing:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 全件ヒアリング済（=確定/確認待ち/ヒアリング済で埋まった）ら達成色で示す */
+.st-hearing.is-done strong {
+  color: var(--status-done);
+}
 
 /* =========================================================================
    ヘルプ（ショートカット一覧）

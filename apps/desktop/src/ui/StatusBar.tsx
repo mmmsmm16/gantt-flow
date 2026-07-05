@@ -2,7 +2,7 @@
 // 右側にアクティブペイン別のキー操作ヒントと g リーダー待機チップ(発見性)。
 import { useEffect, useMemo, useState } from 'react';
 import type { ProcessLevel } from '@gantt-flow/core';
-import { computeEffortRollups, formatHours } from '@gantt-flow/core';
+import { computeEffortRollups, computeHearingProgress, formatHours } from '@gantt-flow/core';
 import { getActiveKeymap, chordKeys, type KeyBinding } from '../keymap';
 import { useApp } from '../store';
 import { useUI, type PersistKind, type LockUiState } from './useUI';
@@ -145,6 +145,13 @@ export function StatusBar() {
   const totalMin = roots.reduce((s, t) => s + (effortRollups.get(t.id) ?? 0), 0);
   const assignees = Object.keys(project.core.assignees).length;
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
+  // ヒアリング進捗（末端工程のうち着手済=heard+review+done の割合）。サマリと同一集計を共有。
+  const hearing = useMemo(
+    () => computeHearingProgress(project.core, project.details),
+    [project.core, project.details],
+  );
+  const setOverlay = useUI((s) => s.setOverlay);
+  const hearingDone = hearing.total > 0 && hearing.heard === hearing.total;
 
   // キーヒントは実効キーマップから生成（singleKey トグルでキャッシュが無効化されるので依存に入れる）。
   // 手順書タブは表/フローと操作系が異なる（ステップ選択・削除）ので、その実挙動に合わせた
@@ -176,6 +183,16 @@ export function StatusBar() {
       <span className="st-item" title="末端工程の合計工数（自動集計）">
         合計工数 <strong>{formatHours(totalMin)}</strong>
       </span>
+      <span className="st-sep" aria-hidden="true" />
+      <button
+        type="button"
+        className={`st-item st-hearing${hearingDone ? ' is-done' : ''}`}
+        onClick={() => setOverlay('summary')}
+        aria-haspopup="dialog"
+        title="ヒアリング済みの末端工程数／末端工程の総数。クリックでサマリを開く（未着手・確認待ちの残りを確認）"
+      >
+        ヒアリング <strong>{hearing.heard}/{hearing.total}</strong>
+      </button>
       <span className="st-spacer" />
       {leaderPending ? (
         <span className="st-item st-leader" aria-live="polite" title="g に続けて t=表 / f=フロー / i=課題 / s=サマリ / 1〜4=粒度">
