@@ -9,6 +9,7 @@ import { parseProposals, type BatchOp } from '@gantt-flow/core';
 import { useUI } from '../ui/useUI';
 import {
   loadProviderConfig,
+  type AiModel,
   type AiProviderConfig,
   type AnthropicConfig,
   type AzureConfig,
@@ -113,6 +114,13 @@ export const PROPOSALS_JSON_SCHEMA = {
   required: ['operations'],
 } as const;
 
+// ---- モデル別 thinking 対応 ----
+//
+// claude-haiku-4-5 は adaptive thinking 非対応（実 API が 400 を返す）。claude-opus-4-8 /
+// claude-sonnet-5 は adaptive のまま送る。未対応モデルには thinking パラメータ自体を省略する
+// （budget_tokens 方式へのフォールバックはしない＝この世代の SDK は adaptive のみが対応形）。
+const ADAPTIVE_THINKING_MODELS: ReadonlySet<AiModel> = new Set(['claude-opus-4-8', 'claude-sonnet-5']);
+
 // ---- プロバイダ IF ----
 
 export interface AiProvider {
@@ -136,7 +144,10 @@ export class AnthropicProvider implements AiProvider {
       const stream = this.client.messages.stream({
         model: this.cfg.model,
         max_tokens: 64000,
-        thinking: { type: 'adaptive' },
+        // claude-haiku-4-5 は非対応のため送らない（上の ADAPTIVE_THINKING_MODELS 参照）。
+        ...(ADAPTIVE_THINKING_MODELS.has(this.cfg.model)
+          ? { thinking: { type: 'adaptive' as const } }
+          : {}),
         system: buildSystemPrompt(),
         messages: [{ role: 'user', content: buildUserPrompt(req) }],
         output_config: { format: { type: 'json_schema', schema: PROPOSALS_JSON_SCHEMA } },

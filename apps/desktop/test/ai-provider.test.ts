@@ -4,9 +4,10 @@
 //         ③不正 JSON→schema、Anthropic の stream 形状・refusal・typed error 写像
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Project } from '@gantt-flow/core';
+import { BatchOpSchema } from '@gantt-flow/core';
 import { useUI } from '../src/ui/useUI';
 import { saveProviderSettings, setApiKey } from '../src/ai/config';
-import { requestProposals, MockAiProvider } from '../src/ai/provider';
+import { requestProposals, MockAiProvider, AiError, PROPOSALS_JSON_SCHEMA, type AiProvider } from '../src/ai/provider';
 
 // --- node 環境用の localStorage シム ---
 class MemStorage {
@@ -93,6 +94,30 @@ describe('requestProposals: オプトインガード（最重要）', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(h.ctor).not.toHaveBeenCalled();
     expect(h.streamMock).not.toHaveBeenCalled();
+  });
+
+  it('aiEnabled=false は providerOverride 指定時も throw し、override は一切呼ばれない（ガード位置の退行検知）', async () => {
+    useUI.getState().setAiEnabled(false);
+    const overrideSpy = vi.fn<AiProvider['generateProposals']>();
+    const override: AiProvider = { generateProposals: overrideSpy };
+
+    await expect(requestProposals(req(), undefined, override)).rejects.toMatchObject({
+      kind: 'disabled',
+    });
+
+    expect(overrideSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('requestProposals: プロバイダ設定なし（cfg===null）', () => {
+  it('API キー未設定（cfg===null）は AiError を投げる', async () => {
+    useUI.getState().setAiEnabled(true);
+    saveProviderSettings({ kind: 'anthropic' });
+    setApiKey('anthropic', '', false); // メモリ・localStorage 双方とも未設定にする（空文字は falsy）
+
+    await expect(requestProposals(req())).rejects.toBeInstanceOf(AiError);
+    await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'unknown' });
+    expect(h.ctor).not.toHaveBeenCalled();
   });
 });
 
@@ -201,6 +226,47 @@ describe('AnthropicProvider（公式 SDK・モック）', () => {
     h.finalMessage.mockRejectedValueOnce(new h.AuthenticationError('bad key'));
     await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'auth' });
   });
+
+  it('RateLimitError は AiError(rateLimit) に写像する', async () => {
+    h.finalMessage.mockRejectedValueOnce(new h.RateLimitError('too many requests'));
+    await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'rateLimit' });
+  });
+
+  it('APIConnectionError は AiError(connection) に写像する', async () => {
+    h.finalMessage.mockRejectedValueOnce(new h.APIConnectionError('network down'));
+    await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'connection' });
+  });
+});
+
+describe('AnthropicProvider: thinking パラメータのモデル別分岐（Important #1）', () => {
+  beforeEach(() => {
+    useUI.getState().setAiEnabled(true);
+    setApiKey('anthropic', 'ANKEY', false);
+    h.finalMessage.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: opsJson([]) }],
+    });
+  });
+
+  function lastStreamParams(): { thinking?: { type: string } } {
+    const calls = h.streamMock.mock.calls as unknown as Array<[{ thinking?: { type: string } }]>;
+    return calls[calls.length - 1]![0];
+  }
+
+  it.each(['claude-opus-4-8', 'claude-sonnet-5'] as const)(
+    '%s は thinking: { type: "adaptive" } を含める',
+    async (model) => {
+      saveProviderSettings({ kind: 'anthropic', model });
+      await requestProposals(req());
+      expect(lastStreamParams().thinking).toEqual({ type: 'adaptive' });
+    },
+  );
+
+  it('claude-haiku-4-5 は adaptive thinking 非対応のため thinking パラメータを送らない（省略）', async () => {
+    saveProviderSettings({ kind: 'anthropic', model: 'claude-haiku-4-5' });
+    await requestProposals(req());
+    expect(lastStreamParams().thinking).toBeUndefined();
+  });
 });
 
 describe('MockAiProvider / providerOverride', () => {
@@ -215,5 +281,20 @@ describe('MockAiProvider / providerOverride', () => {
     expect(ops).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(h.ctor).not.toHaveBeenCalled();
+  });
+});
+
+describe('PROPOSALS_JSON_SCHEMA と core BatchOpSchema の op 集合の一致（Important #2）', () => {
+  it('手書き JSON Schema の op enum は core の BatchOpSchema が持つ op と過不足なく一致する', () => {
+    // BatchOpSchema は core 内部で z.discriminatedUnion('op', [...]) だが、公開型は
+    // z.ZodType<BatchOp> に広げられている（core の型は変更しない）。実行時には
+    // ZodDiscriminatedUnion のままなので optionsMap のキー＝判別に使われる op リテラルの
+    // 全集合を、テスト内だけの構造キャストで取り出す。
+    const discriminated = BatchOpSchema as unknown as { optionsMap: Map<string, unknown> };
+    const coreOps = [...discriminated.optionsMap.keys()].sort();
+    const schemaOps = [...PROPOSALS_JSON_SCHEMA.properties.operations.items.properties.op.enum].sort();
+
+    // 双方向: core のみに存在する op も、手書きスキーマのみに存在する op も検知する。
+    expect(schemaOps).toEqual(coreOps);
   });
 });
