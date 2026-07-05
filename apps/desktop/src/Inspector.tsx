@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, effortMinutesToHours, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
+import { removeIoWithUndo, removeIssueWithUndo } from './taskOps';
 import { useUI } from './ui/useUI';
 import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
@@ -54,10 +55,8 @@ export function Inspector() {
   const updateDetail = useApp((s) => s.updateDetail);
   const addIo = useApp((s) => s.addIo);
   const updateIo = useApp((s) => s.updateIo);
-  const removeIo = useApp((s) => s.removeIo);
   const addIssue = useApp((s) => s.addIssue);
   const updateIssue = useApp((s) => s.updateIssue);
-  const removeIssue = useApp((s) => s.removeIssue);
   const setTaskCode = useApp((s) => s.setTaskCode);
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
@@ -461,7 +460,7 @@ export function Inspector() {
               <button
                 className="x"
                 aria-label={`${item.name || '項目'}を削除`}
-                onClick={() => removeIo(taskId, item.id)}
+                onClick={() => removeIoWithUndo(taskId, item.id)}
               >
                 ×
               </button>
@@ -517,7 +516,7 @@ export function Inspector() {
                 <button
                   className="x"
                   aria-label="この課題を削除"
-                  onClick={() => removeIssue(taskId, iss.id)}
+                  onClick={() => removeIssueWithUndo(taskId, iss.id)}
                 >
                   ×
                 </button>

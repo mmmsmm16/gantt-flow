@@ -12,7 +12,7 @@ import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnch
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { isImeKeyEvent } from './keymap';
-import { confirmRemoveTasks } from './taskOps';
+import { confirmRemoveTasks, removeIoWithUndo, removeIssueWithUndo } from './taskOps';
 import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
@@ -168,11 +168,9 @@ export function FullTable() {
   const updateDetail = useApp((s) => s.updateDetail);
   const addIo = useApp((s) => s.addIo);
   const updateIo = useApp((s) => s.updateIo);
-  const removeIo = useApp((s) => s.removeIo);
   const addIssue = useApp((s) => s.addIssue);
   const addIssueWithMeasure = useApp((s) => s.addIssueWithMeasure);
   const updateIssue = useApp((s) => s.updateIssue);
-  const removeIssue = useApp((s) => s.removeIssue);
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
   const addRootTask = useApp((s) => s.addRootTask);
@@ -855,9 +853,9 @@ export function FullTable() {
                 case 'system':
                   return <WrapCell key={c.key} value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} cell="system" cursor={cellCursorCls(t.id, 'system') !== ''} />;
                 case 'inputs':
-                  return <IoCell key={c.key} items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => { addIo(t.id, 'inputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'inputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                  return <IoCell key={c.key} items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => { addIo(t.id, 'inputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'inputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIoWithUndo(t.id, id)} />;
                 case 'outputs':
-                  return <IoCell key={c.key} items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => { addIo(t.id, 'outputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'outputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                  return <IoCell key={c.key} items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => { addIo(t.id, 'outputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'outputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIoWithUndo(t.id, id)} />;
                 case 'issue':
                   return (
                     <td key={c.key} className={`ft-c-issue${cellCursorCls(t.id, 'issue')}`} data-cell="issue" onClick={(e) => e.stopPropagation()}>
@@ -865,7 +863,7 @@ export function FullTable() {
                         {issues.map((iss) => (
                           <div className="ft-issue-row" key={iss.id}>
                             <AutoTextarea value={iss.issue} placeholder="課題" onCommit={(v) => updateIssue(t.id, iss.id, { issue: v })} />
-                            <button className="ft-x" aria-label="課題を削除" title="課題を削除" onClick={() => removeIssue(t.id, iss.id)}>
+                            <button className="ft-x" aria-label="課題を削除" title="課題を削除" onClick={() => removeIssueWithUndo(t.id, iss.id)}>
                               ×
                             </button>
                           </div>

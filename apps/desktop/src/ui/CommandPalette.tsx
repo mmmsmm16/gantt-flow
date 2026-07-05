@@ -7,7 +7,7 @@ import { computeCodes, isMilestone } from '@gantt-flow/core';
 import { useApp, findView, resolveQuickAddParent } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
 import { parseQuickAdd, type QuickAddParsed } from '../quickAdd';
-import { revealTask, confirmRemoveTasks } from '../taskOps';
+import { revealTask, confirmRemoveTasks, removeIoWithUndo } from '../taskOps';
 import { isImeKeyEvent } from '../keymap';
 import { listRecentFiles, recentFilesSupported } from '../persistence';
 import { formatRecentTime } from '../fileLabel';
@@ -534,7 +534,7 @@ function PaletteBody(handlers: FileHandlers) {
         },
         runWithArg: (ioId) => {
           const a = useApp.getState();
-          if (a.selectedTaskId) a.removeIo(a.selectedTaskId, ioId);
+          if (a.selectedTaskId) removeIoWithUndo(a.selectedTaskId, ioId);
         },
       },
       {

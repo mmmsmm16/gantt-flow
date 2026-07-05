@@ -2,7 +2,28 @@
 // ここに集約し、各ビュー（表・フロー・パレット等）での重複実装を防ぐ。
 import { isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
-import { useUI } from './ui/useUI';
+import { useUI, type ToastTone } from './ui/useUI';
+
+/**
+ * 破壊的操作の完了トーストに「元に戻す」アクションを付けて出す共通ヘルパ。
+ * run は 1 回の undo（= 直前の操作を巻き戻す）。押下でトーストは即時閉じる（ToastView の既存挙動）。
+ * 工程削除・矢印/図形削除・課題/IO 削除など「確認レス or 即時の破壊操作」の直後に使う。
+ */
+export function toastUndo(message: string, tone: ToastTone = 'info'): void {
+  useUI.getState().toast(message, tone, { label: '元に戻す', run: () => useApp.getState().undo() });
+}
+
+/** 入出力(IoItem)を削除し「元に戻す」アクション付きトーストを出す（表・詳細パネル共通）。 */
+export function removeIoWithUndo(taskId: string, ioId: string): void {
+  useApp.getState().removeIo(taskId, ioId);
+  toastUndo('入出力を削除しました');
+}
+
+/** 課題(IssueItem)を削除し「元に戻す」アクション付きトーストを出す（表・詳細パネル共通）。 */
+export function removeIssueWithUndo(taskId: string, issueId: string): void {
+  useApp.getState().removeIssue(taskId, issueId);
+  toastUndo('課題を削除しました');
+}
 
 /**
  * 工程を選択し、粒度をその工程に合わせる（詳細パネルは開かない）。
@@ -61,6 +82,9 @@ export async function confirmRemoveTasks(taskIds: string[]): Promise<boolean> {
   const app = useApp.getState();
   if (single) app.removeTask(single.id);
   else app.removeManyTasks(targets);
+  toastUndo(
+    single ? `「${single.name || '（無題）'}」を削除しました` : `${targets.length} 件の工程を削除しました`,
+  );
   return true;
 }
 

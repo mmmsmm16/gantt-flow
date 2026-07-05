@@ -5,7 +5,7 @@ import { useFlashIds } from './ui/useFlash';
 import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
 import { chordKeys, getActiveKeymap, isImeKeyEvent, isInteractiveTarget } from './keymap';
 import { clampScale, zoomScroll, centerScroll, loadFlowViewport, saveFlowViewport } from './flowZoom';
-import { confirmRemoveTasks, revealTask } from './taskOps';
+import { confirmRemoveTasks, revealTask, toastUndo } from './taskOps';
 import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
@@ -626,6 +626,24 @@ export function FlowCanvas() {
 
   const view = findView(project, level, scopeParentId);
 
+  // 破壊的な図要素削除は「元に戻す」アクション付きトーストを添えて即時リカバリ導線を出す（C-07/#40）。
+  // 矢印＝前後関係の削除にもなり得るため誤操作に気づけるよう、種別に応じたメッセージにする。
+  const deleteEdgeWithUndo = (id: FlowNodeId) => {
+    deleteEdge(id);
+    toastUndo('矢印を削除しました');
+  };
+  const deleteFlowNodeWithUndo = (id: FlowNodeId) => {
+    const kind = view?.nodes[id]?.kind;
+    const label = kind === 'comment' ? '付箋' : kind === 'control' ? '制御ノード' : '図形';
+    deleteFlowNode(id);
+    toastUndo(`${label}を削除しました`);
+  };
+  const deleteFlowNodesWithUndo = (ids: FlowNodeId[]) => {
+    if (!ids.length) return;
+    deleteFlowNodes(ids);
+    toastUndo(`${ids.length}件の図形を削除しました`);
+  };
+
   // 確定座標での全エッジ経路(エッジ id → 経路)。routeEdge は障害物の数に応じて高くつくため
   // ビュー単位でメモ化する。ドラッグ中はドラッグ対象に接続するエッジだけ見かけの位置で
   // 再計算し(routeOf)、それ以外はこの結果を使い回す＝毎フレームの全再ルートを避ける。
@@ -1119,20 +1137,24 @@ export function FlowCanvas() {
             if (n.kind === 'control' || n.kind === 'comment') flowSpecific.push(id);
             else if (n.kind === 'task') taskIds.push(n.taskId);
           }
-          if (flowSpecific.length) deleteFlowNodes(flowSpecific);
+          // 混在削除は図形・工程で別 undo 単位。図形側のトーストは工程側の確認導線に委ね二重表示を避ける。
+          if (flowSpecific.length) {
+            if (taskIds.length) deleteFlowNodes(flowSpecific);
+            else deleteFlowNodesWithUndo(flowSpecific);
+          }
           if (taskIds.length) void confirmRemoveTasks(taskIds);
           setMultiSel(new Set());
           return true;
         }
         if (sel?.kind === 'edge') {
-          deleteEdge(sel.id);
+          deleteEdgeWithUndo(sel.id);
           setSel(null);
           return true;
         }
         if (sel) {
           const n = view.nodes[sel.id];
           if (n && (n.kind === 'control' || n.kind === 'comment')) {
-            deleteFlowNode(sel.id);
+            deleteFlowNodeWithUndo(sel.id);
             setSel(null);
             return true;
           }
@@ -1954,7 +1976,7 @@ export function FlowCanvas() {
                   className="danger"
                   title="この矢印を削除"
                   onClick={() => {
-                    deleteEdge(e.id);
+                    deleteEdgeWithUndo(e.id);
                     setSel(null);
                   }}
                 >
@@ -2282,7 +2304,7 @@ export function FlowCanvas() {
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
-                    deleteFlowNode(n.id);
+                    deleteFlowNodeWithUndo(n.id);
                   }}
                 >
                   ×
@@ -2501,7 +2523,10 @@ export function FlowCanvas() {
                   action="flow.delete"
                   danger
                   onClick={() => {
-                    if (flowSpecific.length) deleteFlowNodes(flowSpecific);
+                    if (flowSpecific.length) {
+                      if (taskIds.length) deleteFlowNodes(flowSpecific);
+                      else deleteFlowNodesWithUndo(flowSpecific);
+                    }
                     if (taskIds.length) void confirmRemoveTasks(taskIds);
                     setMultiSel(new Set());
                   }}
@@ -2532,7 +2557,7 @@ export function FlowCanvas() {
                   action="flow.delete"
                   danger
                   onClick={() => {
-                    deleteEdge(e.id);
+                    deleteEdgeWithUndo(e.id);
                     setSel(null);
                   }}
                 />
@@ -2610,7 +2635,7 @@ export function FlowCanvas() {
                   action="flow.delete"
                   danger
                   onClick={() => {
-                    deleteFlowNode(n.id);
+                    deleteFlowNodeWithUndo(n.id);
                     setSel(null);
                   }}
                 />
@@ -2640,7 +2665,7 @@ export function FlowCanvas() {
                   action="flow.delete"
                   danger
                   onClick={() => {
-                    deleteFlowNode(commentId);
+                    deleteFlowNodeWithUndo(commentId);
                     setSel(null);
                   }}
                 />
