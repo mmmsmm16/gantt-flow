@@ -116,7 +116,7 @@ export function Welcome({ onSample, onImport, onOpen, onOpenRecent, onTemplate, 
           </li>
           <li>
             <strong>そのまま納品</strong>
-            <span>Excel・CSV・画像（SVG）に書き出し。往復は JSON。</span>
+            <span>保存は .gflow。納品はハンドブック(HTML)・Excel・CSV・画像(SVG / PNG)・印刷(PDF)。</span>
           </li>
         </ul>
 
