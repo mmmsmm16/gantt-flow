@@ -870,16 +870,8 @@ export function App() {
         </button>
 
         <span className="tool-group" role="group" aria-label="ビュー">
-          {collapseForInspector && (
-            <button
-              className="icon-btn"
-              onClick={() => setActivePane(activePane === 'table' ? 'flow' : 'table')}
-              aria-label="工程表とフローを入れ替え"
-              title={`${activePane === 'table' ? '工程フロー' : '工程表'}＋詳細に切り替え`}
-            >
-              <Icons.Swap />
-            </button>
-          )}
+          {/* 条件付きボタン（入れ替え／比較）はグループ末尾に集約する（下部参照）。表示/非表示で
+              安定ボタン（詳細・課題・サマリ・別ウィンドウ）の位置がずれないようにするため。 */}
           <button
             className={`icon-btn toggle-btn${showInspector ? ' on' : ''}`}
             onClick={() => {
@@ -917,16 +909,6 @@ export function App() {
           >
             <Icons.ChartBar />
           </button>
-          {tobeEnabled && (
-            <button
-              className="icon-btn"
-              onClick={() => useUI.getState().setOverlay('comparison')}
-              aria-label="改善効果サマリ（As-Is / To-Be 比較）"
-              title="改善効果サマリ（As-Is / To-Be 比較） (⌘⇧C)"
-            >
-              <Icons.Compare />
-            </button>
-          )}
           <Menu
             className="icon-btn menu-trigger"
             title="別ウィンドウで表示（マルチディスプレイ）"
@@ -948,6 +930,27 @@ export function App() {
               工程表を別ウィンドウで表示（閲覧専用）
             </MenuItem>
           </Menu>
+          {/* 条件付きボタンはグループ末尾に集約（表示/非表示で上の安定ボタンをずらさない）。 */}
+          {collapseForInspector && (
+            <button
+              className="icon-btn"
+              onClick={() => setActivePane(activePane === 'table' ? 'flow' : 'table')}
+              aria-label="工程表とフローを入れ替え"
+              title={`${activePane === 'table' ? '工程フロー' : '工程表'}＋詳細に切り替え`}
+            >
+              <Icons.Swap />
+            </button>
+          )}
+          {tobeEnabled && (
+            <button
+              className="icon-btn"
+              onClick={() => useUI.getState().setOverlay('comparison')}
+              aria-label="改善効果サマリ（As-Is / To-Be 比較）"
+              title="改善効果サマリ（As-Is / To-Be 比較） (⌘⇧C)"
+            >
+              <Icons.Compare />
+            </button>
+          )}
         </span>
 
         <button
