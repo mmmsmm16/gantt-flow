@@ -3,7 +3,7 @@
 // 集計は core の computeCompare（純関数）。SummaryDialog と同じモーダル語彙を踏襲。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Difficulty, ProcessLevel } from '@gantt-flow/core';
-import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
+import { buildCompareReport, round1 } from '@gantt-flow/core';
 import { FlowCompareView } from './FlowCompareView';
 import { isEffortBlurUnchanged, validateEffort, validateLtDays, markEffortInvalid, clearEffortInvalid } from '../parseEffort';
 import { useApp } from '../store';
@@ -19,7 +19,6 @@ const DIFF: { key: Difficulty; label: string; sub: string; cls: string }[] = [
   { key: 'L', label: '低', sub: '誰でも', cls: 'l' },
 ];
 
-const round1 = (v: number) => Math.round(v * 10) / 10;
 const fmtDays = (v: number) => `${round1(v)}日`;
 const fmtHours = (h: number) => `${round1(h)}h`;
 const signed = (v: number, unit: string) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(round1(v))}${unit}`;
@@ -101,45 +100,30 @@ export function ComparisonDialog() {
   const [view, setView] = useState<'summary' | 'flow' | 'bulk'>('summary');
   const [flowLevel, setFlowLevel] = useState<ProcessLevel>('medium');
 
-  const c = useMemo(() => computeCompare(project.core, project.details), [project]);
-  // 構造差分の要約（新規 / 廃止 / 移動 / 並行化）。
-  const struct = useMemo(() => {
-    const added: string[] = [];
-    const removed: string[] = [];
-    const moved: string[] = [];
-    for (const t of Object.values(project.core.tasks)) {
-      const tb = project.details[t.id]?.toBe;
-      if (!tb) continue;
-      if (tb.lifecycle === 'added') added.push(t.name);
-      else if (tb.lifecycle === 'removed') removed.push(t.name);
-      if (tb.assigneeId && tb.assigneeId !== t.assigneeId) moved.push(t.name);
-    }
-    const parallelized = Object.values(project.core.dependencies).filter((d) => d.phase === 'asis').length;
-    return { added, removed, moved, parallelized };
-  }, [project]);
-  // 工程別の差分（末端のみ・工数 or LT が入っている行）
-  const perRow = useMemo(() => {
-    const tasks = Object.values(project.core.tasks);
-    const hasChild = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[]);
-    return tasks
-      .filter((t) => !hasChild.has(t.id))
-      .map((t) => {
-        const d = project.details[t.id];
-        const aEff = leafEffortMinutes(d, 'asis') / 60;
-        const bEff = leafEffortMinutes(d, 'tobe') / 60;
-        const aLt = leafLtDays(d, 'asis');
-        const bLt = leafLtDays(d, 'tobe');
-        const ltCut = aLt - bLt; // リードタイム短縮（日）
+  // 集計は core の buildCompareReport（純関数）へ集約。totals(=computeCompare)・構造差分・工程別差分
+  // を一度に導出する。表示形状は従来の perRow に合わせて薄く写す（数字・並びは不変）。
+  const report = useMemo(() => buildCompareReport(project.core, project.details), [project]);
+  const c = report.totals;
+  const struct = report.struct;
+  const perRow = useMemo(
+    () =>
+      report.rows.map((r) => {
+        // 担当は従来どおり「未割当は空文字」表示に合わせる（report.ownerAsis は（未割当）ラベルを持つ）。
+        const t = project.core.tasks[r.taskId];
         return {
-          id: t.id,
-          name: t.name,
-          owner: t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '',
-          aEff, bEff, aLt, bLt, ltCut,
-          changed: !!d?.toBe,
+          id: r.taskId,
+          name: r.name,
+          owner: t?.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '',
+          aEff: r.effortMinutes.asis / 60,
+          bEff: r.effortMinutes.tobe / 60,
+          aLt: r.ltDays.asis,
+          bLt: r.ltDays.tobe,
+          ltCut: r.ltCutDays,
+          changed: r.changed,
         };
-      })
-      .filter((r) => r.aEff || r.bEff || r.aLt || r.bLt);
-  }, [project]);
+      }),
+    [report, project.core],
+  );
 
   useEffect(() => {
     if (open) closeRef.current?.focus();
