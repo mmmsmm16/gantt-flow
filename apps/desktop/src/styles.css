@@ -7235,9 +7235,15 @@ input.colored-text {
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   cursor: pointer;
   font-weight: var(--fw-strong);
+}
+/* 基底 button:hover が背景を --hdr に奪うと白文字×淡背景で破綻するため、
+   button.primary と同流儀のアクセント hover を明示する。 */
+.ai-gen-btn:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 .ai-gen-btn:disabled {
   opacity: 0.6;
@@ -7441,9 +7447,14 @@ input.colored-text {
   border: 1px solid var(--ok);
   border-radius: var(--radius-sm);
   background: var(--ok);
-  color: #fff;
+  color: var(--on-accent);
   cursor: pointer;
   font-weight: var(--fw-strong);
+}
+/* 基底 button:hover に背景を奪われないよう緑塗りの hover を明示（button.primary 流儀）。 */
+.apply-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 85%, var(--ink));
+  border-color: color-mix(in srgb, var(--ok) 85%, var(--ink));
 }
 .apply-btn:disabled {
   opacity: 0.5;
