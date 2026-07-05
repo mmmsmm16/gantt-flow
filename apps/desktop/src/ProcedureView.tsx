@@ -122,6 +122,7 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const procedureMidId = useUI((s) => s.procedureMidId);
   const setProcedureMidId = useUI((s) => s.setProcedureMidId);
+  const aiEnabled = useUI((s) => s.aiEnabled);
 
   const core = project.core;
   const details = project.details;
@@ -356,7 +357,16 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
             <button type="button" className="proc-btn" onClick={() => startProcedure(taskId)}>
               ＋ 手順を書く
             </button>
-            <button type="button" className="proc-btn" disabled title="AI ドラフト生成は次サイクルで対応">
+            <button
+              type="button"
+              className="proc-btn"
+              disabled={!aiEnabled}
+              title={aiEnabled ? 'AI で手順書ドラフトを生成' : '設定で AI を有効化してください'}
+              onClick={() => {
+                useUI.getState().setAiPanelMode({ kind: 'procedureDraft', targetTaskId: taskId });
+                useUI.getState().setAiPanelOpen(true);
+              }}
+            >
               ✨ ドラフト生成
             </button>
           </div>

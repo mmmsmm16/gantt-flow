@@ -51,6 +51,8 @@ import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
+import { AiPanel } from './ui/AiPanel';
+import { AiFlowOverlay } from './ui/AiFlowPreview';
 import { Tour, tourDone, shouldStartTourOnFirstTask } from './ui/Tour';
 import { startMirrorPublisher, openMirrorWindow, pickMirrorState } from './mirror';
 import { useDualWindow, openEditWindow } from './dualwindow';
@@ -161,6 +163,8 @@ export function App() {
   const theme = useUI((s) => s.theme);
   const toggleTheme = useUI((s) => s.toggleTheme);
   const tobeEnabled = useUI((s) => s.tobeEnabled);
+  const aiEnabled = useUI((s) => s.aiEnabled);
+  const aiPanelOpen = useUI((s) => s.aiPanelOpen);
   const scenario = useUI((s) => s.scenario);
   const setScenario = useUI((s) => s.setScenario);
   // メインのフローを To-Be で表示中のとき、射影フローを SVG で描く（読み取り専用）。
@@ -854,6 +858,21 @@ export function App() {
               <Icons.Compare />
             </button>
           )}
+          {aiEnabled && (
+            <button
+              className={`icon-btn toggle-btn${aiPanelOpen ? ' on' : ''}`}
+              onClick={() => {
+                const ui = useUI.getState();
+                ui.setAiPanelMode({ kind: 'batch' });
+                ui.setAiPanelOpen(!aiPanelOpen);
+              }}
+              aria-label="AI アシスト（メモから提案）"
+              aria-pressed={aiPanelOpen}
+              title="AI アシスト（ヒアリングメモから変更提案を生成）"
+            >
+              <span aria-hidden="true">✨</span>
+            </button>
+          )}
           <Menu
             className="icon-btn menu-trigger"
             title="別ウィンドウで表示（マルチディスプレイ）"
@@ -1032,6 +1051,8 @@ export function App() {
               ) : (
                 <FlowCanvas />
               )}
+              {/* AI アシスト有効・パネルに提案プレビューがあるとき、フロー上に仮ノードを重畳（主戦場）。 */}
+              <AiFlowOverlay />
             </section>
           )}
           {showInspector && (
@@ -1063,6 +1084,7 @@ export function App() {
       <ComparisonDialog />
       <BackupsDialog />
       <SettingsDialog />
+      {aiEnabled && aiPanelOpen && <AiPanel />}
       <Tour />
       <Modal />
       <BusyOverlay />

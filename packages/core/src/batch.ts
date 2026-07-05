@@ -5,6 +5,10 @@
 // 参照解決: add/upsert_task に付けた ref(エイリアス) を、後続 op の parent/from/to/task から参照できる。
 // ref は「この一括内で作る工程」を指し、既存工程は taskId をそのまま渡す。担当は assignee(名前)でも
 // 指定でき、無ければ部署として自動作成（冪等: 同名は再利用）。
+//
+// 決定論化: uuid 直接 import と new Date() を排除し、呼び出し側から idGen/now を注入する
+// （CLAUDE.md の「ID 生成は必ず idGen を注入」規約に合わせ、core 全体を UUID/時計非依存に保つ）。
+import { z } from 'zod';
 import {
   addTask,
   addAssignee,
@@ -18,14 +22,10 @@ import {
   upsertProcedure,
   addStep,
   upsertAsset,
-  uuid,
-  type Project,
-  type ProcessLevel,
-  type Id,
-  type TaskDetailPatch,
-  type TaskDetailToBe,
-  type AssetLocator,
-} from '@gantt-flow/core';
+} from './commands';
+import type { Project, ProcessLevel, Id, TaskDetailToBe, AssetLocator } from './model/types';
+import type { TaskDetailPatch } from './commands';
+import type { IdGen } from './ids';
 
 export type BatchOp =
   | { op: 'add_task'; ref?: string; name: string; level: ProcessLevel; parent?: string; assignee?: string; assigneeId?: string; kind?: 'milestone' }
@@ -46,8 +46,6 @@ export interface BatchResult {
   warnings: string[];
 }
 
-const LEVELS: ReadonlySet<string> = new Set(['large', 'medium', 'small', 'detail']);
-
 /** 同じ親の中で名前一致する工程を探す（upsert 用）。 */
 function findByParentAndName(p: Project, parentId: Id | undefined, name: string): Id | undefined {
   return Object.values(p.core.tasks).find(
@@ -56,21 +54,20 @@ function findByParentAndName(p: Project, parentId: Id | undefined, name: string)
 }
 
 /** 担当を名前で確保（既存は再利用、無ければ部署として作成）。created で新規作成かを返す。 */
-function ensureAssignee(p: Project, name: string): { project: Project; id: Id; created: boolean } {
+function ensureAssignee(p: Project, name: string, idGen: IdGen): { project: Project; id: Id; created: boolean } {
   const existing = Object.values(p.core.assignees).find((a) => a.name === name);
   if (existing) return { project: p, id: existing.id, created: false };
-  const next = addAssignee(p, { name, kind: 'department' }, uuid);
+  const next = addAssignee(p, { name, kind: 'department' }, idGen);
   const id = Object.values(next.core.assignees).find((a) => a.name === name)!.id;
   return { project: next, id, created: true };
 }
 
 /** 一括 op 列を 1 つの Project へ適用する（reconcile/保存はしない）。 */
-export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
+export function runBatch(p0: Project, ops: BatchOp[], idGen: IdGen, now: string): BatchResult {
   let p = p0;
   const aliases: Record<string, Id> = {};
   const created = { tasks: 0, dependencies: 0, assignees: 0, ios: 0, issues: 0, steps: 0, assets: 0 };
   const warnings: string[] = [];
-  const now = new Date().toISOString(); // 手順書系 op はこの一括内で 1 つの時刻を共有する
 
   // ref(エイリアス) or 既存 taskId を解決。未解決なら警告して undefined。
   const resolve = (token: string | undefined): Id | undefined => {
@@ -92,7 +89,7 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
       return assigneeId;
     }
     if (assignee && assignee.trim()) {
-      const r = ensureAssignee(p, assignee.trim());
+      const r = ensureAssignee(p, assignee.trim(), idGen);
       p = r.project;
       if (r.created) created.assignees++;
       return r.id;
@@ -108,8 +105,8 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
         case 'add_task': {
           const parentId = resolve(o.parent);
           const assigneeId = resolveAssignee(o.assigneeId, o.assignee);
-          const id = uuid();
-          p = addTask(p, { id, name: o.name, level: o.level, parentId, assigneeId, kind: o.kind }, uuid);
+          const id = idGen();
+          p = addTask(p, { id, name: o.name, level: o.level, parentId, assigneeId, kind: o.kind }, idGen);
           if (o.ref) aliases[o.ref] = id;
           created.tasks++;
           break;
@@ -124,8 +121,8 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
             if (assigneeId) p = setAssignee(p, existing, assigneeId);
             if (o.ref) aliases[o.ref] = existing;
           } else {
-            const id = uuid();
-            p = addTask(p, { id, name: o.name, level: o.level ?? 'medium', parentId, assigneeId, kind: o.kind }, uuid);
+            const id = idGen();
+            p = addTask(p, { id, name: o.name, level: o.level ?? 'medium', parentId, assigneeId, kind: o.kind }, idGen);
             if (o.ref) aliases[o.ref] = id;
             created.tasks++;
           }
@@ -135,7 +132,7 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           const from = requireTaskRef(o.from);
           const to = requireTaskRef(o.to);
           const before = Object.keys(p.core.dependencies).length;
-          p = addDependency(p, from, to, uuid);
+          p = addDependency(p, from, to, idGen);
           if (Object.keys(p.core.dependencies).length > before) created.dependencies++;
           break;
         }
@@ -148,12 +145,12 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           break;
         }
         case 'add_io': {
-          p = addIoItem(p, requireTaskRef(o.task), o.io, { name: o.name, kind: o.kind, formInfo: o.formInfo, source: o.source }, uuid);
+          p = addIoItem(p, requireTaskRef(o.task), o.io, { name: o.name, kind: o.kind, formInfo: o.formInfo, source: o.source }, idGen);
           created.ios++;
           break;
         }
         case 'add_issue': {
-          p = addIssueItem(p, requireTaskRef(o.task), { issue: o.issue, measure: o.measure }, uuid);
+          p = addIssueItem(p, requireTaskRef(o.task), { issue: o.issue, measure: o.measure }, idGen);
           created.issues++;
           break;
         }
@@ -162,7 +159,7 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           break;
         }
         case 'add_step': {
-          p = addStep(p, requireTaskRef(o.task), { action: o.action, why: o.why, bodyMd: o.bodyMd }, uuid, now);
+          p = addStep(p, requireTaskRef(o.task), { action: o.action, why: o.why, bodyMd: o.bodyMd }, idGen, now);
           created.steps++;
           break;
         }
@@ -171,7 +168,7 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
           const locator: AssetLocator | undefined =
             o.alias && o.relPath ? { alias: o.alias, relPath: o.relPath } : o.url ? { url: o.url } : undefined;
           const beforeIds = new Set(Object.keys(p.manual.assets));
-          p = upsertAsset(p, { id: o.id, name: o.name, desc: o.desc, locator }, uuid);
+          p = upsertAsset(p, { id: o.id, name: o.name, desc: o.desc, locator }, idGen);
           const newId = o.id ?? Object.keys(p.manual.assets).find((k) => !beforeIds.has(k));
           if (o.ref && newId) aliases[o.ref] = newId;
           if (wasNew) created.assets++;
@@ -187,4 +184,70 @@ export function runBatch(p0: Project, ops: BatchOp[]): BatchResult {
   }
 
   return { project: p, aliases, created, warnings };
+}
+
+// ---- スキーマ（AI 提案の最終防衛線） ----
+// apply_batch の op スキーマ（議事録等からの一括構築）。task/parent/from/to は「この一括で作る工程の
+// ref(エイリアス)」か「既存 taskId」。assignee は名前指定可（無ければ部署として自動作成）。
+const Level = z.enum(['large', 'medium', 'small', 'detail']);
+const Automation = z.enum(['manual', 'system', 'partial']);
+const Difficulty = z.enum(['H', 'M', 'L']);
+const Status = z.enum(['todo', 'heard', 'review', 'done']);
+const IoKind = z.enum(['doc', 'info']);
+
+const DetailPatchShape = z.object({
+  how: z.string().optional(),
+  system: z.string().optional(),
+  effortMinutes: z.number().nonnegative().optional(),
+  ltDays: z.number().nonnegative().optional(),
+  note: z.string().optional(),
+  volume: z.string().optional(),
+  exception: z.string().optional(),
+  automation: Automation.optional(),
+  dataLink: z.string().optional(),
+  regulation: z.string().optional(),
+  difficulty: Difficulty.optional(),
+  status: Status.optional(),
+});
+const TobePatchShape = z.object({
+  effortMinutes: z.number().nonnegative().optional(),
+  ltDays: z.number().nonnegative().optional(),
+  difficulty: Difficulty.optional(),
+  automation: Automation.optional(),
+  rationale: z.string().optional(),
+  lifecycle: z.enum(['added', 'removed']).optional(),
+  assigneeId: z.string().optional(),
+});
+
+export const BatchOpSchema: z.ZodType<BatchOp> = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('add_task'), ref: z.string().optional(), name: z.string(), level: Level, parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない') }),
+  z.object({ op: z.literal('upsert_task'), ref: z.string().optional(), name: z.string(), level: Level.optional(), parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない。新規作成時のみ適用、既存工程の kind は変更しない') }),
+  z.object({ op: z.literal('add_dependency'), from: z.string(), to: z.string() }),
+  z.object({ op: z.literal('set_detail'), task: z.string(), patch: DetailPatchShape }),
+  z.object({ op: z.literal('set_tobe'), task: z.string(), patch: TobePatchShape }),
+  z.object({ op: z.literal('add_io'), task: z.string(), io: z.enum(['inputs', 'outputs']), name: z.string(), kind: IoKind, formInfo: z.string().optional(), source: z.string().optional() }),
+  z.object({ op: z.literal('add_issue'), task: z.string(), issue: z.string(), measure: z.string().optional() }),
+  z.object({ op: z.literal('set_procedure'), task: z.string(), purpose: z.string().optional() }),
+  z.object({ op: z.literal('add_step'), task: z.string(), action: z.string(), why: z.string().optional(), bodyMd: z.string().optional() }),
+  z.object({
+    op: z.literal('upsert_asset'),
+    ref: z.string().optional(),
+    id: z.string().optional(),
+    name: z.string(),
+    desc: z.string().optional(),
+    alias: z.string().optional(),
+    relPath: z.string().optional(),
+    url: z.string().optional(),
+  }),
+]);
+
+// AI 出力（構造化提案）の最終防衛線。JSON.parse と zod パースの例外はそのまま投げ、
+// 呼び出し側（desktop の AI provider 層）が AiError('schema') 等へ写像する。
+export const ProposalsSchema: z.ZodType<{ operations: BatchOp[] }> = z.object({
+  operations: z.array(BatchOpSchema),
+});
+
+export function parseProposals(jsonText: string): { operations: BatchOp[] } {
+  const parsed: unknown = JSON.parse(jsonText);
+  return ProposalsSchema.parse(parsed);
 }

@@ -1,7 +1,9 @@
 # gantt-flow
 
 工程表（WBS/ガント）とスイムレーン業務フロー図を **単一データから同期** する Tauri デスクトップアプリ。
-日本語の社内ツール。オフライン・ローカルファイル運用（外部送信なし）。
+日本語の社内ツール。**既定オフライン・ローカルファイル運用**。AI アシストは**オプトイン（既定オフ）**で、
+有効時のみユーザが設定したプロバイダ（Anthropic / Azure OpenAI）へプロジェクト内容とメモを送信する。
+API キーはローカル保持で当社サーバ等へは送らない。
 ユーザとの対話は日本語で行う。
 
 ## モノレポ構成（npm workspaces + Rust crate）
@@ -71,3 +73,11 @@
 - **バリデーション**: Zod（読込時パース＋マイグレーション境界）。壊れた参照は `quarantine` へ退避して落とさない。
 - **Excel/CSV**: SheetJS (`xlsx`)。取り込みは **新規プロジェクト生成専用**（再取り込み更新はしない）。往復はネイティブ `.gflow`。
 - **Tauri 2**: capability allowlist（`src-tauri/capabilities/default.json`）でファイル系・ダイアログのみ許可。`tauri.conf.json` 参照。
+- **AI アシスト**: プロバイダ抽象は `apps/desktop/src/ai/provider.ts`（`AnthropicProvider`＝公式 `@anthropic-ai/sdk`・
+  `AzureOpenAiProvider`＝生 fetch・`MockAiProvider`＝テスト/E2E 用）。既定オフライン・オプトイン
+  （`useUI.aiEnabled`・localStorage `gf-ai`）で、`requestProposals` は無効時に fetch/SDK へ一切到達しない。
+  CSP（`tauri.conf.json` の `csp`/`devCsp` 両方）は `https://api.anthropic.com` と
+  `https://*.openai.azure.com` の **2 ドメインのみ** 追加。API キーは `gf-ai-key-*` localStorage
+  （「この PC に保存」時のみ）＋セッションメモリにのみ存在し、Project にも SettingsFile にも入れない。
+  `runBatch`/`BatchOp`/`BatchOpSchema`/`parseProposals` は `@gantt-flow/core`（`batch.ts`）へ昇格・
+  決定論化済みで、`apps/mcp-server` も同じ core 実装を import する（write-through 動作は不変）。

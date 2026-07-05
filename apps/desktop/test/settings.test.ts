@@ -1,5 +1,28 @@
-import { describe, it, expect } from 'vitest';
-import { parseSettingsFile, SETTINGS_VERSION, type SettingsFile } from '../src/settings';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { parseSettingsFile, collectSettings, SETTINGS_VERSION, type SettingsFile } from '../src/settings';
+
+// node 環境には localStorage が無いため最小のメモリ実装を使う（他テストと同じ流儀）。
+class MemStorage {
+  private m = new Map<string, string>();
+  get length(): number {
+    return this.m.size;
+  }
+  key(i: number): string | null {
+    return [...this.m.keys()][i] ?? null;
+  }
+  getItem(k: string): string | null {
+    return this.m.get(k) ?? null;
+  }
+  setItem(k: string, v: string): void {
+    this.m.set(k, String(v));
+  }
+  removeItem(k: string): void {
+    this.m.delete(k);
+  }
+  clear(): void {
+    this.m.clear();
+  }
+}
 
 const valid: SettingsFile = {
   app: 'gantt-flow',
@@ -74,5 +97,35 @@ describe('settings: parseSettingsFile', () => {
     if (!r.ok) return;
     expect(Object.keys(r.settings.keybindings!)).toEqual(['row-add', 'future-binding', 'undo-u']);
     expect(r.warnings[0]).toContain('2 件');
+  });
+});
+
+// セキュリティ規律: AI の API キーが設定エクスポート（SettingsFile）に混入しないこと。
+describe('settings: AI キー不混入（セキュリティ）', () => {
+  beforeEach(() => {
+    (globalThis as { localStorage?: unknown }).localStorage = new MemStorage();
+  });
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it('gf-ai-key-* を localStorage に入れても collectSettings の出力にキー文字列が現れない', () => {
+    // 「この PC に保存」チェック時に置かれる平文キー（本来はここだけに存在する）。
+    localStorage.setItem('gf-ai-key-anthropic', 'sk-ant-SECRETKEY-0123456789');
+    localStorage.setItem('gf-ai-key-azure-openai', 'AZURE-SECRET-9999');
+    localStorage.setItem('gf-ai-provider', 'anthropic');
+    localStorage.setItem('gf-ai-model', 'claude-opus-4-8');
+
+    const file = collectSettings();
+    const json = JSON.stringify(file);
+
+    // SettingsFile にキー項目そのものが無い（型 unchanged）。
+    expect(Object.keys(file)).not.toContain('apiKey');
+    expect(Object.keys(file)).not.toContain('aiKey');
+    // JSON 化してもキー文字列が一切現れない。
+    expect(json).not.toContain('sk-ant-');
+    expect(json).not.toContain('SECRETKEY');
+    expect(json).not.toContain('AZURE-SECRET');
+    expect(json).not.toContain('gf-ai-key-');
   });
 });
