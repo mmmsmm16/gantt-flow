@@ -24,6 +24,7 @@ import {
   issuePrimaryIds,
   laneLayout,
   lanesBottom,
+  nearestLaneOrder,
   nodeRect,
   nodeSize,
   routeEdge,
@@ -1269,6 +1270,30 @@ export function FlowCanvas() {
     const s = nodeSize(n);
     return { cx: p.x + s.w / 2, cy: p.y + s.h / 2 };
   };
+  // レーンまたぎドラッグの事前予告: 単一の工程ノードをドラッグ中、落下先レーンの担当が
+  // 現在と変わるなら「担当→◯◯」を予告する（確定後トーストだけでなく、動かしている最中に気づける）。
+  // 複数選択の剛体ドラッグは moveNodesBy でレーン再割当しないため対象外。
+  const laneCross = (() => {
+    if (!drag || groupDrag || !hasLanes) return null;
+    const node = view.nodes[drag.id];
+    if (!node || node.kind !== 'task' || isMilestone(project.core, node.taskId)) return null;
+    const s = nodeSize(node);
+    const centerY = drag.y + s.h / 2;
+    const targetOrder = nearestLaneOrder(view.lanes, centerY);
+    const targetLane = Object.values(view.lanes).find((l) => l.order === targetOrder);
+    const task = project.core.tasks[node.taskId];
+    if (!targetLane?.assigneeId || !task || task.assigneeId === targetLane.assigneeId) return null;
+    const box = boxes.find((b) => b.lane.id === targetLane.id);
+    if (!box) return null;
+    return {
+      laneId: targetLane.id,
+      top: box.top,
+      height: box.height,
+      name: project.core.assignees[targetLane.assigneeId]?.name ?? '',
+      badgeX: drag.x,
+      badgeY: drag.y - 22,
+    };
+  })();
   // キーボードピッカーを任意の起点から開始（c キー・右クリック「ここから接続」・Shift+P の共通処理）。
   // mode='connect' は工程+制御ノード、'parallel'（並行化の基準選び）は工程のみが候補。
   const startKbConnect = (fromId: FlowNodeId, mode: 'connect' | 'parallel' = 'connect'): boolean => {
@@ -1797,6 +1822,19 @@ export function FlowCanvas() {
             });
             els.push(<line key="lh-bottom" className="lane-line" x1={0} y1={lanesBottomY} x2={FULL_W} y2={lanesBottomY} />);
             els.push(<line key="vdiv" className="lane-divider" x1={LABEL_W} y1={BAND_TOP} x2={LABEL_W} y2={lanesBottomY} />);
+            // レーンまたぎドラッグ中: 落下先レーン帯を強調（担当が変わる予告）。
+            if (laneCross) {
+              els.push(
+                <rect
+                  key="lane-cross"
+                  className="lane-cross-hi"
+                  x={0}
+                  y={laneCross.top}
+                  width={FULL_W + LABEL_W}
+                  height={laneCross.height}
+                />,
+              );
+            }
             if (laneResize) {
               const rb = boxes.find((b) => b.lane.id === laneResize.laneId);
               if (rb) {
@@ -2399,6 +2437,11 @@ export function FlowCanvas() {
             }
           />
         ))}
+        {laneCross && (
+          <div className="lane-cross-badge" style={{ left: laneCross.badgeX, top: laneCross.badgeY }}>
+            担当 → {laneCross.name || '（未割当）'}
+          </div>
+        )}
 
         </div>
 

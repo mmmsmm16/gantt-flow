@@ -3777,6 +3777,27 @@ kbd {
   width: 0;
   border-left: 1px dashed var(--accent-strong);
 }
+/* レーンまたぎドラッグの事前予告: 落下先レーン帯の強調（SVG rect）＋担当変更バッジ（HTML）。 */
+.lane-cross-hi {
+  fill: var(--accent);
+  opacity: 0.12;
+  pointer-events: none;
+}
+.lane-cross-badge {
+  position: absolute;
+  z-index: 8;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: 11px;
+  font-weight: var(--fw-strong);
+  line-height: 1.2;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  box-shadow: var(--shadow-pop);
+  pointer-events: none;
+}
 /* マイルストーン: レーン上の余白に琥珀の菱形＋全レーンを貫く縦破線（対象工程の右端に追従）。
    .ms-guide は .flow-scale 全面を覆うが透明・非操作（菱形だけが pointer-events を持つ）。
    spec: docs/superpowers/specs/2026-07-04-milestone-design.md §デスクトップ描画・UI */
