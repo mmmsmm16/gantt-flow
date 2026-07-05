@@ -178,4 +178,78 @@ describe('reconcileFlow v1', () => {
     expect(taskNodes(res.view)).toHaveLength(1);
     expect(taskNodes(res.view)[0]!.taskId).toBe(taskIdByName(p, 'M'));
   });
+
+  it('新規ノードの初期列が既存ノードと衝突するときは空き列へずらす（既存は不変）', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    // A(order0)→x=120, B(order1)→x=340 に配置される
+    p = addTask(p, { name: 'A', level: 'medium' }, g);
+    p = addTask(p, { name: 'B', level: 'medium' }, g);
+    const r1 = reconcileFlow(p.core, p.details, emptyView(), n);
+    const bx = taskNodes(r1.view).find((nd) => nd.taskId === taskIdByName(p, 'B'))!.x;
+    expect(bx).toBe(340);
+
+    // A を消して C を足すと、対象は [B(order1), C(order2)]。
+    // 既存 B は x=340 を保持し、新規 C の目標列は index1 = 120 + 220 = 340 で B と衝突する。
+    p = deleteTask(p, taskIdByName(p, 'A'));
+    p = addTask(p, { name: 'C', level: 'medium' }, g);
+    const r2 = reconcileFlow(p.core, p.details, r1.view, n);
+
+    const nodes2 = taskNodes(r2.view);
+    const b2 = nodes2.find((nd) => nd.taskId === taskIdByName(p, 'B'))!;
+    const c2 = nodes2.find((nd) => nd.taskId === taskIdByName(p, 'C'))!;
+    // 既存 B は動かない（x/y 不変）
+    expect(b2.x).toBe(340);
+    // 新規 C は衝突を避けて次の空き列へ（340 → 560）
+    expect(c2.x).toBe(560);
+    // 2 ノードは矩形的に重ならない
+    const overlap =
+      c2.x < b2.x + 150 && c2.x + 150 > b2.x && c2.y < b2.y + 44 && c2.y + 44 > b2.y;
+    expect(overlap).toBe(false);
+
+    // 冪等: 同じ idGen でもう一度 reconcile しても何も変わらない
+    const r3 = reconcileFlow(p.core, p.details, r2.view, n);
+    expect(r3.view).toEqual(r2.view);
+    expect(r3.report.added).toHaveLength(0);
+    expect(r3.report.removed).toHaveLength(0);
+  });
+
+  it('手動配置ノードが格子を跨ぐ密なレーンでも新規は必ず空きへ収まる（重なりゼロ）', () => {
+    const g = counter();
+    const n = counter('n');
+    let p = emptyProject();
+    // 同一レーン（担当なし=order0）に 5 タスク。まず既存 4 つを配置。
+    for (const name of ['A', 'B', 'C', 'D']) {
+      p = addTask(p, { name, level: 'medium' }, g);
+    }
+    const r1 = reconcileFlow(p.core, p.details, emptyView(), n);
+    // 既存 4 ノードを 220px 刻みの「格子を跨ぐ」位置へ手動移動（各ノードが 2 列に跨る）。
+    const view1 = r1.view;
+    const at = [220, 660, 1100, 1540];
+    ['A', 'B', 'C', 'D'].forEach((name, k) => {
+      const nd = taskNodes(view1).find((x) => x.taskId === taskIdByName(p, name))!;
+      view1.nodes[nd.id] = { ...nd, x: at[k]!, y: 80 };
+    });
+    // 新規 E を追加（自然な列 index4 = 120+880=1000 は既存とぶつかる）。
+    p = addTask(p, { name: 'E', level: 'medium' }, g);
+    const r2 = reconcileFlow(p.core, p.details, view1, n);
+
+    // どの 2 ノードも矩形的に重ならない（衝突ゼロを保証）。
+    const nodes = taskNodes(r2.view);
+    const overlap = (a: (typeof nodes)[number], b: (typeof nodes)[number]) =>
+      a.x < b.x + 150 && a.x + 150 > b.x && a.y < b.y + 44 && a.y + 44 > b.y;
+    let any = false;
+    for (let i = 0; i < nodes.length; i++)
+      for (let j = i + 1; j < nodes.length; j++) if (overlap(nodes[i]!, nodes[j]!)) any = true;
+    expect(any).toBe(false);
+    // 既存 4 ノードは手動位置を保持（x/y 不変）。
+    at.forEach((x, k) => {
+      const name = ['A', 'B', 'C', 'D'][k]!;
+      expect(nodes.find((nd) => nd.taskId === taskIdByName(p, name))!.x).toBe(x);
+    });
+    // 冪等。
+    const r3 = reconcileFlow(p.core, p.details, r2.view, n);
+    expect(r3.view).toEqual(r2.view);
+  });
 });
