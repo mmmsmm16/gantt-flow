@@ -17,6 +17,7 @@ export * from './sync/procedureNav';
 export * from './manualAssets';
 export * from './history/history';
 export * from './validate';
+export * from './lint';
 export * from './metrics';
 export * from './compare';
 export * from './import/importCsv';
