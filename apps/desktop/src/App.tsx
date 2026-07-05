@@ -488,39 +488,65 @@ export function App() {
   };
   const onExportExcel = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const n = exportExcelFile(useApp.getState().project);
-    useUI.getState().toast(`出力しました（${n}）`, 'success');
+    try {
+      const n = exportExcelFile(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${n}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（Excel）', 'error');
+    }
   };
   const onExportCsv = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const n = exportCsvFile(useApp.getState().project);
-    useUI.getState().toast(`出力しました（${n}）`, 'success');
+    try {
+      const n = exportCsvFile(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${n}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（CSV）', 'error');
+    }
   };
   const onExportSvg = async () => {
     if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
-    if (view) {
+    if (!view) {
+      useUI.getState().toast('フロー図がまだありません（工程を追加してください）。', 'info');
+      return;
+    }
+    try {
       const name = exportSvgFile(st.project, view);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（SVG）', 'error');
     }
   };
   const onExportPng = async () => {
     if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
-    if (!view) return;
+    if (!view) {
+      useUI.getState().toast('フロー図がまだありません（工程を追加してください）。', 'info');
+      return;
+    }
     try {
       const name = await exportPngFile(st.project, view);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
-    } catch {
-      useUI.getState().toast('PNG の出力に失敗しました。', 'error');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（PNG）', 'error');
     }
   };
   const onExportHandbook = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const name = exportHandbookFile(useApp.getState().project);
-    useUI.getState().toast(`出力しました（${name}）`, 'success');
+    try {
+      const name = exportHandbookFile(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${name}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（ハンドブック）', 'error');
+    }
   };
   const onPrint = async () => {
     if (!(await confirmEmptyOutput())) return;
