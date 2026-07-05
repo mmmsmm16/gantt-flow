@@ -150,6 +150,9 @@ export function ComparisonDialog() {
   const maxCut = Math.max(...perRow.map((r) => r.ltCut), 1);
   // To-Be 新設工程（As-Is には出ない）。一括入力タブの専用セクションで作成・編集する。
   const addedTasks = Object.values(project.core.tasks).filter((t) => project.details[t.id]?.toBe?.lifecycle === 'added');
+  // To-Be が 1 件も入っていないと、サマリは As-Is と同値の ±0 が並ぶだけで読み手に何も伝わらない。
+  // 空状態ガイド（一括入力への導線）を先頭に出して「まず何をするか」を示す。
+  const hasAnyToBe = Object.values(project.details).some((d) => !!d?.toBe);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
   const counts = diffMode === 'count' ? c.difficulty.count : c.difficulty.effort;
   const totals = diffMode === 'count'
@@ -437,6 +440,16 @@ export function ComparisonDialog() {
 
         {view === 'summary' && (
         <div className="cmp-body">
+          {!hasAnyToBe && (
+            <div className="cmp-guide" role="note">
+              <span className="cmp-guide-icon"><Icons.Sparkles /></span>
+              <div className="cmp-guide-body">
+                <b>To-Be が未入力です。</b>
+                <span>一括入力タブから始めるか、インスペクタの To-Be 欄で個別に設定してください。</span>
+              </div>
+              <button className="cmp-guide-cta" onClick={() => setView('bulk')}>一括入力を開く</button>
+            </div>
+          )}
           <div className="cmp-cards">
             {/* 工数（左） */}
             <section className="cmp-card is-feature">

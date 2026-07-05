@@ -4893,6 +4893,43 @@ input.colored-text {
   flex-direction: column;
   gap: var(--sp-3);
 }
+/* サマリの空状態ガイド（To-Be 未入力時の導線）。既存の情報カード語彙に合わせる。 */
+.cmp-guide {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+.cmp-guide-icon {
+  display: inline-flex;
+  color: var(--accent);
+  flex: none;
+}
+.cmp-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-label);
+  color: var(--ink);
+}
+.cmp-guide-cta {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--fs-caption);
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  color: var(--accent);
+  cursor: pointer;
+}
+.cmp-guide-cta:hover {
+  background: var(--hover);
+}
 .cmp-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
