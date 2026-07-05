@@ -549,6 +549,42 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.keys(s.getState().project.core.tasks)).toHaveLength(0);
   });
 
+  it('copyAsIsToToBeMany: 全工程の As-Is を To-Be へ一括複製し、1 undo で全戻り（B-06）', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    s.getState().addTask('C');
+    const tasks = Object.values(s.getState().project.core.tasks);
+    const ids = tasks.map((t) => t.id);
+    // As-Is 値（工数）を各工程へ入れておく。
+    ids.forEach((id, i) => s.getState().updateDetail(id, { effortMinutes: (i + 1) * 60 }));
+    // 一括複製前は To-Be 未設定。
+    for (const id of ids) expect(s.getState().project.details[id]!.toBe).toBeUndefined();
+
+    const n = s.getState().copyAsIsToToBeMany(ids);
+    expect(n).toBe(3);
+    // 全工程の As-Is 工数が To-Be の起点へ写る。
+    ids.forEach((id, i) => {
+      expect(s.getState().project.details[id]!.toBe!.effortMinutes).toBe((i + 1) * 60);
+    });
+    expect(s.getState().canUndo).toBe(true);
+
+    // 1 回の undo で 3 工程ぶんの複製がまとめて元に戻る（旧: forEach → N 回 commit だった）。
+    s.getState().undo();
+    for (const id of ids) expect(s.getState().project.details[id]!.toBe).toBeUndefined();
+  });
+
+  it('copyAsIsToToBeMany: 不在 id は数えず、複製できた件数だけを返す', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const a = idByName(s, 'A');
+    expect(s.getState().copyAsIsToToBeMany([a, 'no-such-task'])).toBe(1);
+    // 何も複製できなければ履歴を汚さない。
+    const before = s.getState().project;
+    expect(s.getState().copyAsIsToToBeMany(['no-such-task'])).toBe(0);
+    expect(s.getState().project).toBe(before);
+  });
+
   it('一括操作: moveNodesBy で複数ノードをまとめて平行移動（1 undo）', () => {
     const s = createAppStore();
     s.getState().addTask('A');

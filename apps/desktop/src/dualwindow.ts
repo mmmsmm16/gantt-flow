@@ -89,6 +89,7 @@ export const ACTION_CLASS: Record<string, ActionClass> = {
   updateDetail: 'forward',
   updateToBe: 'forward',
   copyAsIsToToBe: 'forward',
+  copyAsIsToToBeMany: 'forward',
   addToBeTask: 'forward',
   // --- 手順書（manual）ミューテータ ---
   upsertProcedurePurpose: 'forward',

@@ -86,7 +86,7 @@ export function ComparisonDialog() {
   const open = useUI((s) => s.overlay === 'comparison');
   const project = useApp((s) => s.project);
   const updateToBe = useApp((s) => s.updateToBe);
-  const copyAsIsToToBe = useApp((s) => s.copyAsIsToToBe);
+  const copyAsIsToToBeMany = useApp((s) => s.copyAsIsToToBeMany);
   const addToBeTask = useApp((s) => s.addToBeTask);
   const renameTask = useApp((s) => s.renameTask);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
@@ -220,7 +220,14 @@ export function ComparisonDialog() {
           <div className="cmp-bulk">
             <div className="cmp-bulk-cap">
               <span>To-Be 一括入力 <span className="cmp-flow-hint">改善後の工数・リードタイム・難易度・状態・根拠をまとめて入力</span></span>
-              <button className="tobe-copy" onClick={() => perRow.forEach((r) => copyAsIsToToBe(r.id))} title="全工程の As-Is 値を To-Be の起点へコピー">
+              <button
+                className="tobe-copy"
+                onClick={() => {
+                  const n = copyAsIsToToBeMany(perRow.map((r) => r.id));
+                  if (n) useUI.getState().toast(`${n} 工程に複製しました`, 'success');
+                }}
+                title="全工程の As-Is 値を To-Be の起点へコピー"
+              >
                 現状を一括複製
               </button>
             </div>

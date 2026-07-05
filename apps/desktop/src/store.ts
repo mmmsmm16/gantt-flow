@@ -392,6 +392,8 @@ export interface AppState {
   updateToBe: (taskId: Id, patch: Partial<TaskDetailToBe>) => void;
   /** As-Is の現状値を To-Be の起点へ複製。 */
   copyAsIsToToBe: (taskId: Id) => void;
+  /** 複数工程の As-Is 値を To-Be の起点へ一括複製（1 undo 単位）。複製できた件数を返す。 */
+  copyAsIsToToBeMany: (taskIds: Id[]) => number;
   /** To-Be で新設する工程(lifecycle='added')を作る。As-Is には出ない。作成 ID を返す。 */
   addToBeTask: () => Id | undefined;
 
@@ -1055,6 +1057,20 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch), '詳細を編集'),
     updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch), 'To-Beを編集'),
     copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId), 'To-Beに複製'),
+    copyAsIsToToBeMany: (taskIds) => {
+      // 既存 copyAsIsToToBe の core 関数をループ適用し、1 スナップショット＝1 undo にまとめる
+      // （旧: 呼び出し側で forEach → N 回 commit で undo が N 回必要だった）。
+      let p = get().project;
+      let count = 0;
+      for (const id of taskIds) {
+        if (p.core.tasks[id] && p.details[id]) {
+          p = cCopyAsIsToToBe(p, id);
+          count += 1;
+        }
+      }
+      if (count) commit(p, count > 1 ? `${count}件をTo-Beに複製` : 'To-Beに複製');
+      return count;
+    },
     addToBeTask: () => {
       const cur = get().project;
       const firstLarge = Object.values(cur.core.tasks).find((t) => t.level === 'large');
