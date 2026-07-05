@@ -1874,7 +1874,7 @@ button.danger:hover {
 /* B3: 選択中の矢印の端点（掴んでドラッグ＝接続先を付け替え）。白縁で背景と分離。 */
 .edge-endpoint {
   fill: var(--accent);
-  stroke: #fff;
+  stroke: var(--canvas-bg);
   stroke-width: 1.5;
   cursor: grab;
 }
