@@ -17,6 +17,7 @@ import {
   effortMinutesToHours,
   compareReportSheetRows,
   IMPROVEMENT_SHEET_NAME,
+  hasAnyToBeInput,
   parseCsv,
   type Project,
   type FlowLevelView,
@@ -564,13 +565,22 @@ function summaryAoa(project: Project): (string | number)[][] {
   return rows;
 }
 
-// 統合ブック（工程表 / 課題一覧 / サマリ）を組み立てる純関数（テスト用に分離・download 非依存）。
+// 統合ブック（工程表 / 課題一覧 / サマリ / 改善効果）を組み立てる純関数（テスト用に分離・download 非依存）。
+// 改善効果シートは compareReportSheetRows を単独出力（exportImprovementExcel）と共有し、To-Be 入力が
+// あるときだけ同梱する（未入力だと ±0 が並ぶだけで納品物のノイズになるため、単独出力と同じガードを踏む）。
 export function buildProjectWorkbook(project: Project): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
   // 人間が読む納品物なので前工程は作業名で出す（工程No は CSV ラウンドトリップ用）。
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(projectToRows(project, { depRef: 'name' })), '工程表');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(issuesAoa(project)), '課題一覧');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa(project)), 'サマリ');
+  if (hasAnyToBeInput(project.details)) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet(compareReportSheetRows(project)),
+      IMPROVEMENT_SHEET_NAME,
+    );
+  }
   return wb;
 }
 
@@ -584,7 +594,7 @@ export function exportIssuesExcel(project: Project): string {
   return name;
 }
 
-// Excel 出力: 1 ブックに工程表・課題一覧・サマリの 3 シートを同梱（納品時の手作業を削減）。
+// Excel 出力: 1 ブックに工程表・課題一覧・サマリ（＋ To-Be があれば改善効果）を同梱（納品時の手作業を削減）。
 export function exportExcelFile(project: Project): string {
   const name = `${safeName(project.meta.title)}.xlsx`;
   const buf = XLSX.write(buildProjectWorkbook(project), { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;

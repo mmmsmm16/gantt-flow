@@ -801,10 +801,10 @@ describe('改善効果レポートの出力（HTML / Excel）', () => {
 });
 
 describe('buildProjectWorkbook（Excel 1 ブック多シート化）', () => {
-  it('工程表・課題一覧・サマリの 3 シートを 1 ブックに同梱する', () => {
+  it('工程表・課題一覧・サマリを 1 ブックに同梱する（サンプルは To-Be ありで改善効果も付く）', () => {
     const project = createSampleProject(gen('xl'));
     const wb = buildProjectWorkbook(project);
-    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ']);
+    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ', IMPROVEMENT_SHEET_NAME]);
   });
 
   it('課題一覧シートはヘッダ＋課題行を持つ（工程No/工程/担当/課題/方策）', () => {
@@ -837,6 +837,24 @@ describe('buildProjectWorkbook（Excel 1 ブック多シート化）', () => {
     const empty: Project = { ...project, core: { tasks: {}, dependencies: {}, assignees: {} }, details: {} };
     const wb = buildProjectWorkbook(empty);
     expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ']);
+  });
+
+  it('To-Be 入力があると改善効果シートを 4 枚目に同梱する（compareReportSheetRows 共有）', () => {
+    const base = createSampleProject(gen('xl-tobe'));
+    const leaf = Object.values(base.core.tasks).find(
+      (t) =>
+        !Object.values(base.core.tasks).some((c) => c.parentId === t.id) &&
+        (base.details[t.id]?.effortMinutes ?? 0) > 0,
+    )!;
+    const project = updateTaskToBe(base, leaf.id, { effortMinutes: 5, ltDays: 1, difficulty: 'L', automation: 'system' });
+    const wb = buildProjectWorkbook(project);
+    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ', IMPROVEMENT_SHEET_NAME]);
+    const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[IMPROVEMENT_SHEET_NAME]!, {
+      header: 1,
+      blankrows: true,
+    });
+    const flat = rows.map((r) => (r ?? []).join('\t'));
+    expect(flat).toContain('指標\tAs-Is\tTo-Be\t改善');
   });
 });
 
