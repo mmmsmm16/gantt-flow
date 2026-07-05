@@ -574,7 +574,9 @@ const escapeHtml = (s: string) =>
 // 印刷 / PDF: 工程表（全項目）＋現在のフロー図を 1 枚の印刷用 HTML にまとめ、
 // 隠し iframe で印刷ダイアログを出す（ブラウザの「PDF として保存」で PDF 化できる）。
 // ポップアップブロックを避けるため window.open ではなく iframe を使う。
-export function printProjectAndFlow(project: Project, view: FlowLevelView | undefined): void {
+// 戻り値は成否（true=印刷用ドキュメントを組めた / false=iframe の文書が使えず出せなかった）。
+// 呼び出し側（App.onPrint）が false のとき error トーストで沈黙を破る。
+export function printProjectAndFlow(project: Project, view: FlowLevelView | undefined): boolean {
   const title = project.meta.title || 'プロジェクト';
   // 印刷も人間が読む出力なので前工程は作業名（XLSX 出力と同じ方針）。
   const rows = projectToRows(project, { depRef: 'name' });
@@ -621,11 +623,12 @@ export function printProjectAndFlow(project: Project, view: FlowLevelView | unde
   const doc = iframe.contentWindow?.document;
   if (!doc) {
     iframe.remove();
-    return;
+    return false;
   }
   doc.open();
   doc.write(html);
   doc.close();
+  return true;
 }
 
 // ---- 取り込み（CSV / Excel → 行列） ----

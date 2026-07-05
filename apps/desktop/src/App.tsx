@@ -563,7 +563,8 @@ export function App() {
       useUI.getState().setBusy('印刷用に整えています…');
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
       const st = useApp.getState();
-      printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+      const ok = printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+      if (!ok) useUI.getState().toast('印刷の準備に失敗しました。', 'error');
     } finally {
       useUI.getState().setBusy(null);
     }
