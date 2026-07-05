@@ -4243,7 +4243,7 @@ kbd {
   width: 100%;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 6px 8px;
+  padding: 4px 8px;
   background: transparent;
   color: var(--ink);
 }
@@ -4288,7 +4288,7 @@ kbd {
 .ft-add-sel { font-size: var(--fs-caption); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 2px 4px; }
 
 /* I/O セル */
-.ft-io { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; }
+.ft-io { display: flex; flex-wrap: wrap; gap: 3px; padding: 2px 4px; }
 .ft-iochip {
   display: inline-flex;
   align-items: center;
@@ -4308,8 +4308,8 @@ kbd {
 .ft-io-kind { font-size: var(--fs-caption); border: none; background: transparent; color: var(--muted); }
 
 /* 課題 / 方策セル（独立列。行ごとに 1 課題・1 方策が並ぶ） */
-.ft-issues { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
-.ft-issue-row { display: flex; align-items: center; gap: 2px; min-height: 28px; }
+.ft-issues { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px; }
+.ft-issue-row { display: flex; align-items: center; gap: 2px; min-height: 24px; }
 .ft-issue-row .ft-in { flex: 1; }
 
 /* 追加/削除ボタン */
@@ -4410,7 +4410,7 @@ kbd {
   width: 100%;
   resize: none;
   overflow: hidden;
-  min-height: 30px;
+  min-height: 26px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -4422,7 +4422,7 @@ kbd {
   appearance: none;
   -webkit-appearance: none;
   width: 24px;
-  height: 22px;
+  height: 20px;
   padding: 0;
   text-align: center;
   text-align-last: center;
@@ -4462,14 +4462,14 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  padding: 4px;
+  padding: 2px;
 }
 .ft-rowbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
