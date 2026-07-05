@@ -802,6 +802,17 @@ function PaletteBody(handlers: FileHandlers) {
           ui.setAiPanelOpen(true);
         },
       },
+      {
+        // 無効時は項目ごと消えると発見できないため、有効化への導線を代わりに出す（C-03）。
+        id: 'ai-enable',
+        label: 'AI アシストを有効にする…（設定を開く）',
+        keywords: 'ai assist teian 提案 生成 アシスト 有効 設定 enable sparkle',
+        available: !aiEnabled,
+        run: () => {
+          ui.setSettingsTab('ai');
+          ui.setOverlay('settings');
+        },
+      },
       { id: 'settings-open', label: '設定を開く', keywords: 'settings settei 設定 環境設定 preferences', hint: '⌘,', run: () => { ui.setSettingsTab('general'); ui.setOverlay('settings'); } },
       { id: 'keybindings', label: 'ショートカット設定（キーの変更）', keywords: 'keybind shortcut settei ショートカット 設定 カスタマイズ キー vim', run: () => { ui.setSettingsTab('keys'); ui.setOverlay('settings'); } },
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },

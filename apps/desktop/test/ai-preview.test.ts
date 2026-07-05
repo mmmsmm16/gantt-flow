@@ -74,6 +74,33 @@ describe('buildAiPreview（決定論）', () => {
     );
     expect(taskNodes.length).toBe(2); // 衝突していれば 1 個に潰れる
   });
+
+  it('AI が同一 ref を複数 producer で宣言したら後発をリネームし警告を積む（D-04）', () => {
+    const dupOps: BatchOp[] = [
+      { op: 'add_task', ref: 'x', name: '受注', level: 'medium' }, // 先発: ref='x' のまま
+      { op: 'add_task', ref: 'x', name: '出荷', level: 'medium' }, // 後発: 'x_2' へ振替
+    ];
+    const preview = buildAiPreview(emptyProject(), dupOps, 'medium');
+    expect(preview.ops[0]).toMatchObject({ ref: 'x' });
+    expect(preview.ops[1]).toMatchObject({ ref: 'x_2' });
+    expect(preview.warnings).toHaveLength(1);
+    expect(preview.warnings[0]).toContain('x');
+    // 2 op が別々の taskId に解決される（後勝ちで 1 個に潰れない）。
+    const idA = preview.nodeMap.opToTaskId.get(0);
+    const idB = preview.nodeMap.opToTaskId.get(1);
+    expect(idA).toBeDefined();
+    expect(idB).toBeDefined();
+    expect(idA).not.toBe(idB);
+    const taskNodes = Object.values(preview.view.nodes).filter(
+      (n): n is FlowTaskNode => n.kind === 'task',
+    );
+    expect(taskNodes.length).toBe(2);
+  });
+
+  it('重複が無ければ warnings は空（既存挙動を変えない）', () => {
+    const preview = buildAiPreview(emptyProject(), ops, 'medium');
+    expect(preview.warnings).toEqual([]);
+  });
 });
 
 describe('applyApprovedBatch（1 undo）', () => {

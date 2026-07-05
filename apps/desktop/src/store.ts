@@ -399,7 +399,8 @@ export interface AppState {
 
   /** AI 承認バッチの一括適用。resolveApproved で選ばれた ops を本番 uuid で runBatch し、
       commit 経由で 1 スナップショット＝1 undo にする（reconcile は commit が担当）。 */
-  applyApprovedBatch: (ops: BatchOp[]) => void;
+  /** 承認バッチを本番 uuid で適用（1 undo）。ref→実 taskId の aliases を返す（見送り継続用）。 */
+  applyApprovedBatch: (ops: BatchOp[]) => Record<string, Id>;
 
   // --- 手順書（manual）。core/details/flow は触らず manual のみ更新（各コマンドへ now を注入）。 ---
   /** 工程の手順書の目的を設定（doc を確保して purpose/updatedAt を立てる。空文字で目的をクリア）。 */
@@ -1710,10 +1711,11 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     // AI 承認バッチの一括適用（ACTION_CLASS='forward'）。プレビューの決定論 id は捨て、本番 uuid で
     // 適用対象 ops を runBatch し直す。commit が reconcile と 1 undo を担当する（承認分が undo 一発で戻る）。
     applyApprovedBatch: (ops) => {
-      if (!ops.length) return; // 承認 0 件は履歴を汚さない
+      if (!ops.length) return {}; // 承認 0 件は履歴を汚さない
       const now = new Date().toISOString();
-      const { project } = runBatch(get().project, ops, uuid, now);
+      const { project, aliases } = runBatch(get().project, ops, uuid, now);
       commit(project, 'AI提案を適用');
+      return aliases; // ref→実 taskId（見送り分のセッション継続で参照張り替えに使う。D-02）
     },
 
     markSaved: (saved) => {
