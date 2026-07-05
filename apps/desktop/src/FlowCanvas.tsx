@@ -3,7 +3,7 @@ import { useApp, findView, isBridgeEdge } from './store';
 import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
-import { chordKeys, getActiveKeymap, isImeKeyEvent, isInteractiveTarget } from './keymap';
+import { chordKeys, getActiveKeymap, isEditableTarget, isImeKeyEvent, isInteractiveTarget } from './keymap';
 import { clampScale, zoomScroll, centerScroll, loadFlowViewport, saveFlowViewport } from './flowZoom';
 import { confirmRemoveTasks, revealTask, toastUndo } from './taskOps';
 import { TASK_COLORS } from './theme';
@@ -67,6 +67,8 @@ export function FlowCanvas() {
   // フロー内操作で選んだ選択は「自分側」＝表→フロー追従の中央寄せをしない（次の追従 effect を 1 回だけ抑止）。
   // フロー内の選択はすべて selectFromFlow 経由にし、このワンショットで origin を区別する（表/パレット等は素の追従）。
   const suppressFlowCenterRef = useRef(false);
+  // 直近に追従した選択。view 再生成（編集毎の reconcile）だけでは追従を再実行しない。
+  const lastCenteredTaskRef = useRef<string | undefined>(undefined);
   const selectFromFlow = (taskId?: string) => {
     // 実際に別工程へ変わるときだけ抑止フラグを立てる（同工程/解除では追従 effect が走らず
     // フラグが残留して次の外部選択を誤って抑止するのを防ぐ）。追従 effect が 1 回で消費する。
@@ -784,8 +786,14 @@ export function FlowCanvas() {
     if (!selectedTaskId || !view) return;
     if (suppressFlowCenterRef.current) {
       suppressFlowCenterRef.current = false; // ワンショット消費（残留させない）
+      lastCenteredTaskRef.current = selectedTaskId;
       return;
     }
+    // view の再生成（編集毎の reconcile）では追従しない。選択が実際に変わったときだけ寄せる。
+    if (lastCenteredTaskRef.current === selectedTaskId) return;
+    lastCenteredTaskRef.current = selectedTaskId;
+    // 表などの入力にフォーカスがある間（行の連続入力中）はフローを跳ねさせない。
+    if (isEditableTarget(document.activeElement)) return;
     const node = Object.values(view.nodes).find(
       (n) => n.kind === 'task' && n.taskId === selectedTaskId,
     );
