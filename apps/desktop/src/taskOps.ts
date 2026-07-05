@@ -5,15 +5,14 @@ import { useApp } from './store';
 import { useUI } from './ui/useUI';
 
 /**
- * 工程へジャンプ: 選択し、粒度をその工程に合わせ、詳細パネルを開く。
+ * 工程を選択し、粒度をその工程に合わせる（詳細パネルは開かない）。
  * 全体スコープで俯瞰中はスコープを維持（どの工程も見えている）。特定の親に絞って
  * 見ているときだけ、対象工程の文脈（親）へスコープを追従させる。
  *
- * revealInFlow: パレット検索ジャンプ専用。分割＋詳細表示では activePane='table' のとき
- * フローペインが畳まれ、ジャンプ先のノードが見えない（#5）。この経路に限りフローを
- * アクティブにして必ず見せる（表クリックやフロー→表の「表で表示」経路では倒さない）。
+ * 「選ぶだけ」の経路（行クリック等）で使う。詳細パネルが既に開いていれば selectedTaskId
+ * 追従で表示対象が切り替わる（C-01: 開いていなければ勝手に開かない）。
  */
-export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): void {
+export function selectTask(taskId: string): void {
   const app = useApp.getState();
   const t = app.project.core.tasks[taskId];
   if (!t) return;
@@ -21,6 +20,21 @@ export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): v
   app.select(taskId);
   app.setLevel(t.level);
   if (wasScoped) app.setScope(t.parentId);
+}
+
+/**
+ * 工程へジャンプ: 選択し、粒度をその工程に合わせ、詳細パネルを開く。
+ * 選択＋粒度/スコープ同期は selectTask に集約。こちらは明示的に詳細を開く経路
+ * （行のダブルクリック / パレット / I/O ポップオーバー / 新規作成直後など）で使う。
+ *
+ * revealInFlow: パレット検索ジャンプ専用。分割＋詳細表示では activePane='table' のとき
+ * フローペインが畳まれ、ジャンプ先のノードが見えない（#5）。この経路に限りフローを
+ * アクティブにして必ず見せる（表クリックやフロー→表の「表で表示」経路では倒さない）。
+ */
+export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): void {
+  const app = useApp.getState();
+  if (!app.project.core.tasks[taskId]) return;
+  selectTask(taskId);
   const ui = useUI.getState();
   if (opts?.revealInFlow) ui.setActivePane('flow');
   ui.setInspectorOpen(true);
