@@ -43,6 +43,22 @@ export function removeStepWithUndo(taskId: string, stepId: string): void {
   toastUndo('手順ステップを削除しました');
 }
 
+/** クリップボード（Excel 等）の各行を工程として一括追加（タブ区切り [作業名, 担当]）。
+ *  アウトライン表・全項目表の両方から呼べる共通処理（ビュー非依存の store.pasteRowsAsTasks に委譲）。 */
+export async function pasteRowsFromClipboard(): Promise<void> {
+  let text: string;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    useUI.getState().toast('クリップボードを読み取れませんでした（ブラウザの許可が必要です）。', 'error');
+    return;
+  }
+  const parsed = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.split('\t'));
+  const n = useApp.getState().pasteRowsAsTasks(parsed);
+  if (n) useUI.getState().toast(`${n}件の工程を貼り付けました。`, 'success');
+  else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
+}
+
 /** 前後関係（依存）を解除し「元に戻す」トーストを出す（表・全項目表・詳細パネル共通）。 */
 export function removeDependencyWithUndo(depId: string, message = '前工程を解除しました'): void {
   useApp.getState().removeDependency(depId);

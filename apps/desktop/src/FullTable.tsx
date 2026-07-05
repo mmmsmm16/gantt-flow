@@ -12,7 +12,7 @@ import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnch
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { isImeKeyEvent } from './keymap';
-import { confirmRemoveTasks, removeDependencyWithUndo, removeIoWithUndo, removeIssueWithUndo } from './taskOps';
+import { confirmRemoveTasks, removeDependencyWithUndo, removeIoWithUndo, removeIssueWithUndo, pasteRowsFromClipboard } from './taskOps';
 import { useUI } from './ui/useUI';
 import { STATUS_OPTIONS, statusSelectClass } from './statusUi';
 import { useFlashIds } from './ui/useFlash';
@@ -171,7 +171,6 @@ export function FullTable() {
   const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const duplicateTask = useApp((s) => s.duplicateTask);
-  const pasteRowsAsTasks = useApp((s) => s.pasteRowsAsTasks);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
@@ -407,19 +406,7 @@ export function FullTable() {
   } = useRowMultiSelect({ orderedIds: rows.map((r) => r.id), onActivate: select });
 
   // クリップボード（Excel/表計算）の各行を工程として一括追加。タブ区切り [作業名, 担当?]。
-  const onPasteRows = async () => {
-    let text: string;
-    try {
-      text = await navigator.clipboard.readText();
-    } catch {
-      useUI.getState().toast('クリップボードを読み取れませんでした（ブラウザの許可が必要です）。', 'error');
-      return;
-    }
-    const parsed = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.split('\t'));
-    const n = pasteRowsAsTasks(parsed);
-    if (n) useUI.getState().toast(`${n}件の工程を貼り付けました。`, 'success');
-    else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
-  };
+  const onPasteRows = () => void pasteRowsFromClipboard();
 
   // 列幅のドラッグ調整。
   const startResize = (key: string, e: React.PointerEvent) => {

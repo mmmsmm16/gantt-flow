@@ -14,7 +14,7 @@ import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
-import { revealTask, selectTask, confirmRemoveTasks, toastUndo, removeDependencyWithUndo } from './taskOps';
+import { revealTask, selectTask, confirmRemoveTasks, toastUndo, removeDependencyWithUndo, pasteRowsFromClipboard } from './taskOps';
 import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
@@ -452,6 +452,12 @@ export function TableView() {
           onClick={addMilestoneAndEdit}
         >
           <Icons.MilestoneDiamond />マイルストーン
+        </button>
+        <button
+          title="クリップボード（Excel など）の各行を工程として追加。列はタブ区切りで [作業名, 担当]。"
+          onClick={() => void pasteRowsFromClipboard()}
+        >
+          貼り付けで追加
         </button>
         {parentsWithChildren.size > 0 && (
           <span className="outline-collapse">
