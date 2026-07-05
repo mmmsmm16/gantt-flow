@@ -8,6 +8,10 @@ export interface ValidationIssue {
   message: string;
 }
 
+// 読込を拒否すべき整合性問題の kind（依存の端点欠落・親欠落・親子循環）。
+// detail.task の孤児詳細は実害がないので除外。persistence（読込拒否）と lint（error 昇格）が共有する。
+export const FATAL_ISSUE_KINDS = new Set(['dependency.from', 'dependency.to', 'task.parent', 'task.cycle']);
+
 export function validate(project: Project): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const { tasks, dependencies } = project.core;

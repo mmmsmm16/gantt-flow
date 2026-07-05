@@ -2,7 +2,7 @@
 // ファイル I/O（アトミック書き込み・ロック等）は Tauri 側が担い、ここはコアの純粋変換に限る。
 import { ProjectSchema } from '../model/schema';
 import { migrate, migrations, CURRENT_SCHEMA_VERSION, type Migration } from './migrate';
-import { validate, type ValidationIssue } from '../validate';
+import { validate, FATAL_ISSUE_KINDS, type ValidationIssue } from '../validate';
 import type { Project } from '../model/types';
 
 export function serializeProject(project: Project): string {
@@ -57,9 +57,6 @@ export class ProjectIntegrityError extends Error {
 export function isProjectIntegrityError(error: unknown): error is ProjectIntegrityError {
   return error instanceof Error && error.name === 'ProjectIntegrityError';
 }
-
-// 読込を拒否すべき整合性問題（detail.task の孤児詳細は実害がないので除外）。
-const FATAL_ISSUE_KINDS = new Set(['dependency.from', 'dependency.to', 'task.parent', 'task.cycle']);
 
 // 文字列 → 版チェック → マイグレーション → Zod 検証 → 参照整合性検証 → Project。
 // 構造不正は ZodError、新しすぎる版は SchemaVersionTooNewError、参照破綻は ProjectIntegrityError を投げる。
