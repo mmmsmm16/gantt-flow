@@ -1,5 +1,5 @@
 // 工数の集計（`docs/02-data-model.md` §3）。末端のみが値を持ち、親は子孫の末端工数の合計を導出。
-import type { Core, TaskDetail, Id, ProcessLevel, Automation } from './model/types';
+import type { Core, TaskDetail, Id, ProcessLevel, Automation, TaskStatus } from './model/types';
 
 // 全タスクの集計工数を 1 パス（O(n)）で計算する。表のソート・一覧描画・合計など、
 // 複数タスク分が必要な場面ではタスクごとに effortRollupMinutes を呼ばずこちらを使う。
@@ -114,4 +114,34 @@ export function computeProjectSummary(core: Core, details: Record<Id, TaskDetail
   const levelCounts = SUMMARY_LEVELS.map((key) => ({ key, n: tasks.filter((t) => t.level === key).length }));
 
   return { assignees, totalMin, autoCounts, leafCount: leaves.length, levelCounts, taskCount: tasks.length };
+}
+
+// ---- ヒアリング進行（状況）の集計 ----
+// 「状況」は末端工程ごとの聞き取り進行度。未指定は 'todo'（未着手）扱いという解釈を、
+// UI/集計で二重定義しないための単一定義点。
+export function effectiveStatus(detail: TaskDetail | undefined): TaskStatus {
+  return detail?.status ?? 'todo';
+}
+
+export interface HearingProgress {
+  /** 集計母数（末端かつ To-Be 新設でない工程数）。 */
+  total: number;
+  /** 状況ごとの末端工程数（effectiveStatus で未指定は todo に寄せる）。 */
+  counts: Record<TaskStatus, number>;
+  /** 着手済み（heard + review + done）の件数。チップの分子。 */
+  heard: number;
+}
+
+// サマリ/ステータスバー/チップで共有するヒアリング進行の集計。母数は computeProjectSummary と
+// 同一流儀（末端のみ・To-Be 新設 lifecycle='added' は除外）。純関数（UI/OS 非依存）。
+export function computeHearingProgress(core: Core, details: Record<Id, TaskDetail>): HearingProgress {
+  const tasks = Object.values(core.tasks).filter((t) => details[t.id]?.toBe?.lifecycle !== 'added');
+  const hasChild = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[]);
+  const leaves = tasks.filter((t) => !hasChild.has(t.id));
+
+  const counts: Record<TaskStatus, number> = { todo: 0, heard: 0, review: 0, done: 0 };
+  for (const t of leaves) {
+    counts[effectiveStatus(details[t.id])] += 1;
+  }
+  return { total: leaves.length, counts, heard: counts.heard + counts.review + counts.done };
 }

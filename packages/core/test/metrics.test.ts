@@ -4,6 +4,8 @@ import {
   computeEffortRollups,
   effortMinutesToHours,
   computeProjectSummary,
+  computeHearingProgress,
+  effectiveStatus,
   UNASSIGNED_LABEL,
 } from '../src/metrics';
 import { deriveBands } from '../src/sync/bands';
@@ -158,6 +160,69 @@ describe('metrics: computeProjectSummary', () => {
     expect(s.leafCount).toBe(0);
     expect(s.taskCount).toBe(0);
     expect(s.autoCounts).toEqual({ manual: 0, partial: 0, system: 0, none: 0 });
+  });
+});
+
+describe('metrics: computeHearingProgress', () => {
+  it('未指定は todo 扱い・着手済は heard+review+done', () => {
+    const core = coreOf([
+      task('root', 'large'),
+      task('a', 'small', 'root'),
+      task('b', 'small', 'root'),
+      task('c', 'small', 'root'),
+      task('d', 'small', 'root'),
+    ]);
+    const details: Record<Id, TaskDetail> = {
+      a: { taskId: 'a' }, // 未指定 → todo
+      b: { taskId: 'b', status: 'heard' },
+      c: { taskId: 'c', status: 'review' },
+      d: { taskId: 'd', status: 'done' },
+    };
+    const p = computeHearingProgress(core, details);
+    // 末端のみが母数（親 root は数えない）
+    expect(p.total).toBe(4);
+    expect(p.counts).toEqual({ todo: 1, heard: 1, review: 1, done: 1 });
+    expect(p.heard).toBe(3); // heard + review + done
+  });
+
+  it('親の status は数えない（末端のみ母数）', () => {
+    const core = coreOf([
+      task('root', 'large'),
+      task('a', 'small', 'root'),
+    ]);
+    const details: Record<Id, TaskDetail> = {
+      root: { taskId: 'root', status: 'done' }, // 親に status があっても無視
+      a: { taskId: 'a', status: 'heard' },
+    };
+    const p = computeHearingProgress(core, details);
+    expect(p.total).toBe(1);
+    expect(p.counts).toEqual({ todo: 0, heard: 1, review: 0, done: 0 });
+    expect(p.heard).toBe(1);
+  });
+
+  it('To-Be 新設(lifecycle=added)は母数から除外する', () => {
+    const core = coreOf([task('a', 'small'), task('b', 'small')]);
+    const details: Record<Id, TaskDetail> = {
+      a: { taskId: 'a', status: 'heard' },
+      b: { taskId: 'b', status: 'done', toBe: { lifecycle: 'added' } },
+    };
+    const p = computeHearingProgress(core, details);
+    expect(p.total).toBe(1);
+    expect(p.counts).toEqual({ todo: 0, heard: 1, review: 0, done: 0 });
+    expect(p.heard).toBe(1);
+  });
+
+  it('空プロジェクトでも total 0 で壊れない', () => {
+    const p = computeHearingProgress(coreOf([]), {});
+    expect(p.total).toBe(0);
+    expect(p.counts).toEqual({ todo: 0, heard: 0, review: 0, done: 0 });
+    expect(p.heard).toBe(0);
+  });
+
+  it('effectiveStatus: 未指定/status なし詳細は todo', () => {
+    expect(effectiveStatus(undefined)).toBe('todo');
+    expect(effectiveStatus({ taskId: 'x' })).toBe('todo');
+    expect(effectiveStatus({ taskId: 'x', status: 'review' })).toBe('review');
   });
 });
 
