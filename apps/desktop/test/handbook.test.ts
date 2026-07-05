@@ -1,7 +1,7 @@
 // buildHandbookHtml の規範アサーション（node 環境・renderToStaticMarkup 実証パターン: markdownLite.test.tsx）。
 // サンプルプロジェクト(createSampleProject)は手順書ダミーデータ入りのため、そのままフィクスチャに使う。
 import { describe, it, expect } from 'vitest';
-import { createSampleProject, addTask, addStep, addStepCond, type Project } from '@gantt-flow/core';
+import { createSampleProject, addTask, addDependency, addStep, addStepCond, type Project } from '@gantt-flow/core';
 import { buildHandbookHtml, type HandbookOptions } from '../src/handbook';
 
 const gen = (prefix: string) => {
@@ -99,7 +99,7 @@ describe('buildHandbookHtml', () => {
     expect(html).toContain('id="hb-search"'); // 工程検索
     expect(html).toContain('id="hb-chips"'); // 担当フィルタ群
     expect(html).toContain('data-all'); // 「全て」チップ
-    expect(html).toContain('class="hb-toc-link"'); // 現在地ハイライト付き目次リンク
+    expect(html).toContain('class="hb-toc-link hb-mnode"'); // 現在地ハイライト対象＝縦フローナビの箱
     expect(html).toContain('class="hb-chap-head"'); // 章の折りたたみヘッダ
     expect(html).toContain('id="hb-scrim"'); // モバイル drawer 用スクリム
     expect(html).toContain('data-anchor="hb-task-'); // 現在地スパイ用アンカー
@@ -109,6 +109,54 @@ describe('buildHandbookHtml', () => {
     expect(html).toContain('data-assignee="経理部"');
     expect(html).toContain('data-assignee="在庫管理"');
     expect(html).toContain('data-assignee="倉庫"');
+  });
+
+  it('サイドバーの縦フローナビ: 手順書タブと同じ「箱＋縦の連結線」（.hb-mflow/.hb-mnode/.hb-mlink）で中工程が並ぶ', () => {
+    const project = sample();
+    const html = buildHandbookHtml(project, opts());
+
+    // 大工程ごとに .hb-mflow（縦フロー）があり、中工程は .hb-mnode（箱）、箱同士は .hb-mlink（縦線）で繋がる。
+    expect(html).toContain('class="hb-mflow"');
+    expect(html).toContain('class="hb-mlink"');
+    // 箱の中身: コード・名前・作成済み ✓/未作成 — が出る（サンプルは 3 件作成済み・7 件未作成）。
+    expect((html.match(/class="hb-toc-link hb-mnode(?: todo)?"/g) ?? []).length).toBe(10); // 全中工程 10 件
+    expect((html.match(/<span class="cov ok">✓<\/span>/g) ?? []).length).toBe(3);
+    expect((html.match(/<span class="cov none">—<\/span>/g) ?? []).length).toBe(7);
+    // 未作成の箱は .todo（破線）になる。
+    expect((html.match(/class="hb-toc-link hb-mnode todo"/g) ?? []).length).toBe(7);
+    // 箱同士の連結線は「大工程内の中工程数 - 1」本ずつ（受注 4→3・出荷 4→3・請求 2→1 = 7 本）。
+    expect((html.match(/class="hb-mlink"/g) ?? []).length).toBe(7);
+  });
+
+  it('サイドバーの∥並行バッジ: 同一 layer の中工程が複数あるときだけ表示される（分岐フィクスチャ）', () => {
+    const idGen = (() => {
+      let n = 0;
+      return () => `par-${++n}`;
+    })();
+    const largeId = 'par-large';
+    const m1 = 'par-m1';
+    const m2 = 'par-m2';
+    const m3 = 'par-m3';
+    let p: Project = {
+      schemaVersion: 2,
+      meta: { id: 'ppar', title: '並行テスト', createdAt: NOW, updatedAt: NOW, appVersion: '0' },
+      core: { tasks: {}, dependencies: {}, assignees: {} },
+      details: {},
+      flow: { byLevel: [] },
+      manual: { procedures: {}, assets: {} },
+    };
+    p = addTask(p, { name: '大工程', level: 'large', id: largeId }, idGen);
+    p = addTask(p, { name: '起点工程', level: 'medium', parentId: largeId, id: m1 }, idGen);
+    p = addTask(p, { name: '並行工程A', level: 'medium', parentId: largeId, id: m2 }, idGen);
+    p = addTask(p, { name: '並行工程B', level: 'medium', parentId: largeId, id: m3 }, idGen);
+    p = addDependency(p, m1, m2, idGen);
+    p = addDependency(p, m1, m3, idGen);
+
+    const html = buildHandbookHtml(p, opts());
+    // 起点(m1)は並行なし・並行工程A/Bは同一 layer なので ∥並行 バッジが 2 件だけ出る。
+    expect((html.match(/∥並行/g) ?? []).length).toBe(2);
+    const m1Box = html.slice(html.indexOf(`href="#hb-task-${m1}"`), html.indexOf(`href="#hb-task-${m2}"`));
+    expect(m1Box).not.toContain('∥並行');
   });
 
   it('担当フィルタ: data-assignee 属性のユーザ文字列はエスケープされる（属性経由の XSS 防止）', () => {

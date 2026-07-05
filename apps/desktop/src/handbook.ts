@@ -133,12 +133,46 @@ interface TocMid {
   name: string;
   assignee?: string;
   written: boolean; // 配下末端のいずれかに手順書あり
+  layer: number; // トポロジ層（0..）。同一 layer=並行候補（deriveProcedureNav と同じ考え方を中工程に適用）
+  parallel: boolean; // 同一 layer に他の中工程がある
 }
 interface TocChapter {
   taskId: Id;
   code: string;
   name: string;
   mids: TocMid[];
+}
+
+// 中工程（同じ大工程配下の兄弟）の並行判定。deriveProcedureNav（packages/core）の
+// 「同一 layer=並行」の longest-path 緩和ロジックを、対象を末端でなく中工程に適用したもの。
+// サイドバーの縦フローナビ用（本文の末端ナビとは独立に、章内の中工程同士の並行を示す）。
+function deriveMidLayering(core: Core, mids: ProcessTask[]): Map<Id, { layer: number; parallel: boolean }> {
+  const idSet = new Set(mids.map((m) => m.id));
+  const deps = Object.values(core.dependencies).filter((d) => idSet.has(d.from) && idSet.has(d.to));
+  const layer = new Map<Id, number>();
+  for (const m of mids) layer.set(m.id, 0);
+  for (let iter = 0; iter < mids.length; iter++) {
+    let changed = false;
+    for (const d of deps) {
+      const nl = (layer.get(d.from) ?? 0) + 1;
+      if (nl > (layer.get(d.to) ?? 0)) {
+        layer.set(d.to, nl);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  const counts = new Map<number, number>();
+  for (const m of mids) {
+    const l = layer.get(m.id) ?? 0;
+    counts.set(l, (counts.get(l) ?? 0) + 1);
+  }
+  const result = new Map<Id, { layer: number; parallel: boolean }>();
+  for (const m of mids) {
+    const l = layer.get(m.id) ?? 0;
+    result.set(m.id, { layer: l, parallel: (counts.get(l) ?? 0) > 1 });
+  }
+  return result;
 }
 
 function collectChapters(
@@ -152,15 +186,19 @@ function collectChapters(
   const chapters = larges.map((large) => {
     const midCandidates = byOrder(Object.values(core.tasks).filter((t) => t.parentId === large.id));
     const mids = midCandidates.length > 0 ? midCandidates : [large];
+    const layering = deriveMidLayering(core, mids);
     const midEntries: TocMid[] = mids.map((mid) => {
       const assignee = assigneeNameOf(project, mid.id);
       if (assignee) nameset.add(assignee);
+      const lp = layering.get(mid.id) ?? { layer: 0, parallel: false };
       return {
         taskId: mid.id,
         code: codeOf(codes, mid.id),
         name: mid.name,
         assignee,
         written: leavesOfMid(core, manual, mid).some((n) => n.hasProcedure),
+        layer: lp.layer,
+        parallel: lp.parallel,
       };
     });
     return { taskId: large.id, code: codeOf(codes, large.id), name: large.name, mids: midEntries };
@@ -209,19 +247,21 @@ function buildSidebar(
         `</div>`
       : '';
 
+  // 中工程を「箱＋縦の連結線」で並べる縦フローナビ（手順書タブの .proc-mflow と同じ表現）。
   const groups = chapters
     .map((chap) => {
-      const links = chap.mids
-        .map((m) => {
+      const nodes = chap.mids
+        .map((m, i) => {
           const color = m.assignee ? r.roleColor.get(m.assignee) : undefined;
           const roleStyle = color ? ` style="--hb-role:${color}"` : '';
           const roleAttr = m.assignee ? ` data-assignee="${escapeHtml(m.assignee)}"` : '';
-          const na = m.written ? '' : `<span class="na">未</span>`;
-          return (
-            `<a class="hb-toc-link" href="#hb-task-${escapeHtml(m.taskId)}"${roleAttr}${roleStyle}>` +
-            `<span class="rdot"></span><span class="no">${escapeHtml(m.code)}</span>` +
-            `<span class="nm">${escapeHtml(m.name)}</span>${na}</a>`
-          );
+          const parBadge = m.parallel ? `<span class="par">∥並行</span>` : '';
+          const covBadge = `<span class="cov ${m.written ? 'ok' : 'none'}">${m.written ? '✓' : '—'}</span>`;
+          const link =
+            `<a class="hb-toc-link hb-mnode${m.written ? '' : ' todo'}" href="#hb-task-${escapeHtml(m.taskId)}"${roleAttr}${roleStyle}>` +
+            `<span class="no">${escapeHtml(m.code)}</span><span class="nm">${escapeHtml(m.name)}</span>` +
+            `${parBadge}${covBadge}</a>`;
+          return (i > 0 ? `<div class="hb-mlink" aria-hidden="true"></div>` : '') + link;
         })
         .join('');
       const cn = chap.code ? `<span class="cn">${escapeHtml(chap.code)}</span>` : '';
@@ -229,7 +269,7 @@ function buildSidebar(
         `<div class="hb-toc-group">` +
         `<button type="button" class="hb-toc-btn" aria-expanded="true">${cn}` +
         `<span class="tt">${escapeHtml(chap.name)}</span><span class="caret" aria-hidden="true"></span></button>` +
-        `<div class="hb-toc-links">${links}</div></div>`
+        `<div class="hb-toc-links"><nav class="hb-mflow" aria-label="${escapeHtml(chap.name)}の工程フロー">${nodes}</nav></div></div>`
       );
     })
     .join('');
@@ -576,16 +616,24 @@ strong{font-weight:700;}
 .hb-toc-btn .caret{width:9px;height:9px;border-right:1.6px solid var(--ink-3);border-bottom:1.6px solid var(--ink-3);
   transform:rotate(45deg);transition:transform .15s;flex:none;}
 .hb-toc-btn[aria-expanded="false"] .caret{transform:rotate(-45deg);}
-.hb-toc-links{display:flex;flex-direction:column;gap:1px;}
+.hb-toc-links{display:flex;flex-direction:column;padding:2px 8px 6px 18px;}
 .hb-toc-links[hidden]{display:none;}
-.hb-toc-link{display:flex;align-items:center;gap:9px;text-decoration:none;color:var(--ink-2);
-  font-size:12.5px;padding:6px 12px 6px 22px;border-radius:7px;border-left:2px solid transparent;}
-.hb-toc-link .rdot{width:7px;height:7px;border-radius:50%;background:var(--hb-role,#c3cad2);flex:none;}
-.hb-toc-link .no{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex:none;}
+/* 縦フローナビ（手順書タブの .proc-mflow/.proc-mnode/.proc-mlink と同じ「箱＋縦の連結線」表現）。 */
+.hb-mflow{display:flex;flex-direction:column;}
+.hb-mlink{width:2px;height:10px;background:var(--line-2);margin:0 0 0 calc(50% - 1px);}
+.hb-toc-link{display:flex;align-items:center;gap:7px;text-decoration:none;color:var(--ink-2);
+  font-size:12px;padding:7px 10px;border-radius:8px;}
+.hb-toc-link.hb-mnode{border:1px solid var(--line-2);border-left:3px solid var(--hb-role,var(--line-2));background:var(--bg);}
+.hb-toc-link.hb-mnode.todo{border-style:dashed;}
+.hb-toc-link .no{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex:none;}
 .hb-toc-link .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.hb-toc-link .na{font-size:10px;color:var(--shu);border:1px solid var(--shu-rule);border-radius:4px;padding:0 5px;flex:none;}
+.hb-toc-link .par{font-size:9.5px;font-weight:700;color:#8a5a12;background:#f6e9cf;
+  border:1px solid #e2c68d;border-radius:999px;padding:0 6px;flex:none;}
+.hb-toc-link .cov{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;flex:none;}
+.hb-toc-link .cov.ok{color:var(--brand);}
+.hb-toc-link .cov.none{color:var(--ink-3);font-weight:400;}
 .hb-toc-link:hover{background:var(--panel-2);color:var(--ink);}
-.hb-toc-link.active{background:var(--brand-tint);color:var(--brand-dark);border-left-color:var(--brand);font-weight:700;}
+.hb-toc-link.active{background:var(--brand-tint);color:var(--brand-dark);border-color:var(--brand);font-weight:700;}
 .hb-toc-link.dim{opacity:.32;}
 .hb-toc-link.hide{display:none;}
 .hb-toc-empty{display:none;padding:10px 22px;font-size:12px;color:var(--ink-3);}
