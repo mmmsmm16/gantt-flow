@@ -799,6 +799,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
       { id: 'summary', label: 'サマリを開く（工数・自動化）', keywords: 'summary dashboard サマリ 集計 工数', run: () => ui.setOverlay('summary') },
+      { id: 'validate', label: 'プロジェクトを検証（納品前チェック）', keywords: 'validate lint 検証 チェック 納品 点検 手順書 担当 工数 抜け', run: () => ui.setOverlay('validate') },
       // 改善効果サマリ（As-Is / To-Be 比較）。tobeEnabled でなくても常時表示し、無効時は設定へ誘導。
       { id: 'comparison', label: '改善効果サマリを開く（As-Is / To-Be 比較）', keywords: 'comparison hikaku 比較 改善 効果 as-is to-be トゥービー アズイズ サマリ 削減', hint: '⌘⇧C', run: () => ui.openComparison() },
       { id: 'help', label: 'ショートカット一覧', keywords: 'help shortcut ヘルプ', hint: '?', run: () => ui.setOverlay('help') },

@@ -873,6 +873,14 @@ export function App() {
           >
             <Icons.ChartBar />
           </button>
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('validate')}
+            aria-label="納品前チェック"
+            title="納品前チェック（手順書・担当・工数・整合性の抜けを点検）"
+          >
+            <Icons.ShieldCheck />
+          </button>
           <Menu
             className="icon-btn menu-trigger"
             title="別ウィンドウで表示（マルチディスプレイ）"
