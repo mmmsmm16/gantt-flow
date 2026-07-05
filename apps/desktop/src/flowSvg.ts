@@ -97,12 +97,18 @@ export function buildFlowSvg(
     }
   }
   if (hasLanes) maxY = Math.max(maxY, laneBottom + 40);
-  // マイルストーンがあるときは上部に菱形の余白を取り、縦線＋ラベルが収まる幅まで右へ広げる。
-  const MS_CY = -20; // 菱形の中心 y（レーン上の余白）
+  // マイルストーンがあるときは上部にピルの余白を取り、中央寄せピルが収まる幅まで左右へ広げる。
+  const MS_CY = -20; // ピルの中心 y（レーン上の余白）
   const msLineBottom = hasLanes ? laneBottom : maxY - 40;
+  // ピル幅の概算（日本語 1 文字 ~12px＋左右パディング＋🏁分。描画側と整合）。
+  const msPillWidth = (label: string) => Math.max(56, (label || '（無題）').length * 12 + 40);
   if (msGuides.length) {
     minY = Math.min(minY, MS_CY - 16);
-    for (const g of msGuides) maxX = Math.max(maxX, g.x + 120);
+    for (const g of msGuides) {
+      const half = msPillWidth(g.label) / 2;
+      minX = Math.min(minX, g.x - half - 4);
+      maxX = Math.max(maxX, g.x + half + 4);
+    }
   }
   // 負側にはみ出した分は少し余白を足す（はみ出しが無ければ従来どおり原点 0,0）。
   if (minX < 0) minX -= 12;
@@ -161,21 +167,22 @@ export function buildFlowSvg(
     }
   }
 
-  // マイルストーン: レーンを貫く縦破線＋上部余白の琥珀の菱形（回転した角丸四角）＋ラベル。
+  // マイルストーン: レーンを貫く縦の実線＋上部余白の琥珀のピル（🏁＋名前を中央寄せ）。案A。
   // 導出は画面 FlowCanvas と共有（deriveMilestoneGuides）＝ WYSIWYG。
-  const msLineOpacity = otherDim ? DIM_OPACITY : 0.55;
+  const msLineOpacity = otherDim ? DIM_OPACITY : 0.8;
+  const MS_PILL_H = 22;
   for (const g of msGuides) {
+    const text = g.label || '（無題）';
+    const pw = msPillWidth(g.label);
     parts.push(
-      `<line x1="${g.x}" y1="${MS_CY + 12}" x2="${g.x}" y2="${msLineBottom}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.5" stroke-dasharray="6 4" opacity="${msLineOpacity}"/>`,
+      `<line x1="${g.x}" y1="${MS_CY + MS_PILL_H / 2}" x2="${g.x}" y2="${msLineBottom}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="2" opacity="${msLineOpacity}"/>`,
     );
     parts.push(
-      `<rect x="${g.x - 10}" y="${MS_CY - 10}" width="20" height="20" rx="4" transform="rotate(45 ${g.x} ${MS_CY})" fill="${FLOW_LIGHT.ms.fill}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.6"${dimAttr(otherDim)}/>`,
+      `<rect x="${g.x - pw / 2}" y="${MS_CY - MS_PILL_H / 2}" width="${pw}" height="${MS_PILL_H}" rx="${MS_PILL_H / 2}" fill="${FLOW_LIGHT.ms.fill}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.5"${dimAttr(otherDim)}/>`,
     );
-    if (g.label) {
-      parts.push(
-        `<text x="${g.x + 16}" y="${MS_CY + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.ms.text}"${dimAttr(otherDim)}>${esc(g.label)}</text>`,
-      );
-    }
+    parts.push(
+      `<text x="${g.x}" y="${MS_CY + 4}" font-size="12" font-weight="700" fill="${FLOW_LIGHT.ms.text}" text-anchor="middle"${dimAttr(otherDim)}>🏁 ${esc(text)}</text>`,
+    );
   }
 
   // edges: 直角コネクタ。他ノードと重ならない通り道を routeEdge が選ぶ(画面と同一ロジック)。

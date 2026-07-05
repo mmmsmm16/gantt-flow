@@ -1070,22 +1070,32 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     pasteRowsAsTasks: (rows) => {
       const cur = get().project;
       const sel = get().selectedTaskId ? cur.core.tasks[get().selectedTaskId!] : undefined;
-      const level = sel?.level ?? get().level;
-      const parentId = sel ? sel.parentId : get().scopeParentId;
-      // 正規化済み行 [name, assignee, effortMinutesStr]（pasteParse.ts）。工数は任意。
+      const baseLevel = sel?.level ?? get().level;
+      const baseParent = sel ? sel.parentId : get().scopeParentId;
+      const LEVELS: ProcessLevel[] = ['large', 'medium', 'small', 'detail'];
+      const baseIdx = Math.max(0, LEVELS.indexOf(baseLevel));
+      // 正規化済み行 [name, assignee, effortMinutesStr, depthStr]（pasteParse.ts）。工数・depth は任意。
       const items = rows
         .map((r) => ({
           name: (r[0] ?? '').trim(),
           assignee: (r[1] ?? '').trim(),
           effortMinutes: r[2] && r[2].trim() ? Number(r[2]) : undefined,
+          depth: r[3] && r[3].trim() ? Math.max(0, Math.floor(Number(r[3]))) : 0,
         }))
         .filter((r) => r.name);
       if (!items.length) return 0;
       let p = cur;
       let count = 0;
+      // 親スタック: stack[d] = 直近に作った depth d の工程 id。親が居ない深さへは飛ばさない（1段ずつ）。
+      const stack: Id[] = [];
       for (const it of items) {
+        const depth = Math.min(it.depth, stack.length);
+        const level = LEVELS[Math.min(baseIdx + depth, LEVELS.length - 1)]!;
+        const parent = depth > 0 ? stack[depth - 1] : baseParent;
         const nid = uuid();
-        p = cAddTask(p, { name: it.name, level, parentId, id: nid }, uuid);
+        p = cAddTask(p, { name: it.name, level, parentId: parent, id: nid }, uuid);
+        stack[depth] = nid;
+        stack.length = depth + 1; // より深い層の親候補を無効化
         count += 1;
         if (it.assignee) {
           const r = ensureAssigneeId(p, it.assignee);

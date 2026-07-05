@@ -961,17 +961,16 @@ button.danger:hover {
 .grid tr.is-milestone:hover > td {
   background: color-mix(in srgb, var(--amber-fill) 70%, var(--row-hover));
 }
-/* 表の菱形バッジ（作業名の先頭）。フローの .ms-diamond と同じ配色の小型版。 */
+/* 表の節目バッジ（作業名の先頭）。フローのピル（🏁）と識別子をそろえた小型版。 */
 .ms-badge {
   display: inline-block;
   flex: none;
-  width: 9px;
-  height: 9px;
-  margin-right: 5px;
-  background: var(--amber-fill);
-  border: 1.3px solid var(--amber);
-  border-radius: 2px;
-  transform: rotate(45deg);
+  margin-right: 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+.ms-badge::before {
+  content: "🏁";
 }
 /* マイルストーンでは持たない値（工程No/担当/工数など）の代わりに出す「—」。 */
 .ms-cell-blank {
@@ -1853,8 +1852,9 @@ button.danger:hover {
   font-size: var(--fs-label);
   color: var(--muted);
 }
-/* パレットのノード追加・操作はアイコンのみ（ホバーで title 説明）。正方形に揃える。 */
-.flow-palette button {
+/* パレットのノード追加・操作はアイコンのみ（ホバーで title 説明）。正方形に揃える。
+   ドロップダウン内の項目（.menu-item）はこの正方形化から除外する（テキストが 1 文字ずつ縦折れするのを防ぐ）。 */
+.flow-palette button:not(.menu-item) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1863,7 +1863,7 @@ button.danger:hover {
   padding: 0;
   font-size: var(--fs-label);
 }
-.flow-palette button svg {
+.flow-palette button:not(.menu-item) svg {
   width: 16px;
   height: 16px;
 }
@@ -2037,6 +2037,26 @@ button.danger:hover {
   background: var(--accent-soft);
   border-color: transparent;
 }
+/* A2 はじめて⇄全機能トグル: アイコン列に馴染む小さめのテキストボタン。全機能中は差し色。 */
+.toolbar-mode-toggle {
+  width: auto;
+  padding: 0 10px;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.toolbar-mode-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.toolbar-mode-toggle.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
 /* CSS のみのツールチップ基盤（data-tip 属性で説明を出す。アイコン操作の補助。新案準拠）。
    既定は上向き。広い説明は .tip-wrap、下向きは .tip-down。 */
 [data-tip] {
@@ -2182,6 +2202,19 @@ button.danger:hover {
   border-radius: var(--radius-sm);
   color: var(--ink);
   font-size: var(--fs-body);
+}
+/* 出力メニュー等の目的別グループ見出し（顧客へ渡す/データで渡す/図で渡す）。 */
+.menu-group {
+  padding: 7px 12px 3px;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--faint);
+}
+.menu-group:not(:first-child) {
+  margin-top: 3px;
+  border-top: 1px solid var(--line-faint);
+  padding-top: 8px;
 }
 .menu-item:hover {
   background: var(--accent-soft);
@@ -3931,42 +3964,51 @@ kbd {
 .ms-guide-line {
   position: absolute;
   width: 0;
-  border-left: 1.5px dashed var(--amber);
-  opacity: 0.55;
+  border-left: 2px solid var(--amber);
+  opacity: 0.8;
 }
-.ms-diamond {
+/* 案A: 節目名を持つ琥珀のピル（🏁＋名前）。縦線の真上に中央寄せ。菱形の代わりにクリック/ドラッグ/選択の対象。 */
+.ms-pill {
   position: absolute;
   z-index: 6;
-  width: 26px;
-  height: 26px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
   box-sizing: border-box;
-  border-radius: 5px;
   background: var(--amber-fill);
-  border: 1.6px solid var(--amber);
-  transform: rotate(45deg);
+  border: 1.5px solid var(--amber);
+  border-radius: var(--radius-pill);
+  padding: 3px 11px;
+  color: var(--amber-ink);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(120, 84, 7, 0.15);
   pointer-events: auto;
   cursor: pointer;
 }
-.ms-diamond.draggable {
+.ms-pill .ms-flag {
+  font-size: 11px;
+  line-height: 1;
+}
+.ms-pill .ms-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ms-pill.draggable {
   cursor: grab;
 }
-.ms-diamond.selected {
+.ms-pill.selected {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 45%, transparent);
 }
-.ms-label {
-  position: absolute;
-  z-index: 6;
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-strong);
-  color: var(--amber-ink);
-  white-space: nowrap;
-  pointer-events: none;
-}
-/* MS のその場リネーム入力。菱形と同様 .ms-guide の非操作を上書きし、ラベル位置に置く。 */
+/* MS のその場リネーム入力。ピルと同じ位置（線の真上・中央寄せ）に置く。 */
 .ms-edit {
   position: absolute;
   z-index: 7;
-  width: 140px;
+  width: 150px;
+  transform: translateX(-50%);
   text-align: left;
   pointer-events: auto;
 }

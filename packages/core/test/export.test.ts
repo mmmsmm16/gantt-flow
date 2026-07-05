@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { projectToRows, projectToCsv, rowsToCsv, EXPORT_HEADER } from '../src/export/exportRows';
+import { projectToRows, projectToRowsWithIds, projectToCsv, rowsToCsv, rowsToTsv, EXPORT_HEADER } from '../src/export/exportRows';
 import { importCsv, rowsToProject } from '../src/import/importCsv';
 import { addTask, addDependency } from '../src/commands';
 import { counter, emptyProject, taskIdByName } from './helpers';
@@ -166,5 +166,34 @@ describe('export: Project → 行列 / CSV', () => {
     expect(row[0]).toBe(''); // 工程No は空
     expect(row[2]).toBe(''); // 担当は空
     expect(row[10]).toBe(''); // 工数(分) も空
+  });
+});
+
+describe('export: 選択行 TSV（Excel 書き戻し）', () => {
+  it('projectToRowsWithIds は見出し行 id=null＋各工程 id を付け、cells は projectToRows と一致', () => {
+    const { project } = importCsv(CSV, counter('t'));
+    const withIds = projectToRowsWithIds(project, { depRef: 'name' });
+    const plain = projectToRows(project, { depRef: 'name' });
+    expect(withIds.map((r) => r.cells)).toEqual(plain); // 同じ行列
+    expect(withIds[0]!.id).toBeNull(); // 見出しは id なし
+    expect(withIds.slice(1).every((r) => r.id && project.core.tasks[r.id])).toBe(true); // 実在工程
+  });
+
+  it('rowsToTsv はタブ区切り・CRLF 改行で、タブ/改行/引用符セルを "…" で囲む', () => {
+    const tsv = rowsToTsv([
+      ['a', 'b'],
+      ['タブ\tあり', '普通'],
+      ['改行\nあり', '"引用"符'],
+    ]);
+    const lines = tsv.split('\r\n');
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe('a\tb');
+    expect(lines[1]).toBe('"タブ\tあり"\t普通'); // タブ含む → 引用
+    expect(lines[2]).toBe('"改行\nあり"\t"""引用""符"'); // 改行・引用符 → 引用＋"" エスケープ
+  });
+
+  it('rowsToTsv は数式インジェクション（= + - @ 先頭）を CSV と同じく無害化する', () => {
+    const tsv = rowsToTsv([['=1+2', '+SUM(A1)', 'ok']]);
+    expect(tsv).toBe(`'=1+2\t'+SUM(A1)\tok`);
   });
 });

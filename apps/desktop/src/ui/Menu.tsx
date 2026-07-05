@@ -103,6 +103,15 @@ export function Menu({
   );
 }
 
+// 目的別グループの見出し（項目ではないのでキーボード巡回・クリック閉じの対象外）。
+export function MenuGroup({ children }: { children: ReactNode }) {
+  return (
+    <div className="menu-group" role="presentation" onClick={(e) => e.stopPropagation()}>
+      {children}
+    </div>
+  );
+}
+
 export function MenuItem({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
     <button type="button" className="menu-item" role="menuitem" onClick={onClick}>

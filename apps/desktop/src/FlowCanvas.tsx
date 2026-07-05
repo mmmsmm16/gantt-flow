@@ -206,7 +206,14 @@ export function FlowCanvas() {
   const [sel, setSel] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null);
   // 右クリックメニュー（ノード/矢印/複数選択）。位置はカーソルの画面座標（fixed 配置）。
   // kind='multi' は複数選択を右クリックしたとき（選択を維持したまま一括メニューを出す）。
-  const [ctxMenu, setCtxMenu] = useState<{ kind: 'node' | 'edge' | 'multi'; id: string; x: number; y: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    kind: 'node' | 'edge' | 'multi' | 'canvas';
+    id: string;
+    x: number;
+    y: number;
+    /** kind='canvas' のとき、図形を置くカーソル位置（キャンバス論理座標）。 */
+    at?: { x: number; y: number };
+  } | null>(null);
   // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
   // B1: ドラッグ/接続中の端オートスクロール。lastPointer=最新カーソル(client)+Alt、
@@ -312,7 +319,7 @@ export function FlowCanvas() {
     const connect = getActiveKeymap().find((b) => b.action === 'flow.connect');
     const pieces = ['○ドラッグで矢印'];
     if (connect) pieces.push(`${chordKeys(connect.chord, connect.leader).join('')} で接続モード`);
-    pieces.push('Shift+ドラッグで範囲選択', 'Delete で削除');
+    pieces.push('右クリックで図形を追加', 'Shift+ドラッグで範囲選択', 'Delete で削除');
     return pieces.join(' / ');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [singleKey]);
@@ -409,7 +416,7 @@ export function FlowCanvas() {
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     const el = e.target as HTMLElement;
-    if (el.closest('.node, .ms-diamond, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
+    if (el.closest('.node, .ms-pill, .handle, .del, button, input, a')) return; // ノード操作などは委ねる
     const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller) return;
     setSel(null); // 空白クリックで単一選択解除
@@ -472,7 +479,7 @@ export function FlowCanvas() {
     const el = e.target as HTMLElement;
     // I/O 表示（集約アイコン・出所チップ）上のダブルクリックは編集オープンに割り当てるため除外
     // （新規工程の量産を防ぐ。onDoubleClick でも伝播を止めているが closest でも二重に弾く）。
-    if (el.closest('.node, .ms-diamond, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar, .io-icon, .io-source')) return;
+    if (el.closest('.node, .ms-pill, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar, .io-icon, .io-source')) return;
     if ((e.target as Element).closest('svg.edges')) {
       // 矢印（edge-hit）上のダブルクリックはラベル編集に委ねるため、線以外の余白だけで作成。
       if ((e.target as HTMLElement).classList.contains('edge-hit')) return;
@@ -480,6 +487,16 @@ export function FlowCanvas() {
     const p = relPoint(e);
     const id = addTaskAt(p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
     if (id) setEditingTaskId(id); // 作成直後にその場リネーム（「新規工程」の量産を防ぐ）
+  };
+
+  // 空白を右クリック → その位置に図形を追加するメニュー（旧「図形」ボタンの置き換え）。
+  // ノード/矢印/入力上は各自の右クリック（またはネイティブ編集）へ委ねる（onCanvasDoubleClick と同じ除外）。
+  const onCanvasContextMenu = (e: React.MouseEvent) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('.node, .ms-pill, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar, .io-icon, .io-source')) return;
+    if (el.closest('svg.edges') && el.classList.contains('edge-hit')) return;
+    e.preventDefault();
+    setCtxMenu({ kind: 'canvas', id: '', x: e.clientX, y: e.clientY, at: relPoint(e) });
   };
 
   const relPoint = (e: { clientX: number; clientY: number }) => {
@@ -1579,10 +1596,6 @@ export function FlowCanvas() {
         >
           <Icons.BoxPlus />
         </button>
-        <button aria-label="開始" title="開始（スタジアム形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}><Icons.Play /></button>
-        <button aria-label="終了" title="終了（スタジアム形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}><Icons.Stop /></button>
-        <button aria-label="判断" title="判断（ひし形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}><Icons.Diamond /></button>
-        <button aria-label="合流" title="合流" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}><Icons.Merge /></button>
         <button
           className="add-milestone"
           aria-label="マイルストーンを追加"
@@ -1595,23 +1608,8 @@ export function FlowCanvas() {
         >
           <Icons.MilestoneDiamond />
         </button>
-        <button
-          onClick={async () => {
-            const text = await useUI.getState().promptText({
-              title: '付箋を追加',
-              placeholder: 'コメント',
-              confirmLabel: '追加',
-            });
-            if (text !== null) {
-              const p = spawnPos(SIZE.comment.w, SIZE.comment.h);
-              addComment(text, p.x, p.y);
-            }
-          }}
-          aria-label="付箋を追加"
-          title="付箋を追加"
-        >
-          <Icons.StickyNote />
-        </button>
+        {/* BPMN 制御ノード（開始/終了/判断/合流）と付箋は使用頻度が低いので、ツールバーからは外し
+            キャンバスの右クリック「ここに追加」へ移した（工程・MS は独立ボタンのまま）。 */}
         <span className="palette-sep" aria-hidden="true" />
         <button
           className="palette-act"
@@ -1687,6 +1685,7 @@ export function FlowCanvas() {
         aria-activedescendant={activeDescId}
         onPointerDown={onCanvasPointerDown}
         onDoubleClick={onCanvasDoubleClick}
+        onContextMenu={onCanvasContextMenu}
       >
         <div
           className="flow-scale"
@@ -1715,57 +1714,14 @@ export function FlowCanvas() {
           return (
             <div key={`ms-${g.taskId}`} className="ms-guide">
               <div className="ms-guide-line" style={{ left: gx, top: 0, height: lanesBottomY }} />
-              <div
-                className={`ms-diamond${isSel ? ' selected' : ''}${g.bound ? '' : ' draggable'}`}
-                style={{ left: gx - 13, top: 3 }}
-                data-nodeid={msNode?.id}
-                role="button"
-                tabIndex={0}
-                aria-label={`マイルストーン: ${g.label || '（無題）'}`}
-                title={g.bound ? g.label : `${g.label}（ドラッグで位置を調整）`}
-                onPointerDown={(e) => startMsDrag(g, e)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (g.bound) selectMs(g.taskId); // 未紐付けは startMsDrag が選択も担う
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'F2') {
-                    e.preventDefault();
-                    setEditingTaskId(g.taskId); // 工程ノードの F2 と同じその場リネーム
-                    return;
-                  }
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    selectMs(g.taskId);
-                  }
-                }}
-                onContextMenu={(e) => {
-                  // 工程ノードの右クリックメニューを流用（対象は MS のタスクノード）。
-                  if (!msNode) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  selectMs(g.taskId);
-                  let { clientX: x, clientY: y } = e;
-                  if (x === 0 && y === 0) {
-                    const r = e.currentTarget.getBoundingClientRect();
-                    x = r.left + r.width / 2;
-                    y = r.top + r.height / 2;
-                  }
-                  setCtxMenu({ kind: 'node', id: msNode.id, x, y });
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  setEditingTaskId(g.taskId);
-                }}
-              />
-              {/* リネーム中はラベルの位置に工程ノードと同じ編集 input を出す（菱形はレーン外なので
-                  divNodes の input には含まれない＝ここで同じ commit/cancel 規約を再現する）。 */}
+              {/* 案A: 上部余白に「🏁＋節目名」のピルを線の真上に中央寄せで置く（旧・菱形＋横ラベルの置換）。
+                  リネーム中は同じ位置に工程ノードと同じ編集 input を出す（commit/cancel 規約を再現）。 */}
               {editing ? (
                 <input
                   className={`node-edit ms-edit${nameLenClass(project.core.tasks[g.taskId]?.name)}`}
                   title={nameLenTitle(project.core.tasks[g.taskId]?.name)}
                   onInput={onNameInput}
-                  style={{ left: gx + 16, top: 4 }}
+                  style={{ left: gx, top: 5 }}
                   defaultValue={project.core.tasks[g.taskId]?.name ?? ''}
                   aria-label="工程名"
                   autoFocus
@@ -1791,9 +1747,52 @@ export function FlowCanvas() {
                   }}
                 />
               ) : (
-                <span className="ms-label" style={{ left: gx + 16, top: 4 }}>
-                  {g.label}
-                </span>
+                <div
+                  className={`ms-pill${isSel ? ' selected' : ''}${g.bound ? '' : ' draggable'}`}
+                  style={{ left: gx, top: 5 }}
+                  data-nodeid={msNode?.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`マイルストーン: ${g.label || '（無題）'}`}
+                  title={g.bound ? g.label : `${g.label}（ドラッグで位置を調整）`}
+                  onPointerDown={(e) => startMsDrag(g, e)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (g.bound) selectMs(g.taskId); // 未紐付けは startMsDrag が選択も担う
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'F2') {
+                      e.preventDefault();
+                      setEditingTaskId(g.taskId); // 工程ノードの F2 と同じその場リネーム
+                      return;
+                    }
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      selectMs(g.taskId);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    // 工程ノードの右クリックメニューを流用（対象は MS のタスクノード）。
+                    if (!msNode) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    selectMs(g.taskId);
+                    let { clientX: x, clientY: y } = e;
+                    if (x === 0 && y === 0) {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      x = r.left + r.width / 2;
+                      y = r.top + r.height / 2;
+                    }
+                    setCtxMenu({ kind: 'node', id: msNode.id, x, y });
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTaskId(g.taskId);
+                  }}
+                >
+                  <span className="ms-flag" aria-hidden="true">🏁</span>
+                  <span className="ms-pill-text">{g.label || '（無題）'}</span>
+                </div>
               )}
             </div>
           );
@@ -2565,6 +2564,43 @@ export function FlowCanvas() {
       {ctxMenu &&
         (() => {
           const close = () => setCtxMenu(null);
+          if (ctxMenu.kind === 'canvas') {
+            // 空白右クリック「ここに追加」。カーソル論理座標（at）を中心に各図形を置く（top-left へ換算）。
+            const at = ctxMenu.at ?? { x: 0, y: 0 };
+            const addControlAt = (kind: ControlKind) =>
+              addControlNode(kind, at.x - SIZE.control.w / 2, at.y - SIZE.control.h / 2);
+            return (
+              <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                <ContextItem
+                  label="工程をここに追加"
+                  onClick={() => {
+                    const id = addTaskAt(at.x - SIZE.task.w / 2, at.y - SIZE.task.h / 2);
+                    if (id) setEditingTaskId(id);
+                  }}
+                />
+                <ContextItem
+                  label="マイルストーンをここに"
+                  onClick={() => {
+                    const id = addMilestone(at.x - SIZE.task.w / 2, at.y - SIZE.task.h / 2);
+                    if (id) setEditingTaskId(id);
+                  }}
+                />
+                <div className="menu-sep" role="separator" />
+                <ContextItem label="開始" onClick={() => addControlAt('start')} />
+                <ContextItem label="終了" onClick={() => addControlAt('end')} />
+                <ContextItem label="判断（分岐）" onClick={() => addControlAt('decision')} />
+                <ContextItem label="合流" onClick={() => addControlAt('merge')} />
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label="付箋"
+                  onClick={async () => {
+                    const text = await useUI.getState().promptText({ title: '付箋を追加', placeholder: 'コメント', confirmLabel: '追加' });
+                    if (text !== null) addComment(text, at.x - SIZE.comment.w / 2, at.y - SIZE.comment.h / 2);
+                  }}
+                />
+              </FlowContextMenu>
+            );
+          }
           if (ctxMenu.kind === 'multi') {
             // 複数選択の一括メニュー（既存の一括アクションを呼ぶだけ）。工程/制御/付箋を仕分けて
             // 削除、工程は複製・選択整列。工程が無ければ複製は出さない。

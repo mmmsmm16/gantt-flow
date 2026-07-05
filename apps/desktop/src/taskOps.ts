@@ -54,11 +54,13 @@ export async function pasteRowsFromClipboard(): Promise<void> {
     useUI.getState().toast('クリップボードを読み取れませんでした（ブラウザの許可が必要です）。', 'error');
     return;
   }
-  const { rows, hadHeader } = parsePastedRows(text);
+  const { rows, hadHeader, hierarchical } = parsePastedRows(text);
   const n = useApp.getState().pasteRowsAsTasks(rows);
   if (n) {
-    const note = hadHeader ? '（見出し行を判定して担当・工数も取り込みました）' : '';
-    useUI.getState().toast(`${n}件の工程を貼り付けました。${note}`, 'success');
+    const bits = [hadHeader ? '見出し行を判定して担当・工数も取り込み' : '', hierarchical ? '階層（親子）も復元しました' : '']
+      .filter(Boolean)
+      .join('・');
+    useUI.getState().toast(`${n}件の工程を貼り付けました。${bits ? `（${bits}）` : ''}`, 'success');
   } else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
 }
 

@@ -1,5 +1,6 @@
-// クリップボード貼り付けの列マッピング（pasteParse）の検証。
-// 重点: 見出し誤検出でデータ行を落とさないこと・工数セルの各表記・位置マッピング互換。
+// クリップボード貼り付けの列マッピング＋階層推定（pasteParse）の検証。
+// 重点: 見出し誤検出でデータ行を落とさないこと・工数セルの各表記・位置マッピング互換・
+//       工程No/インデントからの depth 推定。行は [name, assignee, effortMin, depth]。
 import { describe, expect, it } from 'vitest';
 import { parsePastedRows, parseEffortCell } from '../src/pasteParse';
 
@@ -21,13 +22,14 @@ describe('parseEffortCell', () => {
 });
 
 describe('parsePastedRows: 見出しあり', () => {
-  it('見出し行（作業名/担当/工数）を判定して列を対応付け、データを [name, assignee, effortMin] へ正規化', () => {
+  it('見出し行（作業名/担当/工数）を判定して列を対応付け、[name, assignee, effortMin, depth] へ正規化', () => {
     const text = ['作業名\t担当\t工数', '受注確認\t営業\t2h', '出荷\t物流\t30分'].join('\n');
     const res = parsePastedRows(text);
     expect(res.hadHeader).toBe(true);
+    expect(res.hierarchical).toBe(false);
     expect(res.rows).toEqual([
-      ['受注確認', '営業', '120'],
-      ['出荷', '物流', '30'],
+      ['受注確認', '営業', '120', '0'],
+      ['出荷', '物流', '30', '0'],
     ]);
   });
 
@@ -36,19 +38,18 @@ describe('parsePastedRows: 見出しあり', () => {
     const res = parsePastedRows(text);
     expect(res.hadHeader).toBe(true);
     expect(res.columns).toMatchObject({ assignee: 0, effort: 1, name: 2 });
-    expect(res.rows).toEqual([['受注登録', '営業', '60']]);
+    expect(res.rows).toEqual([['受注登録', '営業', '60', '0']]);
   });
 });
 
 describe('parsePastedRows: 見出し誤検出の回避（データ保全）', () => {
   it('作業名に「工程」を含む実データを見出しと誤判定して落とさない', () => {
-    // 先頭行が「受注工程」など name 語を含んでも、担当/工数の構造見出しが無ければ見出し扱いしない。
     const text = ['受注工程\t営業', '出荷工程\t物流'].join('\n');
     const res = parsePastedRows(text);
     expect(res.hadHeader).toBe(false);
     expect(res.rows).toEqual([
-      ['受注工程', '営業', ''],
-      ['出荷工程', '物流', ''],
+      ['受注工程', '営業', '', '0'],
+      ['出荷工程', '物流', '', '0'],
     ]);
   });
 });
@@ -59,18 +60,73 @@ describe('parsePastedRows: 見出し無し（位置マッピング）', () => {
     const res = parsePastedRows(text);
     expect(res.hadHeader).toBe(false);
     expect(res.rows).toEqual([
-      ['受注確認', '営業', '120'],
-      ['梱包', '', '45'],
+      ['受注確認', '営業', '120', '0'],
+      ['梱包', '', '45', '0'],
     ]);
   });
 
   it('空名の行は捨て、末尾の空行も無視する', () => {
     const text = ['\t営業', '受注\t営業', '\t\t', ''].join('\n');
     const res = parsePastedRows(text);
-    expect(res.rows).toEqual([['受注', '営業', '']]);
+    expect(res.rows).toEqual([['受注', '営業', '', '0']]);
   });
 
   it('空文字は空の結果', () => {
-    expect(parsePastedRows('')).toEqual({ rows: [], hadHeader: false, columns: {} });
+    expect(parsePastedRows('')).toEqual({ rows: [], hadHeader: false, columns: {}, hierarchical: false });
+  });
+});
+
+describe('parsePastedRows: 階層推定（工程No）', () => {
+  it('工程No 列の 1 / 1-1 / 1-1-1 / 1-2 から depth を決める', () => {
+    const text = [
+      '工程No\t作業名\t担当',
+      '1\t受注業務\t',
+      '1-1\t注文受付\t営業',
+      '1-1-1\t注文書受領\t営業',
+      '1-2\t出荷\t倉庫',
+    ].join('\n');
+    const res = parsePastedRows(text);
+    expect(res.hadHeader).toBe(true);
+    expect(res.hierarchical).toBe(true);
+    expect(res.rows.map((r) => [r[0], r[3]])).toEqual([
+      ['受注業務', '0'],
+      ['注文受付', '1'],
+      ['注文書受領', '2'],
+      ['出荷', '1'],
+    ]);
+  });
+
+  it('工程No があっても全て単一段なら depth は全て 0（非階層）', () => {
+    const text = ['工程No\t作業名', '1\t受注', '2\t出荷'].join('\n');
+    const res = parsePastedRows(text);
+    expect(res.hierarchical).toBe(false);
+    expect(res.rows.map((r) => r[3])).toEqual(['0', '0']);
+  });
+});
+
+describe('parsePastedRows: 階層推定（インデント）', () => {
+  it('行頭スペースのインデントをスタック法で depth 化（跳びは1段ずつ・浅くなれば戻る）', () => {
+    const text = ['受注業務', '  注文受付', '    注文書受領', '  出荷', '請求業務'].join('\n');
+    const res = parsePastedRows(text);
+    expect(res.hierarchical).toBe(true);
+    expect(res.rows.map((r) => [r[0], r[3]])).toEqual([
+      ['受注業務', '0'],
+      ['注文受付', '1'],
+      ['注文書受領', '2'],
+      ['出荷', '1'],
+      ['請求業務', '0'],
+    ]);
+  });
+
+  it('全角スペースのインデントも段として認識する', () => {
+    const text = ['親', '　子', '　　孫'].join('\n');
+    const res = parsePastedRows(text);
+    expect(res.rows.map((r) => r[3])).toEqual(['0', '1', '2']);
+  });
+
+  it('先頭行がインデントされていても depth は 0 から始まる', () => {
+    const text = ['  受注', '    確認'].join('\n');
+    const res = parsePastedRows(text);
+    expect(res.rows.map((r) => r[3])).toEqual(['0', '1']);
   });
 });
