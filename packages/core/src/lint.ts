@@ -7,7 +7,7 @@ import { isMilestone } from './milestone';
 import { validate, FATAL_ISSUE_KINDS } from './validate';
 
 export type LintSeverity = 'error' | 'warn';
-export type LintCategory = 'integrity' | 'procedure' | 'assignee' | 'effort' | 'issue';
+export type LintCategory = 'integrity' | 'procedure' | 'assignee' | 'effort' | 'issue' | 'io';
 
 export interface LintIssue {
   kind: string;          // 具体的な種別（procedure.missing / dependency.from など）
@@ -20,7 +20,10 @@ export interface LintIssue {
 }
 
 // category の固定表示順（決定論ソートの第 1 キー）。
-const CATEGORY_ORDER: LintCategory[] = ['integrity', 'procedure', 'assignee', 'effort', 'issue'];
+const CATEGORY_ORDER: LintCategory[] = ['integrity', 'procedure', 'assignee', 'effort', 'issue', 'io'];
+
+// 帳票名の照合キー（前後空白と全角/半角スペースのゆれを吸収）。
+const normalizeIoName = (s: string): string => s.replace(/[\s　]+/g, '').toLowerCase();
 
 // validate() の整合性問題を実在工程へ写す。dependency→実在端点 /
 // procedure.dangling*→stepId から doc.taskId 逆引き / detail.task→undefined。
@@ -98,6 +101,47 @@ export function lintProject(project: Project): LintIssue[] {
           taskId: t.id,
           issueId: iss.id,
           message: `課題「${iss.issue}」に方策が未記入`,
+        });
+      }
+    }
+  }
+
+  // 帳票の受け渡し整合（I/O）: 出力名⇄入力名を正規化名で突合し、
+  //  ・行き止まり出力: 出力だが、他工程のどの入力にも同名で繋がっていない
+  //  ・出所不明入力: 入力だが、上流の出力にも source（出所）欄にも根拠が無い
+  // ヒアリング段階で I/O 未入力は当然多いので warn（納品を止めない）。両方向とも読み取り専用・決定論。
+  const inputNames = new Set<string>();
+  const outputNames = new Set<string>();
+  for (const d of Object.values(project.details)) {
+    for (const io of d?.inputs ?? []) if (io.name.trim()) inputNames.add(normalizeIoName(io.name));
+    for (const io of d?.outputs ?? []) if (io.name.trim()) outputNames.add(normalizeIoName(io.name));
+  }
+  for (const t of Object.values(tasks)) {
+    if (isMilestone(project.core, t.id)) continue;
+    const d = project.details[t.id];
+    for (const io of d?.outputs ?? []) {
+      if (!io.name.trim()) continue;
+      if (!inputNames.has(normalizeIoName(io.name))) {
+        out.push({
+          kind: 'io.deadEndOutput',
+          category: 'io',
+          severity: 'warn',
+          ref: io.id,
+          taskId: t.id,
+          message: `出力「${io.name}」が下流のどの入力にもつながっていません（行き止まり）`,
+        });
+      }
+    }
+    for (const io of d?.inputs ?? []) {
+      if (!io.name.trim()) continue;
+      if (!io.source?.trim() && !outputNames.has(normalizeIoName(io.name))) {
+        out.push({
+          kind: 'io.unsourcedInput',
+          category: 'io',
+          severity: 'warn',
+          ref: io.id,
+          taskId: t.id,
+          message: `入力「${io.name}」の出所が不明です（上流の出力にも出所欄にも根拠が無い）`,
         });
       }
     }

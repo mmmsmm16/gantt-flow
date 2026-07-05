@@ -114,6 +114,28 @@ export function StatusBar() {
   const mainView = useUI((s) => s.mainView);
   const leaderPending = useUI((s) => s.leaderPending);
   const singleKey = useUI((s) => s.singleKey);
+  // 「標準表示に戻す」判定用の直交ビュー状態（データではなく見え方の状態）。
+  const tableWide = useUI((s) => s.tableWide);
+  const flowWide = useUI((s) => s.flowWide);
+  const inspectorOpen = useUI((s) => s.inspectorOpen);
+  const chromeHidden = useUI((s) => s.chromeHidden);
+  const showIssues = useApp((s) => s.showIssues);
+  // 標準表示＝分割・中粒度・全体スコープ・課題表示ON・詳細を閉じる・chrome 表示・作業ビュー。
+  // どれか 1 つでも外れていれば「標準に戻す」導線を出す（データには一切触れない）。
+  const isNonStandardView =
+    tableWide || flowWide || mainView !== 'work' || level !== 'medium' ||
+    scopeParentId !== undefined || !showIssues || inspectorOpen || chromeHidden;
+  const resetToStandardView = () => {
+    const app = useApp.getState();
+    const ui = useUI.getState();
+    ui.setPaneLayout('split');
+    ui.setMainView('work');
+    if (ui.inspectorOpen) ui.setInspectorOpen(false);
+    if (ui.chromeHidden) ui.toggleChrome();
+    if (app.level !== 'medium') app.setLevel('medium');
+    if (app.scopeParentId !== undefined) app.setScope(undefined);
+    if (!app.showIssues) app.toggleIssues();
+  };
   // 永続化の健全性（沈黙する失敗を可視化）: 直近の自動保存時刻・失敗・助言ロック状態。
   const lastAutosaveAt = useUI((s) => s.lastAutosaveAt);
   const persistFailure = useUI((s) => s.persistFailure);
@@ -218,6 +240,15 @@ export function StatusBar() {
         表示: {LEVEL_LABEL[level]}
         {scopeName ? ` / ${scopeName}` : ' / 全体'}
       </span>
+      {isNonStandardView && (
+        <button
+          className="st-item st-reset-view"
+          title="表示を標準に戻す（分割・中粒度・全体スコープ・課題表示・詳細を閉じる）"
+          onClick={resetToStandardView}
+        >
+          標準表示に戻す
+        </button>
+      )}
       {persist.autosave && (
         <>
           <span className="st-sep" aria-hidden="true" />

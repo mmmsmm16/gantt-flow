@@ -7,8 +7,9 @@ import { computeCodes, isMilestone } from '@gantt-flow/core';
 import { useApp, findView, resolveQuickAddParent } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
 import { parseQuickAdd, type QuickAddParsed } from '../quickAdd';
+import { parseQuickAddInApp } from '../quickAddApp';
 import { revealTask, confirmRemoveTasks, removeIoWithUndo } from '../taskOps';
-import { isImeKeyEvent } from '../keymap';
+import { isImeKeyEvent, modHint } from '../keymap';
 import { listRecentFiles, recentFilesSupported } from '../persistence';
 import { formatRecentTime } from '../fileLabel';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from '../theme';
@@ -89,33 +90,7 @@ function selectedIoOptions(): ArgOption[] {
   ];
 }
 
-// クイック追加 DSL の解釈を現在のアプリ状態に対して行う（チップ表示と Enter 確定で共用）。
-// 前工程候補は prevCandidates と同じ「同じ親・同じ粒度」の規則だが、対象の工程がまだ
-// 存在しないため規則をここで再現する。# で粒度を変えると候補グループも変わるので、
-// トークンだけ先に読んでから候補を作る 2 段階（入力は短く、走査コストは無視できる）。
-function parseQuickAddInApp(input: string): QuickAddParsed {
-  const a = useApp.getState();
-  const assigneeNames = Object.values(a.project.core.assignees).map((x) => x.name);
-  const sel = a.selectedTaskId ? a.project.core.tasks[a.selectedTaskId] : undefined;
-  const pre = parseQuickAdd(input, { assigneeNames, predecessors: [] });
-  const level = pre.level ?? sel?.level ?? a.level;
-  // 親は確定時（addTaskWithOptions）と同じ解決を使う＝チップに出る前工程候補と実際の配置が一致する。
-  const parentId = resolveQuickAddParent(a.project.core.tasks, sel, level, a.scopeParentId);
-  const taskCodes = computeCodes(a.project.core);
-  // マイルストーンは「工程→MS」の一方向しか依存を張れない（commands/index.ts の isMilestone
-  // ガードで MS からの出依存は無視される）ため、MS を前工程候補には出さない（suggestions.ts の
-  // prevCandidates と同じ規則）。出さないと不可視の入力を許してしまい、確定時に無言で無視される。
-  const predecessors = Object.values(a.project.core.tasks)
-    .filter(
-      (t) =>
-        t.level === level &&
-        (t.parentId ?? undefined) === (parentId ?? undefined) &&
-        !isMilestone(a.project.core, t.id),
-    )
-    .sort((x, y) => x.order - y.order || x.id.localeCompare(y.id))
-    .map((t) => ({ id: t.id, name: t.name, code: taskCodes[t.id] }));
-  return parseQuickAdd(input, { assigneeNames, predecessors });
-}
+// クイック追加 DSL のアプリ層解釈は quickAddApp.ts に集約（アウトラインのクイック追加行と共用）。
 
 // 工程クイック追加（DSL）。「受注確認 @営業 #小 2h >受注登録」を 1 行で解釈して
 // addTaskWithOptions（1 undo・作成後に選択）へ渡す。空欄の確定は無題で 1 件追加
@@ -341,7 +316,7 @@ function PaletteBody(handlers: FileHandlers) {
               id: 'repeat-last',
               label: `もう一度: ${last.display}`,
               keywords: 'repeat again mouichido もう一度 直前 繰り返し リピート',
-              hint: '⌘.',
+              hint: modHint('mod', '.'),
               run: last.run,
             } satisfies Cmd,
           ]
@@ -712,7 +687,7 @@ function PaletteBody(handlers: FileHandlers) {
           if (id) void confirmRemoveTasks([id]);
         },
       },
-      { id: 'save', label: '保存', keywords: 'save hozon ほぞん', hint: '⌘S', run: handlers.onSave },
+      { id: 'save', label: '保存', keywords: 'save hozon ほぞん', hint: modHint('mod', 'S'), run: handlers.onSave },
       { id: 'save-as', label: '名前を付けて保存', keywords: 'save as namae 別名 betsumei copy', run: handlers.onSaveAs },
       { id: 'sample', label: 'サンプルを開く', keywords: 'sample デモ demo れい', run: handlers.onSample },
       { id: 'new', label: '新規プロジェクト', keywords: 'new shinki あたらしい', run: handlers.onNew },
@@ -749,9 +724,9 @@ function PaletteBody(handlers: FileHandlers) {
         run: handlers.onExportHandbook,
       },
       ...improvementReportCommands(handlers, tobeEnabled),
-      { id: 'print', label: '印刷 / PDF（工程表＋フロー図）', keywords: 'print insatsu 印刷 pdf', hint: '⌘P', run: handlers.onPrint },
-      { id: 'undo', label: '元に戻す', keywords: 'undo modosu もどす', hint: '⌘Z', run: app.undo, available: canUndo },
-      { id: 'redo', label: 'やり直し', keywords: 'redo yarinaoshi', hint: '⌘Y', run: app.redo, available: canRedo },
+      { id: 'print', label: '印刷 / PDF（工程表＋フロー図）', keywords: 'print insatsu 印刷 pdf', hint: modHint('mod', 'P'), run: handlers.onPrint },
+      { id: 'undo', label: '元に戻す', keywords: 'undo modosu もどす', hint: modHint('mod', 'Z'), run: app.undo, available: canUndo },
+      { id: 'redo', label: 'やり直し', keywords: 'redo yarinaoshi', hint: modHint('mod', 'Y'), run: app.redo, available: canRedo },
       { id: 'theme', label: 'テーマを切り替え（ライト / ダーク）', keywords: 'theme dark light テーマ', run: ui.toggleTheme },
       { id: 'add-start', label: 'フロー: 開始ノードを追加', keywords: 'control start 開始 制御 ノード', run: () => useApp.getState().addControlNode('start') },
       { id: 'add-end', label: 'フロー: 終了ノードを追加', keywords: 'control end 終了 制御 ノード', run: () => useApp.getState().addControlNode('end') },
@@ -820,7 +795,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'wide', label: '工程表だけを全幅表示', keywords: 'wide hyou table 表 全幅 広く レイアウト', run: () => ui.setPaneLayout('table') },
       { id: 'flow-wide', label: '工程フローだけを全幅表示', keywords: 'wide flow フロー 全幅 広く レイアウト', run: () => ui.setPaneLayout('flow') },
       { id: 'procedure-tab', label: '手順書タブを開く', keywords: 'procedure tejunsho 手順書 手順 マニュアル ノウハウ manual', hint: 'g p', run: () => ui.setMainView('procedure') },
-      { id: 'toggle-chrome', label: '集中モード（ツールバー・操作バーを隠す / 表示）', keywords: 'chrome toolbar shuchu 集中 ツールバー 操作バー ヘッダ 隠す 非表示 最大化 全画面 focus zen', hint: '⌘\\', run: ui.toggleChrome },
+      { id: 'toggle-chrome', label: '集中モード（ツールバー・操作バーを隠す / 表示）', keywords: 'chrome toolbar shuchu 集中 ツールバー 操作バー ヘッダ 隠す 非表示 最大化 全画面 focus zen', hint: modHint('mod', '\\'), run: ui.toggleChrome },
       { id: 'minimap', label: 'ミニマップの表示を切り替え', keywords: 'minimap map ミニマップ 地図 俯瞰', run: () => useUI.getState().toggleMinimap() },
       // サブウィンドウ系（マルチディスプレイ）。App のツールバー Menu と同じハンドラを呼ぶ。
       { id: 'edit-window', label: '編集用のサブウィンドウを開く（両窓で同時編集）', keywords: 'window subwindow saburindou 編集 サブ 窓 ウィンドウ 別窓 マルチディスプレイ multi', run: handlers.onOpenEditWindow },
@@ -831,7 +806,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'summary', label: 'サマリを開く（工数・自動化）', keywords: 'summary dashboard サマリ 集計 工数', run: () => ui.setOverlay('summary') },
       { id: 'validate', label: 'プロジェクトを検証（納品前チェック）', keywords: 'validate lint 検証 チェック 納品 点検 手順書 担当 工数 抜け', run: () => ui.setOverlay('validate') },
       // 改善効果サマリ（As-Is / To-Be 比較）。tobeEnabled でなくても常時表示し、無効時は設定へ誘導。
-      { id: 'comparison', label: '改善効果サマリを開く（As-Is / To-Be 比較）', keywords: 'comparison hikaku 比較 改善 効果 as-is to-be トゥービー アズイズ サマリ 削減', hint: '⌘⇧C', run: () => ui.openComparison() },
+      { id: 'comparison', label: '改善効果サマリを開く（As-Is / To-Be 比較）', keywords: 'comparison hikaku 比較 改善 効果 as-is to-be トゥービー アズイズ サマリ 削減', hint: modHint('mod', 'shift', 'C'), run: () => ui.openComparison() },
       { id: 'help', label: 'ショートカット一覧', keywords: 'help shortcut ヘルプ', hint: '?', run: () => ui.setOverlay('help') },
       {
         id: 'ai-assist',
@@ -854,7 +829,7 @@ function PaletteBody(handlers: FileHandlers) {
           ui.setOverlay('settings');
         },
       },
-      { id: 'settings-open', label: '設定を開く', keywords: 'settings settei 設定 環境設定 preferences', hint: '⌘,', run: () => { ui.setSettingsTab('general'); ui.setOverlay('settings'); } },
+      { id: 'settings-open', label: '設定を開く', keywords: 'settings settei 設定 環境設定 preferences', hint: modHint('mod', ','), run: () => { ui.setSettingsTab('general'); ui.setOverlay('settings'); } },
       { id: 'keybindings', label: 'ショートカット設定（キーの変更）', keywords: 'keybind shortcut settei ショートカット 設定 カスタマイズ キー vim', run: () => { ui.setSettingsTab('keys'); ui.setOverlay('settings'); } },
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },

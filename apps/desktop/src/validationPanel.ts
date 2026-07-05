@@ -11,6 +11,7 @@ const SECTION_DEFS: { category: LintCategory; label: string }[] = [
   { category: 'assignee', label: '担当未割当' },
   { category: 'effort', label: '工数未入力' },
   { category: 'issue', label: '方策未記入' },
+  { category: 'io', label: '帳票の受け渡し' },
 ];
 
 export interface LintSection {

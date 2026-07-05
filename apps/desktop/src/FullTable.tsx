@@ -12,7 +12,7 @@ import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnch
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { isImeKeyEvent } from './keymap';
-import { confirmRemoveTasks, removeDependencyWithUndo, removeIoWithUndo, removeIssueWithUndo } from './taskOps';
+import { confirmRemoveTasks, removeDependencyWithUndo, removeIoWithUndo, removeIssueWithUndo, pasteRowsFromClipboard } from './taskOps';
 import { useUI } from './ui/useUI';
 import { STATUS_OPTIONS, statusSelectClass } from './statusUi';
 import { useFlashIds } from './ui/useFlash';
@@ -62,6 +62,7 @@ export const FT_COLUMNS: readonly FtCol[] = [
   { key: 'status', label: '状況', width: 104, cls: 'ft-c-status', optional: true, cursorable: true, sortable: true },
   { key: 'prev', label: '前工程', width: 150, cls: 'ft-c-prev', optional: true, cursorable: true },
   { key: 'effort', label: '工数', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
+  { key: 'lt', label: 'LT(日)', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
   { key: 'how', label: '業務内容', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
   { key: 'system', label: '使用システム', width: 170, cls: 'ft-c-text', optional: true, cursorable: true },
   { key: 'inputs', label: '入力', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
@@ -170,7 +171,6 @@ export function FullTable() {
   const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
   const duplicateTask = useApp((s) => s.duplicateTask);
-  const pasteRowsAsTasks = useApp((s) => s.pasteRowsAsTasks);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
@@ -183,10 +183,11 @@ export function FullTable() {
   // 絞り込み（AND 条件）。担当・課題あり・工数未入力・自動化区分。
   const [filters, setFilters] = useState<{
     assignee: string;
+    level: ProcessLevel | '';
     issues: boolean;
     noEffort: boolean;
     automation: Automation | '';
-  }>({ assignee: '', issues: false, noEffort: false, automation: '' });
+  }>({ assignee: '', level: '', issues: false, noEffort: false, automation: '' });
   const [resizing, setResizing] = useState<{ key: string; w: number } | null>(null);
   const [focusTask, setFocusTask] = useState<Id | null>(null);
   // 複合セル（課題/入出力）へ追加した直後、その新しい入力欄へフォーカス＆全選択する対象。
@@ -264,6 +265,7 @@ export function FullTable() {
 
   const sortValue = (key: string, t: ProcessTask): number | string => {
     if (key === 'effort') return effortRollups.get(t.id) ?? 0;
+    if (key === 'lt') return project.details[t.id]?.ltDays ?? 0;
     if (key === 'assignee') return t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
     if (key === 'difficulty') return DIFF_RANK[project.details[t.id]?.difficulty ?? ''] ?? 0;
     if (key === 'status') return STATUS_RANK[project.details[t.id]?.status ?? ''] ?? 0;
@@ -286,7 +288,7 @@ export function FullTable() {
 
   // 絞り込みを適用（表示行を減らすだけ。階層の文脈列は各行が祖先名を出すので破綻しない）。
   const filterActive =
-    !!filters.assignee || filters.issues || filters.noEffort || !!filters.automation;
+    !!filters.assignee || !!filters.level || filters.issues || filters.noEffort || !!filters.automation;
   if (filterActive) {
     rows = rows.filter((t) => {
       const d = project.details[t.id];
@@ -294,6 +296,7 @@ export function FullTable() {
         const name = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
         if (name !== filters.assignee) return false;
       }
+      if (filters.level && t.level !== filters.level) return false;
       if (filters.issues && !(d?.issues ?? []).some((i) => i.issue.trim())) return false;
       if (filters.noEffort) {
         // 工数未入力＝末端工程で effortMinutes が無い（親はロールアップ表示なので対象外）。
@@ -304,7 +307,7 @@ export function FullTable() {
     });
   }
   const clearFilters = () =>
-    setFilters({ assignee: '', issues: false, noEffort: false, automation: '' });
+    setFilters({ assignee: '', level: '', issues: false, noEffort: false, automation: '' });
 
   // 逐次レンダリング: 描画するのは先頭 renderCount 行。末尾センチネルが見えたら拡張。
   const renderRows = rows.length > renderCount ? rows.slice(0, renderCount) : rows;
@@ -403,19 +406,7 @@ export function FullTable() {
   } = useRowMultiSelect({ orderedIds: rows.map((r) => r.id), onActivate: select });
 
   // クリップボード（Excel/表計算）の各行を工程として一括追加。タブ区切り [作業名, 担当?]。
-  const onPasteRows = async () => {
-    let text: string;
-    try {
-      text = await navigator.clipboard.readText();
-    } catch {
-      useUI.getState().toast('クリップボードを読み取れませんでした（ブラウザの許可が必要です）。', 'error');
-      return;
-    }
-    const parsed = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.split('\t'));
-    const n = pasteRowsAsTasks(parsed);
-    if (n) useUI.getState().toast(`${n}件の工程を貼り付けました。`, 'success');
-    else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
-  };
+  const onPasteRows = () => void pasteRowsFromClipboard();
 
   // 列幅のドラッグ調整。
   const startResize = (key: string, e: React.PointerEvent) => {
@@ -564,6 +555,19 @@ export function FullTable() {
           {assigneeNames.map((n) => (
             <option key={n} value={n}>
               担当: {n}
+            </option>
+          ))}
+        </select>
+        <select
+          className="ft-filter-sel"
+          value={filters.level}
+          aria-label="粒度で絞り込み"
+          onChange={(e) => setFilters((f) => ({ ...f, level: e.target.value as ProcessLevel | '' }))}
+        >
+          <option value="">粒度: すべて</option>
+          {LEVELS.map((l) => (
+            <option key={l.key} value={l.key}>
+              粒度: {l.label}
             </option>
           ))}
         </select>
@@ -840,6 +844,41 @@ export function FullTable() {
                             clearEffortInvalid(e.target);
                             if (isEffortBlurUnchanged(e.target.value, d?.effortMinutes)) return; // 無編集 blur は書き換えない
                             if (res.minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
+                          }}
+                        />
+                      )}
+                    </td>
+                  );
+                case 'lt':
+                  // リードタイム（着手〜完了の経過日数・待ち/停滞を含む）。末端工程に日で入力。
+                  // 親は集計せず空欄（LT は工数のように単純合算できないため）。
+                  return (
+                    <td key={c.key} className="ft-c-effort" onClick={(e) => e.stopPropagation()}>
+                      {ms || hasChildren ? (
+                        <span className="ms-cell-blank">—</span>
+                      ) : (
+                        <input
+                          className={`ft-in ft-num${cellCursorCls(t.id, 'lt')}`}
+                          data-cell="lt"
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={d?.ltDays != null ? String(d.ltDays) : ''}
+                          placeholder="例: 3 / 0.5"
+                          aria-label="リードタイム（日）"
+                          key={`lt-${d?.ltDays ?? ''}`}
+                          onKeyDown={cancelEditOnEscape}
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === '') {
+                              if (d?.ltDays != null) updateDetail(t.id, { ltDays: undefined });
+                              return;
+                            }
+                            const n = Number(raw);
+                            if (!Number.isFinite(n) || n < 0) {
+                              useUI.getState().toast('リードタイムは 0 以上の日数で入力してください（例: 3 や 0.5）', 'error');
+                              return;
+                            }
+                            if (n !== d?.ltDays) updateDetail(t.id, { ltDays: n });
                           }}
                         />
                       )}

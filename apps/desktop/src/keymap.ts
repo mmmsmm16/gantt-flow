@@ -182,15 +182,16 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'zoom-in-eq', action: 'flow.zoomIn', context: 'flow', chord: { key: '=' }, lowRisk: true },
   { id: 'zoom-out', action: 'flow.zoomOut', context: 'flow', chord: { key: '-' }, lowRisk: true, help: { group: G.flow, label: 'ズームアウト' } },
   { id: 'zoom-reset', action: 'flow.zoomReset', context: 'flow', chord: { key: '0' }, lowRisk: true, help: { group: G.flow, label: 'ズームを 100% に' } },
-  { id: 'zoom-fit', action: 'flow.fit', context: 'flow', chord: { key: 'f' }, lowRisk: true, help: { group: G.flow, label: '全体表示(フィット)' } },
+  { id: 'zoom-fit', action: 'flow.fit', context: 'flow', chord: { key: 'f', shift: false }, lowRisk: true, help: { group: G.flow, label: '全体表示(フィット)' } },
+  { id: 'zoom-fit-sel', action: 'flow.fitSelection', context: 'flow', chord: { key: 'f', shift: true }, lowRisk: true, help: { group: G.flow, label: '選択にズーム(無選択は全体)' } },
   { id: 'node-rename', action: 'flow.rename', context: 'flow', chord: { key: 'enter' }, fixed: true, help: { group: G.flow, label: '工程名をその場編集' } },
   { id: 'node-rename-f2', action: 'flow.rename', context: 'flow', chord: { key: 'f2' }, fixed: true },
   // 接続モードは Esc 一発で取消でき(接続を確定するまで何も変えない)＝低リスク。既定で有効(UX#12)。
   { id: 'connect-mode', action: 'flow.connect', context: 'flow', chord: { key: 'c' }, lowRisk: true, help: { group: G.flow, label: '接続モード(矢印で候補 → Enter)' } },
   // 次工程の追加(表の n / Shift+N=行追加と同じ体系)。n=右隣へ作成して依存を接続し名前編集まで、
   // Shift+N=接続なしで追加。未選択時はビューポート中央へ(接続なし)。
-  { id: 'node-add-next', action: 'flow.addNext', context: 'flow', chord: { key: 'n', shift: false }, help: { group: G.flow, label: '次工程を追加して接続(名前を編集)' } },
-  { id: 'node-add-next-plain', action: 'flow.addNextNoConnect', context: 'flow', chord: { key: 'n', shift: true }, help: { group: G.flow, label: '工程を追加(接続なし)' } },
+  { id: 'node-add-next', action: 'flow.addNext', context: 'flow', chord: { key: 'n', shift: false }, lowRisk: true, help: { group: G.flow, label: '次工程を追加して接続(名前を編集)' } },
+  { id: 'node-add-next-plain', action: 'flow.addNextNoConnect', context: 'flow', chord: { key: 'n', shift: true }, lowRisk: true, help: { group: G.flow, label: '工程を追加(接続なし)' } },
   // I/O の追加(選択中の工程)。i/o は単キー、Alt+I/O は常時有効の代替(Mac の Option 記号対策で code 判定)。
   { id: 'add-input', action: 'flow.addInput', context: 'flow', chord: { key: 'i' }, help: { group: G.flow, label: '入力を追加(選択工程)' } },
   { id: 'add-input-alt', action: 'flow.addInput', context: 'flow', chord: { code: 'KeyI', alt: true } },
@@ -514,6 +515,18 @@ const KEY_LABEL: Record<string, string> = {
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+/**
+ * ヒント文字列を OS 記法で組む（Mac: ⌘S / ⌘⇧C ・ Win: Ctrl+S / Ctrl+Shift+C）。
+ * 'mod'/'shift'/'alt' の各トークンをプラットフォーム記号へ、その他はそのまま連結する。
+ * パレット等の表示用ヒントを HelpDialog / chordKeys と同じ記号ソースに揃える（⌘ ハードコード解消）。
+ */
+export function modHint(...parts: string[]): string {
+  const mapped = parts.map((p) =>
+    p === 'mod' ? (isMac ? '⌘' : 'Ctrl') : p === 'shift' ? (isMac ? '⇧' : 'Shift') : p === 'alt' ? (isMac ? '⌥' : 'Alt') : p,
+  );
+  return isMac ? mapped.join('') : mapped.join('+');
+}
 
 /** Chord を表示用の kbd 配列にする(例: {key:'k',mod:true} → ['⌘','K']) */
 export function chordKeys(c: Chord, leader?: boolean): string[] {

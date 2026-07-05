@@ -3,6 +3,7 @@
 import { isMilestone, type FlowNodeId, type ProcessLevel } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI, type ToastTone } from './ui/useUI';
+import { parsePastedRows } from './pasteParse';
 
 // 一括設定の粒度入力（大/中/小/詳細 または英字）を ProcessLevel へ。不正は null。
 const LEVEL_INPUT: Record<string, ProcessLevel> = {
@@ -41,6 +42,24 @@ export function removeIssueWithUndo(taskId: string, issueId: string): void {
 export function removeStepWithUndo(taskId: string, stepId: string): void {
   useApp.getState().removeStep(taskId, stepId);
   toastUndo('手順ステップを削除しました');
+}
+
+/** クリップボード（Excel 等）の各行を工程として一括追加（タブ区切り [作業名, 担当]）。
+ *  アウトライン表・全項目表の両方から呼べる共通処理（ビュー非依存の store.pasteRowsAsTasks に委譲）。 */
+export async function pasteRowsFromClipboard(): Promise<void> {
+  let text: string;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    useUI.getState().toast('クリップボードを読み取れませんでした（ブラウザの許可が必要です）。', 'error');
+    return;
+  }
+  const { rows, hadHeader } = parsePastedRows(text);
+  const n = useApp.getState().pasteRowsAsTasks(rows);
+  if (n) {
+    const note = hadHeader ? '（見出し行を判定して担当・工数も取り込みました）' : '';
+    useUI.getState().toast(`${n}件の工程を貼り付けました。${note}`, 'success');
+  } else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
 }
 
 /** 前後関係（依存）を解除し「元に戻す」トーストを出す（表・全項目表・詳細パネル共通）。 */

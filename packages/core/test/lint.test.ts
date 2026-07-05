@@ -7,6 +7,7 @@ import {
   addAssignee,
   addDependency,
   addIssueItem,
+  addIoItem,
   updateTaskDetail,
   upsertProcedure,
   addStep,
@@ -95,6 +96,29 @@ describe('lintProject: 課題の方策未記入', () => {
   });
 });
 
+describe('lintProject: 帳票の受け渡し整合（io）', () => {
+  it('繋がる帳票（A出力=B入力）は検出せず、行き止まり出力・出所不明入力だけを warn する', () => {
+    const g = counter();
+    let p = emptyProject();
+    p = fullLeaf(p, 'A', g);
+    p = fullLeaf(p, 'B', g);
+    // A: 注文書を出力 / B: 注文書を入力（＝繋がる・検出しない）
+    p = addIoItem(p, 'A', 'outputs', { name: '注文書', kind: 'doc' }, () => 'io-a-out');
+    p = addIoItem(p, 'B', 'inputs', { name: '注文書', kind: 'doc' }, () => 'io-b-in');
+    // A: 集計表を出力するが誰も入力しない（＝行き止まり）
+    p = addIoItem(p, 'A', 'outputs', { name: '集計表', kind: 'doc' }, () => 'io-a-out2');
+    // B: 在庫データを入力するが上流の出力にも source にも根拠が無い（＝出所不明）
+    p = addIoItem(p, 'B', 'inputs', { name: '在庫データ', kind: 'doc' }, () => 'io-b-in2');
+    // B: 顧客マスタを入力するが source を明記（＝出所あり・検出しない）
+    p = addIoItem(p, 'B', 'inputs', { name: '顧客マスタ', kind: 'doc', source: '基幹システム' }, () => 'io-b-in3');
+
+    const io = lintProject(p).filter((i) => i.category === 'io');
+    expect(io.map((i) => i.kind).sort()).toEqual(['io.deadEndOutput', 'io.unsourcedInput']);
+    expect(io.find((i) => i.kind === 'io.deadEndOutput')).toMatchObject({ ref: 'io-a-out2', taskId: 'A' });
+    expect(io.find((i) => i.kind === 'io.unsourcedInput')).toMatchObject({ ref: 'io-b-in2', taskId: 'B' });
+  });
+});
+
 describe('lintProject: 整合性写像（validate → integrity）', () => {
   it('dependency.from（欠落端点）を error にし taskId を実在端点へ寄せる', () => {
     const g = counter();
@@ -135,7 +159,7 @@ describe('lintProject: 決定論ソート', () => {
     p.details['ghost'] = { taskId: 'ghost' };
 
     const cats = lintProject(p).map((i) => i.category);
-    const order = ['integrity', 'procedure', 'assignee', 'effort', 'issue'];
+    const order = ['integrity', 'procedure', 'assignee', 'effort', 'issue', 'io'];
     const idx = cats.map((c) => order.indexOf(c));
     // 単調非減少（＝固定順を守る）。
     expect(idx.every((v, i) => i === 0 || v >= idx[i - 1]!)).toBe(true);

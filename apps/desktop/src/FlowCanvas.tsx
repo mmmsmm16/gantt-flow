@@ -918,7 +918,8 @@ export function FlowCanvas() {
   // 救出: scrollLeft/Top は 0 未満にできないため、過去のバグや外部編集で負座標に取り残された
   // ノードがあると全体表示でも二度と画面内へ戻せない。押されるたびに全ノードを一括で
   // (0,0) 以上へ平行移動してから通常の外接矩形計算に入る（相対配置は保つ／不要なら no-op）。
-  const fitView = () => {
+  // targetIds を渡すとその外接矩形へフィット（選択ノードへのズーム）。省略時は全ノード（全体表示）。
+  const fitView = (targetIds?: Set<FlowNodeId>) => {
     const scroller = canvasRef.current; // .flow-canvas 自身が横スクロール容器（ヘッダ/パレットは固定）
     if (!scroller || !nodes.length) return;
     let rawMinX = Infinity;
@@ -931,11 +932,17 @@ export function FlowCanvas() {
     const rescueDy = rawMinY < 0 ? -rawMinY : 0;
     if (rescueDx || rescueDy) moveNodesBy(Object.keys(view.nodes) as FlowNodeId[], rescueDx, rescueDy);
 
-    let minX = 0;
-    let minY = BAND_TOP;
-    let maxX = LABEL_W;
-    let maxY = BAND_TOP;
-    for (const n of nodes) {
+    // フィット対象: 指定があればその実在ノード、無ければ描画中の全ノード。
+    const fitNodes =
+      targetIds && targetIds.size > 0 ? nodes.filter((n) => targetIds.has(n.id)) : nodes;
+    if (!fitNodes.length) return;
+    // 選択フィットは器（レーン名列・帯上端）に引っ張られず、選択の実寸に寄せる。
+    const selecting = targetIds !== undefined && targetIds.size > 0;
+    let minX = selecting ? Infinity : 0;
+    let minY = selecting ? Infinity : BAND_TOP;
+    let maxX = selecting ? -Infinity : LABEL_W;
+    let maxY = selecting ? -Infinity : BAND_TOP;
+    for (const n of fitNodes) {
       const s = nodeSize(n);
       const nx = n.x + rescueDx;
       const ny = n.y + rescueDy;
@@ -944,7 +951,7 @@ export function FlowCanvas() {
       maxX = Math.max(maxX, nx + s.w);
       maxY = Math.max(maxY, ny + s.h);
     }
-    const pad = 56;
+    const pad = selecting ? 96 : 56;
     const contentW = maxX - minX + pad * 2;
     const contentH = maxY - minY + pad * 2;
     const s = clampScale(Math.min(1, scroller.clientWidth / contentW, scroller.clientHeight / contentH));
@@ -1075,6 +1082,12 @@ export function FlowCanvas() {
       case 'flow.fit':
         fitView();
         return true;
+      case 'flow.fitSelection': {
+        // 選択（複数選択 or 選択工程のノード）へズームフィット。無選択なら全体表示にフォールバック。
+        const t = keyTargets();
+        fitView(t.length ? new Set(t) : undefined);
+        return true;
+      }
       case 'flow.rename': {
         // ノード自身にフォーカスがある場合は要素側の Enter/F2 ハンドラに委ねる。
         if ((document.activeElement as HTMLElement | null)?.closest('.node')) return false;
@@ -1634,7 +1647,7 @@ export function FlowCanvas() {
         >
           <Icons.Wand />
         </button>
-        <button className="palette-act" onClick={fitView} title="全体表示（画面に合わせる）" aria-label="全体表示">
+        <button className="palette-act" onClick={() => fitView()} title="全体表示（画面に合わせる）" aria-label="全体表示">
           <Icons.Maximize />
         </button>
         <span className="palette-zoom">
