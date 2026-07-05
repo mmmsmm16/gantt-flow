@@ -1,6 +1,6 @@
 // 工程に対する UI 横断の手続き。store（ドメイン）と useUI（ダイアログ/パネル）をまたぐ操作を
 // ここに集約し、各ビュー（表・フロー・パレット等）での重複実装を防ぐ。
-import { isMilestone } from '@gantt-flow/core';
+import { isMilestone, type FlowNodeId } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI, type ToastTone } from './ui/useUI';
 
@@ -64,12 +64,21 @@ export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): v
 /**
  * 工程削除の標準確認ダイアログ。OK なら削除して true を返す（複数件は 1 undo 単位）。
  * キャンセル・対象なしは false。削除後の選択移動などは呼び出し側で行う。
+ *
+ * alsoFlowNodes: フロー上で工程ノードと制御/付箋ノードを混在選択して削除する経路用。
+ * 図形も同じ undo 単位へ畳み込み、提示する「元に戻す」1 回で工程＋図形をまとめて復元する
+ * （別 undo 単位のままだと図形が巻き戻らず、提示した undo が操作の一部しか戻せない問題への対処）。
  */
-export async function confirmRemoveTasks(taskIds: string[]): Promise<boolean> {
+export async function confirmRemoveTasks(
+  taskIds: string[],
+  opts?: { alsoFlowNodes?: FlowNodeId[] },
+): Promise<boolean> {
   const tasks = useApp.getState().project.core.tasks;
   const targets = taskIds.filter((id) => tasks[id]);
   if (targets.length === 0) return false;
   const single = targets.length === 1 ? tasks[targets[0]!] : undefined;
+  const flowNodes = opts?.alsoFlowNodes ?? [];
+  const withFlow = flowNodes.length > 0;
   const ok = await useUI.getState().confirm({
     title: single ? '工程を削除' : '工程を一括削除',
     message: single
@@ -80,11 +89,15 @@ export async function confirmRemoveTasks(taskIds: string[]): Promise<boolean> {
   });
   if (!ok) return false;
   const app = useApp.getState();
-  if (single) app.removeTask(single.id);
+  // 図形を伴う混在削除は removeManyTasks に flowNodeIds を渡して 1 undo 単位に畳み込む
+  // （単一工程でも removeTask 経路には乗せない＝図形が別 undo 単位に分かれるのを避ける）。
+  if (withFlow) app.removeManyTasks(targets, flowNodes);
+  else if (single) app.removeTask(single.id);
   else app.removeManyTasks(targets);
-  toastUndo(
-    single ? `「${single.name || '（無題）'}」を削除しました` : `${targets.length} 件の工程を削除しました`,
-  );
+  const taskLabel = single
+    ? `「${single.name || '（無題）'}」を削除しました`
+    : `${targets.length} 件の工程を削除しました`;
+  toastUndo(withFlow ? `${taskLabel}（図形を含む）` : taskLabel);
   return true;
 }
 

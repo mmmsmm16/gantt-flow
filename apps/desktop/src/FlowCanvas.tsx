@@ -1137,12 +1137,13 @@ export function FlowCanvas() {
             if (n.kind === 'control' || n.kind === 'comment') flowSpecific.push(id);
             else if (n.kind === 'task') taskIds.push(n.taskId);
           }
-          // 混在削除は図形・工程で別 undo 単位。図形側のトーストは工程側の確認導線に委ね二重表示を避ける。
-          if (flowSpecific.length) {
-            if (taskIds.length) deleteFlowNodes(flowSpecific);
-            else deleteFlowNodesWithUndo(flowSpecific);
+          // 混在削除は図形を工程の確認導線に畳み込み 1 undo 単位にする（提示した「元に戻す」で丸ごと復元）。
+          // 図形のみのときは即時削除＋単独トースト。
+          if (taskIds.length) {
+            void confirmRemoveTasks(taskIds, flowSpecific.length ? { alsoFlowNodes: flowSpecific } : undefined);
+          } else if (flowSpecific.length) {
+            deleteFlowNodesWithUndo(flowSpecific);
           }
-          if (taskIds.length) void confirmRemoveTasks(taskIds);
           setMultiSel(new Set());
           return true;
         }
@@ -2523,11 +2524,15 @@ export function FlowCanvas() {
                   action="flow.delete"
                   danger
                   onClick={() => {
-                    if (flowSpecific.length) {
-                      if (taskIds.length) deleteFlowNodes(flowSpecific);
-                      else deleteFlowNodesWithUndo(flowSpecific);
+                    // 混在は 1 undo 単位に畳み込む（キーボード削除と同経路）。図形のみは即時削除。
+                    if (taskIds.length) {
+                      void confirmRemoveTasks(
+                        taskIds,
+                        flowSpecific.length ? { alsoFlowNodes: flowSpecific } : undefined,
+                      );
+                    } else if (flowSpecific.length) {
+                      deleteFlowNodesWithUndo(flowSpecific);
                     }
-                    if (taskIds.length) void confirmRemoveTasks(taskIds);
                     setMultiSel(new Set());
                   }}
                 />

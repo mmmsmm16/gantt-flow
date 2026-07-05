@@ -614,6 +614,31 @@ describe('app store（command → reconcile → history）', () => {
     expect(Object.values(view0(s).nodes).some((n) => n.kind === 'task')).toBe(true); // 工程は残る
   });
 
+  it('removeManyTasks(flowNodeIds): 工程＋制御/付箋の混在削除を 1 undo 単位で丸ごと復元する', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const taskId = idByName(s, 'A');
+    const taskNode = taskNodes(s).find((n) => n.taskId === taskId)!;
+    s.getState().addControlNode('decision');
+    s.getState().addComment('メモ');
+    const ctrl = Object.values(view0(s).nodes).find((n) => n.kind === 'control')!;
+    const note = Object.values(view0(s).nodes).find((n) => n.kind === 'comment')!;
+
+    // 工程と図形（制御/付箋）を同じ呼び出しで削除する。
+    s.getState().removeManyTasks([taskId], [ctrl.id, note.id]);
+    expect(s.getState().project.core.tasks[taskId]).toBeUndefined();
+    expect(view0(s).nodes[taskNode.id]).toBeUndefined();
+    expect(view0(s).nodes[ctrl.id]).toBeUndefined();
+    expect(view0(s).nodes[note.id]).toBeUndefined();
+
+    // 提示する「元に戻す」は undo 1 回。工程・制御・付箋がまとめて戻る（別 undo 単位に割れない）。
+    s.getState().undo();
+    expect(s.getState().project.core.tasks[taskId]).toBeDefined();
+    expect(Object.values(view0(s).nodes).some((n) => n.kind === 'task')).toBe(true);
+    expect(view0(s).nodes[ctrl.id]).toBeDefined();
+    expect(view0(s).nodes[note.id]).toBeDefined();
+  });
+
   it('setCommentTarget: 付箋を工程ノードへ結ぶ/解除する。不正な対象は no-op', () => {
     const s = createAppStore();
     s.getState().addTask('A');
