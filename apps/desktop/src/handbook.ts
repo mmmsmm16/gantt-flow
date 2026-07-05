@@ -874,6 +874,10 @@ strong{font-weight:700;}
   /* 紙面では区切りが章見出しと泣き別れしないよう break-inside:avoid で足りるため、
      画面用の max-height/scroll(コンパクト表示)は解除して全体を描く。 */
   .hb-pos-scroll{max-height:none;overflow:visible;}
+  /* 業務フロー図(.hb-fig-scroll)は固定 px 幅の SVG。画面は横スクロールで見せるが、
+     紙は横スクロールできず右端が見切れるため、紙幅に合わせて縮小して全体を描く。 */
+  .hb-fig-scroll{overflow:visible;}
+  .hb-fig-scroll svg{max-width:100%;height:auto;}
   .caret{display:none !important;}
   a{color:var(--ink);text-decoration:none;}
 }

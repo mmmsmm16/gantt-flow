@@ -293,6 +293,14 @@ describe('buildHandbookHtml', () => {
     expect(scopeNameInFigcaption).toBe(false);
   });
 
+  it('印刷: 業務フロー図(.hb-fig-scroll)に @media print の紙幅フィット規則が入る（右端の見切れ防止）', () => {
+    const html = buildHandbookHtml(sample(), opts());
+    // @media print ブロック内に、横スクロールを解除して紙幅に SVG を収める規則があること。
+    const printBlock = html.slice(html.indexOf('@media print{'), html.indexOf('</style>'));
+    expect(printBlock).toContain('.hb-fig-scroll{overflow:visible;}');
+    expect(printBlock).toContain('.hb-fig-scroll svg{max-width:100%;height:auto;}');
+  });
+
   it('決定論: 同一入力＋固定 now なら同一文字列', () => {
     const project = sample();
     const a = buildHandbookHtml(project, opts());
