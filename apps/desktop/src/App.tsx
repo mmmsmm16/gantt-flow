@@ -43,6 +43,7 @@ import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
 import { IssueListDialog } from './ui/IssueListDialog';
 import { SummaryDialog } from './ui/SummaryDialog';
+import { ValidationDialog } from './ui/ValidationDialog';
 import { ComparisonDialog } from './ui/ComparisonDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
@@ -1131,6 +1132,7 @@ export function App() {
       <HelpDialog />
       <IssueListDialog />
       <SummaryDialog />
+      <ValidationDialog />
       <ComparisonDialog />
       <BackupsDialog />
       <SettingsDialog />
