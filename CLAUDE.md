@@ -12,10 +12,19 @@ API キーはローカル保持で当社サーバ等へは送らない。
   `model` / `commands` / `sync`(reconcile) / `persistence`(IF) / `import` / `export` / `validate` / `metrics` / `history`。
   `project.manual` は手順書・資料台帳の層（`commands/manual.ts`、ナビ導出は `sync/procedureNav.ts` —
   `bands`/`milestoneGuides` と同型の純関数で reconcile には関与しない）。
+  読み取り専用の集計・点検層: `lint.ts`（業務リント＝納品前チェック。validate の参照整合性＋手順書欠落・担当/工数未入力・
+  方策未記入を列挙）/ `export/compareReport.ts`（As-Is→To-Be 改善効果の集計行列。比較ダイアログ・HTML レポート・
+  Excel シートの数字の単一ソース）/ `metrics.ts` の `computeHearingProgress`・`computeProjectSummary`
+  （サマリ・ステータスバー・Excel 出力が同一流儀で共有）。いずれも決定論・sync/commands 非依存。
 - `apps/desktop` (`@gantt-flow/desktop`) — Tauri 2 + React 18 + Vite 5 + Zustand 4。
   `src/` はフラット構成（`App.tsx` `store.ts` `TableView.tsx` `FullTable.tsx` `FlowCanvas.tsx` `flowSvg.ts`
   `Inspector.tsx` `persistence.ts` など約 30 ファイル）＋ダイアログ/共通 UI の `src/ui/`。
   `src-tauri/` は Rust の薄いアダプタ（ダイアログ・autosave・更新検知。保存とロックは `crates/fsstore` に委譲）。
+  desktop の共有機構（重複実装しない）: `ToastAction`＝トーストのアクションボタン（破壊的操作の「元に戻す」標準）/
+  `openWindowOrWarn`＝`window.open` null をトースト警告する共通ラッパ / 重い出力・印刷は
+  「`setBusy` → rAF で1フレーム譲る → 実行 → finally 解除」の定石 / `statusUi.ts`＝ヒアリング状況のラベル・順序・
+  クラス（`.st-unheard` 点線含む）の一元管理 / `procedureFocus` シグナル（`{taskId, seq}`）＝手順書タブへの章ジャンプ
+  （ビュー間フォーカス連携の雛形）。
 - `apps/mcp-server` (`@gantt-flow/mcp`) — core を stdio で公開する MCP サーバ。各編集を
   「core コマンド → `reconcileProject` → `meta.updatedAt` 更新 → アトミック保存」の 1 単位で適用する（write-through）。
 - `crates/fsstore` — 共有フォルダ向けのアトミック保存＋助言ロックを担う純 Rust 層（Tauri 殻から呼ばれる）。
@@ -46,6 +55,9 @@ API キーはローカル保持で当社サーバ等へは送らない。
 - core: `npm test -w @gantt-flow/core`（vitest）/ 単一テスト絞り込み: `npm test -w @gantt-flow/core -- reconcile`
 - desktop: `npm run dev -w @gantt-flow/desktop`（Vite, http://localhost:5173）/ `npm run build -w @gantt-flow/desktop`
 - mcp-server: `npm run build -w @gantt-flow/mcp`（tsup → `dist/index.js`）/ `npm run dev -w @gantt-flow/mcp`（tsx 直実行）
+- 注意: PowerShell の `npm run dev -- --port 5174` は `--port` が npm に食われて効かない（`vite 5174` になる）。
+  ポート指定は `npx vite --port 5174` を `apps/desktop` で直接叩くか Bash 経由で。
+- git worktree 運用時は `node_modules` が共有されないため、各 worktree で `npm ci` を実行してから dev/test を回す。
 
 ## テスト方針（`docs/08-testing.md`）
 
