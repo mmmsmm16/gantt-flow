@@ -10,6 +10,8 @@ import {
   deserializeContainer,
   computeProjectSummary,
   effortMinutesToHours,
+  updateTaskToBe,
+  IMPROVEMENT_SHEET_NAME,
   type LockInfo,
   type Project,
 } from '@gantt-flow/core';
@@ -21,6 +23,8 @@ import {
   localDateYmd,
   missingReferencedAssets,
   exportHandbookFile,
+  exportImprovementReportFile,
+  exportImprovementExcel,
   buildProjectWorkbook,
   startExternalWatch,
   stopExternalWatch,
@@ -710,6 +714,89 @@ describe('exportHandbookFile（ハンドブック HTML の書き出し）', () =
     expect(clicks).toHaveLength(1);
     expect(clicks[0]).toEqual({ name, href: 'blob:mock-handbook' });
     expect(capturedMime).toBe('text/html;charset=utf-8');
+  });
+});
+
+// exportHandbookFile と同じ download() 経由（Blob + <a download>）。document スタブ＋
+// URL.createObjectURL の spy で Blob を捕捉する。Excel は Blob→arrayBuffer→XLSX.read で中身検証。
+describe('改善効果レポートの出力（HTML / Excel）', () => {
+  // To-Be を数件入れて KPI が差分を持つサンプル。
+  function withToBe(prefix: string): Project {
+    const base = createSampleProject(gen(prefix));
+    const leaf = Object.values(base.core.tasks).find(
+      (t) =>
+        !Object.values(base.core.tasks).some((c) => c.parentId === t.id) &&
+        (base.details[t.id]?.effortMinutes ?? 0) > 0,
+    )!;
+    return updateTaskToBe(base, leaf.id, { effortMinutes: 5, ltDays: 1, difficulty: 'L', automation: 'system' });
+  }
+
+  function captureDownload(): { blobs: { blob: Blob; name: string; mime: string }[]; restore: () => void } {
+    const blobs: { blob: Blob; name: string; mime: string }[] = [];
+    let pendingBlob: Blob | null = null;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      pendingBlob = blob as Blob;
+      return 'blob:mock-improve';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    (globalThis as { document?: unknown }).document = {
+      createElement: () => {
+        const a: { href: string; download: string; click: () => void } = {
+          href: '',
+          download: '',
+          click: () => blobs.push({ blob: pendingBlob!, name: a.download, mime: pendingBlob!.type }),
+        };
+        return a;
+      },
+    };
+    return {
+      blobs,
+      restore: () => {
+        vi.restoreAllMocks();
+        delete (globalThis as { document?: unknown }).document;
+      },
+    };
+  }
+
+  it('exportImprovementReportFile は -改善効果レポート.html を text/html で download し HTML を返す', () => {
+    const cap = captureDownload();
+    try {
+      const { name, html } = exportImprovementReportFile(withToBe('impr-html'));
+      expect(name).toMatch(/-改善効果レポート\.html$/);
+      expect(html).toContain('<!doctype html>');
+      expect(html).toContain('改善効果レポート');
+      expect(cap.blobs).toHaveLength(1);
+      expect(cap.blobs[0]!.name).toBe(name);
+      expect(cap.blobs[0]!.mime).toBe('text/html;charset=utf-8');
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('exportImprovementExcel は -改善効果.xlsx を出力し「改善効果」シートに KPI を含む', async () => {
+    const cap = captureDownload();
+    try {
+      const name = exportImprovementExcel(withToBe('impr-xlsx'));
+      expect(name).toMatch(/-改善効果\.xlsx$/);
+      expect(cap.blobs).toHaveLength(1);
+      expect(cap.blobs[0]!.mime).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      const buf = new Uint8Array(await cap.blobs[0]!.blob.arrayBuffer());
+      const wb = XLSX.read(buf, { type: 'array' });
+      expect(wb.SheetNames).toContain(IMPROVEMENT_SHEET_NAME);
+      const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[IMPROVEMENT_SHEET_NAME]!, {
+        header: 1,
+        blankrows: true,
+      });
+      const flat = rows.map((r) => (r ?? []).join('\t'));
+      expect(flat).toContain('指標\tAs-Is\tTo-Be\t改善');
+      expect(flat.some((l) => l.startsWith('総工数(h)'))).toBe(true);
+      expect(flat.some((l) => l.startsWith('自動化率(%)'))).toBe(true);
+      expect(flat).toContain('工程別差分');
+    } finally {
+      cap.restore();
+    }
   });
 });
 

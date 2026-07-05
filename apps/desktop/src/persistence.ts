@@ -15,6 +15,8 @@ import {
   computeCodes,
   computeProjectSummary,
   effortMinutesToHours,
+  compareReportSheetRows,
+  IMPROVEMENT_SHEET_NAME,
   parseCsv,
   type Project,
   type FlowLevelView,
@@ -25,6 +27,7 @@ import { bytesToB64, b64ToBytes } from './b64';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
 import { snapshotAssets, ingestAssets, hasAsset } from './assetStore';
 import { buildHandbookHtml } from './handbook';
+import { buildImprovementReportHtml } from './reportHtml';
 import { loadLocationAliases } from './locationAliases';
 import { useUI, type LockUiState } from './ui/useUI';
 
@@ -651,6 +654,26 @@ export function exportHandbookFile(project: Project): { name: string; html: stri
   });
   download(name, html, 'text/html;charset=utf-8');
   return { name, html };
+}
+
+// 改善効果レポート（自己完結 HTML 1 ファイル）出力。生成器は純関数（buildImprovementReportHtml）。
+// ハンドブックと同様、別窓「開いて確認」で使い回せるよう生成 HTML も返す（再生成を避ける）。
+export function exportImprovementReportFile(project: Project): { name: string; html: string } {
+  const name = `${safeName(project.meta.title)}-改善効果レポート.html`;
+  const html = buildImprovementReportHtml(project);
+  download(name, html, 'text/html;charset=utf-8');
+  return { name, html };
+}
+
+// 改善効果を Excel（単一シート）に書き出す。統合ブック（buildProjectWorkbook）とは別に単独出力も残す。
+// シート行列は core の compareReportSheetRows（画面・HTML と同じ buildCompareReport 由来）。
+export function exportImprovementExcel(project: Project): string {
+  const name = `${safeName(project.meta.title)}-改善効果.xlsx`;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(compareReportSheetRows(project)), IMPROVEMENT_SHEET_NAME);
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  return name;
 }
 
 const escapeHtml = (s: string) =>
