@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Difficulty, ProcessLevel } from '@gantt-flow/core';
 import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
 import { FlowCompareView } from './FlowCompareView';
-import { isEffortBlurUnchanged, parseEffortHoursToMinutes, parseLtDaysInput } from '../parseEffort';
+import { isEffortBlurUnchanged, validateEffort, validateLtDays, markEffortInvalid, clearEffortInvalid } from '../parseEffort';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
@@ -252,10 +252,17 @@ export function ComparisonDialog() {
                             defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
                             placeholder={`${round1(r.aEff)}`}
                             onBlur={(e) => {
+                              const res = validateEffort(e.target.value);
+                              if (!res.ok) {
+                                // 不正値（「2時間」等）は打った文字を残し、赤リング＋トーストで修正を促す。
+                                // 無音で undefined へ「解除」して既存 To-Be 値を消さない（表側と同じ流儀）。
+                                markEffortInvalid(e.target, res.message);
+                                useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                return;
+                              }
+                              clearEffortInvalid(e.target);
                               if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
-                              updateToBe(r.id, {
-                                effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined,
-                              });
+                              if (res.minutes !== tb?.effortMinutes) updateToBe(r.id, { effortMinutes: res.minutes });
                             }}
                           />
                         </td>
@@ -265,11 +272,16 @@ export function ComparisonDialog() {
                             key={`l-${r.id}-${tb?.ltDays}`}
                             defaultValue={tb?.ltDays ?? ''}
                             placeholder={`${r.aLt}`}
-                            onBlur={(e) =>
-                              updateToBe(r.id, {
-                                ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
-                              })
-                            }
+                            onBlur={(e) => {
+                              const res = validateLtDays(e.target.value);
+                              if (!res.ok) {
+                                markEffortInvalid(e.target, res.message);
+                                useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                return;
+                              }
+                              clearEffortInvalid(e.target);
+                              if (res.days !== tb?.ltDays) updateToBe(r.id, { ltDays: res.days });
+                            }}
                           />
                         </td>
                         <td>
@@ -366,8 +378,15 @@ export function ComparisonDialog() {
                               key={`ae-${t.id}-${tb?.effortMinutes}`}
                               defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
                               onBlur={(e) => {
+                                const res = validateEffort(e.target.value);
+                                if (!res.ok) {
+                                  markEffortInvalid(e.target, res.message);
+                                  useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                  return;
+                                }
+                                clearEffortInvalid(e.target);
                                 if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
-                                updateToBe(t.id, { effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined });
+                                if (res.minutes !== tb?.effortMinutes) updateToBe(t.id, { effortMinutes: res.minutes });
                               }}
                             />
                           </td>
@@ -376,11 +395,16 @@ export function ComparisonDialog() {
                               className="cmp-bulk-in num"
                               key={`al-${t.id}-${tb?.ltDays}`}
                               defaultValue={tb?.ltDays ?? ''}
-                              onBlur={(e) =>
-                                updateToBe(t.id, {
-                                  ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
-                                })
-                              }
+                              onBlur={(e) => {
+                                const res = validateLtDays(e.target.value);
+                                if (!res.ok) {
+                                  markEffortInvalid(e.target, res.message);
+                                  useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                  return;
+                                }
+                                clearEffortInvalid(e.target);
+                                if (res.days !== tb?.ltDays) updateToBe(t.id, { ltDays: res.days });
+                              }}
                             />
                           </td>
                           <td>
