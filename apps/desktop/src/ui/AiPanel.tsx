@@ -25,6 +25,7 @@ import {
   filterApplicable,
   planApply,
   applyEdits,
+  NOT_APPROVED_REASON,
   type DecisionState,
   type DecisionMap,
   type EditMap,
@@ -195,7 +196,7 @@ function applyApproved(): void {
   // （resolveApproved は rejected/disabled の波及だけを見るため、pending producer は素通りしてしまう）。
   const { apply: applicable, excluded } = filterApplicable(finalOps, apply);
   const applyOps = applicable.map((i) => finalOps[i]!);
-  const excludedNote = excluded.size > 0 ? `${excluded.size} 件は依存先が未承認のため見送りました` : '';
+  const excludedNote = excluded.size > 0 ? `${excluded.size} 件は${NOT_APPROVED_REASON}見送りました` : '';
   if (!applyOps.length) {
     if (excludedNote) useUI.getState().toast(excludedNote, 'info');
     return;
@@ -486,7 +487,7 @@ export function AiPanel(): JSX.Element {
             承認 {applyCount} 件を確定（元に戻せます）
           </button>
           {excludedCount > 0 && (
-            <span className="applybar-note">（{excludedCount} 件は依存先が未承認）</span>
+            <span className="applybar-note">（{excludedCount} 件は{NOT_APPROVED_REASON}見送り）</span>
           )}
         </footer>
       )}

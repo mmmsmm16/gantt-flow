@@ -20,8 +20,8 @@ export type EditMap = Record<number, ProposalEdit>;
 
 /** 却下波及で下流を無効にした理由（UI 表示・フロー/カード共通）。 */
 export const DISABLED_REASON = '依存先が否認されたため';
-/** 適用直前フィルタ（filterApplicable）で除外した理由（トースト集計のみに使用・UI 常時表示はしない）。 */
-const NOT_APPROVED_REASON = '依存先が未承認のため';
+/** 適用直前フィルタ（filterApplicable）で除外した理由。トースト集計と適用バーの注記で共用する。 */
+export const NOT_APPROVED_REASON = '依存先が未承認のため';
 
 // producer になれる op（ref を宣言して後続 op から参照される）。
 const PRODUCER_OPS: ReadonlySet<BatchOp['op']> = new Set(['add_task', 'upsert_task', 'upsert_asset']);
