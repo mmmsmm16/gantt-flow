@@ -2,11 +2,14 @@
 // Tauri 環境は window.__TAURI__.core.invoke をモックして再現する（node 環境のため DOM 依存の
 // エクスポート系: exportPngFile 等はここでは対象外）。
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import * as XLSX from 'xlsx';
 import {
   createSampleProject,
   serializeProject,
   serializeContainer,
   deserializeContainer,
+  computeProjectSummary,
+  effortMinutesToHours,
   type LockInfo,
   type Project,
 } from '@gantt-flow/core';
@@ -18,6 +21,7 @@ import {
   localDateYmd,
   missingReferencedAssets,
   exportHandbookFile,
+  buildProjectWorkbook,
   startExternalWatch,
   stopExternalWatch,
 } from '../src/persistence';
@@ -706,6 +710,46 @@ describe('exportHandbookFile（ハンドブック HTML の書き出し）', () =
     expect(clicks).toHaveLength(1);
     expect(clicks[0]).toEqual({ name, href: 'blob:mock-handbook' });
     expect(capturedMime).toBe('text/html;charset=utf-8');
+  });
+});
+
+describe('buildProjectWorkbook（Excel 1 ブック多シート化）', () => {
+  it('工程表・課題一覧・サマリの 3 シートを 1 ブックに同梱する', () => {
+    const project = createSampleProject(gen('xl'));
+    const wb = buildProjectWorkbook(project);
+    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ']);
+  });
+
+  it('課題一覧シートはヘッダ＋課題行を持つ（工程No/工程/担当/課題/方策）', () => {
+    const project = createSampleProject(gen('xl'));
+    const wb = buildProjectWorkbook(project);
+    const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets['課題一覧']!, { header: 1 });
+    expect(rows[0]).toEqual(['工程No', '工程', '担当', '課題', '方策']);
+    expect(rows.length).toBeGreaterThan(1); // サンプルには課題が含まれる
+  });
+
+  it('サマリシートは core の集計と一致する（担当別工数の合計・行の存在）', () => {
+    const project = createSampleProject(gen('xl'));
+    const wb = buildProjectWorkbook(project);
+    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets['サマリ']!, { header: 1, blankrows: true });
+    const flat = rows.map((r) => (r ?? []).join('\t'));
+    expect(flat).toContain('担当別の工数');
+    expect(flat).toContain('区分\t件数\t割合');
+    expect(flat).toContain('粒度別の工程数');
+
+    const summary = computeProjectSummary(project.core, project.details);
+    // 担当別工数の合計行が core 集計と一致する
+    const totalIdx = rows.findIndex((r) => r[0] === '合計' && typeof r[1] === 'number' && r.length === 2);
+    expect(totalIdx).toBeGreaterThan(-1);
+    // 最初の「合計」は担当別工数の合計（h 換算）
+    expect(rows[totalIdx]![1]).toBe(effortMinutesToHours(summary.totalMin));
+  });
+
+  it('空プロジェクトでも 3 シート構成でエラーなく組み立てる', () => {
+    const project = createSampleProject(gen('xl'));
+    const empty: Project = { ...project, core: { tasks: {}, dependencies: {}, assignees: {} }, details: {} };
+    const wb = buildProjectWorkbook(empty);
+    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ']);
   });
 });
 

@@ -13,6 +13,8 @@ import {
   projectToRows,
   projectToCsv,
   computeCodes,
+  computeProjectSummary,
+  effortMinutesToHours,
   parseCsv,
   type Project,
   type FlowLevelView,
@@ -510,8 +512,8 @@ export function exportCsvFile(project: Project): string {
   return name;
 }
 
-// 課題一覧を Excel に書き出す（コンサル定番の納品物「課題一覧表」）。
-export function exportIssuesExcel(project: Project): string {
+// 課題一覧シートの行（工程No 順）。単独出力・統合ブックの両方で共有。
+function issuesAoa(project: Project): string[][] {
   const codes = computeCodes(project.core);
   const rows: string[][] = [['工程No', '工程', '担当', '課題', '方策']];
   const ordered = Object.values(project.core.tasks).sort((a, b) =>
@@ -524,22 +526,65 @@ export function exportIssuesExcel(project: Project): string {
       rows.push([codes[t.id] ?? '', t.name, assignee, iss.issue, iss.measure ?? '']);
     }
   }
-  const name = `${safeName(project.meta.title)}-課題一覧.xlsx`;
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  return rows;
+}
+
+const AUTO_SUMMARY_LABELS: { key: 'manual' | 'partial' | 'system' | 'none'; label: string }[] = [
+  { key: 'manual', label: '手作業' },
+  { key: 'partial', label: '一部自動' },
+  { key: 'system', label: 'システム自動' },
+  { key: 'none', label: '未設定' },
+];
+const LEVEL_SUMMARY_LABELS: Record<string, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
+
+// サマリシートの行（担当別工数・自動化区分・粒度別件数）。SummaryDialog と同じ集計を core から再利用。
+function summaryAoa(project: Project): (string | number)[][] {
+  const s = computeProjectSummary(project.core, project.details);
+  const rows: (string | number)[][] = [];
+  rows.push(['担当別の工数']);
+  rows.push(['担当', '工数(h)']);
+  for (const a of s.assignees) rows.push([a.name, effortMinutesToHours(a.min)]);
+  rows.push(['合計', effortMinutesToHours(s.totalMin)]);
+  rows.push([]);
+  rows.push([`自動化区分（末端 ${s.leafCount} 工程）`]);
+  rows.push(['区分', '件数', '割合']);
+  for (const a of AUTO_SUMMARY_LABELS) {
+    const n = s.autoCounts[a.key] ?? 0;
+    const pct = s.leafCount ? Math.round((n / s.leafCount) * 100) : 0;
+    rows.push([a.label, n, `${pct}%`]);
+  }
+  rows.push([]);
+  rows.push(['粒度別の工程数']);
+  rows.push(['粒度', '件数']);
+  for (const l of s.levelCounts) rows.push([LEVEL_SUMMARY_LABELS[l.key] ?? l.key, l.n]);
+  rows.push(['合計', s.taskCount]);
+  return rows;
+}
+
+// 統合ブック（工程表 / 課題一覧 / サマリ）を組み立てる純関数（テスト用に分離・download 非依存）。
+export function buildProjectWorkbook(project: Project): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '課題一覧');
+  // 人間が読む納品物なので前工程は作業名で出す（工程No は CSV ラウンドトリップ用）。
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(projectToRows(project, { depRef: 'name' })), '工程表');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(issuesAoa(project)), '課題一覧');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa(project)), 'サマリ');
+  return wb;
+}
+
+// 課題一覧を Excel に書き出す（コンサル定番の納品物「課題一覧表」）。統合出力とは別に単独出力も残す（互換）。
+export function exportIssuesExcel(project: Project): string {
+  const name = `${safeName(project.meta.title)}-課題一覧.xlsx`;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(issuesAoa(project)), '課題一覧');
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   return name;
 }
 
+// Excel 出力: 1 ブックに工程表・課題一覧・サマリの 3 シートを同梱（納品時の手作業を削減）。
 export function exportExcelFile(project: Project): string {
   const name = `${safeName(project.meta.title)}.xlsx`;
-  // 人間が読む納品物なので前工程は作業名で出す（工程No は CSV ラウンドトリップ用）。
-  const ws = XLSX.utils.aoa_to_sheet(projectToRows(project, { depRef: 'name' }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '工程表');
-  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  const buf = XLSX.write(buildProjectWorkbook(project), { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   return name;
 }
