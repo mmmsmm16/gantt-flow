@@ -7595,7 +7595,7 @@ input.colored-text {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--bg);
+  background: var(--canvas-bg);
 }
 .aifp-canvas {
   position: relative;
@@ -7606,20 +7606,19 @@ input.colored-text {
   pointer-events: none;
 }
 
-/* スイムレーン */
+/* スイムレーン（本キャンバス .lane-* と同じトークンで配色を揃える） */
 .aifp-lane-stripe {
-  fill: var(--panel-2);
-  opacity: 0.5;
+  fill: var(--lane-stripe);
 }
 .aifp-lane-line {
-  stroke: var(--line);
+  stroke: var(--lane-line);
   stroke-width: 1.2;
 }
 .aifp-lane-col {
-  fill: var(--panel-2);
+  fill: var(--lane-col);
 }
 .aifp-lane-divider {
-  stroke: var(--line-strong);
+  stroke: var(--lane-divider);
   stroke-width: 1.4;
 }
 .aifp-lane-title {
