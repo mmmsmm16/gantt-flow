@@ -528,7 +528,7 @@ export function App() {
       return;
     }
     try {
-      const name = exportSvgFile(st.project, view);
+      const name = exportSvgFile(st.project, view, st.showIssues);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
     } catch (err) {
       console.error(err);
@@ -544,11 +544,15 @@ export function App() {
       return;
     }
     try {
-      const name = await exportPngFile(st.project, view);
+      useUI.getState().setBusy('PNG を書き出しています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const name = await exportPngFile(st.project, view, st.showIssues);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
     } catch (err) {
       console.error(err);
       useUI.getState().toast('出力に失敗しました（PNG）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
     }
   };
   const onExportHandbook = async () => {
@@ -642,7 +646,11 @@ export function App() {
       useUI.getState().setBusy('印刷用に整えています…');
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
       const st = useApp.getState();
-      const ok = printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+      const ok = printProjectAndFlow(
+        st.project,
+        findView(st.project, st.level, st.scopeParentId),
+        st.showIssues,
+      );
       if (!ok) useUI.getState().toast('印刷の準備に失敗しました。', 'error');
     } finally {
       useUI.getState().setBusy(null);

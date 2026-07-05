@@ -40,8 +40,11 @@ const esc = (s: string) =>
 export function buildFlowSvg(
   project: Project,
   view: FlowLevelView,
-  opts?: { highlightTaskIds?: Set<Id> },
+  opts?: { highlightTaskIds?: Set<Id>; includeIssues?: boolean },
 ): string {
+  // 課題レイヤ（赤四角＋注釈線）を出力に含めるか。既定 true＝従来どおり（バイト不変）。
+  // 画面の「課題を表示」トグルを出力（SVG/PNG・印刷・ミラー窓）へ反映するために渡す。
+  const includeIssues = opts?.includeIssues ?? true;
   // ハイライト指定が無ければ従来どおり（isHi は常に false・dim は常に無効＝出力バイト不変）。
   const hi = opts?.highlightTaskIds;
   const isHi = (taskId: Id): boolean => hi !== undefined && hi.has(taskId);
@@ -209,6 +212,7 @@ export function buildFlowSvg(
 
   // issue lines（代表のみ。終点の規則は画面と共有: issueLineTarget）
   for (const n of nodes) {
+    if (!includeIssues) break; // 課題レイヤ非表示なら注釈線も描かない
     if (n.kind !== 'issue' || !isPrimaryIssue(n)) continue;
     const t = view.nodes[n.targetNodeId];
     if (!t) continue;
@@ -260,6 +264,7 @@ export function buildFlowSvg(
         `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${textFill}" text-anchor="middle"${dimAttr(dimmed)}>${esc(name)}</text>`,
       );
     } else if (n.kind === 'issue') {
+      if (!includeIssues) continue; // 課題レイヤ非表示なら赤四角も描かない
       if (!isPrimaryIssue(n)) continue; // 集約: 代表のみ描画
       const texts = issueTextsOf(n.taskId);
       const lines = texts.length ? texts : ['課題'];

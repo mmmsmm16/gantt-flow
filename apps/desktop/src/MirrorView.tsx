@@ -68,7 +68,7 @@ export function MirrorView({ kind }: { kind: MirrorKind }) {
     if (kind === 'table') return buildMirrorTableHtml(state.project);
     const view = findLevelView(state.project, state.level, state.scopeParentId);
     if (!view) return '';
-    return buildFlowSvg(state.project, view);
+    return buildFlowSvg(state.project, view, { includeIssues: state.showIssues });
   }, [state, kind]);
 
   const waiting = !state || !live; // 未接続 or 主窓が離脱

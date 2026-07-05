@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   addDependency,
   addIoItem,
+  addIssueItem,
   addTask,
   createSampleProject,
   deriveMilestoneGuides,
@@ -356,5 +357,27 @@ describe('buildFlowSvg のマイルストーン描画（菱形・縦線・ラベ
 
     const svg = buildFlowSvg(p, view2);
     expect(svg).toContain(`x1="${guide.x}"`); // 縦線の始点 x が guide.x（自ノードの x）と一致
+  });
+});
+
+describe('buildFlowSvg の課題レイヤ表示切替（出力への反映）', () => {
+  it('includeIssues=false で課題（赤四角・注釈テキスト）を描かない・既定 true は描く', () => {
+    const g = counter();
+    let p = createSampleProject(g);
+    const medium = p.flow.byLevel.find((v) => v.level === 'medium' && v.scopeParentId)!;
+    // 対象ビュー内の工程に課題を 1 件足して reconcile（課題ノードが出る）。
+    const targetTaskId = Object.values(medium.nodes).find((n) => n.kind === 'task')!.taskId;
+    p = addIssueItem(p, targetTaskId, { issue: 'ボトルネック工程' }, g);
+    p = reconcileProject(p, g);
+    const view = p.flow.byLevel.find((v) => v.level === 'medium' && v.scopeParentId === medium.scopeParentId)!;
+
+    const withIssues = buildFlowSvg(p, view); // 既定 true
+    expect(withIssues).toContain('ボトルネック工程');
+
+    const withoutIssues = buildFlowSvg(p, view, { includeIssues: false });
+    expect(withoutIssues).not.toContain('ボトルネック工程');
+    // タスク名は残る（課題だけ消える）
+    const taskName = p.core.tasks[targetTaskId]!.name;
+    expect(withoutIssues).toContain(taskName);
   });
 });
