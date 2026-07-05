@@ -26,6 +26,7 @@ import {
   exportImprovementReportFile,
   exportImprovementExcel,
   printProjectAndFlow,
+  type PrintOptions,
   forgetFileHandle,
   openRecentFile,
   currentFileName,
@@ -56,6 +57,7 @@ import { confirmReplace, gatedImport, gatedOpen } from './replaceOps';
 import { useGlobalHotkeys } from './ui/useGlobalHotkeys';
 import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
+import { PrintDialog } from './ui/PrintDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
 import { AiPanel } from './ui/AiPanel';
 import { AiFlowOverlay } from './ui/AiFlowPreview';
@@ -642,15 +644,16 @@ export function App() {
   };
   const onPrint = async () => {
     if (!(await confirmEmptyOutput())) return;
+    // 印刷オプション（課題一覧ページ・フロー粒度・課題レイヤ）を先に選ばせる。
+    useUI.getState().setOverlay('print');
+  };
+  // 印刷オプションダイアログの「印刷」から呼ばれる実処理。
+  const runPrint = async (level: ProcessLevel, opts: PrintOptions) => {
     try {
       useUI.getState().setBusy('印刷用に整えています…');
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
       const st = useApp.getState();
-      const ok = printProjectAndFlow(
-        st.project,
-        findView(st.project, st.level, st.scopeParentId),
-        st.showIssues,
-      );
+      const ok = printProjectAndFlow(st.project, findView(st.project, level, st.scopeParentId), opts);
       if (!ok) useUI.getState().toast('印刷の準備に失敗しました。', 'error');
     } finally {
       useUI.getState().setBusy(null);
@@ -1235,6 +1238,7 @@ export function App() {
       <ValidationDialog />
       <ComparisonDialog />
       <BackupsDialog />
+      <PrintDialog onPrint={runPrint} />
       <SettingsDialog />
       {aiEnabled && aiPanelOpen && <AiPanel />}
       <Tour />

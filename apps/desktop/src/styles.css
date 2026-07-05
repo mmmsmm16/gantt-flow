@@ -2305,6 +2305,49 @@ button.danger:hover {
   justify-content: flex-end;
   gap: 8px;
 }
+/* 印刷オプションダイアログ */
+.print-modal {
+  max-width: 440px;
+}
+.print-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 14px 0 20px;
+}
+.print-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.print-label {
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+.print-select {
+  font: inherit;
+  font-size: var(--fs-body);
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+  min-width: 120px;
+}
+.print-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-body);
+  color: var(--ink);
+  cursor: pointer;
+  line-height: 1.5;
+}
+.print-check input {
+  margin-top: 3px;
+  flex: none;
+}
 .modal-actions .danger-solid {
   background: var(--red-solid);
   border-color: var(--red-solid);
