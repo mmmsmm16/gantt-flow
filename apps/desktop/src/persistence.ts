@@ -385,18 +385,26 @@ async function saveTauri(
     await releaseHeldLock();
     const savedPath = path; // 閉包用に固定（この保存が対象としたパス）
     void acquireLockFor(savedPath).then(async (r) => {
-      if (r.status !== 'locked') return;
-      // 取得待ちの間にさらに保存先が変わっていたら、このロックは古い対象 → 保持せず返す
-      //（無条件に beginHolding すると現在の保存先のロック/ハートビートを上書きしてしまう）。
+      // 取得待ちの間にさらに保存先が変わっていたら、この結果は古い対象 → 現在の表示に触れない
+      //（無条件に beginHolding/readonly 反映すると現在の保存先の状態を上書きしてしまう）。
       if (filePath !== savedPath) {
-        try {
-          await invoke('release_lock', { path: savedPath, owner: r.owner });
-        } catch {
-          /* 解放失敗は放置（残ったロックは stale 引き継ぎで回収される） */
+        if (r.status === 'locked') {
+          try {
+            await invoke('release_lock', { path: savedPath, owner: r.owner });
+          } catch {
+            /* 解放失敗は放置（残ったロックは stale 引き継ぎで回収される） */
+          }
         }
         return;
       }
-      beginHolding(savedPath, r.owner);
+      if (r.status === 'locked') {
+        beginHolding(savedPath, r.owner);
+      } else {
+        // 取得できなかった（他セッション保持 / IO 不調など）。開く経路（notifyLock('readonly')）と
+        // 揃えて沈黙させない: 読み取り専用として明示し、ロック更新失敗として記録する。
+        notifyLock('readonly');
+        reportLockFailure();
+      }
     });
   }
   return { kind: 'saved', name: basename(path) };

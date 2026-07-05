@@ -189,6 +189,24 @@ describe('saveProjectToFile（Tauri: アトミック保存＋競合検知）', (
     ).toHaveLength(1);
   });
 
+  it('保存先変更後のロック再取得に失敗したら readonly + lock 失敗を可視化する (B-07)', async () => {
+    useUI.setState({ lockState: null, persistFailure: null, toasts: [] });
+    installTauri({
+      pick_save_path: () => '/tmp/newloc.gflow',
+      save_project: () => null,
+      stat_updated_at: () => '1',
+      // 保存先へ切り替えた後のロック再取得が取れない（他セッション保持相当）。
+      acquire_lock: () => ({ ok: false, held: null, stale: false }),
+      release_lock: () => null,
+    });
+    const r = await saveProjectToFile(createSampleProject(gen('b07')));
+    expect(r.kind).toBe('saved'); // 保存自体は完了する（ロックはベストエフォート）
+    await new Promise((res) => setTimeout(res, 0)); // 非同期のロック再取得を流す
+    // 開く経路と同様、取得失敗を沈黙させず読み取り専用として明示＋ロック失敗を記録。
+    expect(useUI.getState().lockState).toBe('readonly');
+    expect(useUI.getState().persistFailure?.kind).toBe('lock');
+  });
+
   it('保存ダイアログのキャンセルは cancelled（書き込まない）', async () => {
     const calls = installTauri({ pick_save_path: () => null });
     const r = await saveProjectToFile(createSampleProject(gen('s2')));
