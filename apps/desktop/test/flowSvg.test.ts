@@ -91,6 +91,21 @@ describe('buildFlowSvg のスイムレーン描画', () => {
     // 他の工程は既定色のまま
     expect(svg).toContain(`fill="${FLOW_LIGHT.task.fill}" stroke="${FLOW_LIGHT.task.stroke}"`);
   });
+
+  // ヒアリング進行の「未着手＝点線枠」は画面(FlowCanvas)の CSS だけの表現で、
+  // SVG/PNG/印刷/ハンドブックには一切出さない。回帰として工程矩形(rx=9)に破線が乗らないことを固定。
+  it('todo（未ヒアリング）工程を含んでも task 矩形に stroke-dasharray は現れない', () => {
+    let p = createSampleProject(counter());
+    const view = p.flow.byLevel.find((v) => v.level === 'medium' && v.scopeParentId)!;
+    const taskNode = Object.values(view.nodes).find(
+      (n): n is Extract<typeof n, { kind: 'task' }> => n.kind === 'task',
+    )!;
+    p = updateTaskDetail(p, taskNode.taskId, { status: 'todo' }); // 明示的に未ヒアリング
+    const svg = buildFlowSvg(p, view);
+    const taskRects = svg.match(/<rect[^>]*rx="9"[^>]*\/>/g) ?? [];
+    expect(taskRects.length).toBeGreaterThan(0); // 工程ノードは描かれている
+    for (const r of taskRects) expect(r).not.toContain('stroke-dasharray');
+  });
 });
 
 // 中（スコープ＝受注業務）のビュー。レーンがあり I/O 描画のテストに使う。

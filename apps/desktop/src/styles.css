@@ -1386,6 +1386,11 @@ button.danger:hover {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
 }
+/* 未ヒアリング工程（状況=未着手/未指定）は点線枠で「これから聞く」を示す。
+   border-style だけを変え、枠色・塗り・selected/pinned/colored とは干渉しない。 */
+.node.task.st-unheard {
+  border-style: dashed;
+}
 .node.issue {
   background: var(--red-fill);
   border: 1.5px solid var(--red);

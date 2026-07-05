@@ -7,6 +7,7 @@ import { chordKeys, getActiveKeymap, isImeKeyEvent, isInteractiveTarget } from '
 import { clampScale, zoomScroll, centerScroll, loadFlowViewport, saveFlowViewport } from './flowZoom';
 import { confirmRemoveTasks, revealTask, toastUndo } from './taskOps';
 import { TASK_COLORS } from './theme';
+import { hearingNodeClass } from './statusUi';
 import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { computeSnap, type SnapGuide, type SnapRect } from './snap';
@@ -2010,7 +2011,7 @@ export function FlowCanvas() {
           if (textC) colorVars['--task-text'] = TASK_COLORS[textC].text;
           const cls =
             n.kind === 'task'
-              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}${colorCls}`
+              ? `node task${n.taskId === selectedTaskId ? ' selected' : ''}${n.pinned ? ' pinned' : ''}${selCls}${colorCls}${hearingNodeClass(taskDetail)}`
               : n.kind === 'issue'
                 ? `node issue${selCls}`
                 : n.kind === 'comment'
