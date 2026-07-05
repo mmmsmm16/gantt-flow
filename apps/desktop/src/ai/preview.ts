@@ -38,6 +38,8 @@ export interface AiPreview {
   /** reconcile + tidy 済みプレビューフロー（対象 level）。 */
   view: FlowLevelView;
   nodeMap: ProposalNodeMap;
+  /** 入力補正の警告（重複 ref のリネームなど）。UI はカード上部に表示する（D-04）。 */
+  warnings: string[];
 }
 
 // runBatch 前に ref を付与する対象（後続 op から index で全生成物を引けるようにする）。
@@ -49,6 +51,35 @@ const PRODUCER_OPS: ReadonlySet<BatchOp['op']> = new Set(['add_task', 'upsert_ta
  * 誤り＋本番適用時の誤配線につながる（レビュー指摘）。既存 ref（AI 由来含む）を先に収集し、衝突する
  * 間は決定論的に '_' を足して伸ばす（ランダム salt は決定論テストを壊すため不可）。
  */
+/**
+ * AI が同一 producer ref を複数の op で宣言した場合、runBatch の aliases が後勝ちで上書きされ、
+ * 別々の工程/資料が 1 ノードへ潰れる（プレビュー対応の誤り＋本番適用の誤配線。D-04）。
+ * 入口で重複 ref を検出し、**後発**を決定論的にリネーム（`_2`, `_3`…）して全単射を保つ。
+ * 先発は元 ref のまま残すので、その ref を消費する下流 op は先発ノードへ正しく束ねられる。
+ */
+function dedupeProducerRefs(ops: BatchOp[]): { ops: BatchOp[]; warnings: string[] } {
+  const seen = new Set<string>();
+  const warnings: string[] = [];
+  const out = ops.map((o) => {
+    const ref = (o as { ref?: string }).ref;
+    if (!PRODUCER_OPS.has(o.op) || ref === undefined) return o;
+    if (!seen.has(ref)) {
+      seen.add(ref);
+      return o;
+    }
+    let n = 2;
+    let cand = `${ref}_${n}`;
+    while (seen.has(cand)) {
+      n += 1;
+      cand = `${ref}_${n}`;
+    }
+    seen.add(cand);
+    warnings.push(`重複した参照名「${ref}」を検出したため「${cand}」に振り替えました。`);
+    return { ...o, ref: cand } as BatchOp;
+  });
+  return { ops: out, warnings };
+}
+
 function injectRefs(ops: BatchOp[]): BatchOp[] {
   const used = new Set<string>();
   for (const o of ops) {
@@ -75,7 +106,8 @@ export function buildAiPreview(
   level: ProcessLevel,
   scopeParentId?: string,
 ): AiPreview {
-  const injected = injectRefs(ops);
+  const { ops: deduped, warnings } = dedupeProducerRefs(ops); // 重複 ref を後発リネーム（D-04）
+  const injected = injectRefs(deduped);
   const idGen = makePreviewIdGen(); // runBatch と reconcile で共有（衝突回避＋決定論）
   const result = runBatch(project, injected, idGen, PREVIEW_NOW);
 
@@ -91,5 +123,5 @@ export function buildAiPreview(
     : { level, scopeParentId, nodes: {}, edges: {}, lanes: {}, orientation: 'horizontal' };
 
   const nodeMap = buildProposalNodeMap(injected, result);
-  return { ops: injected, result, view, nodeMap };
+  return { ops: injected, result, view, nodeMap, warnings };
 }

@@ -7322,6 +7322,21 @@ input.colored-text {
   color: var(--muted);
   font-size: var(--fs-caption);
 }
+/* 入力補正の警告（重複 ref のリネーム等）。カード一覧の上部に控えめに出す。 */
+.ai-warn {
+  padding: var(--sp-2);
+  border: 1px solid var(--warn, var(--amber));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn, var(--amber)) 12%, transparent);
+  font-size: var(--fs-caption);
+}
+.ai-warn p {
+  margin: 0;
+  color: var(--amber-ink, var(--ink));
+}
+.ai-warn p + p {
+  margin-top: var(--sp-1);
+}
 
 /* ---- カードリスト（§4） ---- */
 .prop-list {

@@ -248,6 +248,7 @@ export function AiPanel(): JSX.Element {
   }, [cardFocus]);
 
   const ops = preview?.ops ?? [];
+  const warnings = preview?.warnings ?? [];
   const editedOps = useMemo(() => applyEdits(ops, edits), [ops, edits]);
   const resolved = useMemo(
     () => (preview ? resolveApproved(editedOps, decisions) : null),
@@ -369,6 +370,14 @@ export function AiPanel(): JSX.Element {
 
         {phase === 'ready' && ops.length === 0 && (
           <p className="ai-empty">提案が見つかりませんでした。メモを具体的にして再生成してください。</p>
+        )}
+
+        {phase === 'ready' && warnings.length > 0 && (
+          <div className="ai-warn" role="status">
+            {warnings.map((w, i) => (
+              <p key={i}>{w}</p>
+            ))}
+          </div>
         )}
 
         {phase === 'ready' && ops.length > 0 && (
