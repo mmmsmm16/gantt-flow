@@ -440,7 +440,7 @@ body {
 button {
   font: inherit;
   font-size: var(--fs-body);
-  font-weight: 500;
+  font-weight: var(--fw-strong);
   padding: 6px 12px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
@@ -1632,7 +1632,7 @@ button.danger:hover {
   margin: 2px 0;
 }
 .add-inline button {
-  font-weight: 500;
+  font-weight: var(--fw-strong);
   padding: 4px 8px;
   font-size: var(--fs-label);
   margin-left: 4px;
@@ -2785,7 +2785,7 @@ kbd {
 .issues-count {
   font-size: var(--fs-label);
   color: var(--faint);
-  font-weight: 500;
+  font-weight: var(--fw-regular);
 }
 .issues-head-actions {
   display: flex;
