@@ -73,12 +73,18 @@
   --ok: #15803d;
   --red: #d6452f;
   --red-fill: #fbe4de;
+  /* ソリッド背景（白文字を乗せる）専用の赤。ライトは --red と同値、ダークは
+     暗地の文字用 --red と分離して塗りを暗くし白文字の 4.5:1 を確保する。 */
+  --red-solid: #d6452f;
   /* 破壊的操作（削除等）の意味色。値は --red 系に委譲し、意図をトークン名で表す。 */
   --danger: var(--red);
   --danger-soft: var(--red-fill);
   --amber: #b9820a;
   --amber-fill: #f6ecc6;
   --amber-ink: #7a5407;
+  /* ソリッド背景（白文字を乗せる）専用の琥珀。ライトは --amber と同値、
+     ダークは文字用 --amber と分離して塗りを暗くし白文字コントラストを確保する。 */
+  --amber-solid: #b9820a;
   /* 朱書き（条件分岐の注記）＝ハンドブック handbook.ts の --shu 系と整合。
      配布物（ライト専用）と同じ朱色。ダークは [data-theme] 側で可読な変種へ持ち上げる。 */
   --shu: #a6371f;
@@ -198,9 +204,13 @@
   --ok: #46d98a;
   --red: #f4796a;
   --red-fill: rgba(220, 60, 38, 0.2);
+  /* ソリッド背景用（白文字 4.5:1 以上）。文字用の明るい --red とは別に暗い塗りにする。 */
+  --red-solid: #b3372a;
   --amber: #f0c453;
   --amber-fill: rgba(202, 138, 4, 0.2);
   --amber-ink: #f0c453;
+  /* ソリッド背景用（白文字 4.5:1 以上）。文字用の明るい --amber とは別に暗い塗りにする。 */
+  --amber-solid: #8a6d1f;
   /* 朱書き（ダーク）: 朱 #a6371f は暗地で沈むため、くすんだ明るい朱へ持ち上げて可読に。
      塗り/罫は朱を透過で敷く（周辺トークンと同じ作法）。 */
   --shu: #e79a83;
@@ -2262,13 +2272,13 @@ button.danger:hover {
   gap: 8px;
 }
 .modal-actions .danger-solid {
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--red-solid);
+  border-color: var(--red-solid);
   color: var(--on-accent);
 }
 .modal-actions .danger-solid:hover {
   filter: brightness(0.96);
-  border-color: var(--red);
+  border-color: var(--red-solid);
 }
 
 .toaster {
@@ -5686,12 +5696,12 @@ input.colored-text {
   background: var(--accent);
 }
 .cmp-cnode-tag.del {
-  color: #fff;
-  background: var(--red);
+  color: var(--on-accent);
+  background: var(--red-solid);
 }
 .cmp-cnode-tag.move {
-  color: #fff;
-  background: var(--amber);
+  color: var(--on-accent);
+  background: var(--amber-solid);
 }
 .cmp-cnode-lt {
   position: absolute;
