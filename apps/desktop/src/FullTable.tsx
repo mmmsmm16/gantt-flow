@@ -397,6 +397,8 @@ export function FullTable() {
     onRowClick,
     clear: clearMarked,
     bulkAssign,
+    bulkLevel,
+    bulkEffort,
     bulkDelete,
   } = useRowMultiSelect({ orderedIds: rows.map((r) => r.id), onActivate: select });
 
@@ -534,7 +536,9 @@ export function FullTable() {
         {marked.size > 0 ? (
           <span className="ft-bulk" role="group" aria-label="一括操作">
             <strong>{marked.size}件選択中</strong>
-            <button onClick={bulkAssign}>担当を一括設定</button>
+            <button onClick={bulkAssign}>担当</button>
+            <button onClick={bulkLevel}>粒度</button>
+            <button onClick={bulkEffort}>工数</button>
             <button className="danger" onClick={bulkDelete}>まとめて削除</button>
             <button className="ft-bulk-clear" onClick={clearMarked}>選択解除</button>
           </span>

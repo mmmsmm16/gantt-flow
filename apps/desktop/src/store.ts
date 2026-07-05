@@ -354,6 +354,10 @@ export interface AppState {
   setAssigneeByName: (taskId: Id, name: string) => void;
   /** 複数工程の担当を一括設定（1 undo 単位）。空名は未割当に。 */
   setAssigneeManyByName: (taskIds: Id[], name: string) => void;
+  /** 複数工程の粒度を一括設定（1 undo 単位）。マイルストーンは対象外。 */
+  setLevelMany: (taskIds: Id[], level: ProcessLevel) => void;
+  /** 複数工程の工数（分）を一括設定（1 undo 単位）。 */
+  setEffortMany: (taskIds: Id[], minutes: number) => void;
   /**
    * 複数工程を一括削除（各々の配下は1つ上へ繰り上げ、1 undo 単位）。
    * flowNodeIds を渡すと現在ビューの制御/付箋ノード（と接続エッジ）も同じ undo 単位で撤去する
@@ -847,6 +851,32 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       }
       // 一括操作は undo ラベルに件数を入れる（「3件の担当を変更」＝何をまとめて戻すか分かる）。
       if (count) commit(p, count > 1 ? `${count}件の担当を変更` : '担当を変更');
+    },
+
+    setLevelMany: (taskIds, level) => {
+      let p = get().project;
+      let count = 0;
+      for (const id of taskIds) {
+        // マイルストーンは粒度を持たないため対象外（担当一括と同じ流儀）。
+        if (p.core.tasks[id] && !isMilestone(p.core, id)) {
+          p = cSetTaskLevel(p, id, level);
+          count += 1;
+        }
+      }
+      if (count) commit(p, count > 1 ? `${count}件の粒度を変更` : '粒度を変更');
+    },
+
+    setEffortMany: (taskIds, minutes) => {
+      let p = get().project;
+      const m = Math.max(0, Math.round(minutes));
+      let count = 0;
+      for (const id of taskIds) {
+        if (p.core.tasks[id]) {
+          p = cUpdateTaskDetail(p, id, { effortMinutes: m });
+          count += 1;
+        }
+      }
+      if (count) commit(p, count > 1 ? `${count}件の工数を変更` : '工数を変更');
     },
 
     removeManyTasks: (taskIds, flowNodeIds) => {

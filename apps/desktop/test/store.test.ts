@@ -149,6 +149,33 @@ describe('app store（command → reconcile → history）', () => {
     expect(taskNodes(s)[0]!.x).toBe(origX);
   });
 
+  it('粒度・工数の一括設定は 1 undo 単位で複数工程へ適用される', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    s.getState().addTask('C');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    // 追加時の既定は中粒度。A・B だけ小粒度＋工数2hに一括設定（C は据え置き）。
+    s.getState().setLevelMany([a, b], 'small');
+    s.getState().setEffortMany([a, b], 120);
+    const tasks = () => s.getState().project.core.tasks;
+    const details = () => s.getState().project.details;
+    expect(tasks()[a]!.level).toBe('small');
+    expect(tasks()[b]!.level).toBe('small');
+    expect(tasks()[idByName(s, 'C')]!.level).toBe('medium'); // 対象外は不変
+    expect(details()[a]!.effortMinutes).toBe(120);
+    expect(details()[b]!.effortMinutes).toBe(120);
+    // 工数の一括設定は 1 undo で A・B 両方が戻る
+    s.getState().undo();
+    expect(details()[a]?.effortMinutes ?? undefined).toBeUndefined();
+    expect(details()[b]?.effortMinutes ?? undefined).toBeUndefined();
+    // さらに 1 undo で粒度も両方戻る
+    s.getState().undo();
+    expect(tasks()[a]!.level).toBe('medium');
+    expect(tasks()[b]!.level).toBe('medium');
+  });
+
   it('ドラッグ確定（coalesce なし）は 1 回ごとに別 undo 単位', () => {
     const s = createAppStore();
     s.getState().addTask('受付');

@@ -63,6 +63,8 @@ export const ACTION_CLASS: Record<string, ActionClass> = {
   renameTask: 'forward',
   setAssigneeByName: 'forward',
   setAssigneeManyByName: 'forward',
+  setLevelMany: 'forward',
+  setEffortMany: 'forward',
   removeManyTasks: 'forward',
   addDependency: 'forward',
   removeDependency: 'forward',

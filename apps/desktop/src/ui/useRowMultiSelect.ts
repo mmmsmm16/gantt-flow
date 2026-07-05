@@ -10,7 +10,7 @@ import { useApp } from '../store';
 import { useUI } from './useUI';
 import { isEditableTarget, isImeKeyEvent } from '../keymap';
 import { scrollRowIntoView } from './useRowSelectionKeys';
-import { confirmRemoveTasks, bulkSetAssignee } from '../taskOps';
+import { confirmRemoveTasks, bulkSetAssignee, bulkSetLevel, bulkSetEffort } from '../taskOps';
 
 export interface ClickMods {
   shift: boolean;
@@ -87,6 +87,10 @@ export interface RowMultiSelect {
   clear: () => void;
   /** 一括: 担当を設定（マイルストーンは除外）。適用したら解除。 */
   bulkAssign: () => Promise<void>;
+  /** 一括: 粒度を設定（マイルストーンは除外）。適用したら解除。 */
+  bulkLevel: () => Promise<void>;
+  /** 一括: 工数を設定。適用したら解除。 */
+  bulkEffort: () => Promise<void>;
   /** 一括: 削除（確認あり）。適用したら解除。 */
   bulkDelete: () => Promise<void>;
 }
@@ -178,9 +182,15 @@ export function useRowMultiSelect(opts: {
   const bulkAssign = async () => {
     if (await bulkSetAssignee([...marked])) clear();
   };
+  const bulkLevel = async () => {
+    if (await bulkSetLevel([...marked])) clear();
+  };
+  const bulkEffort = async () => {
+    if (await bulkSetEffort([...marked])) clear();
+  };
   const bulkDelete = async () => {
     if (await confirmRemoveTasks([...marked])) clear();
   };
 
-  return { marked, onRowClick, clear, bulkAssign, bulkDelete };
+  return { marked, onRowClick, clear, bulkAssign, bulkLevel, bulkEffort, bulkDelete };
 }
