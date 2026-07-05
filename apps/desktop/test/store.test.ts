@@ -639,6 +639,33 @@ describe('app store（command → reconcile → history）', () => {
     expect(view0(s).nodes[note.id]).toBeDefined();
   });
 
+  it('removeManyTasks(flowNodeIds): 混在削除で接続エッジも掃除し、undo で工程・制御・エッジが揃って戻る', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    const taskId = idByName(s, 'A');
+    const taskNode = taskNodes(s).find((n) => n.taskId === taskId)!;
+    s.getState().addControlNode('decision');
+    const ctrl = Object.values(view0(s).nodes).find((n) => n.kind === 'control')!;
+
+    // 工程ノードと制御ノードを pinned エッジで結ぶ（reconcile では消えない図固有エッジ）。
+    s.getState().connect(taskNode.id, ctrl.id);
+    const edge = Object.values(view0(s).edges).find(
+      (e) => e.source === taskNode.id && e.target === ctrl.id,
+    )!;
+    expect(edge.pinned).toBe(true);
+
+    // 工程と制御ノードを混在削除すると、端点を失うエッジもまとめて掃除される（ダングリング禁止）。
+    s.getState().removeManyTasks([taskId], [ctrl.id]);
+    expect(view0(s).nodes[ctrl.id]).toBeUndefined();
+    expect(view0(s).edges[edge.id]).toBeUndefined();
+
+    // undo 1 回で工程・制御ノード・接続エッジの 3 つがすべて復元される。
+    s.getState().undo();
+    expect(s.getState().project.core.tasks[taskId]).toBeDefined();
+    expect(view0(s).nodes[ctrl.id]).toBeDefined();
+    expect(view0(s).edges[edge.id]).toBeDefined();
+  });
+
   it('setCommentTarget: 付箋を工程ノードへ結ぶ/解除する。不正な対象は no-op', () => {
     const s = createAppStore();
     s.getState().addTask('A');
