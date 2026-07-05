@@ -1604,9 +1604,9 @@ export function FlowCanvas() {
             </>
           }
         >
-          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}>開始（スタジアム形）</MenuItem>
-          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}>終了（スタジアム形）</MenuItem>
-          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}>判断（ひし形）</MenuItem>
+          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}>開始</MenuItem>
+          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}>終了</MenuItem>
+          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}>判断（分岐）</MenuItem>
           <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}>合流</MenuItem>
           <MenuItem
             onClick={async () => {
