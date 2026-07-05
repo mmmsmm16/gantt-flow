@@ -16,6 +16,9 @@ import { hasChildren, isLeaf, ancestorsOf, resolveRef as resolveRefShared } from
 
 const LEVEL_LABEL: Record<string, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
 
+// 手順書ステップ画像の推奨上限（5MB）。ソフト上限＝超過しても確認のうえ追加は許可する。
+const MAX_STEP_IMAGE_BYTES = 5 * 1024 * 1024;
+
 // 「中工程」= 縦フローナビの配下末端をぶら下げる非末端工程。選択工程/明示指定から決める。
 function resolveMidId(core: Core, selectedTaskId: Id | undefined, procedureMidId: Id | null): Id | undefined {
   if (procedureMidId && core.tasks[procedureMidId]) return procedureMidId;
@@ -303,11 +306,24 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
   };
 
   // 画像取り込み（ファイル選択・貼り付け共通）。bytes は assetStore へ入り Project には file 名だけ。
+  // 読み込み失敗はエラートーストで可視化し、5MB 超は確認を挟む（ソフト上限＝許可できる）。
   const addImagesFromFiles = async (taskId: Id, stepId: Id, files: Iterable<File>) => {
     for (const f of Array.from(files)) {
       if (!f.type.startsWith('image/')) continue; // 画像以外は無視（テキスト等はここへ来ない）
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      useApp.getState().addStepImage(taskId, stepId, bytes, f.type || 'image/png');
+      try {
+        if (f.size > MAX_STEP_IMAGE_BYTES) {
+          const ok = await useUI.getState().confirm({
+            title: '画像を追加',
+            message: '画像が大きすぎます（5MB 以下を推奨）。このまま追加しますか？',
+            confirmLabel: '追加する',
+          });
+          if (!ok) continue;
+        }
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        useApp.getState().addStepImage(taskId, stepId, bytes, f.type || 'image/png');
+      } catch {
+        useUI.getState().toast('画像を追加できませんでした', 'error');
+      }
     }
   };
   // ステップ内の貼り付け。クリップボードに画像ファイルがある時だけ奪う（textarea へのテキスト貼付は妨げない）。
