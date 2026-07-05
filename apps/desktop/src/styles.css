@@ -2992,7 +2992,7 @@ kbd {
 }
 .vd-name {
   flex: 0 0 auto;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 .vd-name.dim {
   font-weight: var(--fw-regular);
