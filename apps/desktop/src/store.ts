@@ -1072,8 +1072,13 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       const sel = get().selectedTaskId ? cur.core.tasks[get().selectedTaskId!] : undefined;
       const level = sel?.level ?? get().level;
       const parentId = sel ? sel.parentId : get().scopeParentId;
+      // 正規化済み行 [name, assignee, effortMinutesStr]（pasteParse.ts）。工数は任意。
       const items = rows
-        .map((r) => ({ name: (r[0] ?? '').trim(), assignee: (r[1] ?? '').trim() }))
+        .map((r) => ({
+          name: (r[0] ?? '').trim(),
+          assignee: (r[1] ?? '').trim(),
+          effortMinutes: r[2] && r[2].trim() ? Number(r[2]) : undefined,
+        }))
         .filter((r) => r.name);
       if (!items.length) return 0;
       let p = cur;
@@ -1085,6 +1090,9 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
         if (it.assignee) {
           const r = ensureAssigneeId(p, it.assignee);
           p = cSetAssignee(r.project, nid, r.assigneeId);
+        }
+        if (it.effortMinutes != null && Number.isFinite(it.effortMinutes) && it.effortMinutes >= 0) {
+          p = cUpdateTaskDetail(p, nid, { effortMinutes: Math.round(it.effortMinutes) });
         }
       }
       if (count) commit(p, count > 1 ? `${count}件を貼り付け` : '工程を貼り付け');

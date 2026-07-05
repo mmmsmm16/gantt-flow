@@ -3,6 +3,7 @@
 import { isMilestone, type FlowNodeId, type ProcessLevel } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI, type ToastTone } from './ui/useUI';
+import { parsePastedRows } from './pasteParse';
 
 // 一括設定の粒度入力（大/中/小/詳細 または英字）を ProcessLevel へ。不正は null。
 const LEVEL_INPUT: Record<string, ProcessLevel> = {
@@ -53,10 +54,12 @@ export async function pasteRowsFromClipboard(): Promise<void> {
     useUI.getState().toast('クリップボードを読み取れませんでした（ブラウザの許可が必要です）。', 'error');
     return;
   }
-  const parsed = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.split('\t'));
-  const n = useApp.getState().pasteRowsAsTasks(parsed);
-  if (n) useUI.getState().toast(`${n}件の工程を貼り付けました。`, 'success');
-  else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
+  const { rows, hadHeader } = parsePastedRows(text);
+  const n = useApp.getState().pasteRowsAsTasks(rows);
+  if (n) {
+    const note = hadHeader ? '（見出し行を判定して担当・工数も取り込みました）' : '';
+    useUI.getState().toast(`${n}件の工程を貼り付けました。${note}`, 'success');
+  } else useUI.getState().toast('貼り付ける行がありませんでした。', 'info');
 }
 
 /** 前後関係（依存）を解除し「元に戻す」トーストを出す（表・全項目表・詳細パネル共通）。 */
