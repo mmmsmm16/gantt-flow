@@ -50,6 +50,30 @@ describe('buildAiPreview（決定論）', () => {
     expect(preview.ops[0]).toMatchObject({ ref: '__p0' });
     expect(preview.nodeMap.opToTaskId.get(0)).toBeDefined();
   });
+
+  it('op.ref="__p0" が既存でも合成 ref と衝突せず全単射を保つ（レビュー指摘: __p ref 衝突）', () => {
+    // op[0] は ref 未指定なので素朴な実装なら '__p0' を注入するが、op[1] が明示的に
+    // ref='__p0' を名乗っている。衝突すれば aliases['__p0'] が後勝ちで上書きされ、
+    // op[0] と op[1] が同じ taskId に化ける（プレビュー対応の誤り＋本番適用の誤配線）。
+    const collideOps: BatchOp[] = [
+      { op: 'add_task', name: '検品', level: 'medium' },
+      { op: 'add_task', ref: '__p0', name: '出荷', level: 'medium' },
+    ];
+    const preview = buildAiPreview(emptyProject(), collideOps, 'medium');
+    // 注入された ref 自体が衝突していないこと。
+    expect(preview.ops[0]).toMatchObject({ ref: '__p0_' });
+    expect(preview.ops[1]).toMatchObject({ ref: '__p0' });
+    // nodeMap が全単射を保っている（2 op が別々の taskId に解決される）こと。
+    const idA = preview.nodeMap.opToTaskId.get(0);
+    const idB = preview.nodeMap.opToTaskId.get(1);
+    expect(idA).toBeDefined();
+    expect(idB).toBeDefined();
+    expect(idA).not.toBe(idB);
+    const taskNodes = Object.values(preview.view.nodes).filter(
+      (n): n is FlowTaskNode => n.kind === 'task',
+    );
+    expect(taskNodes.length).toBe(2); // 衝突していれば 1 個に潰れる
+  });
 });
 
 describe('applyApprovedBatch（1 undo）', () => {

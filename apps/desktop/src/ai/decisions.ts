@@ -20,6 +20,8 @@ export type EditMap = Record<number, ProposalEdit>;
 
 /** 却下波及で下流を無効にした理由（UI 表示・フロー/カード共通）。 */
 export const DISABLED_REASON = '依存先が否認されたため';
+/** 適用直前フィルタ（filterApplicable）で除外した理由（トースト集計のみに使用・UI 常時表示はしない）。 */
+const NOT_APPROVED_REASON = '依存先が未承認のため';
 
 // producer になれる op（ref を宣言して後続 op から参照される）。
 const PRODUCER_OPS: ReadonlySet<BatchOp['op']> = new Set(['add_task', 'upsert_task', 'upsert_asset']);
@@ -88,6 +90,49 @@ export function resolveApproved(
     if (decisionOf(i) === 'approved' && !disabled.has(i)) apply.push(i);
   });
   return { apply, disabled };
+}
+
+/**
+ * 適用直前の第二フィルタ（レビュー指摘: pending producer + approved consumer の適用時穴）。
+ * resolveApproved は「decisions が rejected/disabled」の波及だけを見るため、producer が
+ * **pending のまま**（否認ではない）で consumer だけ承認された場合を素通りさせてしまう。
+ * ここでは applyIdx（resolveApproved.apply）に対し、consumedRefs の producer が同じく
+ * applyIdx に含まれない消費 op を fixpoint で除外する。既存 taskId 参照（producedBy に無い
+ * token）は producer が無いので除外しない。
+ */
+export function filterApplicable(
+  ops: BatchOp[],
+  applyIdx: number[],
+): { apply: number[]; excluded: Map<number, string> } {
+  const producedBy = new Map<string, number>();
+  ops.forEach((o, i) => {
+    const ref = (o as { ref?: string }).ref;
+    if (PRODUCER_OPS.has(o.op) && ref) producedBy.set(ref, i);
+  });
+
+  const applySet = new Set(applyIdx);
+  const excluded = new Map<number, string>();
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const i of applyIdx) {
+      if (excluded.has(i)) continue;
+      for (const ref of consumedRefs(ops[i]!)) {
+        const p = producedBy.get(ref);
+        if (p === undefined || p === i) continue; // 既存参照 or 自己参照は不干渉
+        if (!applySet.has(p) || excluded.has(p)) {
+          excluded.set(i, NOT_APPROVED_REASON);
+          applySet.delete(i);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  const apply = applyIdx.filter((i) => !excluded.has(i));
+  return { apply, excluded };
 }
 
 /**

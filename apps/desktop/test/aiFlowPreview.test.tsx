@@ -5,10 +5,16 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { type BatchOp, type Project } from '@gantt-flow/core';
+import { runBatch, type BatchOp, type Project } from '@gantt-flow/core';
 import { buildAiPreview } from '../src/ai/preview';
 import { type DecisionMap } from '../src/ai/decisions';
 import { AiFlowPreview, nodeStatusOf } from '../src/ui/AiFlowPreview';
+
+const NOW = '2026-07-05T00:00:00.000Z';
+const counter = (): (() => string) => {
+  let n = 0;
+  return () => `id${++n}`;
+};
 
 const emptyProject = (): Project => ({
   schemaVersion: 1,
@@ -98,5 +104,82 @@ describe('AiFlowPreview（静的レンダリング）', () => {
   it('エッジが描かれる（proposal 依存＝仮スタイル）', () => {
     const html = render({});
     expect(html).toContain('fedge');
+  });
+});
+
+// レビュー指摘(T4): ポップオーバーの外側クリック判定を提案ノードだけに絞るための data-ai-hit、
+// 無効ノードの理由テキスト常時表示、エッジの状態別クラスの静的レンダ検証。
+describe('AiFlowPreview（レビュー指摘: data-ai-hit・無効理由・修正中・エッジ状態）', () => {
+  const renderOps = (
+    project: Project,
+    opsArg: BatchOp[],
+    decisions: DecisionMap,
+    editingOp: number | null = null,
+  ): string => {
+    const preview = buildAiPreview(project, opsArg, 'medium');
+    return renderToStaticMarkup(
+      createElement(AiFlowPreview, {
+        preview,
+        decisions,
+        edits: {},
+        editingOp,
+        onDecide: noop,
+        onBeginEdit: noop,
+        onCommitEdit: noop,
+        onCancelEdit: noop,
+      }),
+    );
+  };
+
+  it('提案ノードには data-ai-hit が付き、既存ノードには付かない', () => {
+    // 既存工程を 1 件作ってから、それを起点にした新規提案（依存 1 本）を重ねる。
+    const base = runBatch(
+      emptyProject(),
+      [{ op: 'add_task', ref: 'x', name: '既存受付', level: 'medium' }],
+      counter(),
+      NOW,
+    );
+    const existingId = base.aliases['x']!;
+    const withExisting: BatchOp[] = [
+      { op: 'add_task', ref: 'n', name: '新規工程', level: 'medium' },
+      { op: 'add_dependency', from: existingId, to: 'n' },
+    ];
+    const html = renderOps(base.project, withExisting, {});
+    // 提案ノード 1 個ぶんの data-ai-hit="" のみ（既存ノードには付かない）。
+    expect((html.match(/data-ai-hit=""/g) ?? []).length).toBe(1);
+    expect(html).toContain('fnode existing');
+    expect(html).toContain('新規工程');
+  });
+
+  it('無効（却下波及）ノードは .fnode.invalid ＋ 理由テキスト（.fnode-reason）を常時表示する', () => {
+    const invalidOps: BatchOp[] = [
+      { op: 'add_task', ref: 'p', name: '親工程', level: 'medium' }, // 0: 否認
+      { op: 'add_task', ref: 'c', name: '子工程', level: 'medium', parent: 'p' }, // 1: 承認だが親否認で無効
+    ];
+    const html = renderOps(emptyProject(), invalidOps, { 0: 'rejected', 1: 'approved' });
+    expect(html).toContain('fnode invalid');
+    expect(html).toContain('fnode-reason');
+    expect(html).toContain('依存先が否認されたため');
+  });
+
+  it('修正中ノードは .fnode.editing ＋ input（node-input）と AI 案ヒントを描く', () => {
+    const html = render({}, 0);
+    expect(html).toContain('fnode editing');
+    expect(html).toContain('node-input');
+    expect(html).toContain('AI 案');
+  });
+
+  it('エッジは両端の状態に応じて tentative/approved/invalid のクラスを持ち、無効エッジには「無効」ラベルが付く', () => {
+    const edgeOps: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: 'A', level: 'medium' },
+      { op: 'add_task', ref: 'b', name: 'B', level: 'medium' },
+      { op: 'add_dependency', from: 'a', to: 'b' },
+    ];
+    expect(renderOps(emptyProject(), edgeOps, {})).toContain('fedge tentative');
+    expect(renderOps(emptyProject(), edgeOps, { 2: 'approved' })).toContain('fedge approved');
+
+    const invalidHtml = renderOps(emptyProject(), edgeOps, { 0: 'rejected', 2: 'approved' });
+    expect(invalidHtml).toContain('fedge invalid');
+    expect(invalidHtml).toContain('無効');
   });
 });

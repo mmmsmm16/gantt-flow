@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { runBatch, type BatchOp, type Project } from '@gantt-flow/core';
 import {
   resolveApproved,
+  filterApplicable,
   applyEdits,
   buildProposalNodeMap,
   DISABLED_REASON,
@@ -77,6 +78,57 @@ describe('resolveApproved', () => {
     const { apply, disabled } = resolveApproved(ops, { 0: 'rejected', 1: 'approved' });
     expect(disabled.has(1)).toBe(false); // EXISTING は producedBy に無い
     expect(apply).toEqual([1]);
+  });
+});
+
+describe('filterApplicable（適用直前の第二フィルタ: pending producer + approved consumer）', () => {
+  it('producer が pending のまま consumer だけ承認されると、consumer を除外する', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '親', level: 'medium' }, // 0 未判定(pending)
+      { op: 'add_task', ref: 'b', name: '子', level: 'small', parent: 'a' }, // 1 承認・a を消費
+    ];
+    const decisions: DecisionMap = { 1: 'approved' }; // 0 は未判定のまま
+    const { apply } = resolveApproved(ops, decisions);
+    expect(apply).toEqual([1]); // resolveApproved 単体では素通りしてしまう(否認ではないため)
+    const { apply: applicable, excluded } = filterApplicable(ops, apply);
+    expect(applicable).toEqual([]);
+    expect(excluded.has(1)).toBe(true);
+  });
+
+  it('連鎖: pending producer → 中間 consumer → 末端 consumer もまとめて除外する（fixpoint）', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '親', level: 'medium' }, // 0 未判定
+      { op: 'add_task', ref: 'b', name: '子', level: 'small', parent: 'a' }, // 1 承認・a を消費
+      { op: 'add_dependency', from: 'b', to: 'a' }, // 2 承認・b(間接的に a)を消費
+    ];
+    const decisions: DecisionMap = { 1: 'approved', 2: 'approved' };
+    const { apply } = resolveApproved(ops, decisions);
+    expect(apply).toEqual([1, 2]);
+    const { apply: applicable, excluded } = filterApplicable(ops, apply);
+    expect(applicable).toEqual([]);
+    expect(excluded.has(1)).toBe(true);
+    expect(excluded.has(2)).toBe(true);
+  });
+
+  it('既存 taskId への消費は producer が無いので除外しない', () => {
+    const ops: BatchOp[] = [{ op: 'add_issue', task: 'EXISTING', issue: '既存工程への課題' }];
+    const decisions: DecisionMap = { 0: 'approved' };
+    const { apply } = resolveApproved(ops, decisions);
+    const { apply: applicable, excluded } = filterApplicable(ops, apply);
+    expect(applicable).toEqual([0]);
+    expect(excluded.size).toBe(0);
+  });
+
+  it('producer も含めて全て承認済みなら除外ゼロ・apply は無変化', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '親', level: 'medium' }, // 0 承認
+      { op: 'add_task', ref: 'b', name: '子', level: 'small', parent: 'a' }, // 1 承認
+    ];
+    const decisions: DecisionMap = { 0: 'approved', 1: 'approved' };
+    const { apply } = resolveApproved(ops, decisions);
+    const { apply: applicable, excluded } = filterApplicable(ops, apply);
+    expect(applicable).toEqual(apply);
+    expect(excluded.size).toBe(0);
   });
 });
 

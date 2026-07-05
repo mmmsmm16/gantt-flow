@@ -7683,6 +7683,18 @@ input.colored-text {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+/* 無効（却下波及）ノードの理由テキスト。title と併用し、常時表示でも理由が分かるようにする。 */
+.fnode-reason {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+}
 .fnode.existing {
   background: var(--panel-2);
   border-color: var(--line-strong);

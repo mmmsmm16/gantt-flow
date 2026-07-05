@@ -43,13 +43,25 @@ export interface AiPreview {
 // runBatch 前に ref を付与する対象（後続 op から index で全生成物を引けるようにする）。
 const PRODUCER_OPS: ReadonlySet<BatchOp['op']> = new Set(['add_task', 'upsert_task', 'upsert_asset']);
 
-/** task/資料生成 op に `ref = op.ref ?? '__p'+index` を付け、aliases を全生成物の全単射にする。 */
+/**
+ * task/資料生成 op に `ref = op.ref ?? '__p'+index` を付け、aliases を全生成物の全単射にする。
+ * AI 出力の op.ref がたまたま合成 ref（'__pN'）と衝突すると aliases が上書きされ、プレビュー対応の
+ * 誤り＋本番適用時の誤配線につながる（レビュー指摘）。既存 ref（AI 由来含む）を先に収集し、衝突する
+ * 間は決定論的に '_' を足して伸ばす（ランダム salt は決定論テストを壊すため不可）。
+ */
 function injectRefs(ops: BatchOp[]): BatchOp[] {
-  return ops.map((o, i) =>
-    PRODUCER_OPS.has(o.op) && (o as { ref?: string }).ref === undefined
-      ? ({ ...o, ref: `__p${i}` } as BatchOp)
-      : o,
-  );
+  const used = new Set<string>();
+  for (const o of ops) {
+    const ref = (o as { ref?: string }).ref;
+    if (ref !== undefined) used.add(ref);
+  }
+  return ops.map((o, i) => {
+    if (!PRODUCER_OPS.has(o.op) || (o as { ref?: string }).ref !== undefined) return o;
+    let candidate = `__p${i}`;
+    while (used.has(candidate)) candidate += '_';
+    used.add(candidate);
+    return { ...o, ref: candidate } as BatchOp;
+  });
 }
 
 /**

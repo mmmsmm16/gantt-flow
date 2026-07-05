@@ -21,6 +21,7 @@ import {
 import { buildAiPreview, type AiPreview } from '../ai/preview';
 import {
   resolveApproved,
+  filterApplicable,
   applyEdits,
   type DecisionState,
   type DecisionMap,
@@ -165,20 +166,38 @@ async function generate(): Promise<void> {
   }
 }
 
+/** トースト用にエラーメッセージを要約（長すぎる例外文はここで切り詰める）。 */
+function summarizeError(e: unknown): string {
+  const text = e instanceof Error ? e.message : String(e);
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
 function applyApproved(): void {
   const { preview, decisions, edits } = useAiSession.getState();
   if (!preview) return;
   const finalOps = applyEdits(preview.ops, edits); // 生成後のインライン修正を最終適用へ反映
   const { apply } = resolveApproved(finalOps, decisions);
-  const applyOps = apply.map((i) => finalOps[i]!);
-  if (!applyOps.length) return;
+  if (!apply.length) return;
+  // 適用直前の第二フィルタ: 「親(producer)が未判定のまま子(consumer)だけ承認」を取りこぼさない
+  // （resolveApproved は rejected/disabled の波及だけを見るため、pending producer は素通りしてしまう）。
+  const { apply: applicable, excluded } = filterApplicable(finalOps, apply);
+  const applyOps = applicable.map((i) => finalOps[i]!);
+  const excludedNote = excluded.size > 0 ? `${excluded.size} 件は依存先が未承認のため見送りました` : '';
+  if (!applyOps.length) {
+    if (excludedNote) useUI.getState().toast(excludedNote, 'info');
+    return;
+  }
   try {
     useApp.getState().applyApprovedBatch(applyOps); // 本番 uuid・commit 1 undo
-    useUI.getState().toast('AI提案を適用しました（元に戻す: Ctrl+Z）', 'success');
+    const msg = excludedNote
+      ? `AI提案を適用しました（元に戻す: Ctrl+Z）／${excludedNote}`
+      : 'AI提案を適用しました（元に戻す: Ctrl+Z）';
+    useUI.getState().toast(msg, 'success');
     useAiSession.getState().reset();
     useUI.getState().setAiPanelOpen(false);
-  } catch {
-    useUI.getState().toast('提案の適用に失敗しました', 'error');
+  } catch (e) {
+    console.error('AI提案の適用に失敗しました', e);
+    useUI.getState().toast(`提案の適用に失敗しました: ${summarizeError(e)}`, 'error');
   }
 }
 
