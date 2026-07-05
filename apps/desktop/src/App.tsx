@@ -43,7 +43,7 @@ import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel
 import { useUI } from './ui/useUI';
 import { Modal, Toaster, BusyOverlay } from './ui/Dialogs';
 import * as Icons from './ui/icons';
-import { Menu, MenuItem } from './ui/Menu';
+import { Menu, MenuItem, MenuGroup } from './ui/Menu';
 import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
 import { IssueListDialog } from './ui/IssueListDialog';
@@ -1023,17 +1023,20 @@ export function App() {
                 </>
               }
             >
-              <MenuItem onClick={onExportExcel}>Excel (.xlsx)（工程表・課題一覧・サマリ／To-Be入力時は改善効果も）</MenuItem>
-              <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
-              <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
-              <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
+              <MenuGroup>顧客へ渡す</MenuGroup>
               <MenuItem onClick={onExportHandbook}>ハンドブック (HTML)</MenuItem>
               {tobeEnabled && (
                 <MenuItem onClick={onExportImprovementReport}>改善効果レポート (HTML)</MenuItem>
               )}
+              <MenuGroup>データで渡す</MenuGroup>
+              <MenuItem onClick={onExportExcel}>Excel (.xlsx)（工程表・課題一覧・サマリ／To-Be入力時は改善効果も）</MenuItem>
+              <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
               {tobeEnabled && (
                 <MenuItem onClick={onExportImprovementExcel}>改善効果 (.xlsx)</MenuItem>
               )}
+              <MenuGroup>図で渡す</MenuGroup>
+              <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
+              <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
             </Menu>
             <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
               <Icons.Printer />

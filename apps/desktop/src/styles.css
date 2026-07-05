@@ -2183,6 +2183,19 @@ button.danger:hover {
   color: var(--ink);
   font-size: var(--fs-body);
 }
+/* 出力メニュー等の目的別グループ見出し（顧客へ渡す/データで渡す/図で渡す）。 */
+.menu-group {
+  padding: 7px 12px 3px;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--faint);
+}
+.menu-group:not(:first-child) {
+  margin-top: 3px;
+  border-top: 1px solid var(--line-faint);
+  padding-top: 8px;
+}
 .menu-item:hover {
   background: var(--accent-soft);
   color: var(--accent);
