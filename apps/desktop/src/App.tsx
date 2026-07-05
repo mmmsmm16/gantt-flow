@@ -159,8 +159,6 @@ export function App() {
       if (shouldStartTourOnFirstTask({ pending: true, done: tourDone() })) ui.setTourStep(0);
     }
   }, [isEmpty]);
-  const theme = useUI((s) => s.theme);
-  const toggleTheme = useUI((s) => s.toggleTheme);
   const tobeEnabled = useUI((s) => s.tobeEnabled);
   const scenario = useUI((s) => s.scenario);
   const setScenario = useUI((s) => s.setScenario);
@@ -753,23 +751,9 @@ export function App() {
         <PaneLayoutTabs current={paneLayout} />
         <span className="spacer" />
 
-        <span className="tool-group" role="group" aria-label="履歴">
-          {/* 編集用サブ窓の undo/redo はリーダーへ転送して適用する（両窓で履歴を共有）。 */}
-          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す (Ctrl+Z)">
-            <Icons.Undo />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={redo}
-            disabled={!canRedo}
-            aria-label="やり直し"
-            title="やり直し (Ctrl+Y)"
-          >
-            <Icons.Redo />
-          </button>
-        </span>
-
-        <span className={`tool-group${recentSupported ? ' has-menu' : ''}`} role="group" aria-label="ファイル">
+        {/* ファイル系（新規・開く・取り込み/最近/復元メニュー・保存）。並び順は
+            ファイル / 編集 / ビュー / 出力 / その他 のグループで整理（C-12）。 */}
+        <span className="tool-group has-menu" role="group" aria-label="ファイル">
           <button
             className="icon-btn"
             onClick={onNew}
@@ -781,15 +765,6 @@ export function App() {
           </button>
           <button
             className="icon-btn"
-            onClick={onImport}
-            disabled={isFollower}
-            aria-label="取り込み"
-            title={isFollower ? 'ファイル操作はメインウィンドウで行ってください' : '取り込み（CSV / Excel）'}
-          >
-            <Icons.Upload />
-          </button>
-          <button
-            className="icon-btn"
             onClick={onOpen}
             disabled={isFollower}
             aria-label="開く"
@@ -797,26 +772,32 @@ export function App() {
           >
             <Icons.FolderOpen />
           </button>
-          {recentSupported && !isFollower && (
+          {!isFollower && (
             <Menu
               className="icon-btn menu-trigger"
-              title="最近使ったファイル"
+              title="取り込み・最近のファイル・復元"
               label={<Icons.ChevronDown />}
               onOpen={refreshRecent}
             >
-              {recentFiles.length === 0 && (
-                <div className="menu-empty">最近使ったファイルはありません</div>
+              {/* 取り込みは「新規プロジェクト生成専用」＝新規の隣（このメニュー）へ集約（C-12）。 */}
+              <MenuItem onClick={onImport}>CSV / Excel を取り込む（新規作成）</MenuItem>
+              {recentSupported && (
+                <>
+                  <div className="menu-sep" aria-hidden="true" />
+                  {recentFiles.length === 0 && (
+                    <div className="menu-empty">最近使ったファイルはありません</div>
+                  )}
+                  {recentFiles.slice(0, 5).map((r) => (
+                    <MenuItem key={r.name} onClick={() => void onOpenRecent(r.name)}>
+                      <span className="recent-row" title={r.name}>
+                        <span className="recent-name">{r.name}</span>
+                        <span className="recent-at">{formatRecentTime(r.at)}</span>
+                      </span>
+                    </MenuItem>
+                  ))}
+                </>
               )}
-              {recentFiles.slice(0, 5).map((r) => (
-                <MenuItem key={r.name} onClick={() => void onOpenRecent(r.name)}>
-                  <span className="recent-row" title={r.name}>
-                    <span className="recent-name">{r.name}</span>
-                    <span className="recent-at">{formatRecentTime(r.at)}</span>
-                  </span>
-                </MenuItem>
-              ))}
-              {/* 誤操作からの回復導線。パニック時に検索語を思い出さずに済むよう、最近ファイルの
-                  末尾に常設する（この端末に残る直近世代から復旧＝BackupsDialog を開くだけ）。 */}
+              {/* 誤操作からの回復導線（この端末に残る直近世代から復旧＝BackupsDialog を開くだけ）。 */}
               <div className="menu-sep" aria-hidden="true" />
               <MenuItem onClick={() => useUI.getState().setOverlay('backups')}>
                 バックアップから復元…
@@ -834,41 +815,23 @@ export function App() {
           </button>
         </span>
 
-        {/* 出力・印刷はファイル系＝リーダー専用（フォロワーでは非表示）。 */}
-        {!isFollower && (
-          <Menu
-            className="icon-btn menu-trigger"
-            title="出力"
-            label={
-              <>
-                <Icons.Download />
-                <Icons.ChevronDown />
-              </>
-            }
-          >
-            <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
-            <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
-            <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
-            <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
-            <MenuItem onClick={onExportHandbook}>ハンドブック (HTML)</MenuItem>
-          </Menu>
-        )}
-
-        {!isFollower && (
-          <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
-            <Icons.Printer />
+        {/* 編集系（元に戻す・やり直し）。編集用サブ窓の undo/redo はリーダーへ転送（両窓で履歴共有）。 */}
+        <span className="tool-group" role="group" aria-label="編集">
+          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す (Ctrl+Z)">
+            <Icons.Undo />
           </button>
-        )}
+          <button
+            className="icon-btn"
+            onClick={redo}
+            disabled={!canRedo}
+            aria-label="やり直し"
+            title="やり直し (Ctrl+Y)"
+          >
+            <Icons.Redo />
+          </button>
+        </span>
 
-        <button
-          className="icon-btn"
-          onClick={() => useUI.getState().setOverlay('palette')}
-          aria-label="コマンド・工程を検索"
-          title="コマンド・工程を検索 (⌘K)"
-        >
-          <Icons.Search />
-        </button>
-
+        {/* ビュー系（詳細・課題・サマリ・別ウィンドウ＋条件付き） */}
         <span className="tool-group" role="group" aria-label="ビュー">
           {/* 条件付きボタン（入れ替え／比較）はグループ末尾に集約する（下部参照）。表示/非表示で
               安定ボタン（詳細・課題・サマリ・別ウィンドウ）の位置がずれないようにするため。 */}
@@ -953,41 +916,70 @@ export function App() {
           )}
         </span>
 
-        <button
-          className="icon-btn"
-          onClick={toggleTheme}
-          aria-label={theme === 'dark' ? 'ライトテーマに切替' : 'ダークテーマに切替'}
-          title={theme === 'dark' ? 'ライトに切替' : 'ダークに切替'}
-        >
-          {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => {
-            useUI.getState().setSettingsTab('general');
-            useUI.getState().setOverlay('settings');
-          }}
-          aria-label="設定"
-          title="設定（テーマ / ショートカット / エクスポート）"
-        >
-          <Icons.Gear />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => useUI.getState().setOverlay('help')}
-          aria-label="キーボードショートカット"
-          title="キーボードショートカット (?)"
-        >
-          <Icons.Keyboard />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={toggleChrome}
-          aria-label="集中モード（ツールバーと各ビューの操作バーを隠す）"
-          title="集中モード: 作業エリアを最大化（ツールバー＋各ビューの操作バーを隠す）Ctrl/⌘+\"
-        >
-          <Icons.Maximize />
-        </button>
+        {/* 出力系（書き出し・印刷）＝リーダー専用（フォロワーでは非表示）。 */}
+        {!isFollower && (
+          <span className="tool-group has-menu" role="group" aria-label="出力">
+            <Menu
+              className="icon-btn menu-trigger"
+              title="出力"
+              label={
+                <>
+                  <Icons.Download />
+                  <Icons.ChevronDown />
+                </>
+              }
+            >
+              <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
+              <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
+              <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
+              <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
+              <MenuItem onClick={onExportHandbook}>ハンドブック (HTML)</MenuItem>
+            </Menu>
+            <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
+              <Icons.Printer />
+            </button>
+          </span>
+        )}
+
+        {/* その他（検索・設定・ヘルプ・集中モード）。テーマ切替はツールバーから外し、
+            設定（＝テーマ項目）とコマンドパレット（テーマを切り替え）に集約した（C-12）。 */}
+        <span className="tool-group" role="group" aria-label="その他">
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('palette')}
+            aria-label="コマンド・工程を検索"
+            title="コマンド・工程を検索 (⌘K)"
+          >
+            <Icons.Search />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => {
+              useUI.getState().setSettingsTab('general');
+              useUI.getState().setOverlay('settings');
+            }}
+            aria-label="設定"
+            title="設定（テーマ / ショートカット / エクスポート）"
+          >
+            <Icons.Gear />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('help')}
+            aria-label="キーボードショートカット"
+            title="キーボードショートカット (?)"
+          >
+            <Icons.Keyboard />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={toggleChrome}
+            aria-label="集中モード（ツールバーと各ビューの操作バーを隠す）"
+            title="集中モード: 作業エリアを最大化（ツールバー＋各ビューの操作バーを隠す）Ctrl/⌘+\"
+          >
+            <Icons.Maximize />
+          </button>
+        </span>
       </header>
       {showWelcome ? (
         <Welcome
