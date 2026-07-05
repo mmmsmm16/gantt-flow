@@ -570,6 +570,16 @@ export function App() {
     }
   };
 
+  // 別ウィンドウを開く共通ラッパ。window.open は null（ポップアップブロック等）を返しうるので、
+  // 呼び出し側で一元的に検知してトーストで沈黙を破る（dualwindow / mirror の null 通知）。
+  const openWindowOrWarn = (open: () => Window | null) => {
+    if (!open()) {
+      useUI
+        .getState()
+        .toast('ウィンドウを開けませんでした（ポップアップブロックをご確認ください）', 'error');
+    }
+  };
+
   // Welcome から空の編集画面へ（プロジェクトは既に空＝作り直し不要。フラグだけ立てる）。
   // 初回なら、最初の工程を作った瞬間にツアーを提示するため保留フラグを立てる。
   const onStartEmpty = () => {
@@ -906,14 +916,14 @@ export function App() {
               </>
             }
           >
-            <MenuItem onClick={() => openEditWindow()}>
+            <MenuItem onClick={() => openWindowOrWarn(() => openEditWindow())}>
               編集用のサブウィンドウを開く（両窓で同時編集）
             </MenuItem>
             <div className="menu-sep" aria-hidden="true" />
-            <MenuItem onClick={() => openMirrorWindow('flow')}>
+            <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('flow'))}>
               フローを別ウィンドウで表示（閲覧専用）
             </MenuItem>
-            <MenuItem onClick={() => openMirrorWindow('table')}>
+            <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('table'))}>
               工程表を別ウィンドウで表示（閲覧専用）
             </MenuItem>
           </Menu>
