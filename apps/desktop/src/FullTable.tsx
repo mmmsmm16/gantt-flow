@@ -10,9 +10,11 @@ import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
+import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { isImeKeyEvent } from './keymap';
-import { confirmRemoveTasks } from './taskOps';
+import { confirmRemoveTasks, removeIoWithUndo, removeIssueWithUndo } from './taskOps';
 import { useUI } from './ui/useUI';
+import { STATUS_OPTIONS, statusSelectClass } from './statusUi';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView } from './ui/useRowSelectionKeys';
@@ -28,14 +30,7 @@ const AUTOMATION: { key: Automation | ''; label: string }[] = [
 ];
 const DIFFICULTY: (Difficulty | '')[] = ['', 'H', 'M', 'L'];
 const DIFF_RANK: Record<string, number> = { H: 3, M: 2, L: 1, '': 0 };
-// 状況（ヒアリング進行）。未指定は「未着手」扱い。
-const STATUS: { key: TaskStatus | ''; label: string }[] = [
-  { key: '', label: '—' },
-  { key: 'todo', label: '未着手' },
-  { key: 'heard', label: 'ヒアリング済' },
-  { key: 'review', label: '確認待ち' },
-  { key: 'done', label: '確定' },
-];
+// 状況（ヒアリング進行）のソート順（ソート固有。表示は statusUi の STATUS_OPTIONS に一元化）。
 const STATUS_RANK: Record<string, number> = { done: 4, review: 3, heard: 2, todo: 1, '': 0 };
 
 // 列定義のシングルソース（この配列の並び＝表示順）。既定幅・表示切替メニュー・並べ替え可否・
@@ -167,11 +162,9 @@ export function FullTable() {
   const updateDetail = useApp((s) => s.updateDetail);
   const addIo = useApp((s) => s.addIo);
   const updateIo = useApp((s) => s.updateIo);
-  const removeIo = useApp((s) => s.removeIo);
   const addIssue = useApp((s) => s.addIssue);
   const addIssueWithMeasure = useApp((s) => s.addIssueWithMeasure);
   const updateIssue = useApp((s) => s.updateIssue);
-  const removeIssue = useApp((s) => s.removeIssue);
   const addDependency = useApp((s) => s.addDependency);
   const removeDependency = useApp((s) => s.removeDependency);
   const addRootTask = useApp((s) => s.addRootTask);
@@ -680,7 +673,9 @@ export function FullTable() {
                       <span className="ft-name-cell">
                         {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
                         <input
-                          className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                          className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}${nameLenClass(t.name)}`}
+                          title={nameLenTitle(t.name)}
+                          onInput={onNameInput}
                           data-cell="name"
                           style={
                             d?.textColor
@@ -753,13 +748,13 @@ export function FullTable() {
                   return (
                     <td key={c.key} className="ft-c-status" onClick={(e) => e.stopPropagation()}>
                       <select
-                        className={`ft-in ft-status st-${d?.status ?? 'none'}${cellCursorCls(t.id, 'status')}`}
+                        className={`ft-in ft-status ${statusSelectClass(d)}${cellCursorCls(t.id, 'status')}`}
                         data-cell="status"
                         value={d?.status ?? ''}
                         aria-label="状況（ヒアリング進行）"
                         onChange={(e) => updateDetail(t.id, { status: (e.target.value || undefined) as TaskStatus | undefined })}
                       >
-                        {STATUS.map((s) => (
+                        {STATUS_OPTIONS.map((s) => (
                           <option key={s.key} value={s.key}>
                             {s.label}
                           </option>
@@ -852,9 +847,9 @@ export function FullTable() {
                 case 'system':
                   return <WrapCell key={c.key} value={d?.system} onCommit={(v) => updateDetail(t.id, { system: v })} k={t.id} cell="system" cursor={cellCursorCls(t.id, 'system') !== ''} />;
                 case 'inputs':
-                  return <IoCell key={c.key} items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => { addIo(t.id, 'inputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'inputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                  return <IoCell key={c.key} items={d?.inputs ?? []} direction="in" cell="inputs" cursor={cellCursorCls(t.id, 'inputs') !== ''} onAdd={() => { addIo(t.id, 'inputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'inputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIoWithUndo(t.id, id)} />;
                 case 'outputs':
-                  return <IoCell key={c.key} items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => { addIo(t.id, 'outputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'outputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIo(t.id, id)} />;
+                  return <IoCell key={c.key} items={d?.outputs ?? []} direction="out" cell="outputs" cursor={cellCursorCls(t.id, 'outputs') !== ''} onAdd={() => { addIo(t.id, 'outputs', '帳票'); setAddFocus({ taskId: t.id, cell: 'outputs' }); }} onRename={(id, name) => updateIo(t.id, id, { name })} onKind={(id, kind) => updateIo(t.id, id, { kind })} onRemove={(id) => removeIoWithUndo(t.id, id)} />;
                 case 'issue':
                   return (
                     <td key={c.key} className={`ft-c-issue${cellCursorCls(t.id, 'issue')}`} data-cell="issue" onClick={(e) => e.stopPropagation()}>
@@ -862,7 +857,7 @@ export function FullTable() {
                         {issues.map((iss) => (
                           <div className="ft-issue-row" key={iss.id}>
                             <AutoTextarea value={iss.issue} placeholder="課題" onCommit={(v) => updateIssue(t.id, iss.id, { issue: v })} />
-                            <button className="ft-x" aria-label="課題を削除" title="課題を削除" onClick={() => removeIssue(t.id, iss.id)}>
+                            <button className="ft-x" aria-label="課題を削除" title="課題を削除" onClick={() => removeIssueWithUndo(t.id, iss.id)}>
                               ×
                             </button>
                           </div>

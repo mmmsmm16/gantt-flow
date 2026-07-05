@@ -1,7 +1,7 @@
 // 工数欄の入力ガード。1e308 のような「有限だが ×60 で溢れる」値が Infinity として
 // 保存され、JSON では null になってファイルが開けなくなる事故を防ぐ。
 import { describe, it, expect } from 'vitest';
-import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, EFFORT_RULE_MESSAGE, isEffortBlurUnchanged, normalizeEffortInput } from '../src/parseEffort';
+import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, validateLtDays, EFFORT_RULE_MESSAGE, LT_RULE_MESSAGE, isEffortBlurUnchanged, normalizeEffortInput } from '../src/parseEffort';
 import { effortMinutesToHours } from '@gantt-flow/core';
 
 // #3 工数入力の統一（type=number → type=text）。カンマ小数「1,5」を黙殺せず 1.5h として扱う
@@ -93,8 +93,32 @@ describe('validateEffort', () => {
   });
 
   it('不正値は ok=false と理由メッセージを返す（値は破棄しない＝呼び出し側で残す）', () => {
-    for (const bad of ['abc', '-1', '1e308']) {
+    // '2時間' は比較ダイアログ一括入力で無言の「解除」になり既存 To-Be を消していた入力（B-05）。
+    for (const bad of ['abc', '2時間', '-1', '1e308']) {
       expect(validateEffort(bad)).toEqual({ ok: false, message: EFFORT_RULE_MESSAGE });
+    }
+  });
+});
+
+// リードタイム欄の非破壊バリデーション（工数欄の validateEffort と対）。比較ダイアログの
+// 一括入力セルで「不正値（『2時間』等）は commit せず赤リング＋入力値保持」を統一するためのラッパ。
+// 旧実装は parseLtDaysInput(...) ?? undefined で不正入力を無言の「解除」にし既存 To-Be 値を消していた。
+describe('validateLtDays', () => {
+  it('有効値は ok=true と確定日数を返す（空欄は解除＝undefined）', () => {
+    expect(validateLtDays('2')).toEqual({ ok: true, days: 2 });
+    expect(validateLtDays('0.5')).toEqual({ ok: true, days: 0.5 });
+    expect(validateLtDays('0')).toEqual({ ok: true, days: 0 });
+    expect(validateLtDays('')).toEqual({ ok: true, days: undefined });
+  });
+
+  it('カンマ小数・全角も工数欄と同じ正規化を通す（1,5 → 1.5 日）', () => {
+    expect(validateLtDays('1,5')).toEqual({ ok: true, days: 1.5 });
+    expect(validateLtDays('２，５')).toEqual({ ok: true, days: 2.5 });
+  });
+
+  it('不正値（数値でない・負・Infinity）は ok=false と理由を返す（値は破棄しない）', () => {
+    for (const bad of ['abc', '2時間', '-1', '1e999']) {
+      expect(validateLtDays(bad)).toEqual({ ok: false, message: LT_RULE_MESSAGE });
     }
   });
 });

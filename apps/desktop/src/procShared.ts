@@ -8,6 +8,15 @@ export const hasChildren = (core: Core, id: Id): boolean =>
 
 export const isLeaf = (core: Core, id: Id): boolean => !!core.tasks[id] && !hasChildren(core, id);
 
+// taskId を含む「中工程」（子があれば自身・末端なら親、無ければ自身）。
+// 手順書タブの章ジャンプ（内部の jumpToTask / 外部の procedureFocus）で共有する。
+export function midOf(core: Core, taskId: Id): Id | undefined {
+  const t = core.tasks[taskId];
+  if (!t) return undefined;
+  if (hasChildren(core, taskId)) return taskId;
+  return t.parentId && core.tasks[t.parentId] ? t.parentId : taskId;
+}
+
 // 祖先パス（root..parent、id 自身は含まない）。
 export function ancestorsOf(core: Core, id: Id): ProcessTask[] {
   const out: ProcessTask[] = [];

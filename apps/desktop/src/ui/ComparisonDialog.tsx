@@ -3,9 +3,9 @@
 // 集計は core の computeCompare（純関数）。SummaryDialog と同じモーダル語彙を踏襲。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Difficulty, ProcessLevel } from '@gantt-flow/core';
-import { computeCompare, leafEffortMinutes, leafLtDays } from '@gantt-flow/core';
+import { buildCompareReport, round1 } from '@gantt-flow/core';
 import { FlowCompareView } from './FlowCompareView';
-import { isEffortBlurUnchanged, parseEffortHoursToMinutes, parseLtDaysInput } from '../parseEffort';
+import { isEffortBlurUnchanged, validateEffort, validateLtDays, markEffortInvalid, clearEffortInvalid } from '../parseEffort';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
@@ -19,7 +19,6 @@ const DIFF: { key: Difficulty; label: string; sub: string; cls: string }[] = [
   { key: 'L', label: '低', sub: '誰でも', cls: 'l' },
 ];
 
-const round1 = (v: number) => Math.round(v * 10) / 10;
 const fmtDays = (v: number) => `${round1(v)}日`;
 const fmtHours = (h: number) => `${round1(h)}h`;
 const signed = (v: number, unit: string) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(round1(v))}${unit}`;
@@ -86,7 +85,7 @@ export function ComparisonDialog() {
   const open = useUI((s) => s.overlay === 'comparison');
   const project = useApp((s) => s.project);
   const updateToBe = useApp((s) => s.updateToBe);
-  const copyAsIsToToBe = useApp((s) => s.copyAsIsToToBe);
+  const copyAsIsToToBeMany = useApp((s) => s.copyAsIsToToBeMany);
   const addToBeTask = useApp((s) => s.addToBeTask);
   const renameTask = useApp((s) => s.renameTask);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
@@ -101,45 +100,30 @@ export function ComparisonDialog() {
   const [view, setView] = useState<'summary' | 'flow' | 'bulk'>('summary');
   const [flowLevel, setFlowLevel] = useState<ProcessLevel>('medium');
 
-  const c = useMemo(() => computeCompare(project.core, project.details), [project]);
-  // 構造差分の要約（新規 / 廃止 / 移動 / 並行化）。
-  const struct = useMemo(() => {
-    const added: string[] = [];
-    const removed: string[] = [];
-    const moved: string[] = [];
-    for (const t of Object.values(project.core.tasks)) {
-      const tb = project.details[t.id]?.toBe;
-      if (!tb) continue;
-      if (tb.lifecycle === 'added') added.push(t.name);
-      else if (tb.lifecycle === 'removed') removed.push(t.name);
-      if (tb.assigneeId && tb.assigneeId !== t.assigneeId) moved.push(t.name);
-    }
-    const parallelized = Object.values(project.core.dependencies).filter((d) => d.phase === 'asis').length;
-    return { added, removed, moved, parallelized };
-  }, [project]);
-  // 工程別の差分（末端のみ・工数 or LT が入っている行）
-  const perRow = useMemo(() => {
-    const tasks = Object.values(project.core.tasks);
-    const hasChild = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[]);
-    return tasks
-      .filter((t) => !hasChild.has(t.id))
-      .map((t) => {
-        const d = project.details[t.id];
-        const aEff = leafEffortMinutes(d, 'asis') / 60;
-        const bEff = leafEffortMinutes(d, 'tobe') / 60;
-        const aLt = leafLtDays(d, 'asis');
-        const bLt = leafLtDays(d, 'tobe');
-        const ltCut = aLt - bLt; // リードタイム短縮（日）
+  // 集計は core の buildCompareReport（純関数）へ集約。totals(=computeCompare)・構造差分・工程別差分
+  // を一度に導出する。表示形状は従来の perRow に合わせて薄く写す（数字・並びは不変）。
+  const report = useMemo(() => buildCompareReport(project.core, project.details), [project]);
+  const c = report.totals;
+  const struct = report.struct;
+  const perRow = useMemo(
+    () =>
+      report.rows.map((r) => {
+        // 担当は従来どおり「未割当は空文字」表示に合わせる（report.ownerAsis は（未割当）ラベルを持つ）。
+        const t = project.core.tasks[r.taskId];
         return {
-          id: t.id,
-          name: t.name,
-          owner: t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '',
-          aEff, bEff, aLt, bLt, ltCut,
-          changed: !!d?.toBe,
+          id: r.taskId,
+          name: r.name,
+          owner: t?.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '',
+          aEff: r.effortMinutes.asis / 60,
+          bEff: r.effortMinutes.tobe / 60,
+          aLt: r.ltDays.asis,
+          bLt: r.ltDays.tobe,
+          ltCut: r.ltCutDays,
+          changed: r.changed,
         };
-      })
-      .filter((r) => r.aEff || r.bEff || r.aLt || r.bLt);
-  }, [project]);
+      }),
+    [report, project.core],
+  );
 
   useEffect(() => {
     if (open) closeRef.current?.focus();
@@ -150,6 +134,9 @@ export function ComparisonDialog() {
   const maxCut = Math.max(...perRow.map((r) => r.ltCut), 1);
   // To-Be 新設工程（As-Is には出ない）。一括入力タブの専用セクションで作成・編集する。
   const addedTasks = Object.values(project.core.tasks).filter((t) => project.details[t.id]?.toBe?.lifecycle === 'added');
+  // To-Be が 1 件も入っていないと、サマリは As-Is と同値の ±0 が並ぶだけで読み手に何も伝わらない。
+  // 空状態ガイド（一括入力への導線）を先頭に出して「まず何をするか」を示す。
+  const hasAnyToBe = Object.values(project.details).some((d) => !!d?.toBe);
   const assigneeNames = [...new Set(Object.values(project.core.assignees).map((a) => a.name))];
   const counts = diffMode === 'count' ? c.difficulty.count : c.difficulty.effort;
   const totals = diffMode === 'count'
@@ -220,7 +207,14 @@ export function ComparisonDialog() {
           <div className="cmp-bulk">
             <div className="cmp-bulk-cap">
               <span>To-Be 一括入力 <span className="cmp-flow-hint">改善後の工数・リードタイム・難易度・状態・根拠をまとめて入力</span></span>
-              <button className="tobe-copy" onClick={() => perRow.forEach((r) => copyAsIsToToBe(r.id))} title="全工程の As-Is 値を To-Be の起点へコピー">
+              <button
+                className="tobe-copy"
+                onClick={() => {
+                  const n = copyAsIsToToBeMany(perRow.map((r) => r.id));
+                  if (n) useUI.getState().toast(`${n} 工程に複製しました`, 'success');
+                }}
+                title="全工程の As-Is 値を To-Be の起点へコピー"
+              >
                 現状を一括複製
               </button>
             </div>
@@ -252,10 +246,17 @@ export function ComparisonDialog() {
                             defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
                             placeholder={`${round1(r.aEff)}`}
                             onBlur={(e) => {
+                              const res = validateEffort(e.target.value);
+                              if (!res.ok) {
+                                // 不正値（「2時間」等）は打った文字を残し、赤リング＋トーストで修正を促す。
+                                // 無音で undefined へ「解除」して既存 To-Be 値を消さない（表側と同じ流儀）。
+                                markEffortInvalid(e.target, res.message);
+                                useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                return;
+                              }
+                              clearEffortInvalid(e.target);
                               if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
-                              updateToBe(r.id, {
-                                effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined,
-                              });
+                              if (res.minutes !== tb?.effortMinutes) updateToBe(r.id, { effortMinutes: res.minutes });
                             }}
                           />
                         </td>
@@ -265,11 +266,16 @@ export function ComparisonDialog() {
                             key={`l-${r.id}-${tb?.ltDays}`}
                             defaultValue={tb?.ltDays ?? ''}
                             placeholder={`${r.aLt}`}
-                            onBlur={(e) =>
-                              updateToBe(r.id, {
-                                ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
-                              })
-                            }
+                            onBlur={(e) => {
+                              const res = validateLtDays(e.target.value);
+                              if (!res.ok) {
+                                markEffortInvalid(e.target, res.message);
+                                useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                return;
+                              }
+                              clearEffortInvalid(e.target);
+                              if (res.days !== tb?.ltDays) updateToBe(r.id, { ltDays: res.days });
+                            }}
                           />
                         </td>
                         <td>
@@ -366,8 +372,15 @@ export function ComparisonDialog() {
                               key={`ae-${t.id}-${tb?.effortMinutes}`}
                               defaultValue={tb?.effortMinutes != null ? round1(tb.effortMinutes / 60) : ''}
                               onBlur={(e) => {
+                                const res = validateEffort(e.target.value);
+                                if (!res.ok) {
+                                  markEffortInvalid(e.target, res.message);
+                                  useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                  return;
+                                }
+                                clearEffortInvalid(e.target);
                                 if (isEffortBlurUnchanged(e.target.value, tb?.effortMinutes)) return; // 無編集 blur は書き換えない
-                                updateToBe(t.id, { effortMinutes: e.target.value.trim() === '' ? undefined : parseEffortHoursToMinutes(e.target.value) ?? undefined });
+                                if (res.minutes !== tb?.effortMinutes) updateToBe(t.id, { effortMinutes: res.minutes });
                               }}
                             />
                           </td>
@@ -376,11 +389,16 @@ export function ComparisonDialog() {
                               className="cmp-bulk-in num"
                               key={`al-${t.id}-${tb?.ltDays}`}
                               defaultValue={tb?.ltDays ?? ''}
-                              onBlur={(e) =>
-                                updateToBe(t.id, {
-                                  ltDays: e.target.value.trim() === '' ? undefined : parseLtDaysInput(e.target.value) ?? undefined,
-                                })
-                              }
+                              onBlur={(e) => {
+                                const res = validateLtDays(e.target.value);
+                                if (!res.ok) {
+                                  markEffortInvalid(e.target, res.message);
+                                  useUI.getState().toast(`${res.message}（例: 2 や 0.5）`, 'error');
+                                  return;
+                                }
+                                clearEffortInvalid(e.target);
+                                if (res.days !== tb?.ltDays) updateToBe(t.id, { ltDays: res.days });
+                              }}
                             />
                           </td>
                           <td>
@@ -406,6 +424,16 @@ export function ComparisonDialog() {
 
         {view === 'summary' && (
         <div className="cmp-body">
+          {!hasAnyToBe && (
+            <div className="cmp-guide" role="note">
+              <span className="cmp-guide-icon"><Icons.Sparkles /></span>
+              <div className="cmp-guide-body">
+                <b>To-Be が未入力です。</b>
+                <span>一括入力タブから始めるか、インスペクタの To-Be 欄で個別に設定してください。</span>
+              </div>
+              <button className="cmp-guide-cta" onClick={() => setView('bulk')}>一括入力を開く</button>
+            </div>
+          )}
           <div className="cmp-cards">
             {/* 工数（左） */}
             <section className="cmp-card is-feature">

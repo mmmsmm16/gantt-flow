@@ -2,7 +2,8 @@
 // 右側にアクティブペイン別のキー操作ヒントと g リーダー待機チップ(発見性)。
 import { useEffect, useMemo, useState } from 'react';
 import type { ProcessLevel } from '@gantt-flow/core';
-import { computeEffortRollups, formatHours } from '@gantt-flow/core';
+import { computeEffortRollups, computeHearingProgress, formatHours } from '@gantt-flow/core';
+import { getActiveKeymap, chordKeys, type KeyBinding } from '../keymap';
 import { useApp } from '../store';
 import { useUI, type PersistKind, type LockUiState } from './useUI';
 
@@ -53,12 +54,63 @@ export function persistIndicators(
   return { autosave, lock };
 }
 
+// アクティブペイン別のキー操作ヒント（右側の st-hint）。表示するキーは実効キーマップ
+// （getActiveKeymap＝ユーザー上書き＋シングルキーOFFフィルタ適用済み）から解決するので、
+// 「見えるヒント」と「実際に効くキー」が常に一致する。各スロットは候補 binding id を
+// 優先順に持ち、実効キーマップに在る最初のものを採用する（単キーは OFF 時に消えるため、
+// 自動的に矢印/修飾キー版へ落ちる＝OFF時は修飾キー系のみ・ON時は単キーも表示）。
+export interface KeyHint {
+  keys: string;
+  label: string;
+}
+interface HintSpec {
+  label: string;
+  slots: string[][];
+}
+
+const PANE_HINT_SPECS: Record<'table' | 'flow', HintSpec[]> = {
+  table: [
+    { label: '移動', slots: [['row-next', 'row-next-arrow'], ['row-prev', 'row-prev-arrow']] },
+    { label: '編集', slots: [['row-edit']] },
+    { label: '追加', slots: [['row-add']] },
+    { label: 'コマンド', slots: [['palette']] },
+    { label: '一覧', slots: [['help']] },
+  ],
+  flow: [
+    { label: '選択', slots: [['node-left'], ['node-right']] },
+    { label: '接続', slots: [['connect-mode']] },
+    { label: 'コマンド', slots: [['palette']] },
+    { label: '一覧', slots: [['help']] },
+  ],
+};
+
+function keyOf(km: KeyBinding[], ids: string[]): string | null {
+  for (const id of ids) {
+    const b = km.find((x) => x.id === id);
+    if (b) return chordKeys(b.chord, b.leader).join('');
+  }
+  return null;
+}
+
+// pane のキーヒントを実効キーマップから生成（最大 max 個。トーン・密度は従来維持）。
+export function paneKeyHints(km: KeyBinding[], pane: 'table' | 'flow', max = 5): KeyHint[] {
+  const out: KeyHint[] = [];
+  for (const spec of PANE_HINT_SPECS[pane]) {
+    const parts = spec.slots.map((s) => keyOf(km, s)).filter((x): x is string => x !== null);
+    if (parts.length === 0) continue;
+    out.push({ keys: parts.join('/'), label: spec.label });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 export function StatusBar() {
   const project = useApp((s) => s.project);
   const level = useApp((s) => s.level);
   const scopeParentId = useApp((s) => s.scopeParentId);
   const dirty = useApp((s) => s.dirty);
   const activePane = useUI((s) => s.activePane);
+  const mainView = useUI((s) => s.mainView);
   const leaderPending = useUI((s) => s.leaderPending);
   const singleKey = useUI((s) => s.singleKey);
   // 永続化の健全性（沈黙する失敗を可視化）: 直近の自動保存時刻・失敗・助言ロック状態。
@@ -93,6 +145,27 @@ export function StatusBar() {
   const totalMin = roots.reduce((s, t) => s + (effortRollups.get(t.id) ?? 0), 0);
   const assignees = Object.keys(project.core.assignees).length;
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
+  // ヒアリング進捗（末端工程のうち着手済=heard+review+done の割合）。サマリと同一集計を共有。
+  const hearing = useMemo(
+    () => computeHearingProgress(project.core, project.details),
+    [project.core, project.details],
+  );
+  const setOverlay = useUI((s) => s.setOverlay);
+  const hearingDone = hearing.total > 0 && hearing.heard === hearing.total;
+
+  // キーヒントは実効キーマップから生成（singleKey トグルでキャッシュが無効化されるので依存に入れる）。
+  // 手順書タブは表/フローと操作系が異なる（ステップ選択・削除）ので、その実挙動に合わせた
+  // 固定ヒントへ差し替える（ProcedureView の window keydown: Delete=削除 / Esc=選択解除）。
+  const hintText = useMemo(
+    () =>
+      mainView === 'procedure'
+        ? 'クリックで選択・Delete で削除・Esc で解除'
+        : paneKeyHints(getActiveKeymap(), activePane)
+            .map((h) => `${h.keys} ${h.label}`)
+            .join('・'),
+    // singleKey は再計算トリガ（getActiveKeymap の中身が変わる）。
+    [activePane, singleKey, mainView],
+  );
 
   return (
     <footer className="statusbar" aria-label="ステータス">
@@ -110,6 +183,16 @@ export function StatusBar() {
       <span className="st-item" title="末端工程の合計工数（自動集計）">
         合計工数 <strong>{formatHours(totalMin)}</strong>
       </span>
+      <span className="st-sep" aria-hidden="true" />
+      <button
+        type="button"
+        className={`st-item st-hearing${hearingDone ? ' is-done' : ''}`}
+        onClick={() => setOverlay('summary')}
+        aria-haspopup="dialog"
+        title="ヒアリング済みの末端工程数／末端工程の総数。クリックでサマリを開く（未着手・確認待ちの残りを確認）"
+      >
+        ヒアリング <strong>{hearing.heard}/{hearing.total}</strong>
+      </button>
       <span className="st-spacer" />
       {leaderPending ? (
         <span className="st-item st-leader" aria-live="polite" title="g に続けて t=表 / f=フロー / i=課題 / s=サマリ / 1〜4=粒度">
@@ -117,13 +200,7 @@ export function StatusBar() {
         </span>
       ) : (
         <span className="st-item st-hint" title="ショートカット一覧は ? キー">
-          {activePane === 'table'
-            ? singleKey
-              ? 'j/k 移動・Enter 編集・n 追加・? 一覧'
-              : '↑↓ 移動・Enter 編集・⌘K コマンド・? 一覧'
-            : singleKey
-              ? '矢印で選択・Alt+矢印で移動・c 接続・? 一覧'
-              : '矢印で選択・c 接続・⌘K コマンド・? 一覧'}
+          {hintText}
         </span>
       )}
       <span className="st-sep" aria-hidden="true" />

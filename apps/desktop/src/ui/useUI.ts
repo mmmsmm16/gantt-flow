@@ -44,6 +44,7 @@ function readFtWidths(): Record<string, number> {
 // ヘッダ行・列メニュー(以上 TableView)と、ここでの表示トグルの永続化すべてを駆動する。
 // 列を増やすときはここに 1 エントリ追加し、TableView 側で本体の <td> を書くだけでよい。
 export const OUTLINE_OPTIONAL_COLUMNS = [
+  { key: 'status', label: '状況', width: 104 },
   { key: 'prev', label: '前工程', width: 132 },
   { key: 'effort', label: '工数', width: 78 },
   { key: 'io', label: '入/出・課題', width: 224 },
@@ -56,14 +57,19 @@ const DEFAULT_COLUMNS = Object.fromEntries(
   OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, true]),
 ) as ColumnVisibility;
 
+// 保存済み設定（キー欠けあり）を現行の全キーに正規化する。未知の列（後から追加した status など）が
+// 古い設定に無い場合は既定（表示）へフォールバックし、新列が既定で隠れないようにする。
+export function normalizeColumns(partial: Partial<ColumnVisibility>): ColumnVisibility {
+  return Object.fromEntries(
+    OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, partial[c.key] ?? DEFAULT_COLUMNS[c.key]]),
+  ) as ColumnVisibility;
+}
+
 function readInitialColumns(): ColumnVisibility {
   try {
     const saved = localStorage.getItem(COLS_KEY);
     if (saved) {
-      const parsed = JSON.parse(saved) as Partial<ColumnVisibility>;
-      return Object.fromEntries(
-        OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, parsed[c.key] ?? DEFAULT_COLUMNS[c.key]]),
-      ) as ColumnVisibility;
+      return normalizeColumns(JSON.parse(saved) as Partial<ColumnVisibility>);
     }
   } catch {
     /* localStorage 不可/破損: 既定（全表示）にフォールバック */
@@ -89,10 +95,16 @@ function applyTheme(theme: Theme): void {
 }
 
 export type ToastTone = 'error' | 'info' | 'success';
+/** トーストに 1 個だけ付けられる任意アクション（例: 出力後の「開いて確認」）。押すとトーストは閉じる。 */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
 export interface ToastItem {
   id: number;
   message: string;
   tone: ToastTone;
+  action?: ToastAction;
 }
 
 // トーストの自動消去までの時間(ms)。error はやや長め＝読み切る前に消えないよう猶予を足す。
@@ -228,6 +240,9 @@ interface UIState {
   /** As-Is/To-Be 比較機能（比較ボタン・To-Beタブ・シナリオ切替）が有効か。既定 OFF。設定で切替。 */
   tobeEnabled: boolean;
   setTobeEnabled: (enabled: boolean) => void;
+  /** 改善効果サマリ（比較オーバーレイ）を開く。無効時は設定（general）を開き有効化を促す。
+      ショートカット（⌘⇧C）とパレットの両方から呼ぶ共通導線。 */
+  openComparison: () => void;
 
   /** AI アシスト（オプトイン）が有効か。**既定 OFF**。OFF の間はネットワーク通信を一切行わない
       （requestProposals が先頭で throw する）。localStorage `gf-ai` に永続。 */
@@ -259,14 +274,14 @@ interface UIState {
 
   /** 設定インポート用の一括反映（列設定）。undefined のキーは変更しない。 */
   hydrateSettings: (p: {
-    columns?: ColumnVisibility;
+    columns?: Partial<ColumnVisibility>;
     ftColumns?: Record<string, boolean>;
     ftWidths?: Record<string, number>;
   }) => void;
 
-  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / 比較 / バックアップ / 設定）。同時に 1 つだけ。 */
-  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'comparison' | 'backups' | 'settings' | null;
-  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'comparison' | 'backups' | 'settings' | null) => void;
+  /** 全画面オーバーレイ（ヘルプ / パレット / 課題一覧 / サマリ / 納品前チェック / 比較 / バックアップ / 設定）。同時に 1 つだけ。 */
+  overlay: 'help' | 'palette' | 'issues' | 'summary' | 'validate' | 'comparison' | 'backups' | 'settings' | null;
+  setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'validate' | 'comparison' | 'backups' | 'settings' | null) => void;
 
   /** 設定ダイアログのアクティブタブ（パレットからの深リンク用）。 */
   settingsTab: 'general' | 'keys' | 'data' | 'ai';
@@ -284,6 +299,11 @@ interface UIState {
       スクロール＆フォーカスするためのシグナル（seq でトリガ）。null=非アクティブ。 */
   inspectorIoFocus: { io: 'inputs' | 'outputs'; ioId?: Id; seq: number } | null;
   focusInspectorIo: (io: 'inputs' | 'outputs', ioId?: Id) => void;
+
+  /** 手順書タブで指定工程の章まで外部からスクロール＆ジャンプするためのシグナル（seq でトリガ）。
+      検証パネル等が中工程を設定したあとに呼ぶ。ProcedureView が購読して該当章へ寄せる。null=非アクティブ。 */
+  procedureFocus: { taskId: Id; seq: number } | null;
+  focusProcedureChapter: (taskId: Id) => void;
 
   /** 両窓編集同期: 作成した工程をその場リネームで開くよう、対象ペイン（表/フロー）へ依頼するシグナル。
       発信元の窓で focusHint を受けた dualwindow ランタイムが set し、TableView/FlowCanvas が購読して
@@ -341,7 +361,7 @@ interface UIState {
   hasTransientLayer: () => boolean;
 
   toasts: ToastItem[];
-  toast: (message: string, tone?: ToastTone) => void;
+  toast: (message: string, tone?: ToastTone, action?: ToastAction) => void;
   dismissToast: (id: number) => void;
 
   /** 直近の自動保存(localStorage への未保存退避)が成功した時刻(epoch ms)。null=まだ成功なし。 */
@@ -496,6 +516,17 @@ export const useUI = create<UIState>((set, get) => ({
       scenario: enabled ? s.scenario : 'asis',
     }));
   },
+  openComparison: () => {
+    const s = get();
+    if (s.tobeEnabled) {
+      s.setOverlay('comparison');
+      return;
+    }
+    // 未有効時は黙って何もしない代わりに、設定で有効化する導線を出す（発見性）。
+    s.setSettingsTab('general');
+    s.setOverlay('settings');
+    s.toast('設定で As-Is / To-Be 比較を有効にしてください', 'info');
+  },
 
   aiEnabled: (() => {
     try {
@@ -548,6 +579,10 @@ export const useUI = create<UIState>((set, get) => ({
   focusInspectorIo: (io, ioId) =>
     set((s) => ({ inspectorIoFocus: { io, ioId, seq: (s.inspectorIoFocus?.seq ?? 0) + 1 } })),
 
+  procedureFocus: null,
+  focusProcedureChapter: (taskId) =>
+    set((s) => ({ procedureFocus: { taskId, seq: (s.procedureFocus?.seq ?? 0) + 1 } })),
+
   renameRequest: null,
   requestRename: (taskId, surface) =>
     set((s) => ({ renameRequest: { taskId, surface, seq: (s.renameRequest?.seq ?? 0) + 1 } })),
@@ -584,8 +619,9 @@ export const useUI = create<UIState>((set, get) => ({
     const patch: Record<string, unknown> = {};
     try {
       if (p.columns) {
-        localStorage.setItem(COLS_KEY, JSON.stringify(p.columns));
-        patch.columnVisibility = p.columns;
+        const cols = normalizeColumns(p.columns);
+        localStorage.setItem(COLS_KEY, JSON.stringify(cols));
+        patch.columnVisibility = cols;
       }
       if (p.ftColumns) {
         localStorage.setItem(FT_COLS_KEY, JSON.stringify(p.ftColumns));
@@ -678,9 +714,9 @@ export const useUI = create<UIState>((set, get) => ({
   hasTransientLayer: () => transientClosers.length > 0,
 
   toasts: [],
-  toast: (message, tone = 'info') => {
+  toast: (message, tone = 'info', action) => {
     const id = ++toastSeq;
-    set({ toasts: [...get().toasts, { id, message, tone }] });
+    set({ toasts: [...get().toasts, { id, message, tone, action }] });
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 

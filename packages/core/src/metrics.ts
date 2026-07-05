@@ -1,5 +1,5 @@
 // 工数の集計（`docs/02-data-model.md` §3）。末端のみが値を持ち、親は子孫の末端工数の合計を導出。
-import type { Core, TaskDetail, Id } from './model/types';
+import type { Core, TaskDetail, Id, ProcessLevel, Automation, TaskStatus } from './model/types';
 
 // 全タスクの集計工数を 1 パス（O(n)）で計算する。表のソート・一覧描画・合計など、
 // 複数タスク分が必要な場面ではタスクごとに effortRollupMinutes を呼ばずこちらを使う。
@@ -61,4 +61,87 @@ export function formatHours(min: number): string {
 // 表示直前の丸めをこの1関数に集約する（元の effortMinutes は丸めず保持＝編集時の意味は変えない）。
 export function effortMinutesToHours(min: number): number {
   return Math.round((min / 60) * 10) / 10;
+}
+
+// ---- プロジェクトサマリ（担当別工数・自動化区分・粒度別件数） ----
+// サマリダイアログ(UI)と Excel 出力(サマリシート)で同一集計を共有するための純関数。
+// UI/OS 非依存（core ルール）。
+
+/** 未割当の担当を表す表示名（サマリの担当別工数で使う）。 */
+export const UNASSIGNED_LABEL = '（未割当）';
+
+const SUMMARY_LEVELS: ProcessLevel[] = ['large', 'medium', 'small', 'detail'];
+type AutoKey = Automation | 'none';
+
+export interface ProjectSummary {
+  /** 担当別の末端工数（分）。工数の多い順にソート済み。 */
+  assignees: { name: string; min: number }[];
+  /** 末端工数の合計（分）。 */
+  totalMin: number;
+  /** 自動化区分ごとの末端工程数（未設定は none）。 */
+  autoCounts: Record<AutoKey, number>;
+  /** 末端工程数（工数・自動化区分の母数）。 */
+  leafCount: number;
+  /** 粒度別の工程数（large/medium/small/detail の順）。 */
+  levelCounts: { key: ProcessLevel; n: number }[];
+  /** 集計対象の工程総数（To-Be 新設を除く）。 */
+  taskCount: number;
+}
+
+// SummaryDialog の useMemo と同一ロジック。To-Be 新設工程(toBe.lifecycle='added')は
+// As-Is サマリに含めない。工数・自動化区分は末端で集計、粒度別は全対象工程で数える。
+export function computeProjectSummary(core: Core, details: Record<Id, TaskDetail>): ProjectSummary {
+  const tasks = Object.values(core.tasks).filter((t) => details[t.id]?.toBe?.lifecycle !== 'added');
+  const hasChild = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[]);
+  const leaves = tasks.filter((t) => !hasChild.has(t.id));
+
+  const byAssignee = new Map<string, number>();
+  let totalMin = 0;
+  for (const t of leaves) {
+    const min = details[t.id]?.effortMinutes ?? 0;
+    const name = t.assigneeId ? core.assignees[t.assigneeId]?.name ?? UNASSIGNED_LABEL : UNASSIGNED_LABEL;
+    byAssignee.set(name, (byAssignee.get(name) ?? 0) + min);
+    totalMin += min;
+  }
+  const assignees = [...byAssignee.entries()].map(([name, min]) => ({ name, min })).sort((a, b) => b.min - a.min);
+
+  const autoCounts: Record<AutoKey, number> = { manual: 0, partial: 0, system: 0, none: 0 };
+  for (const t of leaves) {
+    const a = details[t.id]?.automation;
+    autoCounts[a ?? 'none'] += 1;
+  }
+
+  const levelCounts = SUMMARY_LEVELS.map((key) => ({ key, n: tasks.filter((t) => t.level === key).length }));
+
+  return { assignees, totalMin, autoCounts, leafCount: leaves.length, levelCounts, taskCount: tasks.length };
+}
+
+// ---- ヒアリング進行（状況）の集計 ----
+// 「状況」は末端工程ごとの聞き取り進行度。未指定は 'todo'（未着手）扱いという解釈を、
+// UI/集計で二重定義しないための単一定義点。
+export function effectiveStatus(detail: TaskDetail | undefined): TaskStatus {
+  return detail?.status ?? 'todo';
+}
+
+export interface HearingProgress {
+  /** 集計母数（末端かつ To-Be 新設でない工程数）。 */
+  total: number;
+  /** 状況ごとの末端工程数（effectiveStatus で未指定は todo に寄せる）。 */
+  counts: Record<TaskStatus, number>;
+  /** 着手済み（heard + review + done）の件数。チップの分子。 */
+  heard: number;
+}
+
+// サマリ/ステータスバー/チップで共有するヒアリング進行の集計。母数は computeProjectSummary と
+// 同一流儀（末端のみ・To-Be 新設 lifecycle='added' は除外）。純関数（UI/OS 非依存）。
+export function computeHearingProgress(core: Core, details: Record<Id, TaskDetail>): HearingProgress {
+  const tasks = Object.values(core.tasks).filter((t) => details[t.id]?.toBe?.lifecycle !== 'added');
+  const hasChild = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[]);
+  const leaves = tasks.filter((t) => !hasChild.has(t.id));
+
+  const counts: Record<TaskStatus, number> = { todo: 0, heard: 0, review: 0, done: 0 };
+  for (const t of leaves) {
+    counts[effectiveStatus(details[t.id])] += 1;
+  }
+  return { total: leaves.length, counts, heard: counts.heard + counts.review + counts.done };
 }

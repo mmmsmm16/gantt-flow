@@ -2,11 +2,16 @@
 // Tauri 環境は window.__TAURI__.core.invoke をモックして再現する（node 環境のため DOM 依存の
 // エクスポート系: exportPngFile 等はここでは対象外）。
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import * as XLSX from 'xlsx';
 import {
   createSampleProject,
   serializeProject,
   serializeContainer,
   deserializeContainer,
+  computeProjectSummary,
+  effortMinutesToHours,
+  updateTaskToBe,
+  IMPROVEMENT_SHEET_NAME,
   type LockInfo,
   type Project,
 } from '@gantt-flow/core';
@@ -18,9 +23,15 @@ import {
   localDateYmd,
   missingReferencedAssets,
   exportHandbookFile,
+  exportImprovementReportFile,
+  exportImprovementExcel,
+  buildProjectWorkbook,
+  startExternalWatch,
+  stopExternalWatch,
 } from '../src/persistence';
 import { bytesToB64, b64ToBytes } from '../src/b64';
 import { putAsset, __resetAssetStoreForTest } from '../src/assetStore';
+import { useUI } from '../src/ui/useUI';
 
 const gen = (prefix: string) => {
   let n = 0;
@@ -184,6 +195,24 @@ describe('saveProjectToFile（Tauri: アトミック保存＋競合検知）', (
     expect(
       calls.filter((c) => c.cmd === 'release_lock' && c.args['path'] === '/tmp/late-lock.json'),
     ).toHaveLength(1);
+  });
+
+  it('保存先変更後のロック再取得に失敗したら readonly + lock 失敗を可視化する (B-07)', async () => {
+    useUI.setState({ lockState: null, persistFailure: null, toasts: [] });
+    installTauri({
+      pick_save_path: () => '/tmp/newloc.gflow',
+      save_project: () => null,
+      stat_updated_at: () => '1',
+      // 保存先へ切り替えた後のロック再取得が取れない（他セッション保持相当）。
+      acquire_lock: () => ({ ok: false, held: null, stale: false }),
+      release_lock: () => null,
+    });
+    const r = await saveProjectToFile(createSampleProject(gen('b07')));
+    expect(r.kind).toBe('saved'); // 保存自体は完了する（ロックはベストエフォート）
+    await new Promise((res) => setTimeout(res, 0)); // 非同期のロック再取得を流す
+    // 開く経路と同様、取得失敗を沈黙させず読み取り専用として明示＋ロック失敗を記録。
+    expect(useUI.getState().lockState).toBe('readonly');
+    expect(useUI.getState().persistFailure?.kind).toBe('lock');
   });
 
   it('保存ダイアログのキャンセルは cancelled（書き込まない）', async () => {
@@ -396,6 +425,79 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
   });
 });
 
+describe('startExternalWatch（外部監視の恒久失敗通知・B-14）', () => {
+  it('stat が連続失敗すると閾値(30)で1回だけ info トーストを出し、以降スパムしない', async () => {
+    vi.useFakeTimers();
+    try {
+      const sample = createSampleProject(gen('watch'));
+      let statFails = false;
+      installTauri({
+        pick_open_path: () => '/tmp/watch.gflow',
+        stat_updated_at: () => {
+          if (statFails) throw '共有フォルダが見えません';
+          return '1';
+        },
+        open_project: () => containerB64(sample),
+        acquire_lock: () => ({ ok: true }),
+        refresh_lock: () => null,
+        release_lock: () => null,
+      });
+      useUI.setState({ toasts: [] });
+      await openProjectFromFile(); // filePath + lastKnownMtime を確定（この間の stat は成功）
+      statFails = true; // 以降の監視ポーリングでは stat が通らない（共有先が消えた相当）
+      const watchInfoToasts = () =>
+        useUI.getState().toasts.filter((t) => t.tone === 'info' && t.message.includes('変更監視'));
+
+      startExternalWatch(() => {});
+      await vi.advanceTimersByTimeAsync(29_000); // 29 回失敗（閾値未満）
+      expect(watchInfoToasts()).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1_000); // 30 回目で 1 回だけ通知
+      expect(watchInfoToasts()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(10_000); // さらに失敗が続いてもスパムしない
+      expect(watchInfoToasts()).toHaveLength(1);
+      stopExternalWatch();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stat が回復（成功）したら失敗計数はリセットされ、再度の連続失敗でまた通知できる', async () => {
+    vi.useFakeTimers();
+    try {
+      const sample = createSampleProject(gen('watch2'));
+      let statFails = false;
+      installTauri({
+        pick_open_path: () => '/tmp/watch2.gflow',
+        stat_updated_at: () => {
+          if (statFails) throw '共有フォルダが見えません';
+          return '1';
+        },
+        open_project: () => containerB64(sample),
+        acquire_lock: () => ({ ok: true }),
+        refresh_lock: () => null,
+        release_lock: () => null,
+      });
+      useUI.setState({ toasts: [] });
+      await openProjectFromFile();
+      const watchInfoToasts = () =>
+        useUI.getState().toasts.filter((t) => t.tone === 'info' && t.message.includes('変更監視'));
+
+      startExternalWatch(() => {});
+      statFails = true;
+      await vi.advanceTimersByTimeAsync(30_000); // 30 回失敗 → 1 回通知
+      expect(watchInfoToasts()).toHaveLength(1);
+      statFails = false; // 監視回復（stat が通る）→ 計数と通知フラグがリセットされる
+      await vi.advanceTimersByTimeAsync(2_000);
+      statFails = true;
+      await vi.advanceTimersByTimeAsync(30_000); // 再び 30 回連続失敗 → もう 1 回通知できる
+      expect(watchInfoToasts()).toHaveLength(2);
+      stopExternalWatch();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('saveProjectToFile（ブラウザ: File System Access）', () => {
   it('上書き書き込みの失敗は throw する（ダウンロード成功に化けない）', async () => {
     (globalThis as { window?: unknown }).window = {
@@ -604,13 +706,155 @@ describe('exportHandbookFile（ハンドブック HTML の書き出し）', () =
       },
     };
 
-    const name = exportHandbookFile(project);
+    const { name, html } = exportHandbookFile(project);
 
     expect(name).toMatch(/-handbook\.html$/);
     expect(name).not.toContain('：'); // safeName 通過(全角記号などは _ に置換済み)
+    expect(html).toContain('<!doctype html>'); // 別窓表示用に生成 HTML も返す
     expect(clicks).toHaveLength(1);
     expect(clicks[0]).toEqual({ name, href: 'blob:mock-handbook' });
     expect(capturedMime).toBe('text/html;charset=utf-8');
+  });
+});
+
+// exportHandbookFile と同じ download() 経由（Blob + <a download>）。document スタブ＋
+// URL.createObjectURL の spy で Blob を捕捉する。Excel は Blob→arrayBuffer→XLSX.read で中身検証。
+describe('改善効果レポートの出力（HTML / Excel）', () => {
+  // To-Be を数件入れて KPI が差分を持つサンプル。
+  function withToBe(prefix: string): Project {
+    const base = createSampleProject(gen(prefix));
+    const leaf = Object.values(base.core.tasks).find(
+      (t) =>
+        !Object.values(base.core.tasks).some((c) => c.parentId === t.id) &&
+        (base.details[t.id]?.effortMinutes ?? 0) > 0,
+    )!;
+    return updateTaskToBe(base, leaf.id, { effortMinutes: 5, ltDays: 1, difficulty: 'L', automation: 'system' });
+  }
+
+  function captureDownload(): { blobs: { blob: Blob; name: string; mime: string }[]; restore: () => void } {
+    const blobs: { blob: Blob; name: string; mime: string }[] = [];
+    let pendingBlob: Blob | null = null;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      pendingBlob = blob as Blob;
+      return 'blob:mock-improve';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    (globalThis as { document?: unknown }).document = {
+      createElement: () => {
+        const a: { href: string; download: string; click: () => void } = {
+          href: '',
+          download: '',
+          click: () => blobs.push({ blob: pendingBlob!, name: a.download, mime: pendingBlob!.type }),
+        };
+        return a;
+      },
+    };
+    return {
+      blobs,
+      restore: () => {
+        vi.restoreAllMocks();
+        delete (globalThis as { document?: unknown }).document;
+      },
+    };
+  }
+
+  it('exportImprovementReportFile は -改善効果レポート.html を text/html で download し HTML を返す', () => {
+    const cap = captureDownload();
+    try {
+      const { name, html } = exportImprovementReportFile(withToBe('impr-html'));
+      expect(name).toMatch(/-改善効果レポート\.html$/);
+      expect(html).toContain('<!doctype html>');
+      expect(html).toContain('改善効果レポート');
+      expect(cap.blobs).toHaveLength(1);
+      expect(cap.blobs[0]!.name).toBe(name);
+      expect(cap.blobs[0]!.mime).toBe('text/html;charset=utf-8');
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('exportImprovementExcel は -改善効果.xlsx を出力し「改善効果」シートに KPI を含む', async () => {
+    const cap = captureDownload();
+    try {
+      const name = exportImprovementExcel(withToBe('impr-xlsx'));
+      expect(name).toMatch(/-改善効果\.xlsx$/);
+      expect(cap.blobs).toHaveLength(1);
+      expect(cap.blobs[0]!.mime).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      const buf = new Uint8Array(await cap.blobs[0]!.blob.arrayBuffer());
+      const wb = XLSX.read(buf, { type: 'array' });
+      expect(wb.SheetNames).toContain(IMPROVEMENT_SHEET_NAME);
+      const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[IMPROVEMENT_SHEET_NAME]!, {
+        header: 1,
+        blankrows: true,
+      });
+      const flat = rows.map((r) => (r ?? []).join('\t'));
+      expect(flat).toContain('指標\tAs-Is\tTo-Be\t改善');
+      expect(flat.some((l) => l.startsWith('総工数(h)'))).toBe(true);
+      expect(flat.some((l) => l.startsWith('自動化率(%)'))).toBe(true);
+      expect(flat).toContain('工程別差分');
+    } finally {
+      cap.restore();
+    }
+  });
+});
+
+describe('buildProjectWorkbook（Excel 1 ブック多シート化）', () => {
+  it('工程表・課題一覧・サマリを 1 ブックに同梱する（サンプルは To-Be ありで改善効果も付く）', () => {
+    const project = createSampleProject(gen('xl'));
+    const wb = buildProjectWorkbook(project);
+    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ', IMPROVEMENT_SHEET_NAME]);
+  });
+
+  it('課題一覧シートはヘッダ＋課題行を持つ（工程No/工程/担当/課題/方策）', () => {
+    const project = createSampleProject(gen('xl'));
+    const wb = buildProjectWorkbook(project);
+    const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets['課題一覧']!, { header: 1 });
+    expect(rows[0]).toEqual(['工程No', '工程', '担当', '課題', '方策']);
+    expect(rows.length).toBeGreaterThan(1); // サンプルには課題が含まれる
+  });
+
+  it('サマリシートは core の集計と一致する（担当別工数の合計・行の存在）', () => {
+    const project = createSampleProject(gen('xl'));
+    const wb = buildProjectWorkbook(project);
+    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets['サマリ']!, { header: 1, blankrows: true });
+    const flat = rows.map((r) => (r ?? []).join('\t'));
+    expect(flat).toContain('担当別の工数');
+    expect(flat).toContain('区分\t件数\t割合');
+    expect(flat).toContain('粒度別の工程数');
+
+    const summary = computeProjectSummary(project.core, project.details);
+    // 担当別工数の合計行が core 集計と一致する
+    const totalIdx = rows.findIndex((r) => r[0] === '合計' && typeof r[1] === 'number' && r.length === 2);
+    expect(totalIdx).toBeGreaterThan(-1);
+    // 最初の「合計」は担当別工数の合計（h 換算）
+    expect(rows[totalIdx]![1]).toBe(effortMinutesToHours(summary.totalMin));
+  });
+
+  it('空プロジェクトでも 3 シート構成でエラーなく組み立てる', () => {
+    const project = createSampleProject(gen('xl'));
+    const empty: Project = { ...project, core: { tasks: {}, dependencies: {}, assignees: {} }, details: {} };
+    const wb = buildProjectWorkbook(empty);
+    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ']);
+  });
+
+  it('To-Be 入力があると改善効果シートを 4 枚目に同梱する（compareReportSheetRows 共有）', () => {
+    const base = createSampleProject(gen('xl-tobe'));
+    const leaf = Object.values(base.core.tasks).find(
+      (t) =>
+        !Object.values(base.core.tasks).some((c) => c.parentId === t.id) &&
+        (base.details[t.id]?.effortMinutes ?? 0) > 0,
+    )!;
+    const project = updateTaskToBe(base, leaf.id, { effortMinutes: 5, ltDays: 1, difficulty: 'L', automation: 'system' });
+    const wb = buildProjectWorkbook(project);
+    expect(wb.SheetNames).toEqual(['工程表', '課題一覧', 'サマリ', IMPROVEMENT_SHEET_NAME]);
+    const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[IMPROVEMENT_SHEET_NAME]!, {
+      header: 1,
+      blankrows: true,
+    });
+    const flat = rows.map((r) => (r ?? []).join('\t'));
+    expect(flat).toContain('指標\tAs-Is\tTo-Be\t改善');
   });
 });
 

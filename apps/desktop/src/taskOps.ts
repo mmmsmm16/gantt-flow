@@ -1,19 +1,39 @@
 // 工程に対する UI 横断の手続き。store（ドメイン）と useUI（ダイアログ/パネル）をまたぐ操作を
 // ここに集約し、各ビュー（表・フロー・パレット等）での重複実装を防ぐ。
-import { isMilestone } from '@gantt-flow/core';
+import { isMilestone, type FlowNodeId } from '@gantt-flow/core';
 import { useApp } from './store';
-import { useUI } from './ui/useUI';
+import { useUI, type ToastTone } from './ui/useUI';
 
 /**
- * 工程へジャンプ: 選択し、粒度をその工程に合わせ、詳細パネルを開く。
+ * 破壊的操作の完了トーストに「元に戻す」アクションを付けて出す共通ヘルパ。
+ * run は 1 回の undo（= 直前の操作を巻き戻す）。押下でトーストは即時閉じる（ToastView の既存挙動）。
+ * 工程削除・矢印/図形削除・課題/IO 削除など「確認レス or 即時の破壊操作」の直後に使う。
+ */
+export function toastUndo(message: string, tone: ToastTone = 'info'): void {
+  useUI.getState().toast(message, tone, { label: '元に戻す', run: () => useApp.getState().undo() });
+}
+
+/** 入出力(IoItem)を削除し「元に戻す」アクション付きトーストを出す（表・詳細パネル共通）。 */
+export function removeIoWithUndo(taskId: string, ioId: string): void {
+  useApp.getState().removeIo(taskId, ioId);
+  toastUndo('入出力を削除しました');
+}
+
+/** 課題(IssueItem)を削除し「元に戻す」アクション付きトーストを出す（表・詳細パネル共通）。 */
+export function removeIssueWithUndo(taskId: string, issueId: string): void {
+  useApp.getState().removeIssue(taskId, issueId);
+  toastUndo('課題を削除しました');
+}
+
+/**
+ * 工程を選択し、粒度をその工程に合わせる（詳細パネルは開かない）。
  * 全体スコープで俯瞰中はスコープを維持（どの工程も見えている）。特定の親に絞って
  * 見ているときだけ、対象工程の文脈（親）へスコープを追従させる。
  *
- * revealInFlow: パレット検索ジャンプ専用。分割＋詳細表示では activePane='table' のとき
- * フローペインが畳まれ、ジャンプ先のノードが見えない（#5）。この経路に限りフローを
- * アクティブにして必ず見せる（表クリックやフロー→表の「表で表示」経路では倒さない）。
+ * 「選ぶだけ」の経路（行クリック等）で使う。詳細パネルが既に開いていれば selectedTaskId
+ * 追従で表示対象が切り替わる（C-01: 開いていなければ勝手に開かない）。
  */
-export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): void {
+export function selectTask(taskId: string): void {
   const app = useApp.getState();
   const t = app.project.core.tasks[taskId];
   if (!t) return;
@@ -21,6 +41,21 @@ export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): v
   app.select(taskId);
   app.setLevel(t.level);
   if (wasScoped) app.setScope(t.parentId);
+}
+
+/**
+ * 工程へジャンプ: 選択し、粒度をその工程に合わせ、詳細パネルを開く。
+ * 選択＋粒度/スコープ同期は selectTask に集約。こちらは明示的に詳細を開く経路
+ * （行のダブルクリック / パレット / I/O ポップオーバー / 新規作成直後など）で使う。
+ *
+ * revealInFlow: パレット検索ジャンプ専用。分割＋詳細表示では activePane='table' のとき
+ * フローペインが畳まれ、ジャンプ先のノードが見えない（#5）。この経路に限りフローを
+ * アクティブにして必ず見せる（表クリックやフロー→表の「表で表示」経路では倒さない）。
+ */
+export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): void {
+  const app = useApp.getState();
+  if (!app.project.core.tasks[taskId]) return;
+  selectTask(taskId);
   const ui = useUI.getState();
   if (opts?.revealInFlow) ui.setActivePane('flow');
   ui.setInspectorOpen(true);
@@ -29,12 +64,21 @@ export function revealTask(taskId: string, opts?: { revealInFlow?: boolean }): v
 /**
  * 工程削除の標準確認ダイアログ。OK なら削除して true を返す（複数件は 1 undo 単位）。
  * キャンセル・対象なしは false。削除後の選択移動などは呼び出し側で行う。
+ *
+ * alsoFlowNodes: フロー上で工程ノードと制御/付箋ノードを混在選択して削除する経路用。
+ * 図形も同じ undo 単位へ畳み込み、提示する「元に戻す」1 回で工程＋図形をまとめて復元する
+ * （別 undo 単位のままだと図形が巻き戻らず、提示した undo が操作の一部しか戻せない問題への対処）。
  */
-export async function confirmRemoveTasks(taskIds: string[]): Promise<boolean> {
+export async function confirmRemoveTasks(
+  taskIds: string[],
+  opts?: { alsoFlowNodes?: FlowNodeId[] },
+): Promise<boolean> {
   const tasks = useApp.getState().project.core.tasks;
   const targets = taskIds.filter((id) => tasks[id]);
   if (targets.length === 0) return false;
   const single = targets.length === 1 ? tasks[targets[0]!] : undefined;
+  const flowNodes = opts?.alsoFlowNodes ?? [];
+  const withFlow = flowNodes.length > 0;
   const ok = await useUI.getState().confirm({
     title: single ? '工程を削除' : '工程を一括削除',
     message: single
@@ -45,8 +89,15 @@ export async function confirmRemoveTasks(taskIds: string[]): Promise<boolean> {
   });
   if (!ok) return false;
   const app = useApp.getState();
-  if (single) app.removeTask(single.id);
+  // 図形を伴う混在削除は removeManyTasks に flowNodeIds を渡して 1 undo 単位に畳み込む
+  // （単一工程でも removeTask 経路には乗せない＝図形が別 undo 単位に分かれるのを避ける）。
+  if (withFlow) app.removeManyTasks(targets, flowNodes);
+  else if (single) app.removeTask(single.id);
   else app.removeManyTasks(targets);
+  const taskLabel = single
+    ? `「${single.name || '（無題）'}」を削除しました`
+    : `${targets.length} 件の工程を削除しました`;
+  toastUndo(withFlow ? `${taskLabel}（図形を含む）` : taskLabel);
   return true;
 }
 

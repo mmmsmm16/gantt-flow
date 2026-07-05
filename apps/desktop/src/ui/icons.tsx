@@ -158,6 +158,12 @@ export const ChartBar = (p: SVGProps<SVGSVGElement>) => (
     <path d="M7 16v-5M12 16V8M17 16v-3" />
   </Svg>
 );
+export const ShieldCheck = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V6l8-3 8 3z" />
+    <path d="m9 12 2 2 4-4" />
+  </Svg>
+);
 export const Clock = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="9" />

@@ -48,6 +48,21 @@ export function validateEffort(raw: string): EffortValidation {
   return { ok: true, minutes };
 }
 
+export const LT_RULE_MESSAGE = 'リードタイムは 0 以上の日数で入力してください';
+
+// リードタイム（日）入力の非破壊バリデーション。工数欄の validateEffort と対にし、
+// 一括入力セルで「値を残したまま不正表示し commit だけブロック」を統一実装するためのラッパ。
+// ok=true のとき days は確定値（空欄は undefined＝解除）。ok=false は不正値で commit しない。
+export type LtValidation =
+  | { ok: true; days: number | undefined }
+  | { ok: false; message: string };
+
+export function validateLtDays(raw: string): LtValidation {
+  const days = parseLtDaysInput(raw);
+  if (days === null) return { ok: false, message: LT_RULE_MESSAGE };
+  return { ok: true, days };
+}
+
 // 工数セルを不正表示にする（値は残し、aria-invalid と .invalid を付与、title に理由）。
 // 表・全項目表・インスペクタの3箇所で同じ挙動にするための共通ヘルパ。
 export function markEffortInvalid(input: HTMLInputElement, message: string): void {

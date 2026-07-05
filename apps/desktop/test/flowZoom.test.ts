@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clampScale, zoomScroll } from '../src/flowZoom';
+import { clampScale, zoomScroll, centerScroll } from '../src/flowZoom';
 
 describe('flowZoom: clampScale', () => {
   it('0.4〜2.5 に収め、3 桁で丸める', () => {
@@ -36,5 +36,34 @@ describe('flowZoom: zoomScroll(アンカー固定のスクロール補正)', () 
       left: 80,
       top: 60,
     });
+  });
+});
+
+describe('flowZoom: centerScroll(表→フロー追従の中央寄せ)', () => {
+  const view = { left: 0, top: 0, w: 800, h: 600 };
+
+  it('完全に視界内なら null（据え置き＝見えている間は動かさない）', () => {
+    expect(centerScroll({ x: 100, y: 100, w: 120, h: 60 }, view, 1)).toBeNull();
+    // 右端・下端ちょうど（<= 判定で視界内）も動かさない
+    expect(centerScroll({ x: 0, y: 0, w: 800, h: 600 }, view, 1)).toBeNull();
+  });
+
+  it('右へはみ出したノードは中央へ寄せる（縦は上に切れるので 0 で止める）', () => {
+    // node 画面矩形 (1000,100)〜(1120,160)。中心 (1060,130)。左=1060-400=660、上=130-300<0→0。
+    const to = centerScroll({ x: 1000, y: 100, w: 120, h: 60 }, view, 1);
+    expect(to).toEqual({ left: 660, top: 0 });
+  });
+
+  it('scale を掛けた画面座標で判定・計算する（ズームは変えない）', () => {
+    // scale 2 で node 画面矩形 (20,20)〜(220,120)。view.left=400 の左に外れる。
+    // 中心 (120,70)。左=120-400=-280→0、上=70-300<0→0。
+    const to = centerScroll({ x: 10, y: 10, w: 100, h: 50 }, { left: 400, top: 0, w: 800, h: 600 }, 2);
+    expect(to).toEqual({ left: 0, top: 0 });
+  });
+
+  it('下方向にはみ出したノードは縦だけ中央へ（横が視界内なら横中心もそのまま計算）', () => {
+    // node (300,2000)〜(420,2060)。中心 (360,2030)。左=360-400=-40→0、上=2030-300=1730。
+    const to = centerScroll({ x: 300, y: 2000, w: 120, h: 60 }, view, 1);
+    expect(to).toEqual({ left: 0, top: 1730 });
   });
 });

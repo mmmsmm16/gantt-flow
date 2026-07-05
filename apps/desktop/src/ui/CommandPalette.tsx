@@ -7,7 +7,7 @@ import { computeCodes, isMilestone } from '@gantt-flow/core';
 import { useApp, findView, resolveQuickAddParent } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
 import { parseQuickAdd, type QuickAddParsed } from '../quickAdd';
-import { revealTask, confirmRemoveTasks } from '../taskOps';
+import { revealTask, confirmRemoveTasks, removeIoWithUndo } from '../taskOps';
 import { isImeKeyEvent } from '../keymap';
 import { listRecentFiles, recentFilesSupported } from '../persistence';
 import { formatRecentTime } from '../fileLabel';
@@ -31,7 +31,13 @@ interface FileHandlers {
   onExportSvg: () => void;
   onExportPng: () => void;
   onExportHandbook: () => void;
+  onExportImprovementReport: () => void;
+  onExportImprovementExcel: () => void;
   onPrint: () => void;
+  /** サブウィンドウ系（App の Menu と同じハンドラ。開けなければ警告トーストは App 側で出す）。 */
+  onOpenEditWindow: () => void;
+  onOpenFlowWindow: () => void;
+  onOpenTableWindow: () => void;
 }
 
 /** 引数モードの候補。value が確定値（runWithArg に渡る）。 */
@@ -134,6 +140,30 @@ export function addTaskQuickCommand(hasSelection: boolean): Cmd {
       });
     },
   };
+}
+
+// 改善効果レポート出力の 2 コマンド（HTML / Excel）。available は比較ボタン/メニューと同じ tobeEnabled。
+// 無効時（To-Be 比較オフ）はパレットに出さない（App 側ハンドラが hasAnyToBeInput も別途ガードする）。
+export function improvementReportCommands(
+  handlers: Pick<FileHandlers, 'onExportImprovementReport' | 'onExportImprovementExcel'>,
+  tobeEnabled: boolean,
+): Cmd[] {
+  return [
+    {
+      id: 'export-improvement-report',
+      label: '改善効果レポート (HTML) に書き出す',
+      keywords: 'export improvement report kaizen 改善 効果 レポート as-is to-be 比較 html 書き出し 出力',
+      available: tobeEnabled,
+      run: handlers.onExportImprovementReport,
+    },
+    {
+      id: 'export-improvement-excel',
+      label: '改善効果 (Excel) に書き出す',
+      keywords: 'export improvement excel xlsx kaizen 改善 効果 as-is to-be 比較 書き出し 出力',
+      available: tobeEnabled,
+      run: handlers.onExportImprovementExcel,
+    },
+  ];
 }
 
 // ファイル操作コマンド。検索時に同名末尾の「〜を開く」系オーバーレイ名(設定を開く/サマリを開く等)へ
@@ -240,6 +270,7 @@ function iconForCmd(c: Cmd) {
   if (has('help')) return <Icons.Keyboard />;
   if (has('palette')) return <Icons.Search />;
   if (has('chrome')) return <Icons.Maximize />;
+  if (has('window')) return <Icons.NewWindow />;
   if (has('pane') || has('layout') || has('table-mode') || has('go-') || has('scope') || has('level') || has('inspector'))
     return <Icons.Columns />;
   if (has('fill') || has('text-') || has('color')) return <Icons.Sparkles />;
@@ -265,6 +296,8 @@ function PaletteBody(handlers: FileHandlers) {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   // 表の複数選択（marked）件数。担当設定など一括対応コマンドを「選択中の n 件に適用」に切り替える。
   const markedCount = useUI((s) => s.markedTaskIds.length);
+  // 改善効果レポート系コマンドの表示ゲート（比較ボタン/メニューと同じ条件）。
+  const tobeEnabled = useUI((s) => s.tobeEnabled);
   const aiEnabled = useUI((s) => s.aiEnabled);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -530,7 +563,7 @@ function PaletteBody(handlers: FileHandlers) {
         },
         runWithArg: (ioId) => {
           const a = useApp.getState();
-          if (a.selectedTaskId) a.removeIo(a.selectedTaskId, ioId);
+          if (a.selectedTaskId) removeIoWithUndo(a.selectedTaskId, ioId);
         },
       },
       {
@@ -715,6 +748,7 @@ function PaletteBody(handlers: FileHandlers) {
         keywords: 'export handbook html hando bukku ハンドブック 手順書 書き出し 出力',
         run: handlers.onExportHandbook,
       },
+      ...improvementReportCommands(handlers, tobeEnabled),
       { id: 'print', label: '印刷 / PDF（工程表＋フロー図）', keywords: 'print insatsu 印刷 pdf', hint: '⌘P', run: handlers.onPrint },
       { id: 'undo', label: '元に戻す', keywords: 'undo modosu もどす', hint: '⌘Z', run: app.undo, available: canUndo },
       { id: 'redo', label: 'やり直し', keywords: 'redo yarinaoshi', hint: '⌘Y', run: app.redo, available: canRedo },
@@ -788,9 +822,16 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'procedure-tab', label: '手順書タブを開く', keywords: 'procedure tejunsho 手順書 手順 マニュアル ノウハウ manual', hint: 'g p', run: () => ui.setMainView('procedure') },
       { id: 'toggle-chrome', label: '集中モード（ツールバー・操作バーを隠す / 表示）', keywords: 'chrome toolbar shuchu 集中 ツールバー 操作バー ヘッダ 隠す 非表示 最大化 全画面 focus zen', hint: '⌘\\', run: ui.toggleChrome },
       { id: 'minimap', label: 'ミニマップの表示を切り替え', keywords: 'minimap map ミニマップ 地図 俯瞰', run: () => useUI.getState().toggleMinimap() },
+      // サブウィンドウ系（マルチディスプレイ）。App のツールバー Menu と同じハンドラを呼ぶ。
+      { id: 'edit-window', label: '編集用のサブウィンドウを開く（両窓で同時編集）', keywords: 'window subwindow saburindou 編集 サブ 窓 ウィンドウ 別窓 マルチディスプレイ multi', run: handlers.onOpenEditWindow },
+      { id: 'flow-window', label: 'フローを別ウィンドウで表示（閲覧専用）', keywords: 'window mirror flow フロー 別窓 ウィンドウ 閲覧 ミラー マルチディスプレイ', run: handlers.onOpenFlowWindow },
+      { id: 'table-window', label: '工程表を別ウィンドウで表示（閲覧専用）', keywords: 'window mirror table 工程表 表 別窓 ウィンドウ 閲覧 ミラー マルチディスプレイ', run: handlers.onOpenTableWindow },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
       { id: 'summary', label: 'サマリを開く（工数・自動化）', keywords: 'summary dashboard サマリ 集計 工数', run: () => ui.setOverlay('summary') },
+      { id: 'validate', label: 'プロジェクトを検証（納品前チェック）', keywords: 'validate lint 検証 チェック 納品 点検 手順書 担当 工数 抜け', run: () => ui.setOverlay('validate') },
+      // 改善効果サマリ（As-Is / To-Be 比較）。tobeEnabled でなくても常時表示し、無効時は設定へ誘導。
+      { id: 'comparison', label: '改善効果サマリを開く（As-Is / To-Be 比較）', keywords: 'comparison hikaku 比較 改善 効果 as-is to-be トゥービー アズイズ サマリ 削減', hint: '⌘⇧C', run: () => ui.openComparison() },
       { id: 'help', label: 'ショートカット一覧', keywords: 'help shortcut ヘルプ', hint: '?', run: () => ui.setOverlay('help') },
       {
         id: 'ai-assist',
@@ -818,7 +859,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },
     ];
-  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles, aiEnabled]);
+  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles, tobeEnabled, aiEnabled]);
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 

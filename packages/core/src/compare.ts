@@ -1,7 +1,7 @@
 // As-Is / To-Be 比較の集計（提言#1/#2/#8）。工数＝タッチタイム（総和）と
 // リードタイム＝経過時間（依存グラフのクリティカルパス）の2軸で改善効果を見る。
 // すべて純関数。To-Be は TaskDetail.toBe を優先し、未設定は As-Is へフォールバック。
-import type { Core, TaskDetail, Difficulty, Id } from './model/types';
+import type { Core, TaskDetail, Difficulty, Automation, Id } from './model/types';
 import { isMilestone } from './milestone';
 
 export type Phase = 'asis' | 'tobe';
@@ -32,6 +32,18 @@ export function leafDifficulty(d: TaskDetail | undefined, phase: Phase): Difficu
   return d.difficulty;
 }
 
+/** 末端工程の実効自動化区分。To-Be は toBe.automation 優先・無ければ As-Is（＝To-Be 未入力は As-Is と同一）。 */
+export function leafAutomation(d: TaskDetail | undefined, phase: Phase): Automation | undefined {
+  if (!d) return undefined;
+  if (phase === 'tobe') return d.toBe?.automation ?? d.automation;
+  return d.automation;
+}
+
+/** To-Be が 1 件でも入力されているか（未入力ならサマリ/レポートは As-Is と同値の ±0 が並ぶだけ）。 */
+export function hasAnyToBeInput(details: Record<Id, TaskDetail>): boolean {
+  return Object.values(details).some((d) => !!d?.toBe);
+}
+
 /** その工程が指定シナリオに存在するか。To-Be で廃止(removed)は As-Is のみ、新設(added)は To-Be のみ。 */
 export function taskInPhase(d: TaskDetail | undefined, phase: Phase): boolean {
   const lc = d?.toBe?.lifecycle;
@@ -46,7 +58,7 @@ export function depInPhase(phase: Phase, depPhase?: 'asis' | 'tobe'): boolean {
 
 /** 子を持たない工程（末端）の ID。工数・難易度は末端のみが値を持つ。phase で lifecycle を反映。
  * マイルストーンは子を持ち得ないマーカーのため、末端集計（工数・LT・難易度）からは除外する。 */
-function leafIds(core: Core, details: Record<Id, TaskDetail>, phase: Phase): Id[] {
+export function leafIds(core: Core, details: Record<Id, TaskDetail>, phase: Phase): Id[] {
   const hasChild = new Set<Id>();
   for (const t of Object.values(core.tasks)) if (t.parentId) hasChild.add(t.parentId);
   return Object.values(core.tasks)

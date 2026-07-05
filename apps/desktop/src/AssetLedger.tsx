@@ -141,6 +141,12 @@ export function AssetLedger(props: { onClose: () => void }): JSX.Element {
         </div>
       </details>
 
+      {assets.length === 0 && (
+        <p className="issues-empty">
+          資料がまだありません。手順書のステップから参照する資料（帳票・マニュアル・チェックリスト等）をここに登録します。
+        </p>
+      )}
+
       {assets.map((a) => {
         const usage = usageOf(manual, a.id);
         const r = resolveLocator(a.locator, aliases);
@@ -161,7 +167,23 @@ export function AssetLedger(props: { onClose: () => void }): JSX.Element {
                 type="button"
                 className="x"
                 aria-label={`${a.name || '資料'}を削除`}
-                onClick={() => removeAsset(a.id)}
+                onClick={() => {
+                  // 参照中（どこかの工程・ステップから使われている）資料は、削除でリンク切れに
+                  // なるため確認を挟む。未参照（usage=0）は従来どおり即削除。
+                  if (usage.tasks > 0) {
+                    void useUI
+                      .getState()
+                      .confirm({
+                        title: '資料を削除',
+                        message: `この資料は ${usage.tasks} 工程・${usage.steps} ステップで使用中です。削除するとリンク切れになります。削除しますか？`,
+                        confirmLabel: '削除する',
+                        danger: true,
+                      })
+                      .then((ok) => ok && removeAsset(a.id));
+                  } else {
+                    removeAsset(a.id);
+                  }
+                }}
               >
                 ×
               </button>

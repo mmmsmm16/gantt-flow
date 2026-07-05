@@ -7,6 +7,7 @@ import {
   detailTextCommand,
   renameTaskCommand,
   addTaskQuickCommand,
+  improvementReportCommands,
 } from '../src/ui/CommandPalette';
 import {
   recordLastCommand,
@@ -219,6 +220,32 @@ describe('直前コマンドのリピート（mod+. / もう一度行）', () =>
     expect(formatRepeatDisplay('粒度を変更…', 'small', '小工程')).toBe('粒度を変更 "小工程"');
     expect(formatRepeatDisplay('選択中の工程を複製')).toBe('選択中の工程を複製');
     expect(formatRepeatDisplay('担当を設定…', '   ')).toBe('担当を設定'); // 空欄(解除)は引数表示なし
+  });
+});
+
+describe('improvementReportCommands（改善効果レポート出力）', () => {
+  const handlers = { onExportImprovementReport: () => {}, onExportImprovementExcel: () => {} };
+
+  it('HTML / Excel の 2 コマンドを返し、available は tobeEnabled に従う', () => {
+    const on = improvementReportCommands(handlers, true);
+    expect(on.map((c) => c.id)).toEqual(['export-improvement-report', 'export-improvement-excel']);
+    expect(on.every((c) => c.available === true)).toBe(true);
+
+    const off = improvementReportCommands(handlers, false);
+    expect(off.every((c) => c.available === false)).toBe(true);
+  });
+
+  it('run は対応する出力ハンドラを呼ぶ', () => {
+    let html = 0;
+    let excel = 0;
+    const cmds = improvementReportCommands(
+      { onExportImprovementReport: () => (html += 1), onExportImprovementExcel: () => (excel += 1) },
+      true,
+    );
+    cmds.find((c) => c.id === 'export-improvement-report')!.run!();
+    cmds.find((c) => c.id === 'export-improvement-excel')!.run!();
+    expect(html).toBe(1);
+    expect(excel).toBe(1);
   });
 });
 

@@ -73,12 +73,18 @@
   --ok: #15803d;
   --red: #d6452f;
   --red-fill: #fbe4de;
+  /* ソリッド背景（白文字を乗せる）専用の赤。ライトは --red と同値、ダークは
+     暗地の文字用 --red と分離して塗りを暗くし白文字の 4.5:1 を確保する。 */
+  --red-solid: #d6452f;
   /* 破壊的操作（削除等）の意味色。値は --red 系に委譲し、意図をトークン名で表す。 */
   --danger: var(--red);
   --danger-soft: var(--red-fill);
   --amber: #b9820a;
   --amber-fill: #f6ecc6;
   --amber-ink: #7a5407;
+  /* ソリッド背景（白文字を乗せる）専用の琥珀。ライトは --amber と同値、
+     ダークは文字用 --amber と分離して塗りを暗くし白文字コントラストを確保する。 */
+  --amber-solid: #b9820a;
   /* 朱書き（条件分岐の注記）＝ハンドブック handbook.ts の --shu 系と整合。
      配布物（ライト専用）と同じ朱色。ダークは [data-theme] 側で可読な変種へ持ち上げる。 */
   --shu: #a6371f;
@@ -147,6 +153,7 @@
   --fs-body: 13px; /* 本文・表データ・ノード名（基準） */
   --fs-title: 15px; /* ペイン見出し・ダイアログ表題 */
   --fs-display: 18px; /* 空状態の見出しなど（希少） */
+  --fs-kpi: 30px; /* 改善効果サマリの主要数値（スケール外・単発の特大表示） */
 
   /* ウェイト（400 / 600 の 2 段のみ。700 は廃止＝D-4） */
   --fw-regular: 400;
@@ -202,9 +209,13 @@
   --ok: #46d98a;
   --red: #f4796a;
   --red-fill: rgba(220, 60, 38, 0.2);
+  /* ソリッド背景用（白文字 4.5:1 以上）。文字用の明るい --red とは別に暗い塗りにする。 */
+  --red-solid: #b3372a;
   --amber: #f0c453;
   --amber-fill: rgba(202, 138, 4, 0.2);
   --amber-ink: #f0c453;
+  /* ソリッド背景用（白文字 4.5:1 以上）。文字用の明るい --amber とは別に暗い塗りにする。 */
+  --amber-solid: #8a6d1f;
   /* 朱書き（ダーク）: 朱 #a6371f は暗地で沈むため、くすんだ明るい朱へ持ち上げて可読に。
      塗り/罫は朱を透過で敷く（周辺トークンと同じ作法）。 */
   --shu: #e79a83;
@@ -433,7 +444,7 @@ body {
 button {
   font: inherit;
   font-size: var(--fs-body);
-  font-weight: 500;
+  font-weight: var(--fw-strong);
   padding: 6px 12px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
@@ -443,7 +454,7 @@ button {
   transition: background var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1), transform 0.05s;
 }
 button:hover {
-  background: var(--hdr);
+  background: var(--hover);
   border-color: var(--faint);
 }
 button:active {
@@ -931,6 +942,13 @@ button.danger:hover {
 .c-prev {
   width: 132px;
 }
+.c-status {
+  width: 104px;
+}
+.ol-status {
+  width: 100%;
+  font-size: var(--fs-label);
+}
 .prev-names {
   display: block;
   font-size: var(--fs-label);
@@ -1373,6 +1391,11 @@ button.danger:hover {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
 }
+/* 未ヒアリング工程（状況=未着手/未指定）は点線枠で「これから聞く」を示す。
+   border-style だけを変え、枠色・塗り・selected/pinned/colored とは干渉しない。 */
+.node.task.st-unheard {
+  border-style: dashed;
+}
 .node.issue {
   background: var(--red-fill);
   border: 1.5px solid var(--red);
@@ -1626,7 +1649,7 @@ button.danger:hover {
   margin: 2px 0;
 }
 .add-inline button {
-  font-weight: 500;
+  font-weight: var(--fw-strong);
   padding: 4px 8px;
   font-size: var(--fs-label);
   margin-left: 4px;
@@ -1868,7 +1891,7 @@ button.danger:hover {
 /* B3: 選択中の矢印の端点（掴んでドラッグ＝接続先を付け替え）。白縁で背景と分離。 */
 .edge-endpoint {
   fill: var(--accent);
-  stroke: #fff;
+  stroke: var(--canvas-bg);
   stroke-width: 1.5;
   cursor: grab;
 }
@@ -2267,13 +2290,13 @@ button.danger:hover {
   gap: 8px;
 }
 .modal-actions .danger-solid {
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--red-solid);
+  border-color: var(--red-solid);
   color: var(--on-accent);
 }
 .modal-actions .danger-solid:hover {
   filter: brightness(0.96);
-  border-color: var(--red);
+  border-color: var(--red-solid);
 }
 
 .toaster {
@@ -2311,6 +2334,21 @@ button.danger:hover {
 }
 .toast-info {
   border-left-color: var(--accent);
+}
+.toast-action {
+  flex: none;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  line-height: 1.2;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+}
+.toast-action:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 .toast-x {
   border: none;
@@ -2693,6 +2731,27 @@ kbd {
 .st-save.is-dirty {
   color: var(--amber-ink);
 }
+/* ヒアリング進捗チップ（クリックでサマリへ）。button だが他の st-item と同じ見た目 */
+.st-hearing {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.st-hearing:hover {
+  color: var(--ink);
+}
+.st-hearing:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 全件ヒアリング済（=確定/確認待ち/ヒアリング済で埋まった）ら達成色で示す */
+.st-hearing.is-done strong {
+  color: var(--status-done);
+}
 
 /* =========================================================================
    ヘルプ（ショートカット一覧）
@@ -2779,7 +2838,7 @@ kbd {
 .issues-count {
   font-size: var(--fs-label);
   color: var(--faint);
-  font-weight: 500;
+  font-weight: var(--fw-regular);
 }
 .issues-head-actions {
   display: flex;
@@ -2852,6 +2911,107 @@ kbd {
 .issues-table .il-assignee {
   width: 12%;
   color: var(--faint);
+}
+
+/* 納品前チェック（検証パネル） */
+.validate-modal {
+  width: min(680px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+/* 総件数バッジ: error があれば赤、warn のみなら琥珀（A-03 のソリッドトークン）。 */
+.vd-badge {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  color: var(--on-accent);
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  vertical-align: middle;
+}
+.vd-badge.error {
+  background: var(--red-solid);
+}
+.vd-badge.warn {
+  background: var(--amber-solid);
+}
+.vd-ok {
+  color: var(--ok);
+  font-size: var(--fs-body);
+  padding: 16px 2px;
+}
+.vd-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+.vd-section {
+  margin-bottom: 14px;
+}
+.vd-section-h {
+  margin: 0 0 6px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  color: var(--faint);
+  text-transform: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vd-section-n {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--hover);
+  border-radius: var(--radius-pill);
+  padding: 0 7px;
+  font-weight: var(--fw-regular);
+}
+.vd-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.vd-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-body);
+}
+.vd-row.clickable {
+  cursor: pointer;
+}
+.vd-row.clickable:hover {
+  background: var(--hover);
+}
+.vd-row.clickable:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-sm);
+}
+.vd-code {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.vd-name {
+  flex: 0 0 auto;
+  font-weight: var(--fw-strong);
+}
+.vd-name.dim {
+  font-weight: var(--fw-regular);
+  color: var(--faint);
+}
+.vd-msg {
+  flex: 1 1 auto;
+  color: var(--muted);
+  min-width: 0;
+}
+/* error 行は左に赤アクセント。 */
+.vd-row.error {
+  border-left: 3px solid var(--red-solid);
+  padding-left: 6px;
 }
 
 /* 重い処理中の全画面スピナー */
@@ -3206,6 +3366,19 @@ kbd {
 }
 .auto-none {
   background: var(--line-strong);
+}
+/* ヒアリング進行のセグメント/凡例（サマリ4枚目。自動化カードと同型の色分け） */
+.hr-done {
+  background: var(--status-done);
+}
+.hr-review {
+  background: var(--status-review);
+}
+.hr-heard {
+  background: var(--status-heard);
+}
+.hr-todo {
+  background: var(--faint);
 }
 .sum-auto-legend {
   list-style: none;
@@ -3922,20 +4095,24 @@ kbd {
 }
 /* ステータス（ヒアリング進行）の色分け。文字色で状態を示す（select のまま軽量に） */
 .ft-status.st-heard,
-.insp-status.st-heard {
+.insp-status.st-heard,
+.ol-status.st-heard {
   color: var(--status-heard);
 }
 .ft-status.st-review,
-.insp-status.st-review {
+.insp-status.st-review,
+.ol-status.st-review {
   color: var(--status-review);
 }
 .ft-status.st-done,
-.insp-status.st-done {
+.insp-status.st-done,
+.ol-status.st-done {
   color: var(--status-done);
   font-weight: 600;
 }
 .ft-status.st-todo,
-.insp-status.st-todo {
+.insp-status.st-todo,
+.ol-status.st-todo {
   color: var(--faint);
 }
 /* 逐次レンダリングのセンチネル（ここが見えたら次のチャンクを描画） */
@@ -4738,26 +4915,7 @@ input.colored-text {
   color: var(--faint);
   margin-top: 10px;
 }
-.settings-actions {
-  display: flex;
-  gap: 8px;
-}
-.settings-actions button {
-  font-size: var(--fs-body);
-  padding: 8px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  cursor: pointer;
-}
-.settings-actions button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-.settings-actions button:hover {
-  filter: brightness(1.05);
-}
+/* 設定の操作行は共通の .modal-actions（右寄せ・基底ボタンサイズ）を再利用する。 */
 /* ショートカットエディタ（タブ内） */
 .keybind-note {
   margin: 0 0 10px;
@@ -4849,11 +5007,15 @@ input.colored-text {
   --diff-h: #c2603f;
   --diff-m: #d99a2b;
   --diff-l: #4a9d7a;
+  /* 3色の中間トーン塗り（自動化セグ）に共通で乗せる濃字。白字は --diff-m で
+     2.4:1 と未達のため濃字に変更。塗りが両テーマとも中間トーンなので固定の濃色。 */
+  --diff-seg-ink: #26303c;
 }
 :root[data-theme='dark'] {
   --diff-h: #d77a57;
   --diff-m: #e8b15a;
   --diff-l: #5cb088;
+  --diff-seg-ink: #26303c;
 }
 
 .cmp-modal {
@@ -4901,6 +5063,43 @@ input.colored-text {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
+}
+/* サマリの空状態ガイド（To-Be 未入力時の導線）。既存の情報カード語彙に合わせる。 */
+.cmp-guide {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+.cmp-guide-icon {
+  display: inline-flex;
+  color: var(--accent);
+  flex: none;
+}
+.cmp-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-label);
+  color: var(--ink);
+}
+.cmp-guide-cta {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--fs-caption);
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  color: var(--accent);
+  cursor: pointer;
+}
+.cmp-guide-cta:hover {
+  background: var(--hover);
 }
 .cmp-cards {
   display: grid;
@@ -5084,7 +5283,7 @@ input.colored-text {
   color: var(--faint);
 }
 .cmp-headline.big .cmp-to {
-  font-size: 30px;
+  font-size: var(--fs-kpi);
   font-weight: var(--fw-strong);
   color: var(--ink);
   line-height: 1;
@@ -5248,8 +5447,8 @@ input.colored-text {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 10px;
+  color: var(--diff-seg-ink);
+  font-size: var(--fs-caption);
   font-variant-numeric: tabular-nums;
 }
 .cmp-auto-seg.diff-h {
@@ -5580,7 +5779,7 @@ input.colored-text {
   position: absolute;
   top: 0;
   left: 3px;
-  font-size: 9px;
+  font-size: var(--fs-caption);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
@@ -5680,7 +5879,7 @@ input.colored-text {
   left: 50%;
   transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 9.5px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-strong);
   padding: 1px 6px;
   border-radius: var(--radius-sm);
@@ -5691,18 +5890,18 @@ input.colored-text {
   background: var(--accent);
 }
 .cmp-cnode-tag.del {
-  color: #fff;
-  background: var(--red);
+  color: var(--on-accent);
+  background: var(--red-solid);
 }
 .cmp-cnode-tag.move {
-  color: #fff;
-  background: var(--amber);
+  color: var(--on-accent);
+  background: var(--amber-solid);
 }
 .cmp-cnode-lt {
   position: absolute;
   bottom: -8px;
   right: 2px;
-  font-size: 9.5px;
+  font-size: var(--fs-caption);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
   background: var(--panel);
@@ -5722,7 +5921,7 @@ input.colored-text {
   z-index: 1;
 }
 .cmp-ghost span {
-  font-size: 9px;
+  font-size: var(--fs-caption);
   color: var(--faint);
 }
 
@@ -5941,13 +6140,13 @@ input.colored-text {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
   letter-spacing: 0.02em;
   color: var(--accent-strong);
   background: var(--accent-soft);
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .mirror-dot {
   width: 8px;
@@ -5968,8 +6167,8 @@ input.colored-text {
   border: 1px solid var(--line-strong);
   background: var(--btn-bg);
   color: var(--ink);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-label);
   cursor: pointer;
 }
 .mirror-zoom button:hover {
@@ -5991,11 +6190,11 @@ input.colored-text {
 .mirror-empty {
   padding: 40px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-body);
 }
 .mirror-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--fs-label);
   background: var(--panel);
   color: var(--ink);
 }
@@ -6013,7 +6212,7 @@ input.colored-text {
   background: var(--hdr);
   position: sticky;
   top: 0;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 .mirror-waiting {
   position: absolute;
@@ -6030,18 +6229,18 @@ input.colored-text {
   padding: 28px 32px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
   max-width: 360px;
 }
 .mirror-waiting-title {
   margin: 12px 0 6px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
 }
 .mirror-waiting-sub {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--muted);
   line-height: 1.5;
 }
@@ -7942,4 +8141,16 @@ input.colored-text {
   border-color: var(--danger);
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* ---- 工程名のソフト上限（120字超）の警告リング（B-15） ---- */
+/* 入力は拒否せず、赤リング＋title で気づかせるだけ。共通クラス .name-overlong を
+   TableView / FullTable / FlowCanvas のリネーム入力へ付与する（src/nameLimit.ts）。
+   打鍵中（フォーカス時）も維持するため、各入力のフォーカス box-shadow を上回る
+   input.name-overlong:focus をファイル末尾（＝ソース順で最後）に置いて確実に勝たせる。 */
+.name-overlong {
+  box-shadow: inset 0 0 0 1.5px var(--red);
+}
+input.name-overlong:focus {
+  box-shadow: inset 0 0 0 1.5px var(--red);
 }

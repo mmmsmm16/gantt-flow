@@ -274,6 +274,12 @@ function buildSidebar(
             );
           })
           .join('') +
+        `</div>` +
+        // 非該当工程を「非表示(既定)」にするか「淡色表示」にするかの小トグル。
+        // 既定を非表示にして hero の「自分がやる工程だけを表示」の文言と挙動を一致させる。
+        `<div class="hb-fmode" id="hb-fmode" role="group" aria-label="非該当工程の表示方法">` +
+        `<button type="button" class="hb-fmode-btn is-on" data-mode="hide" aria-pressed="true">非表示</button>` +
+        `<button type="button" class="hb-fmode-btn" data-mode="dim" aria-pressed="false">淡色表示</button>` +
         `</div>`
       : '';
 
@@ -464,6 +470,34 @@ function buildSubBlock(r: Render, used: Set<Id>, item: ProcedureNavItem): string
   );
 }
 
+// カードの全文検索用テキスト。工程コード/名だけでなく、配下末端のステップ本文(action/why/bodyMd)・
+// 条件(when/対処)・参照資料名/IO 名まで連結する（検索対象の拡大: C-06）。ユーザ文字列を含むため
+// 呼び出し側で escapeHtml を通して data 属性へ入れる（XSS 規律を維持）。
+function collectSearchText(r: Render, taskIds: Id[]): string {
+  const { project } = r;
+  const parts: string[] = [];
+  for (const id of taskIds) {
+    const t = project.core.tasks[id];
+    if (t?.name) parts.push(t.name);
+    const d = project.details[id];
+    if (d?.how?.trim()) parts.push(d.how);
+    const doc = project.manual.procedures[id];
+    if (doc?.purpose?.trim()) parts.push(doc.purpose);
+    for (const s of doc?.steps ?? []) {
+      if (s.action?.trim()) parts.push(s.action);
+      if (s.why?.trim()) parts.push(s.why);
+      if (s.bodyMd?.trim()) parts.push(s.bodyMd);
+      for (const c of s.conds) {
+        if (c.when?.trim()) parts.push(c.when);
+        if (c.thenMd?.trim()) parts.push(c.thenMd);
+      }
+      for (const rf of s.refs) parts.push(resolveRef(project, rf).label);
+    }
+  }
+  // 空白で連結。改行は検索の妨げになるので単一スペースへ畳む。
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
 // 中工程 1 件分の工程カード。mid 自身が末端ならカードが末端そのもの、そうでなければ末端をサブブロックで束ねる。
 function buildProcCard(r: Render, used: Set<Id>, chapName: string, mid: ProcessTask): string {
   const { project, codes, roleColor } = r;
@@ -498,10 +532,12 @@ function buildProcCard(r: Render, used: Set<Id>, chapName: string, mid: ProcessT
   const dataName = `${codeOf(codes, mid.id) ? codeOf(codes, mid.id) + ' ' : ''}${mid.name}`;
   const roleAttr = assignee ? ` data-assignee="${escapeHtml(assignee)}"` : '';
   const roleStyle = color ? ` style="--hb-role:${color}"` : '';
+  const searchIds = selfLeaf ? [mid.id] : [mid.id, ...leaves.map((l) => l.taskId)];
+  const searchText = collectSearchText(r, searchIds);
 
   return (
     `<article class="hb-proc${emptyClass}"${anchorAttr(used, mid.id)} data-anchor="hb-task-${escapeHtml(mid.id)}"` +
-    `${roleAttr} data-chap="${escapeHtml(chapName)}" data-name="${escapeHtml(dataName)}"${roleStyle}>` +
+    `${roleAttr} data-chap="${escapeHtml(chapName)}" data-name="${escapeHtml(dataName)}" data-search="${escapeHtml(searchText)}"${roleStyle}>` +
     `<div class="hb-proc-head"><span class="hb-proc-no">${escapeHtml(codeOf(codes, mid.id))}</span>` +
     `<h3>${escapeHtml(mid.name)}</h3>${roleTag}${timeTag}</div>` +
     `<div class="hb-proc-body">${body}</div>` +
@@ -632,6 +668,11 @@ strong{font-weight:700;}
 .hb-fchip:hover{border-color:var(--ink-3);}
 .hb-fchip.is-on{background:var(--ink);color:#fff;border-color:var(--ink);}
 .hb-fchip.is-on .dot{box-shadow:0 0 0 2px rgba(255,255,255,.35);}
+.hb-fmode{display:inline-flex;margin-top:10px;gap:2px;padding:2px;background:var(--bg);
+  border:1px solid var(--line-2);border-radius:999px;}
+.hb-fmode-btn{font:inherit;font-size:11px;cursor:pointer;border:0;background:none;color:var(--ink-2);
+  border-radius:999px;padding:3px 11px;}
+.hb-fmode-btn.is-on{background:var(--ink);color:#fff;}
 .hb-toc{padding:12px 10px 28px;flex:1;}
 .hb-toc-top{display:flex;align-items:center;gap:9px;text-decoration:none;color:var(--ink-2);
   font-size:13px;font-weight:600;padding:8px 12px;border-radius:8px;}
@@ -652,6 +693,7 @@ strong{font-weight:700;}
 /* 縦フローナビ（手順書タブの .proc-mflow/.proc-mnode/.proc-mlink と同じ「箱＋縦の連結線」表現）。 */
 .hb-mflow{display:flex;flex-direction:column;}
 .hb-mlink{width:2px;height:10px;background:var(--line-2);margin:0 0 0 calc(50% - 1px);}
+.hb-mlink.f-hide{display:none;}
 .hb-toc-link{display:flex;align-items:center;gap:7px;text-decoration:none;color:var(--ink-2);
   font-size:12px;padding:7px 10px;border-radius:8px;}
 .hb-toc-link.hb-mnode{border:1px solid var(--line-2);border-left:3px solid var(--hb-role,var(--line-2));background:var(--bg);}
@@ -667,6 +709,7 @@ strong{font-weight:700;}
 .hb-toc-link.active{background:var(--brand-tint);color:var(--brand-dark);border-color:var(--brand);font-weight:700;}
 .hb-toc-link.dim{opacity:.32;}
 .hb-toc-link.hide{display:none;}
+.hb-toc-link.f-hide{display:none;}
 .hb-toc-empty{display:none;padding:10px 22px;font-size:12px;color:var(--ink-3);}
 
 /* main + topbar */
@@ -736,6 +779,7 @@ strong{font-weight:700;}
 .hb-proc{border:1px solid var(--line);border-radius:14px;background:var(--bg);margin:14px 0;overflow:hidden;
   box-shadow:0 1px 2px rgba(20,30,45,.04);transition:opacity .15s;}
 .hb-proc.dim{opacity:.34;}
+.hb-proc.f-hide{display:none;}
 .hb-proc-head{display:flex;align-items:center;gap:12px;padding:15px 18px;border-left:4px solid var(--hb-role,#cbd2da);
   border-bottom:1px solid var(--line);background:linear-gradient(0deg,var(--panel),var(--bg));}
 .hb-proc-no{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ai);flex:none;}
@@ -870,10 +914,16 @@ strong{font-weight:700;}
   .hb-toc-links[hidden]{display:block !important;}
   .hb-proc,.hb-sub,.hb-step,.hb-cond,.hb-fig,.hb-led-card,.hb-pos{break-inside:avoid;}
   .hb-proc.dim,.hb-toc-link.dim{opacity:1 !important;}
+  /* 担当フィルタで非表示にした工程も、紙は「全体を1冊」で残さず刷る（淡色/非表示ともに解除）。 */
+  .hb-proc.f-hide{display:block !important;}
   .hb-proc{box-shadow:none;}
   /* 紙面では区切りが章見出しと泣き別れしないよう break-inside:avoid で足りるため、
      画面用の max-height/scroll(コンパクト表示)は解除して全体を描く。 */
   .hb-pos-scroll{max-height:none;overflow:visible;}
+  /* 業務フロー図(.hb-fig-scroll)は固定 px 幅の SVG。画面は横スクロールで見せるが、
+     紙は横スクロールできず右端が見切れるため、紙幅に合わせて縮小して全体を描く。 */
+  .hb-fig-scroll{overflow:visible;}
+  .hb-fig-scroll svg{max-width:100%;height:auto;}
   .caret{display:none !important;}
   a{color:var(--ink);text-decoration:none;}
 }
@@ -949,6 +999,7 @@ const HANDBOOK_JS = `
   var fsText=document.getElementById('hb-fs-text');
   var fsCount=document.getElementById('hb-fs-count');
   var active=null;
+  var hideMode=true; // 既定は「非表示」（淡色表示は data-mode="dim" のトグルで切替）。
   function matchRole(el){
     var a=el.getAttribute('data-assignee');
     return active===null || !a || a===active;
@@ -957,10 +1008,18 @@ const HANDBOOK_JS = `
     var n=0;
     procs.forEach(function(p){
       var on=matchRole(p);
-      p.classList.toggle('dim',!on);
+      p.classList.toggle('f-hide',hideMode&&!on);
+      p.classList.toggle('dim',!hideMode&&!on);
       if(active!==null && p.getAttribute('data-assignee')===active) n++;
     });
-    tocLinks.forEach(function(l){ l.classList.toggle('dim',!matchRole(l)); });
+    tocLinks.forEach(function(l){
+      var on=matchRole(l);
+      l.classList.toggle('f-hide',hideMode&&!on);
+      l.classList.toggle('dim',!hideMode&&!on);
+      // 目次の縦フロー連結線が宙に浮かないよう、非表示ノードの直前の線も一緒に畳む。
+      var prev=l.previousElementSibling;
+      if(prev&&prev.classList&&prev.classList.contains('hb-mlink')) prev.classList.toggle('f-hide',hideMode&&!on);
+    });
     if(fstate){
       if(active===null){ fstate.classList.remove('on'); }
       else{
@@ -979,6 +1038,17 @@ const HANDBOOK_JS = `
       applyFilter();
     });
   }
+  var fmode=document.getElementById('hb-fmode');
+  if(fmode){
+    fmode.addEventListener('click',function(e){
+      var b=e.target.closest('.hb-fmode-btn'); if(!b) return;
+      hideMode=b.getAttribute('data-mode')==='hide';
+      fmode.querySelectorAll('.hb-fmode-btn').forEach(function(c){
+        var on=c===b; c.classList.toggle('is-on',on); c.setAttribute('aria-pressed',String(on));
+      });
+      applyFilter();
+    });
+  }
   var clr=document.getElementById('hb-fs-clear');
   if(clr) clr.addEventListener('click',function(){
     active=null;
@@ -988,16 +1058,31 @@ const HANDBOOK_JS = `
 
   var search=document.getElementById('hb-search');
   var tocEmpty=document.getElementById('hb-toc-empty');
+  // 目次リンク(href=#hb-task-…)と本文カード(data-anchor=hb-task-…)は同じアンカーで対応づく。
+  var procBySearchAnchor={};
+  procs.forEach(function(p){ procBySearchAnchor[p.getAttribute('data-anchor')]=p; });
+  var firstHit=null;
+  function runSearch(){
+    var q=search.value.trim().toLowerCase();
+    var any=false; firstHit=null;
+    tocLinks.forEach(function(l){
+      // 照合対象: 目次テキスト(工程コード＋名) ＋ 対応カードの data-search(ステップ本文/条件/資料名/IO名)。
+      var hay=l.textContent;
+      var card=procBySearchAnchor[l.getAttribute('href').slice(1)];
+      if(card){ var ds=card.getAttribute('data-search'); if(ds) hay+=' '+ds; }
+      var hit=q===''||hay.toLowerCase().indexOf(q)!==-1;
+      l.classList.toggle('hide',!hit);
+      if(hit){ any=true; if(q!==''&&!firstHit&&card) firstHit=card; }
+    });
+    if(tocEmpty) tocEmpty.style.display=(q!==''&&!any)?'block':'none';
+  }
   if(search){
-    search.addEventListener('input',function(){
-      var q=search.value.trim().toLowerCase();
-      var any=false;
-      tocLinks.forEach(function(l){
-        var hit=q===''||l.textContent.toLowerCase().indexOf(q)!==-1;
-        l.classList.toggle('hide',!hit);
-        if(hit) any=true;
-      });
-      if(tocEmpty) tocEmpty.style.display=(q!==''&&!any)?'block':'none';
+    search.addEventListener('input',runSearch);
+    // Enter で最初の一致カードへスクロール（モバイルは drawer を閉じる）。
+    search.addEventListener('keydown',function(e){
+      if(e.key!=='Enter') return;
+      e.preventDefault();
+      if(firstHit){ firstHit.scrollIntoView({behavior:'smooth',block:'start'}); if(mq.matches) closeNav(); }
     });
   }
 
@@ -1047,6 +1132,16 @@ const HANDBOOK_JS = `
   }
 })();
 `;
+
+// 手順書が未作成の末端工程（ハンドブックが「（手順書未作成）」と刷る対象）の件数。
+// 出力前の確認ダイアログ用（純粋・OS 非依存）。対象は末端工程＝ハンドブックが手順を並べる粒度で、
+// procedures[id].steps が空のもの。中間工程(親)は手順を持たない前提のため数えない。
+export function countUnwrittenLeaves(project: Project): number {
+  const core = project.core;
+  return Object.values(core.tasks).filter(
+    (t) => isLeaf(core, t.id) && (project.manual.procedures[t.id]?.steps.length ?? 0) === 0,
+  ).length;
+}
 
 // ---- 本体 ----
 

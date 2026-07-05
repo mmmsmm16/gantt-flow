@@ -1,18 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { ProcessTask, ProcessLevel, Id, TaskDetail } from '@gantt-flow/core';
+import type { ProcessTask, ProcessLevel, Id, TaskDetail, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
+import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
+import { STATUS_OPTIONS, statusSelectClass } from './statusUi';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
-import { revealTask, confirmRemoveTasks } from './taskOps';
+import { revealTask, selectTask, confirmRemoveTasks } from './taskOps';
 import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
@@ -321,16 +323,18 @@ export function TableView() {
 
   const toggleCollapse = useUI((s) => s.toggleOutlineCollapsed);
 
-  // 行クリック(通常＝工程へジャンプ＝選択＋粒度同期＋詳細パネル、Ctrl/⌘＝トグル、Shift＝範囲)と
-  // 一括操作は全項目表と共有のフックに集約。範囲は表示中の行(rows・折りたたみ配下は除外)内で解決。
-  // スコープ追従の規則はパレット等と共通の revealTask(taskOps.ts)に集約。
+  // 行クリック(通常＝選択＋粒度同期のみ、Ctrl/⌘＝トグル、Shift＝範囲)と一括操作は全項目表と
+  // 共有のフックに集約。範囲は表示中の行(rows・折りたたみ配下は除外)内で解決。
+  // C-01: クリックは選択だけで詳細パネルを開かない（selectTask）。詳細を開くのは行の
+  // ダブルクリック(revealTask)・詳細トグルボタン・パレット。既に開いていれば選択追従で対象が
+  // 切り替わる。スコープ追従の規則はパレット等と共通の selectTask/revealTask(taskOps.ts)に集約。
   const {
     marked,
     onRowClick,
     clear: clearMarked,
     bulkAssign,
     bulkDelete,
-  } = useRowMultiSelect({ orderedIds: rows.map((r) => r.task.id), onActivate: revealTask });
+  } = useRowMultiSelect({ orderedIds: rows.map((r) => r.task.id), onActivate: selectTask });
 
   // 行選択モード(編集外のキーボード操作)。j/k=行移動・h/l=列カーソル・Enter=セル編集 などは
   // useGlobalHotkeys → 'table' コンテキスト経由でここに届く。
@@ -343,7 +347,7 @@ export function TableView() {
     orderedIds: rows.map((r) => r.task.id),
     columns: cursorColumns,
     beginEdit: (id) => {
-      revealTask(id); // 編集開始時のみフローの粒度/スコープを同期(j/k 中はしない)
+      selectTask(id); // 編集開始時のみフローの粒度/スコープを同期(j/k 中はしない)。C-01: Enter で詳細は開かない
       setFocusId(id); // 再レンダ後に名前入力へフォーカス
     },
     toggleCollapse: (id) => {
@@ -587,12 +591,17 @@ export function TableView() {
                     onClickCapture={(e) => {
                       // 修飾クリック（Ctrl/⌘/Shift）＝複数選択。各セルの stopPropagation より先に
                       // capture 段で拾い、入力へのフォーカス／テキスト選択を止める（preventDefault）。
-                      // 修飾なしのクリックは従来どおり行を選択・詳細表示する（onRowClick 内 revealTask）。
+                      // 修飾なしのクリックは行を選択するだけ（onRowClick 内 selectTask。C-01: 詳細は開かない）。
                       if (e.ctrlKey || e.metaKey || e.shiftKey) {
                         e.preventDefault();
                         e.stopPropagation();
                       }
                       onRowClick(e, t.id);
+                    }}
+                    onDoubleClick={(e) => {
+                      // C-01: 詳細パネルを開く明示操作＝行のダブルクリック（修飾中の範囲/複数選択は除く）。
+                      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+                      revealTask(t.id);
                     }}
                     onDragOver={(e) => {
                       if (!dragId || dragId === t.id) return;
@@ -684,7 +693,9 @@ export function TableView() {
                         )}
                         {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
                         <input
-                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${matched.has(t.id) ? ' name-match' : ''}${cellCursorCls(t.id, 'name')}`}
+                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${matched.has(t.id) ? ' name-match' : ''}${cellCursorCls(t.id, 'name')}${nameLenClass(t.name)}`}
+                          title={nameLenTitle(t.name)}
+                          onInput={onNameInput}
                           data-cell="name"
                           style={
                             detail?.textColor
@@ -749,6 +760,23 @@ export function TableView() {
                         />
                       )}
                     </td>
+                    {columnVisibility.status && (
+                    <td className="c-status" role="gridcell" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        className={`ol-status ${statusSelectClass(detail)}${cellCursorCls(t.id, 'status')}`}
+                        data-cell="status"
+                        value={detail?.status ?? ''}
+                        aria-label="状況（ヒアリング進行）"
+                        onChange={(e) => updateDetail(t.id, { status: (e.target.value || undefined) as TaskStatus | undefined })}
+                      >
+                        {STATUS_OPTIONS.map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    )}
                     {columnVisibility.prev && (
                     <td className="c-prev" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       <div className="ft-prev">

@@ -11,7 +11,7 @@ import {
   reconcileProject,
   type Project,
 } from '@gantt-flow/core';
-import { buildHandbookHtml, type HandbookOptions } from '../src/handbook';
+import { buildHandbookHtml, countUnwrittenLeaves, type HandbookOptions } from '../src/handbook';
 
 const gen = (prefix: string) => {
   let n = 0;
@@ -120,6 +120,25 @@ describe('buildHandbookHtml', () => {
     expect(html).toContain('data-assignee="倉庫"');
   });
 
+  it('担当フィルタ: 「非表示/淡色表示」トグルが出て、既定は非表示（非該当カードは display:none）', () => {
+    const html = buildHandbookHtml(sample(), opts());
+
+    // 表示方法トグルの UI（担当が 1 件以上あるサンプルでは必ず出る）。
+    expect(html).toContain('id="hb-fmode"');
+    expect(html).toContain('data-mode="hide"');
+    expect(html).toContain('data-mode="dim"');
+    // 既定は「非表示」ボタンが選択状態（is-on / aria-pressed="true"）。
+    expect(html).toContain('class="hb-fmode-btn is-on" data-mode="hide" aria-pressed="true"');
+
+    // 非該当カード・目次リンクは display:none で消える CSS が入る（淡色 .dim とは別クラス）。
+    expect(html).toContain('.hb-proc.f-hide{display:none;}');
+    expect(html).toContain('.hb-toc-link.f-hide{display:none;}');
+
+    // JS の既定モードは非表示（hideMode=true）で、フィルタは f-hide を付け外しする。
+    expect(html).toContain('var hideMode=true');
+    expect(html).toContain("toggle('f-hide',hideMode&&!on)");
+  });
+
   it('サイドバーの縦フローナビ: 手順書タブと同じ「箱＋縦の連結線」（.hb-mflow/.hb-mnode/.hb-mlink）で中工程が並ぶ', () => {
     const project = sample();
     const html = buildHandbookHtml(project, opts());
@@ -215,6 +234,39 @@ describe('buildHandbookHtml', () => {
     expect(noProcCount).toBe(leavesOf(project).length - 3);
   });
 
+  it('検索対象の拡大: 各カードの data-search にステップ本文・条件・資料名が連結される（工程名の外まで）', () => {
+    const project = sample();
+    const html = buildHandbookHtml(project, opts());
+
+    const searchAttrs = [...html.matchAll(/data-search="([^"]*)"/g)].map((m) => m[1] ?? '');
+    expect(searchAttrs.length).toBeGreaterThan(0);
+    // 工程名やコードには無い「ステップ本文(bodyMd の **FAX**)」が検索テキストに入る。
+    expect(searchAttrs.some((s) => s.includes('FAX'))).toBe(true);
+    // 参照資料名（asset ラベル）も検索対象に含まれる。
+    expect(searchAttrs.some((s) => s.includes('欠品時対応マニュアル'))).toBe(true);
+    // 検索スクリプトは data-search と Enter ジャンプを実装している。
+    expect(html).toContain("card.getAttribute('data-search')");
+    expect(html).toContain("if(e.key!=='Enter') return;");
+  });
+
+  it('検索用 data-search はエスケープされる（属性経由の XSS 防止）', () => {
+    const project = sample();
+    const s1 = taskByName(project, '注文書受領');
+    project.manual.procedures[s1.id]!.steps[0]!.action = '"><img onerror=alert(1)>危険手順';
+    const html = buildHandbookHtml(project, opts());
+
+    // 生タグとして注入されない。
+    expect(html).not.toContain('<img onerror=alert(1)>');
+    // data-search 属性値には生の < > " が現れない（全て escapeHtml 済み）。
+    const searchAttrs = [...html.matchAll(/data-search="([^"]*)"/g)].map((m) => m[1] ?? '');
+    for (const s of searchAttrs) {
+      expect(s.includes('<')).toBe(false);
+      expect(s.includes('>')).toBe(false);
+    }
+    // エスケープ済みの本文が検索テキストへ入っている。
+    expect(searchAttrs.some((s) => s.includes('危険手順'))).toBe(true);
+  });
+
   it('alias 解決: aliases={} なら alias/relPath 表記のまま(disconnected)、対応表を渡すと実パス結合が出る', () => {
     const project = sample();
     const disconnected = buildHandbookHtml(project, opts());
@@ -293,6 +345,14 @@ describe('buildHandbookHtml', () => {
     expect(scopeNameInFigcaption).toBe(false);
   });
 
+  it('印刷: 業務フロー図(.hb-fig-scroll)に @media print の紙幅フィット規則が入る（右端の見切れ防止）', () => {
+    const html = buildHandbookHtml(sample(), opts());
+    // @media print ブロック内に、横スクロールを解除して紙幅に SVG を収める規則があること。
+    const printBlock = html.slice(html.indexOf('@media print{'), html.indexOf('</style>'));
+    expect(printBlock).toContain('.hb-fig-scroll{overflow:visible;}');
+    expect(printBlock).toContain('.hb-fig-scroll svg{max-width:100%;height:auto;}');
+  });
+
   it('決定論: 同一入力＋固定 now なら同一文字列', () => {
     const project = sample();
     const a = buildHandbookHtml(project, opts());
@@ -317,6 +377,42 @@ describe('buildHandbookHtml', () => {
     expect(html).not.toContain('リンク切れ');
     // 文書内の #アンカー欠落（dangling href）が無いことを機械的に検証する。
     assertAllFragmentLinksResolve(html);
+  });
+
+  describe('countUnwrittenLeaves（出力前確認の件数）', () => {
+    it('サンプルは末端 12 件中 3 件のみ手順書あり → 未作成は末端数 - 3', () => {
+      const project = sample();
+      expect(countUnwrittenLeaves(project)).toBe(leavesOf(project).length - 3);
+    });
+
+    it('工程が無いプロジェクトは 0（空出力の確認は別経路が担う）', () => {
+      const empty: Project = {
+        schemaVersion: 2,
+        meta: { id: 'pe', title: '空', createdAt: NOW, updatedAt: NOW, appVersion: '0' },
+        core: { tasks: {}, dependencies: {}, assignees: {} },
+        details: {},
+        flow: { byLevel: [] },
+        manual: { procedures: {}, assets: {} },
+      };
+      expect(countUnwrittenLeaves(empty)).toBe(0);
+    });
+
+    it('全末端に手順書ステップがあれば 0', () => {
+      const idGen = gen('cw');
+      let p: Project = {
+        schemaVersion: 2,
+        meta: { id: 'pw', title: '全書', createdAt: NOW, updatedAt: NOW, appVersion: '0' },
+        core: { tasks: {}, dependencies: {}, assignees: {} },
+        details: {},
+        flow: { byLevel: [] },
+        manual: { procedures: {}, assets: {} },
+      };
+      p = addTask(p, { name: '大', level: 'large', id: 'w-large' }, idGen);
+      p = addTask(p, { name: '末端', level: 'medium', parentId: 'w-large', id: 'w-leaf' }, idGen);
+      expect(countUnwrittenLeaves(p)).toBe(1); // まだ手順書ゼロ
+      p = addStep(p, 'w-leaf', { action: 'やる' }, idGen, NOW);
+      expect(countUnwrittenLeaves(p)).toBe(0); // ステップを入れたら未作成は消える
+    });
   });
 
   describe('フロー上の位置（各中工程セクション冒頭のハイライト図）', () => {

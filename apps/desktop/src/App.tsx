@@ -3,6 +3,8 @@ import { findView, useApp } from './store';
 import {
   isProjectIntegrityError,
   isSchemaVersionTooNewError,
+  lintProject,
+  hasAnyToBeInput,
   type LockInfo,
   type ProcessLevel,
 } from '@gantt-flow/core';
@@ -21,6 +23,8 @@ import {
   exportSvgFile,
   exportPngFile,
   exportHandbookFile,
+  exportImprovementReportFile,
+  exportImprovementExcel,
   printProjectAndFlow,
   forgetFileHandle,
   openRecentFile,
@@ -33,6 +37,7 @@ import {
   isEmptyProjectForOutput,
   missingReferencedAssets,
 } from './persistence';
+import { summarizeForExport } from './validationPanel';
 import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
 import { Modal, Toaster, BusyOverlay } from './ui/Dialogs';
@@ -42,6 +47,7 @@ import { Welcome } from './ui/Welcome';
 import { HelpDialog } from './ui/HelpDialog';
 import { IssueListDialog } from './ui/IssueListDialog';
 import { SummaryDialog } from './ui/SummaryDialog';
+import { ValidationDialog } from './ui/ValidationDialog';
 import { ComparisonDialog } from './ui/ComparisonDialog';
 import { StatusBar } from './ui/StatusBar';
 import { CommandPalette } from './ui/CommandPalette';
@@ -160,8 +166,6 @@ export function App() {
       if (shouldStartTourOnFirstTask({ pending: true, done: tourDone() })) ui.setTourStep(0);
     }
   }, [isEmpty]);
-  const theme = useUI((s) => s.theme);
-  const toggleTheme = useUI((s) => s.toggleTheme);
   const tobeEnabled = useUI((s) => s.tobeEnabled);
   const aiEnabled = useUI((s) => s.aiEnabled);
   const aiPanelOpen = useUI((s) => s.aiPanelOpen);
@@ -492,44 +496,167 @@ export function App() {
   };
   const onExportExcel = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const n = exportExcelFile(useApp.getState().project);
-    useUI.getState().toast(`出力しました（${n}）`, 'success');
+    try {
+      useUI.getState().setBusy('Excel を書き出しています…');
+      // スピナーを描画してから重い同期処理へ（固まる前に 1 フレーム譲る。取り込みと同じ流儀）。
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const n = exportExcelFile(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${n}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（Excel）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
+    }
   };
   const onExportCsv = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const n = exportCsvFile(useApp.getState().project);
-    useUI.getState().toast(`出力しました（${n}）`, 'success');
+    try {
+      const n = exportCsvFile(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${n}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（CSV）', 'error');
+    }
   };
   const onExportSvg = async () => {
     if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
-    if (view) {
+    if (!view) {
+      useUI.getState().toast('フロー図がまだありません（工程を追加してください）。', 'info');
+      return;
+    }
+    try {
       const name = exportSvgFile(st.project, view);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（SVG）', 'error');
     }
   };
   const onExportPng = async () => {
     if (!(await confirmEmptyOutput())) return;
     const st = useApp.getState();
     const view = findView(st.project, st.level, st.scopeParentId);
-    if (!view) return;
+    if (!view) {
+      useUI.getState().toast('フロー図がまだありません（工程を追加してください）。', 'info');
+      return;
+    }
     try {
       const name = await exportPngFile(st.project, view);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
-    } catch {
-      useUI.getState().toast('PNG の出力に失敗しました。', 'error');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（PNG）', 'error');
     }
   };
   const onExportHandbook = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const name = exportHandbookFile(useApp.getState().project);
-    useUI.getState().toast(`出力しました（${name}）`, 'success');
+    // 納品前チェック（手順書未作成・担当未割当・工数未入力・整合性）。抜けがあれば件数を示して確認し、
+    // 「内容を確認」を選んだら出力せず検証パネルを開く（未完成のまま配ってしまうのを防ぐ・C-07 の発展）。
+    const summary = summarizeForExport(lintProject(useApp.getState().project));
+    if (summary) {
+      const go = await useUI.getState().confirm({
+        title: '納品前チェック',
+        message: `${summary} があります。このまま出力しますか？`,
+        confirmLabel: 'このまま出力',
+        cancelLabel: '内容を確認',
+      });
+      if (!go) {
+        useUI.getState().setOverlay('validate');
+        return;
+      }
+    }
+    try {
+      useUI.getState().setBusy('ハンドブックを書き出しています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const { name, html } = exportHandbookFile(useApp.getState().project);
+      // 「開いて確認」= 生成済み HTML を別窓で開く。ダウンロード先パスは環境的に取得できない
+      //（ブラウザ/Tauri とも webview のダウンロード）ため、保存物と同一の HTML を blob URL で表示する。
+      // ボタン押下はユーザー操作なのでポップアップブロックに掛かりにくい（window.open 直呼び）。
+      useUI.getState().toast(`出力しました（${name}）`, 'success', {
+        label: '開いて確認',
+        run: () =>
+          openWindowOrWarn(() => {
+            const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+            return window.open(url, '_blank');
+          }),
+      });
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（ハンドブック）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
+    }
+  };
+  // 改善効果レポート（As-Is / To-Be）。confirmEmptyOutput → hasAnyToBeInput ガードの順。
+  // To-Be 未入力だと ±0 が並ぶだけで読み手に何も伝わらないため、比較ダイアログの一括入力へ誘導する。
+  const guardToBeInput = (): boolean => {
+    if (hasAnyToBeInput(useApp.getState().project.details)) return true;
+    useUI
+      .getState()
+      .toast('To-Be が未入力です。比較ダイアログの一括入力から始めてください。', 'info');
+    return false;
+  };
+  const onExportImprovementReport = async () => {
+    if (!(await confirmEmptyOutput())) return;
+    if (!guardToBeInput()) return;
+    try {
+      useUI.getState().setBusy('改善効果レポートを書き出しています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const { name, html } = exportImprovementReportFile(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${name}）`, 'success', {
+        label: '開いて確認',
+        run: () =>
+          openWindowOrWarn(() => {
+            const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+            return window.open(url, '_blank');
+          }),
+      });
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（改善効果レポート）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
+    }
+  };
+  const onExportImprovementExcel = async () => {
+    if (!(await confirmEmptyOutput())) return;
+    if (!guardToBeInput()) return;
+    try {
+      useUI.getState().setBusy('改善効果（Excel）を書き出しています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const n = exportImprovementExcel(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${n}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（改善効果 Excel）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
+    }
   };
   const onPrint = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const st = useApp.getState();
-    printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+    try {
+      useUI.getState().setBusy('印刷用に整えています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const st = useApp.getState();
+      const ok = printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+      if (!ok) useUI.getState().toast('印刷の準備に失敗しました。', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
+    }
+  };
+
+  // 別ウィンドウを開く共通ラッパ。window.open は null（ポップアップブロック等）を返しうるので、
+  // 呼び出し側で一元的に検知してトーストで沈黙を破る（dualwindow / mirror の null 通知）。
+  const openWindowOrWarn = (open: () => Window | null) => {
+    if (!open()) {
+      useUI
+        .getState()
+        .toast('ウィンドウを開けませんでした（ポップアップブロックをご確認ください）', 'error');
+    }
   };
 
   // Welcome から空の編集画面へ（プロジェクトは既に空＝作り直し不要。フラグだけ立てる）。
@@ -684,23 +811,9 @@ export function App() {
         <PaneLayoutTabs current={paneLayout} />
         <span className="spacer" />
 
-        <span className="tool-group" role="group" aria-label="履歴">
-          {/* 編集用サブ窓の undo/redo はリーダーへ転送して適用する（両窓で履歴を共有）。 */}
-          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す (Ctrl+Z)">
-            <Icons.Undo />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={redo}
-            disabled={!canRedo}
-            aria-label="やり直し"
-            title="やり直し (Ctrl+Y)"
-          >
-            <Icons.Redo />
-          </button>
-        </span>
-
-        <span className={`tool-group${recentSupported ? ' has-menu' : ''}`} role="group" aria-label="ファイル">
+        {/* ファイル系（新規・開く・取り込み/最近/復元メニュー・保存）。並び順は
+            ファイル / 編集 / ビュー / 出力 / その他 のグループで整理（C-12）。 */}
+        <span className="tool-group has-menu" role="group" aria-label="ファイル">
           <button
             className="icon-btn"
             onClick={onNew}
@@ -712,15 +825,6 @@ export function App() {
           </button>
           <button
             className="icon-btn"
-            onClick={onImport}
-            disabled={isFollower}
-            aria-label="取り込み"
-            title={isFollower ? 'ファイル操作はメインウィンドウで行ってください' : '取り込み（CSV / Excel）'}
-          >
-            <Icons.Upload />
-          </button>
-          <button
-            className="icon-btn"
             onClick={onOpen}
             disabled={isFollower}
             aria-label="開く"
@@ -728,26 +832,32 @@ export function App() {
           >
             <Icons.FolderOpen />
           </button>
-          {recentSupported && !isFollower && (
+          {!isFollower && (
             <Menu
               className="icon-btn menu-trigger"
-              title="最近使ったファイル"
+              title="取り込み・最近のファイル・復元"
               label={<Icons.ChevronDown />}
               onOpen={refreshRecent}
             >
-              {recentFiles.length === 0 && (
-                <div className="menu-empty">最近使ったファイルはありません</div>
+              {/* 取り込みは「新規プロジェクト生成専用」＝新規の隣（このメニュー）へ集約（C-12）。 */}
+              <MenuItem onClick={onImport}>CSV / Excel を取り込む（新規作成）</MenuItem>
+              {recentSupported && (
+                <>
+                  <div className="menu-sep" aria-hidden="true" />
+                  {recentFiles.length === 0 && (
+                    <div className="menu-empty">最近使ったファイルはありません</div>
+                  )}
+                  {recentFiles.slice(0, 5).map((r) => (
+                    <MenuItem key={r.name} onClick={() => void onOpenRecent(r.name)}>
+                      <span className="recent-row" title={r.name}>
+                        <span className="recent-name">{r.name}</span>
+                        <span className="recent-at">{formatRecentTime(r.at)}</span>
+                      </span>
+                    </MenuItem>
+                  ))}
+                </>
               )}
-              {recentFiles.slice(0, 5).map((r) => (
-                <MenuItem key={r.name} onClick={() => void onOpenRecent(r.name)}>
-                  <span className="recent-row" title={r.name}>
-                    <span className="recent-name">{r.name}</span>
-                    <span className="recent-at">{formatRecentTime(r.at)}</span>
-                  </span>
-                </MenuItem>
-              ))}
-              {/* 誤操作からの回復導線。パニック時に検索語を思い出さずに済むよう、最近ファイルの
-                  末尾に常設する（この端末に残る直近世代から復旧＝BackupsDialog を開くだけ）。 */}
+              {/* 誤操作からの回復導線（この端末に残る直近世代から復旧＝BackupsDialog を開くだけ）。 */}
               <div className="menu-sep" aria-hidden="true" />
               <MenuItem onClick={() => useUI.getState().setOverlay('backups')}>
                 バックアップから復元…
@@ -765,52 +875,26 @@ export function App() {
           </button>
         </span>
 
-        {/* 出力・印刷はファイル系＝リーダー専用（フォロワーでは非表示）。 */}
-        {!isFollower && (
-          <Menu
-            className="icon-btn menu-trigger"
-            title="出力"
-            label={
-              <>
-                <Icons.Download />
-                <Icons.ChevronDown />
-              </>
-            }
-          >
-            <MenuItem onClick={onExportExcel}>Excel (.xlsx)</MenuItem>
-            <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
-            <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
-            <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
-            <MenuItem onClick={onExportHandbook}>ハンドブック (HTML)</MenuItem>
-          </Menu>
-        )}
-
-        {!isFollower && (
-          <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
-            <Icons.Printer />
+        {/* 編集系（元に戻す・やり直し）。編集用サブ窓の undo/redo はリーダーへ転送（両窓で履歴共有）。 */}
+        <span className="tool-group" role="group" aria-label="編集">
+          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="戻す" title="戻す (Ctrl+Z)">
+            <Icons.Undo />
           </button>
-        )}
+          <button
+            className="icon-btn"
+            onClick={redo}
+            disabled={!canRedo}
+            aria-label="やり直し"
+            title="やり直し (Ctrl+Y)"
+          >
+            <Icons.Redo />
+          </button>
+        </span>
 
-        <button
-          className="icon-btn"
-          onClick={() => useUI.getState().setOverlay('palette')}
-          aria-label="コマンド・工程を検索"
-          title="コマンド・工程を検索 (⌘K)"
-        >
-          <Icons.Search />
-        </button>
-
+        {/* ビュー系（詳細・課題・サマリ・別ウィンドウ＋条件付き） */}
         <span className="tool-group" role="group" aria-label="ビュー">
-          {collapseForInspector && (
-            <button
-              className="icon-btn"
-              onClick={() => setActivePane(activePane === 'table' ? 'flow' : 'table')}
-              aria-label="工程表とフローを入れ替え"
-              title={`${activePane === 'table' ? '工程フロー' : '工程表'}＋詳細に切り替え`}
-            >
-              <Icons.Swap />
-            </button>
-          )}
+          {/* 条件付きボタン（入れ替え／比較）はグループ末尾に集約する（下部参照）。表示/非表示で
+              安定ボタン（詳細・課題・サマリ・別ウィンドウ）の位置がずれないようにするため。 */}
           <button
             className={`icon-btn toggle-btn${showInspector ? ' on' : ''}`}
             onClick={() => {
@@ -848,6 +932,46 @@ export function App() {
           >
             <Icons.ChartBar />
           </button>
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('validate')}
+            aria-label="納品前チェック"
+            title="納品前チェック（手順書・担当・工数・整合性の抜けを点検）"
+          >
+            <Icons.ShieldCheck />
+          </button>
+          <Menu
+            className="icon-btn menu-trigger"
+            title="別ウィンドウで表示（マルチディスプレイ）"
+            label={
+              <>
+                <Icons.NewWindow />
+                <Icons.ChevronDown />
+              </>
+            }
+          >
+            <MenuItem onClick={() => openWindowOrWarn(() => openEditWindow())}>
+              編集用のサブウィンドウを開く（両窓で同時編集）
+            </MenuItem>
+            <div className="menu-sep" aria-hidden="true" />
+            <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('flow'))}>
+              フローを別ウィンドウで表示（閲覧専用）
+            </MenuItem>
+            <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('table'))}>
+              工程表を別ウィンドウで表示（閲覧専用）
+            </MenuItem>
+          </Menu>
+          {/* 条件付きボタンはグループ末尾に集約（表示/非表示で上の安定ボタンをずらさない）。 */}
+          {collapseForInspector && (
+            <button
+              className="icon-btn"
+              onClick={() => setActivePane(activePane === 'table' ? 'flow' : 'table')}
+              aria-label="工程表とフローを入れ替え"
+              title={`${activePane === 'table' ? '工程フロー' : '工程表'}＋詳細に切り替え`}
+            >
+              <Icons.Swap />
+            </button>
+          )}
           {tobeEnabled && (
             <button
               className="icon-btn"
@@ -873,64 +997,78 @@ export function App() {
               <span aria-hidden="true">✨</span>
             </button>
           )}
-          <Menu
-            className="icon-btn menu-trigger"
-            title="別ウィンドウで表示（マルチディスプレイ）"
-            label={
-              <>
-                <Icons.NewWindow />
-                <Icons.ChevronDown />
-              </>
-            }
-          >
-            <MenuItem onClick={() => openEditWindow()}>
-              編集用のサブウィンドウを開く（両窓で同時編集）
-            </MenuItem>
-            <div className="menu-sep" aria-hidden="true" />
-            <MenuItem onClick={() => openMirrorWindow('flow')}>
-              フローを別ウィンドウで表示（閲覧専用）
-            </MenuItem>
-            <MenuItem onClick={() => openMirrorWindow('table')}>
-              工程表を別ウィンドウで表示（閲覧専用）
-            </MenuItem>
-          </Menu>
         </span>
 
-        <button
-          className="icon-btn"
-          onClick={toggleTheme}
-          aria-label={theme === 'dark' ? 'ライトテーマに切替' : 'ダークテーマに切替'}
-          title={theme === 'dark' ? 'ライトに切替' : 'ダークに切替'}
-        >
-          {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => {
-            useUI.getState().setSettingsTab('general');
-            useUI.getState().setOverlay('settings');
-          }}
-          aria-label="設定"
-          title="設定（テーマ / ショートカット / エクスポート）"
-        >
-          <Icons.Gear />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => useUI.getState().setOverlay('help')}
-          aria-label="キーボードショートカット"
-          title="キーボードショートカット (?)"
-        >
-          <Icons.Keyboard />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={toggleChrome}
-          aria-label="集中モード（ツールバーと各ビューの操作バーを隠す）"
-          title="集中モード: 作業エリアを最大化（ツールバー＋各ビューの操作バーを隠す）Ctrl/⌘+\"
-        >
-          <Icons.Maximize />
-        </button>
+        {/* 出力系（書き出し・印刷）＝リーダー専用（フォロワーでは非表示）。 */}
+        {!isFollower && (
+          <span className="tool-group has-menu" role="group" aria-label="出力">
+            <Menu
+              className="icon-btn menu-trigger"
+              title="出力"
+              label={
+                <>
+                  <Icons.Download />
+                  <Icons.ChevronDown />
+                </>
+              }
+            >
+              <MenuItem onClick={onExportExcel}>Excel (.xlsx)（工程表・課題一覧・サマリ／To-Be入力時は改善効果も）</MenuItem>
+              <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
+              <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
+              <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
+              <MenuItem onClick={onExportHandbook}>ハンドブック (HTML)</MenuItem>
+              {tobeEnabled && (
+                <MenuItem onClick={onExportImprovementReport}>改善効果レポート (HTML)</MenuItem>
+              )}
+              {tobeEnabled && (
+                <MenuItem onClick={onExportImprovementExcel}>改善効果 (.xlsx)</MenuItem>
+              )}
+            </Menu>
+            <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
+              <Icons.Printer />
+            </button>
+          </span>
+        )}
+
+        {/* その他（検索・設定・ヘルプ・集中モード）。テーマ切替はツールバーから外し、
+            設定（＝テーマ項目）とコマンドパレット（テーマを切り替え）に集約した（C-12）。 */}
+        <span className="tool-group" role="group" aria-label="その他">
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('palette')}
+            aria-label="コマンド・工程を検索"
+            title="コマンド・工程を検索 (⌘K)"
+          >
+            <Icons.Search />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => {
+              useUI.getState().setSettingsTab('general');
+              useUI.getState().setOverlay('settings');
+            }}
+            aria-label="設定"
+            title="設定（テーマ / ショートカット / エクスポート）"
+          >
+            <Icons.Gear />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => useUI.getState().setOverlay('help')}
+            aria-label="キーボードショートカット"
+            title="キーボードショートカット (?)"
+          >
+            <Icons.Keyboard />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={toggleChrome}
+            aria-label="集中モード（ツールバーと各ビューの操作バーを隠す）"
+            title="集中モード: 作業エリアを最大化（ツールバー＋各ビューの操作バーを隠す）Ctrl/⌘+\"
+          >
+            <Icons.Maximize />
+          </button>
+        </span>
       </header>
       {showWelcome ? (
         <Welcome
@@ -1076,11 +1214,17 @@ export function App() {
         onExportSvg={onExportSvg}
         onExportPng={onExportPng}
         onExportHandbook={onExportHandbook}
+        onExportImprovementReport={onExportImprovementReport}
+        onExportImprovementExcel={onExportImprovementExcel}
         onPrint={onPrint}
+        onOpenEditWindow={() => openWindowOrWarn(() => openEditWindow())}
+        onOpenFlowWindow={() => openWindowOrWarn(() => openMirrorWindow('flow'))}
+        onOpenTableWindow={() => openWindowOrWarn(() => openMirrorWindow('table'))}
       />
       <HelpDialog />
       <IssueListDialog />
       <SummaryDialog />
+      <ValidationDialog />
       <ComparisonDialog />
       <BackupsDialog />
       <SettingsDialog />

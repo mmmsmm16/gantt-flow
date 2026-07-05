@@ -28,6 +28,31 @@ export function clearFlowViewport(): void {
   savedViewport = null;
 }
 
+/** 表→フロー追従: 選択ノードを視界の中央へ寄せるスクロール位置を返す（純粋・決定論）。
+    既に完全に視界内なら null（＝動かさない。'nearest' と同じく見えている間は据え置き）。
+    node は論理座標（× scale で画面座標へ）、view はスクロール容器の scrollLeft/Top と可視サイズ。
+    ズームは変えない前提で scale は現状値をそのまま渡す。負のスクロールは 0 に丸める。 */
+export function centerScroll(
+  node: { x: number; y: number; w: number; h: number },
+  view: { left: number; top: number; w: number; h: number },
+  scale: number,
+): { left: number; top: number } | null {
+  const nx = node.x * scale;
+  const ny = node.y * scale;
+  const nw = node.w * scale;
+  const nh = node.h * scale;
+  const fullyVisible =
+    nx >= view.left &&
+    ny >= view.top &&
+    nx + nw <= view.left + view.w &&
+    ny + nh <= view.top + view.h;
+  if (fullyVisible) return null;
+  return {
+    left: Math.max(0, nx + nw / 2 - view.w / 2),
+    top: Math.max(0, ny + nh / 2 - view.h / 2),
+  };
+}
+
 /** アンカー付きズームのスクロール補正。アンカー（ビューポート内オフセット）直下の論理座標が
     ズーム前後で同じ画面位置に来る scrollLeft/Top を返す。負はブラウザの clamp と同じく 0 に丸める
     （rAF 適用時点の実 DOM に依存しない決定論的な値にする）。 */

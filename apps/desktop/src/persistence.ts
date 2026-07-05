@@ -13,6 +13,11 @@ import {
   projectToRows,
   projectToCsv,
   computeCodes,
+  computeProjectSummary,
+  effortMinutesToHours,
+  compareReportSheetRows,
+  IMPROVEMENT_SHEET_NAME,
+  hasAnyToBeInput,
   parseCsv,
   type Project,
   type FlowLevelView,
@@ -23,6 +28,7 @@ import { bytesToB64, b64ToBytes } from './b64';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
 import { snapshotAssets, ingestAssets, hasAsset } from './assetStore';
 import { buildHandbookHtml } from './handbook';
+import { buildImprovementReportHtml } from './reportHtml';
 import { loadLocationAliases } from './locationAliases';
 import { useUI, type LockUiState } from './ui/useUI';
 
@@ -385,18 +391,26 @@ async function saveTauri(
     await releaseHeldLock();
     const savedPath = path; // 閉包用に固定（この保存が対象としたパス）
     void acquireLockFor(savedPath).then(async (r) => {
-      if (r.status !== 'locked') return;
-      // 取得待ちの間にさらに保存先が変わっていたら、このロックは古い対象 → 保持せず返す
-      //（無条件に beginHolding すると現在の保存先のロック/ハートビートを上書きしてしまう）。
+      // 取得待ちの間にさらに保存先が変わっていたら、この結果は古い対象 → 現在の表示に触れない
+      //（無条件に beginHolding/readonly 反映すると現在の保存先の状態を上書きしてしまう）。
       if (filePath !== savedPath) {
-        try {
-          await invoke('release_lock', { path: savedPath, owner: r.owner });
-        } catch {
-          /* 解放失敗は放置（残ったロックは stale 引き継ぎで回収される） */
+        if (r.status === 'locked') {
+          try {
+            await invoke('release_lock', { path: savedPath, owner: r.owner });
+          } catch {
+            /* 解放失敗は放置（残ったロックは stale 引き継ぎで回収される） */
+          }
         }
         return;
       }
-      beginHolding(savedPath, r.owner);
+      if (r.status === 'locked') {
+        beginHolding(savedPath, r.owner);
+      } else {
+        // 取得できなかった（他セッション保持 / IO 不調など）。開く経路（notifyLock('readonly')）と
+        // 揃えて沈黙させない: 読み取り専用として明示し、ロック更新失敗として記録する。
+        notifyLock('readonly');
+        reportLockFailure();
+      }
     });
   }
   return { kind: 'saved', name: basename(path) };
@@ -413,10 +427,34 @@ export function downloadProjectJson(project: Project): string {
 // 別プロセス（MCP サーバ等）が現在開いているファイルを書き換えたら検知して onChange へ渡す。
 // 自分の保存とは lastKnownMtime / savingNow で区別する。ブラウザは絶対パスを持たないため対象外。
 
+// 外部変更監視の恒久失敗（共有フォルダが見えない・権限喪失など）を可視化するためのカウンタ。
+// stat が連続で失敗し閾値に達したら 1 回だけ通知し、成功（stat が読めた）でリセットする。
+// 書き込み途中の一時的な読込失敗（deserialize throw）は stat が読めていれば失敗に数えない
+//（数十秒に渡り stat すら通らない＝監視自体が壊れている場合だけ知らせる）。
+let watchFailCount = 0;
+let watchFailNotified = false;
+const WATCH_FAIL_THRESHOLD = 30; // 1 秒間隔なら約 30 秒の連続失敗
+
+function resetWatchFailure(): void {
+  watchFailCount = 0;
+  watchFailNotified = false;
+}
+function noteWatchFailure(): void {
+  watchFailCount += 1;
+  if (watchFailCount < WATCH_FAIL_THRESHOLD || watchFailNotified) return;
+  watchFailNotified = true; // 1 回だけ（毎秒スパムしない）
+  try {
+    useUI.getState().toast('共有ファイルの変更監視に失敗しています', 'info');
+  } catch {
+    /* UI 未初期化などは無視（fail-open） */
+  }
+}
+
 /** 監視を開始（既存の監視は止めて張り替え）。intervalMs ごとに mtime を比較する。 */
 export function startExternalWatch(onChange: (project: Project) => void, intervalMs = 1000): void {
   if (!isTauri()) return;
   stopExternalWatch();
+  resetWatchFailure(); // 張り替えのたびに失敗計数はまっさらから
   watchTimer = setInterval(() => void pollExternal(onChange), intervalMs);
 }
 
@@ -434,10 +472,13 @@ export function acknowledgeExternalChange(): void {
 async function pollExternal(onChange: (project: Project) => void): Promise<void> {
   if (watchBusy || savingNow || filePath === null || lastKnownMtime === null) return;
   watchBusy = true;
+  let statOk = false; // stat が読めた＝監視は機能している（失敗計数の判定に使う）
   try {
     const mtime = await statMtime(filePath);
+    if (mtime === null) return; // stat 失敗＝監視できていない（finally で失敗計上）
+    statOk = true;
     // 変化なし / 自分の保存後で既知 / 既に通知済みの同一変更 ならスキップ。
-    if (mtime === null || mtime === lastKnownMtime || mtime === lastSeenExternalMtime) return;
+    if (mtime === lastKnownMtime || mtime === lastSeenExternalMtime) return;
     const b64 = await invoke<string>('open_project', { path: filePath });
     const c = deserializeContainer(b64ToBytes(b64)); // 書き込み途中の壊れた中間状態なら throw → 次回拾う
     ingestAssets(c.assets); // 外部変更で増減した画像をメモリ層へ取り込む
@@ -448,6 +489,10 @@ async function pollExternal(onChange: (project: Project) => void): Promise<void>
     /* 監視はベストエフォート（読み取り失敗は次のポーリングで再試行） */
   } finally {
     watchBusy = false;
+    // stat が通れば監視は生きている（一時的な読込失敗はここで許容）。連続して stat すら
+    // 通らないときだけ失敗を積み、閾値で 1 回通知する。
+    if (statOk) resetWatchFailure();
+    else noteWatchFailure();
   }
 }
 
@@ -471,8 +516,8 @@ export function exportCsvFile(project: Project): string {
   return name;
 }
 
-// 課題一覧を Excel に書き出す（コンサル定番の納品物「課題一覧表」）。
-export function exportIssuesExcel(project: Project): string {
+// 課題一覧シートの行（工程No 順）。単独出力・統合ブックの両方で共有。
+function issuesAoa(project: Project): string[][] {
   const codes = computeCodes(project.core);
   const rows: string[][] = [['工程No', '工程', '担当', '課題', '方策']];
   const ordered = Object.values(project.core.tasks).sort((a, b) =>
@@ -485,22 +530,74 @@ export function exportIssuesExcel(project: Project): string {
       rows.push([codes[t.id] ?? '', t.name, assignee, iss.issue, iss.measure ?? '']);
     }
   }
-  const name = `${safeName(project.meta.title)}-課題一覧.xlsx`;
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  return rows;
+}
+
+const AUTO_SUMMARY_LABELS: { key: 'manual' | 'partial' | 'system' | 'none'; label: string }[] = [
+  { key: 'manual', label: '手作業' },
+  { key: 'partial', label: '一部自動' },
+  { key: 'system', label: 'システム自動' },
+  { key: 'none', label: '未設定' },
+];
+const LEVEL_SUMMARY_LABELS: Record<string, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
+
+// サマリシートの行（担当別工数・自動化区分・粒度別件数）。SummaryDialog と同じ集計を core から再利用。
+function summaryAoa(project: Project): (string | number)[][] {
+  const s = computeProjectSummary(project.core, project.details);
+  const rows: (string | number)[][] = [];
+  rows.push(['担当別の工数']);
+  rows.push(['担当', '工数(h)']);
+  for (const a of s.assignees) rows.push([a.name, effortMinutesToHours(a.min)]);
+  rows.push(['合計', effortMinutesToHours(s.totalMin)]);
+  rows.push([]);
+  rows.push([`自動化区分（末端 ${s.leafCount} 工程）`]);
+  rows.push(['区分', '件数', '割合']);
+  for (const a of AUTO_SUMMARY_LABELS) {
+    const n = s.autoCounts[a.key] ?? 0;
+    const pct = s.leafCount ? Math.round((n / s.leafCount) * 100) : 0;
+    rows.push([a.label, n, `${pct}%`]);
+  }
+  rows.push([]);
+  rows.push(['粒度別の工程数']);
+  rows.push(['粒度', '件数']);
+  for (const l of s.levelCounts) rows.push([LEVEL_SUMMARY_LABELS[l.key] ?? l.key, l.n]);
+  rows.push(['合計', s.taskCount]);
+  return rows;
+}
+
+// 統合ブック（工程表 / 課題一覧 / サマリ / 改善効果）を組み立てる純関数（テスト用に分離・download 非依存）。
+// 改善効果シートは compareReportSheetRows を単独出力（exportImprovementExcel）と共有し、To-Be 入力が
+// あるときだけ同梱する（未入力だと ±0 が並ぶだけで納品物のノイズになるため、単独出力と同じガードを踏む）。
+export function buildProjectWorkbook(project: Project): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '課題一覧');
+  // 人間が読む納品物なので前工程は作業名で出す（工程No は CSV ラウンドトリップ用）。
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(projectToRows(project, { depRef: 'name' })), '工程表');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(issuesAoa(project)), '課題一覧');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa(project)), 'サマリ');
+  if (hasAnyToBeInput(project.details)) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet(compareReportSheetRows(project)),
+      IMPROVEMENT_SHEET_NAME,
+    );
+  }
+  return wb;
+}
+
+// 課題一覧を Excel に書き出す（コンサル定番の納品物「課題一覧表」）。統合出力とは別に単独出力も残す（互換）。
+export function exportIssuesExcel(project: Project): string {
+  const name = `${safeName(project.meta.title)}-課題一覧.xlsx`;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(issuesAoa(project)), '課題一覧');
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   return name;
 }
 
+// Excel 出力: 1 ブックに工程表・課題一覧・サマリ（＋ To-Be があれば改善効果）を同梱（納品時の手作業を削減）。
 export function exportExcelFile(project: Project): string {
   const name = `${safeName(project.meta.title)}.xlsx`;
-  // 人間が読む納品物なので前工程は作業名で出す（工程No は CSV ラウンドトリップ用）。
-  const ws = XLSX.utils.aoa_to_sheet(projectToRows(project, { depRef: 'name' }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '工程表');
-  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  const buf = XLSX.write(buildProjectWorkbook(project), { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   return name;
 }
@@ -558,13 +655,34 @@ export async function exportPngFile(project: Project, view: FlowLevelView): Prom
 
 // ハンドブック（自己完結 HTML 1 ファイル）出力。場所エイリアス・画像バイトはここで組んで
 // buildHandbookHtml（純関数）へ渡す（生成器自身は localStorage/assetStore に触れない）。
-export function exportHandbookFile(project: Project): string {
+// 生成した HTML も返す（呼び出し側が「開いて確認」で別窓表示に使い回すため。再生成を避ける）。
+export function exportHandbookFile(project: Project): { name: string; html: string } {
   const name = `${safeName(project.meta.title)}-handbook.html`;
   const html = buildHandbookHtml(project, {
     aliases: loadLocationAliases(),
     assets: snapshotAssets(collectReferencedAssetFiles(project)),
   });
   download(name, html, 'text/html;charset=utf-8');
+  return { name, html };
+}
+
+// 改善効果レポート（自己完結 HTML 1 ファイル）出力。生成器は純関数（buildImprovementReportHtml）。
+// ハンドブックと同様、別窓「開いて確認」で使い回せるよう生成 HTML も返す（再生成を避ける）。
+export function exportImprovementReportFile(project: Project): { name: string; html: string } {
+  const name = `${safeName(project.meta.title)}-改善効果レポート.html`;
+  const html = buildImprovementReportHtml(project);
+  download(name, html, 'text/html;charset=utf-8');
+  return { name, html };
+}
+
+// 改善効果を Excel（単一シート）に書き出す。統合ブック（buildProjectWorkbook）とは別に単独出力も残す。
+// シート行列は core の compareReportSheetRows（画面・HTML と同じ buildCompareReport 由来）。
+export function exportImprovementExcel(project: Project): string {
+  const name = `${safeName(project.meta.title)}-改善効果.xlsx`;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(compareReportSheetRows(project)), IMPROVEMENT_SHEET_NAME);
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  download(name, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   return name;
 }
 
@@ -574,7 +692,9 @@ const escapeHtml = (s: string) =>
 // 印刷 / PDF: 工程表（全項目）＋現在のフロー図を 1 枚の印刷用 HTML にまとめ、
 // 隠し iframe で印刷ダイアログを出す（ブラウザの「PDF として保存」で PDF 化できる）。
 // ポップアップブロックを避けるため window.open ではなく iframe を使う。
-export function printProjectAndFlow(project: Project, view: FlowLevelView | undefined): void {
+// 戻り値は成否（true=印刷用ドキュメントを組めた / false=iframe の文書が使えず出せなかった）。
+// 呼び出し側（App.onPrint）が false のとき error トーストで沈黙を破る。
+export function printProjectAndFlow(project: Project, view: FlowLevelView | undefined): boolean {
   const title = project.meta.title || 'プロジェクト';
   // 印刷も人間が読む出力なので前工程は作業名（XLSX 出力と同じ方針）。
   const rows = projectToRows(project, { depRef: 'name' });
@@ -621,11 +741,12 @@ export function printProjectAndFlow(project: Project, view: FlowLevelView | unde
   const doc = iframe.contentWindow?.document;
   if (!doc) {
     iframe.remove();
-    return;
+    return false;
   }
   doc.open();
   doc.write(html);
   doc.close();
+  return true;
 }
 
 // ---- 取り込み（CSV / Excel → 行列） ----

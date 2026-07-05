@@ -24,6 +24,10 @@ export const TOUR_STEPS: Step[] = [
     selectors: ['.outline .name-input', '.table-pane'],
     title: '1. 表で編集する',
     body: 'この作業名セルを書き換えてみてください。Enter で下のセル、Tab で右のセルへ移動できます。',
+    // まだ工程が 1 件も無い（表示中の粒度に作業行が無い）ときは、指し示すセルが実在しない。
+    // 「このセルを書き換えて」と言わず、まず工程を作る導線を案内する。
+    emptyBody:
+      'まだ作業行がありません。表の「＋大」ボタン（または n キー）で最初の工程を作ると、ここに作業名のセルが現れ、書き換えられるようになります。',
   },
   {
     selectors: ['.node.task', '.flow-canvas', '.flow-pane'],
@@ -38,11 +42,20 @@ export const TOUR_STEPS: Step[] = [
     selectors: ['.flow-palette .add-task', '.flow-palette', '.flow-pane'],
     title: '3. フローを育てる',
     body: 'ノード右の ○ をドラッグすると前後関係の矢印を引けます。判断・付箋の追加や自動整列もここから。',
+    // フローが表示されていない（工程表だけの全幅表示など）ときは、パレットもノードも実在しない。
+    // 「ここから」と指さず、フローを出す手順を案内する。
+    emptyBody:
+      'フローを表示すると、工程の追加・判断／付箋・自動整列のパレットがここに現れます。上のビュー切替を「分割」か「フロー」にすると出てきます。',
   },
   {
     selectors: ['.toolbar [aria-label="コマンド・工程を検索"]', '.toolbar'],
     title: '4. 迷ったら Ctrl+K',
     body: 'コマンドパレット（Ctrl/⌘+K）から全操作の実行と工程の検索ができます。? でショートカット一覧。',
+  },
+  {
+    selectors: ['.view-tabs button[title^="手順書"]', '.view-tabs', '.toolbar'],
+    title: '5. 手順書として残す・納品する',
+    body: '「手順書」タブ（g p）で各工程の実施手順を書けます。仕上げたら、ハンドブック（HTML）や Excel／CSV／画像として書き出して配布できます。',
   },
 ];
 

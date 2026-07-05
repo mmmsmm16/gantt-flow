@@ -79,6 +79,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'pane-flow', action: 'pane.flow', context: 'global', chord: { key: '2', mod: true }, help: { group: G.global, label: 'フローペインへ' } },
   { id: 'pane-toggle', action: 'pane.toggle', context: 'global', chord: { key: 'f6' }, help: { group: G.global, label: 'ペインを切り替え' } },
   { id: 'settings', action: 'global.settings', context: 'global', chord: { key: ',', mod: true }, help: { group: G.global, label: '設定を開く' } },
+  // 改善効果サマリ（As-Is / To-Be 比較）。無効時はコマンド実行で設定へ誘導（dispatch 側）。
+  { id: 'comparison', action: 'view.comparison', context: 'global', chord: { key: 'c', mod: true, shift: true }, help: { group: G.global, label: '改善効果サマリ（As-Is / To-Be 比較）' } },
   // パレットで最後に実行した repeatable なコマンドを、いま選択中の工程へ再適用(Vim の . 相当)。
   { id: 'repeat-last', action: 'global.repeatLast', context: 'global', chord: { key: '.', mod: true }, help: { group: G.global, label: '直前のコマンドを再実行(パレット)' } },
   // 作業エリアを最大化する集中モード(上部ツールバー＋各ビューの操作バーを隠す/戻す)。

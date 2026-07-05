@@ -354,8 +354,12 @@ export interface AppState {
   setAssigneeByName: (taskId: Id, name: string) => void;
   /** 複数工程の担当を一括設定（1 undo 単位）。空名は未割当に。 */
   setAssigneeManyByName: (taskIds: Id[], name: string) => void;
-  /** 複数工程を一括削除（各々の配下は1つ上へ繰り上げ、1 undo 単位）。 */
-  removeManyTasks: (taskIds: Id[]) => void;
+  /**
+   * 複数工程を一括削除（各々の配下は1つ上へ繰り上げ、1 undo 単位）。
+   * flowNodeIds を渡すと現在ビューの制御/付箋ノード（と接続エッジ）も同じ undo 単位で撤去する
+   * ＝図形＋工程の混在削除を 1 回の「元に戻す」で丸ごと復元できる。
+   */
+  removeManyTasks: (taskIds: Id[], flowNodeIds?: FlowNodeId[]) => void;
   addDependency: (from: Id, to: Id) => void;
   removeDependency: (depId: Id) => void;
   /** 依存の所属シナリオを変更（undefined=両方 / 'asis'=To-Beで解除＝並行化 / 'tobe'=To-Be専用）。 */
@@ -394,6 +398,8 @@ export interface AppState {
   updateToBe: (taskId: Id, patch: Partial<TaskDetailToBe>) => void;
   /** As-Is の現状値を To-Be の起点へ複製。 */
   copyAsIsToToBe: (taskId: Id) => void;
+  /** 複数工程の As-Is 値を To-Be の起点へ一括複製（1 undo 単位）。複製できた件数を返す。 */
+  copyAsIsToToBeMany: (taskIds: Id[]) => number;
   /** To-Be で新設する工程(lifecycle='added')を作る。As-Is には出ない。作成 ID を返す。 */
   addToBeTask: () => Id | undefined;
 
@@ -809,7 +815,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       if (count) commit(p, count > 1 ? `${count}件の担当を変更` : '担当を変更');
     },
 
-    removeManyTasks: (taskIds) => {
+    removeManyTasks: (taskIds, flowNodeIds) => {
       let p = get().project;
       let count = 0;
       for (const id of taskIds) {
@@ -819,9 +825,34 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           count += 1;
         }
       }
-      if (count) {
+      // 図形（制御/付箋）を混在削除する場合は工程削除と同じスナップショットへ畳み込む。
+      // p は履歴上の他スナップと構造を共有しうるため、ビュー破壊前に必ずクローンする。
+      let flowRemoved = 0;
+      if (flowNodeIds && flowNodeIds.length) {
+        p = structuredClone(p);
+        const view = findView(p, get().level, get().scopeParentId);
+        if (view) {
+          const targets = new Set<FlowNodeId>();
+          for (const id of flowNodeIds) {
+            const n = view.nodes[id];
+            if (!n || (n.kind !== 'control' && n.kind !== 'comment')) continue;
+            delete view.nodes[id];
+            targets.add(id);
+            flowRemoved += 1;
+          }
+          if (targets.size) {
+            for (const e of Object.values(view.edges)) {
+              if (targets.has(e.source) || targets.has(e.target)) delete view.edges[e.id];
+            }
+          }
+        }
+      }
+      if (count || flowRemoved) {
         clearScopeIfRemoved(p);
-        commit(p, count > 1 ? `${count}件を削除` : '工程を削除');
+        // ラベルは「戻す対象」を表す undo フィードバック用。工程が主体なら件数を、
+        // 図形のみが残ったケースは figure ラベルにフォールバックする。
+        const label = count ? (count > 1 ? `${count}件を削除` : '工程を削除') : 'ノードを削除';
+        commit(p, label);
         clearSelectionIfRemoved();
       }
     },
@@ -1062,6 +1093,20 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     updateDetail: (taskId, patch) => commit(cUpdateTaskDetail(get().project, taskId, patch), '詳細を編集'),
     updateToBe: (taskId, patch) => commit(cUpdateTaskToBe(get().project, taskId, patch), 'To-Beを編集'),
     copyAsIsToToBe: (taskId) => commit(cCopyAsIsToToBe(get().project, taskId), 'To-Beに複製'),
+    copyAsIsToToBeMany: (taskIds) => {
+      // 既存 copyAsIsToToBe の core 関数をループ適用し、1 スナップショット＝1 undo にまとめる
+      // （旧: 呼び出し側で forEach → N 回 commit で undo が N 回必要だった）。
+      let p = get().project;
+      let count = 0;
+      for (const id of taskIds) {
+        if (p.core.tasks[id] && p.details[id]) {
+          p = cCopyAsIsToToBe(p, id);
+          count += 1;
+        }
+      }
+      if (count) commit(p, count > 1 ? `${count}件をTo-Beに複製` : 'To-Beに複製');
+      return count;
+    },
     addToBeTask: () => {
       const cur = get().project;
       const firstLarge = Object.values(cur.core.tasks).find((t) => t.level === 'large');
