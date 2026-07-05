@@ -698,10 +698,11 @@ describe('exportHandbookFile（ハンドブック HTML の書き出し）', () =
       },
     };
 
-    const name = exportHandbookFile(project);
+    const { name, html } = exportHandbookFile(project);
 
     expect(name).toMatch(/-handbook\.html$/);
     expect(name).not.toContain('：'); // safeName 通過(全角記号などは _ に置換済み)
+    expect(html).toContain('<!doctype html>'); // 別窓表示用に生成 HTML も返す
     expect(clicks).toHaveLength(1);
     expect(clicks[0]).toEqual({ name, href: 'blob:mock-handbook' });
     expect(capturedMime).toBe('text/html;charset=utf-8');

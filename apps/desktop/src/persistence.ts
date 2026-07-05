@@ -597,14 +597,15 @@ export async function exportPngFile(project: Project, view: FlowLevelView): Prom
 
 // ハンドブック（自己完結 HTML 1 ファイル）出力。場所エイリアス・画像バイトはここで組んで
 // buildHandbookHtml（純関数）へ渡す（生成器自身は localStorage/assetStore に触れない）。
-export function exportHandbookFile(project: Project): string {
+// 生成した HTML も返す（呼び出し側が「開いて確認」で別窓表示に使い回すため。再生成を避ける）。
+export function exportHandbookFile(project: Project): { name: string; html: string } {
   const name = `${safeName(project.meta.title)}-handbook.html`;
   const html = buildHandbookHtml(project, {
     aliases: loadLocationAliases(),
     assets: snapshotAssets(collectReferencedAssetFiles(project)),
   });
   download(name, html, 'text/html;charset=utf-8');
-  return name;
+  return { name, html };
 }
 
 const escapeHtml = (s: string) =>

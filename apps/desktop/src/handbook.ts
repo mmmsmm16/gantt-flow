@@ -1133,6 +1133,16 @@ const HANDBOOK_JS = `
 })();
 `;
 
+// 手順書が未作成の末端工程（ハンドブックが「（手順書未作成）」と刷る対象）の件数。
+// 出力前の確認ダイアログ用（純粋・OS 非依存）。対象は末端工程＝ハンドブックが手順を並べる粒度で、
+// procedures[id].steps が空のもの。中間工程(親)は手順を持たない前提のため数えない。
+export function countUnwrittenLeaves(project: Project): number {
+  const core = project.core;
+  return Object.values(core.tasks).filter(
+    (t) => isLeaf(core, t.id) && (project.manual.procedures[t.id]?.steps.length ?? 0) === 0,
+  ).length;
+}
+
 // ---- 本体 ----
 
 export function buildHandbookHtml(project: Project, opts: HandbookOptions): string {

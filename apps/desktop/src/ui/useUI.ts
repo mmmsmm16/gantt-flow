@@ -85,10 +85,16 @@ function applyTheme(theme: Theme): void {
 }
 
 export type ToastTone = 'error' | 'info' | 'success';
+/** トーストに 1 個だけ付けられる任意アクション（例: 出力後の「開いて確認」）。押すとトーストは閉じる。 */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
 export interface ToastItem {
   id: number;
   message: string;
   tone: ToastTone;
+  action?: ToastAction;
 }
 
 // トーストの自動消去までの時間(ms)。error はやや長め＝読み切る前に消えないよう猶予を足す。
@@ -325,7 +331,7 @@ interface UIState {
   hasTransientLayer: () => boolean;
 
   toasts: ToastItem[];
-  toast: (message: string, tone?: ToastTone) => void;
+  toast: (message: string, tone?: ToastTone, action?: ToastAction) => void;
   dismissToast: (id: number) => void;
 
   /** 直近の自動保存(localStorage への未保存退避)が成功した時刻(epoch ms)。null=まだ成功なし。 */
@@ -639,9 +645,9 @@ export const useUI = create<UIState>((set, get) => ({
   hasTransientLayer: () => transientClosers.length > 0,
 
   toasts: [],
-  toast: (message, tone = 'info') => {
+  toast: (message, tone = 'info', action) => {
     const id = ++toastSeq;
-    set({ toasts: [...get().toasts, { id, message, tone }] });
+    set({ toasts: [...get().toasts, { id, message, tone, action }] });
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 

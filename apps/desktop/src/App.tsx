@@ -33,6 +33,7 @@ import {
   isEmptyProjectForOutput,
   missingReferencedAssets,
 } from './persistence';
+import { countUnwrittenLeaves } from './handbook';
 import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
 import { Modal, Toaster, BusyOverlay } from './ui/Dialogs';
@@ -545,11 +546,31 @@ export function App() {
   };
   const onExportHandbook = async () => {
     if (!(await confirmEmptyOutput())) return;
+    // 手順書が未作成の工程があるなら、出力前に件数を示して確認する（未完成のまま配ってしまうのを防ぐ）。
+    const unwritten = countUnwrittenLeaves(useApp.getState().project);
+    if (unwritten > 0) {
+      const go = await useUI.getState().confirm({
+        message: `手順書が未作成の工程が ${unwritten} 件あります。このまま出力しますか？`,
+        confirmLabel: '出力する',
+        cancelLabel: 'キャンセル',
+      });
+      if (!go) return;
+    }
     try {
       useUI.getState().setBusy('ハンドブックを書き出しています…');
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
-      const name = exportHandbookFile(useApp.getState().project);
-      useUI.getState().toast(`出力しました（${name}）`, 'success');
+      const { name, html } = exportHandbookFile(useApp.getState().project);
+      // 「開いて確認」= 生成済み HTML を別窓で開く。ダウンロード先パスは環境的に取得できない
+      //（ブラウザ/Tauri とも webview のダウンロード）ため、保存物と同一の HTML を blob URL で表示する。
+      // ボタン押下はユーザー操作なのでポップアップブロックに掛かりにくい（window.open 直呼び）。
+      useUI.getState().toast(`出力しました（${name}）`, 'success', {
+        label: '開いて確認',
+        run: () =>
+          openWindowOrWarn(() => {
+            const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+            return window.open(url, '_blank');
+          }),
+      });
     } catch (err) {
       console.error(err);
       useUI.getState().toast('出力に失敗しました（ハンドブック）', 'error');

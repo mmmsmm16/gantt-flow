@@ -11,7 +11,7 @@ import {
   reconcileProject,
   type Project,
 } from '@gantt-flow/core';
-import { buildHandbookHtml, type HandbookOptions } from '../src/handbook';
+import { buildHandbookHtml, countUnwrittenLeaves, type HandbookOptions } from '../src/handbook';
 
 const gen = (prefix: string) => {
   let n = 0;
@@ -377,6 +377,42 @@ describe('buildHandbookHtml', () => {
     expect(html).not.toContain('リンク切れ');
     // 文書内の #アンカー欠落（dangling href）が無いことを機械的に検証する。
     assertAllFragmentLinksResolve(html);
+  });
+
+  describe('countUnwrittenLeaves（出力前確認の件数）', () => {
+    it('サンプルは末端 12 件中 3 件のみ手順書あり → 未作成は末端数 - 3', () => {
+      const project = sample();
+      expect(countUnwrittenLeaves(project)).toBe(leavesOf(project).length - 3);
+    });
+
+    it('工程が無いプロジェクトは 0（空出力の確認は別経路が担う）', () => {
+      const empty: Project = {
+        schemaVersion: 2,
+        meta: { id: 'pe', title: '空', createdAt: NOW, updatedAt: NOW, appVersion: '0' },
+        core: { tasks: {}, dependencies: {}, assignees: {} },
+        details: {},
+        flow: { byLevel: [] },
+        manual: { procedures: {}, assets: {} },
+      };
+      expect(countUnwrittenLeaves(empty)).toBe(0);
+    });
+
+    it('全末端に手順書ステップがあれば 0', () => {
+      const idGen = gen('cw');
+      let p: Project = {
+        schemaVersion: 2,
+        meta: { id: 'pw', title: '全書', createdAt: NOW, updatedAt: NOW, appVersion: '0' },
+        core: { tasks: {}, dependencies: {}, assignees: {} },
+        details: {},
+        flow: { byLevel: [] },
+        manual: { procedures: {}, assets: {} },
+      };
+      p = addTask(p, { name: '大', level: 'large', id: 'w-large' }, idGen);
+      p = addTask(p, { name: '末端', level: 'medium', parentId: 'w-large', id: 'w-leaf' }, idGen);
+      expect(countUnwrittenLeaves(p)).toBe(1); // まだ手順書ゼロ
+      p = addStep(p, 'w-leaf', { action: 'やる' }, idGen, NOW);
+      expect(countUnwrittenLeaves(p)).toBe(0); // ステップを入れたら未作成は消える
+    });
   });
 
   describe('フロー上の位置（各中工程セクション冒頭のハイライト図）', () => {

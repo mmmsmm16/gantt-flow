@@ -2318,6 +2318,21 @@ button.danger:hover {
 .toast-info {
   border-left-color: var(--accent);
 }
+.toast-action {
+  flex: none;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  line-height: 1.2;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+}
+.toast-action:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
 .toast-x {
   border: none;
   background: transparent;

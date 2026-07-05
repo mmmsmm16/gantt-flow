@@ -109,6 +109,17 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
       onMouseLeave={() => timerRef.current?.resume()}
     >
       <span>{item.message}</span>
+      {item.action && (
+        <button
+          className="toast-action"
+          onClick={() => {
+            item.action?.run();
+            onDone(item.id);
+          }}
+        >
+          {item.action.label}
+        </button>
+      )}
       <button className="toast-x" aria-label="閉じる" title="閉じる" onClick={() => onDone(item.id)}>
         ×
       </button>
