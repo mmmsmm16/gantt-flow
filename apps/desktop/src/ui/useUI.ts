@@ -105,7 +105,17 @@ export interface ToastItem {
   message: string;
   tone: ToastTone;
   action?: ToastAction;
+  /** 同一メッセージが連続したときの畳み込み回数（1 のときはバッジ非表示）。 */
+  count?: number;
+  /** 生成時刻（ms）。短時間の連続スパムだけ畳み込むための時間窓判定に使う（内部用）。 */
+  addedAt?: number;
 }
+
+/** 画面に同時表示するトーストの上限（超過は古い方から捨てる）。 */
+export const TOAST_MAX_VISIBLE = 3;
+/** この時間窓内に届いた同一メッセージだけ畳み込む（Ctrl+Z 連打などの瞬間スパム対策）。
+ *  回復後の再通知など「間を置いた同一メッセージ」は別トーストとして残す。 */
+export const TOAST_COALESCE_MS = 1500;
 
 // トーストの自動消去までの時間(ms)。error はやや長め＝読み切る前に消えないよう猶予を足す。
 export const TOAST_DURATION_MS: Record<ToastTone, number> = {
@@ -715,8 +725,28 @@ export const useUI = create<UIState>((set, get) => ({
 
   toasts: [],
   toast: (message, tone = 'info', action) => {
+    const current = get().toasts;
+    const now = Date.now();
+    // 直前のトーストが「短時間内の」同一メッセージ・同一トーンなら畳み込む（Ctrl+Z 連打などの
+    // 瞬間スパム防止）。時間窓を超えた同一メッセージ（回復後の再通知など）は別トーストとして残す。
+    const last = current[current.length - 1];
+    if (
+      last &&
+      last.message === message &&
+      last.tone === tone &&
+      !action &&
+      !last.action &&
+      now - (last.addedAt ?? 0) < TOAST_COALESCE_MS
+    ) {
+      const id = ++toastSeq;
+      const merged: ToastItem = { ...last, id, count: (last.count ?? 1) + 1, addedAt: now };
+      set({ toasts: [...current.slice(0, -1), merged] });
+      return;
+    }
     const id = ++toastSeq;
-    set({ toasts: [...get().toasts, { id, message, tone, action }] });
+    // 表示上限を超えたら古い方から捨てる（最新 TOAST_MAX_VISIBLE 件を残す）。
+    const next = [...current, { id, message, tone, action, count: 1, addedAt: now }];
+    set({ toasts: next.slice(-TOAST_MAX_VISIBLE) });
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 

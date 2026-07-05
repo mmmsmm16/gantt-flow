@@ -23,9 +23,11 @@ const tasksByName = (name: string) =>
 
 beforeEach(() => {
   useApp.getState().newProject();
-  // 前のテストのダイアログ/折りたたみ状態を持ち越さない。
+  // 前のテストのダイアログ/折りたたみ/トースト状態を持ち越さない
+  // （トーストは表示上限があるため、累積した状態だと件数アサーションがずれる）。
   if (useUI.getState().dialog) useUI.getState().resolveDialog(false);
   useUI.getState().setOutlineCollapsed(new Set());
+  useUI.setState({ toasts: [] });
 });
 
 describe('runTableAction: table.addChild', () => {
