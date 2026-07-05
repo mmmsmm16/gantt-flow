@@ -3357,6 +3357,19 @@ kbd {
 .auto-none {
   background: var(--line-strong);
 }
+/* ヒアリング進行のセグメント/凡例（サマリ4枚目。自動化カードと同型の色分け） */
+.hr-done {
+  background: var(--status-done);
+}
+.hr-review {
+  background: var(--status-review);
+}
+.hr-heard {
+  background: var(--status-heard);
+}
+.hr-todo {
+  background: var(--faint);
+}
 .sum-auto-legend {
   list-style: none;
   margin: 12px 0 0;

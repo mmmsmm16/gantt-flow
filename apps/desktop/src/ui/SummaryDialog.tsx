@@ -1,8 +1,8 @@
 // サマリ / ダッシュボード。担当別の工数、自動化区分の割合、粒度別の工程数を一目で。
 // 「どこに工数が偏っているか」「手作業がどれだけ残っているか」を改善提案の根拠に。
 import { useEffect, useMemo, useRef } from 'react';
-import type { ProcessLevel, Automation } from '@gantt-flow/core';
-import { formatHours, computeProjectSummary } from '@gantt-flow/core';
+import type { ProcessLevel, Automation, TaskStatus } from '@gantt-flow/core';
+import { formatHours, computeProjectSummary, computeHearingProgress } from '@gantt-flow/core';
 import { useApp } from '../store';
 import { useUI } from './useUI';
 import { useFocusTrap } from './useFocusTrap';
@@ -18,6 +18,13 @@ const AUTO: { key: Automation | 'none'; label: string; cls: string }[] = [
   { key: 'partial', label: '一部自動', cls: 'partial' },
   { key: 'system', label: 'システム自動', cls: 'system' },
   { key: 'none', label: '未設定', cls: 'none' },
+];
+// ヒアリング進行の凡例（確定→確認待ち→ヒアリング済→未着手 の順で「済んだ方から」積む）。
+const HEARING: { key: TaskStatus; label: string; cls: string }[] = [
+  { key: 'done', label: '確定', cls: 'done' },
+  { key: 'review', label: '確認待ち', cls: 'review' },
+  { key: 'heard', label: 'ヒアリング済', cls: 'heard' },
+  { key: 'todo', label: '未着手', cls: 'todo' },
 ];
 
 export function SummaryDialog() {
@@ -38,6 +45,12 @@ export function SummaryDialog() {
       levelCounts: s.levelCounts.map((l) => ({ key: l.key, label: labelOf.get(l.key) ?? l.key, n: l.n })),
     };
   }, [project]);
+
+  // ヒアリング進行（末端工程の状況内訳）。ステータスバーのチップと同一集計を共有。
+  const hearing = useMemo(
+    () => computeHearingProgress(project.core, project.details),
+    [project],
+  );
 
   // Esc は useGlobalHotkeys の「最上位レイヤを閉じる」一元処理が担う(個別リスナー不要)。
   useEffect(() => {
@@ -123,6 +136,30 @@ export function SummaryDialog() {
                 <span>合計</span>
                 <strong>{data.taskCount}</strong>
               </li>
+            </ul>
+          </section>
+
+          <section className="summary-card">
+            <h4>ヒアリング進行（末端 {hearing.total} 工程）</h4>
+            <div className="sum-auto-bar" role="img" aria-label="ヒアリング進行の割合">
+              {HEARING.map((h) => {
+                const n = hearing.counts[h.key];
+                const pct = hearing.total ? (n / hearing.total) * 100 : 0;
+                if (pct === 0) return null;
+                return <span key={h.key} className={`sum-auto-seg hr-${h.cls}`} style={{ width: `${pct}%` }} title={`${h.label}: ${n}`} />;
+              })}
+            </div>
+            <ul className="sum-auto-legend">
+              {HEARING.map((h) => {
+                const n = hearing.counts[h.key];
+                const pct = hearing.total ? Math.round((n / hearing.total) * 100) : 0;
+                return (
+                  <li key={h.key}>
+                    <span className={`sum-auto-dot hr-${h.cls}`} />
+                    {h.label} <strong>{n}</strong>（{pct}%）
+                  </li>
+                );
+              })}
             </ul>
           </section>
         </div>
