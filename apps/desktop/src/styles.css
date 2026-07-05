@@ -2867,6 +2867,48 @@ kbd {
   color: var(--faint);
   font-weight: var(--fw-regular);
 }
+.issues-missing-badge {
+  margin-left: 8px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-regular);
+  color: var(--amber-ink, var(--amber));
+  background: var(--amber-fill);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+}
+.issues-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 4px;
+}
+.issues-filter-input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-label);
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+}
+.issues-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.issues-table tbody tr.il-nomeasure td {
+  background: color-mix(in srgb, var(--amber-fill) 45%, var(--panel));
+}
+.il-measure-missing {
+  color: var(--amber-ink, var(--amber));
+  font-size: var(--fs-caption);
+}
 .issues-head-actions {
   display: flex;
   align-items: center;
