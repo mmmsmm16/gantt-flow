@@ -20,6 +20,7 @@ import {
   type AiErrorKind,
 } from '../ai/provider';
 import { buildAiPreview, type AiPreview } from '../ai/preview';
+import { openAiFlowLayout, restoreAiLayout } from './aiPaneLayout';
 import {
   resolveApproved,
   filterApplicable,
@@ -273,6 +274,15 @@ export function AiPanel(): JSX.Element {
   useEffect(() => {
     useAiSession.getState().reset();
   }, [modeKey]);
+
+  // batch モードで開いている間はフローを主戦場として見えるようにし、閉じたら元へ戻す（E-01）。
+  // 手動でレイアウトを変えた場合は復元しない（restoreAiLayout が判定）。マウント/アンマウント一回のみ。
+  useEffect(() => {
+    if (useUI.getState().aiPanelMode.kind !== 'batch') return;
+    const snapshot = openAiFlowLayout(useUI.getState());
+    return () => restoreAiLayout(useUI.getState(), snapshot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // フローの非フロー系バッジ → 対象カードへスクロール＆一時ハイライト（フロー⇄カードの往復導線）。
   const listRef = useRef<HTMLDivElement>(null);
