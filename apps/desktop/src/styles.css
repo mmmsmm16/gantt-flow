@@ -654,6 +654,55 @@ button.danger:hover {
   color: var(--amber-ink);
   border-color: color-mix(in srgb, var(--amber) 42%, var(--line));
 }
+/* クイック追加行: ヒアリング中の連続投入用。DSL 1 行 + 解釈プレビュー。表の上に常設。 */
+.outline-quickadd {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 5px 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.outline-quickadd .oq-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+.outline-quickadd .oq-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.oq-input {
+  flex: 1 1 260px;
+  min-width: 180px;
+}
+.oq-preview {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+.oq-chip {
+  font-style: normal;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+}
+.oq-chip-new {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.oq-chip-warn {
+  border-color: color-mix(in srgb, var(--amber) 50%, var(--line));
+  color: var(--amber-ink);
+}
 .outline-scroll {
   flex: 1;
   min-height: 0;

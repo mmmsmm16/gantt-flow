@@ -7,6 +7,7 @@ import { computeCodes, isMilestone } from '@gantt-flow/core';
 import { useApp, findView, resolveQuickAddParent } from '../store';
 import { collectIoNames, prevCandidates } from '../suggestions';
 import { parseQuickAdd, type QuickAddParsed } from '../quickAdd';
+import { parseQuickAddInApp } from '../quickAddApp';
 import { revealTask, confirmRemoveTasks, removeIoWithUndo } from '../taskOps';
 import { isImeKeyEvent } from '../keymap';
 import { listRecentFiles, recentFilesSupported } from '../persistence';
@@ -89,33 +90,7 @@ function selectedIoOptions(): ArgOption[] {
   ];
 }
 
-// クイック追加 DSL の解釈を現在のアプリ状態に対して行う（チップ表示と Enter 確定で共用）。
-// 前工程候補は prevCandidates と同じ「同じ親・同じ粒度」の規則だが、対象の工程がまだ
-// 存在しないため規則をここで再現する。# で粒度を変えると候補グループも変わるので、
-// トークンだけ先に読んでから候補を作る 2 段階（入力は短く、走査コストは無視できる）。
-function parseQuickAddInApp(input: string): QuickAddParsed {
-  const a = useApp.getState();
-  const assigneeNames = Object.values(a.project.core.assignees).map((x) => x.name);
-  const sel = a.selectedTaskId ? a.project.core.tasks[a.selectedTaskId] : undefined;
-  const pre = parseQuickAdd(input, { assigneeNames, predecessors: [] });
-  const level = pre.level ?? sel?.level ?? a.level;
-  // 親は確定時（addTaskWithOptions）と同じ解決を使う＝チップに出る前工程候補と実際の配置が一致する。
-  const parentId = resolveQuickAddParent(a.project.core.tasks, sel, level, a.scopeParentId);
-  const taskCodes = computeCodes(a.project.core);
-  // マイルストーンは「工程→MS」の一方向しか依存を張れない（commands/index.ts の isMilestone
-  // ガードで MS からの出依存は無視される）ため、MS を前工程候補には出さない（suggestions.ts の
-  // prevCandidates と同じ規則）。出さないと不可視の入力を許してしまい、確定時に無言で無視される。
-  const predecessors = Object.values(a.project.core.tasks)
-    .filter(
-      (t) =>
-        t.level === level &&
-        (t.parentId ?? undefined) === (parentId ?? undefined) &&
-        !isMilestone(a.project.core, t.id),
-    )
-    .sort((x, y) => x.order - y.order || x.id.localeCompare(y.id))
-    .map((t) => ({ id: t.id, name: t.name, code: taskCodes[t.id] }));
-  return parseQuickAdd(input, { assigneeNames, predecessors });
-}
+// クイック追加 DSL のアプリ層解釈は quickAddApp.ts に集約（アウトラインのクイック追加行と共用）。
 
 // 工程クイック追加（DSL）。「受注確認 @営業 #小 2h >受注登録」を 1 行で解釈して
 // addTaskWithOptions（1 undo・作成後に選択）へ渡す。空欄の確定は無題で 1 件追加

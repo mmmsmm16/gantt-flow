@@ -15,6 +15,7 @@ import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
 import { revealTask, selectTask, confirmRemoveTasks, toastUndo, removeDependencyWithUndo, pasteRowsFromClipboard } from './taskOps';
+import { parseQuickAddInApp } from './quickAddApp';
 import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
@@ -25,6 +26,8 @@ const LEVEL_OPTS: { key: ProcessLevel; label: string }[] = [
   { key: 'small', label: '小' },
   { key: 'detail', label: '詳細' },
 ];
+// クイック追加プレビューの粒度ラベル（LEVEL_OPTS と同一ソース）。
+const QUICKADD_LEVEL_LABEL = Object.fromEntries(LEVEL_OPTS.map((o) => [o.key, o.label])) as Record<ProcessLevel, string>;
 
 interface Row {
   task: ProcessTask;
@@ -219,6 +222,7 @@ export function TableView() {
   const addChildTask = useApp((s) => s.addChildTask);
   const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
+  const addTaskWithOptions = useApp((s) => s.addTaskWithOptions);
   const moveTaskUp = useApp((s) => s.moveTaskUp);
   const moveTaskDown = useApp((s) => s.moveTaskDown);
   const dropTask = useApp((s) => s.dropTask);
@@ -265,6 +269,9 @@ export function TableView() {
 
   // 新しく追加した行の作業名入力にフォーカスする（連続入力）。
   const [focusId, setFocusId] = useState<Id | null>(null);
+  // クイック追加行（ライブ捕捉用）。DSL 1 行を打って Enter で工程を追加し、入力欄に留まって連続投入する。
+  const [quickAddText, setQuickAddText] = useState('');
+  const quickAddRef = useRef<HTMLInputElement>(null);
   const [dragId, setDragId] = useState<Id | null>(null);
   const [dropInfo, setDropInfo] = useState<{ id: Id; mode: 'before' | 'after' | 'child' } | null>(
     null,
@@ -406,6 +413,30 @@ export function TableView() {
     if (id) setFocusId(id);
   };
 
+  // クイック追加行の確定。DSL（工程名 @担当 #粒度 2h >前工程）を現在文脈で解釈して 1 undo で追加。
+  // 追加後は入力を空にして欄に留まり、ヒアリング中の連続投入を途切れさせない。
+  const commitQuickAdd = () => {
+    const raw = quickAddText.trim();
+    if (!raw) return;
+    const parsed = parseQuickAddInApp(raw);
+    addTaskWithOptions({
+      name: parsed.name,
+      level: parsed.level,
+      assigneeName: parsed.assignee?.name,
+      effortMinutes: parsed.effortHours != null ? Math.round(parsed.effortHours * 60) : undefined,
+      predecessorId: parsed.predecessor?.matched?.id,
+    });
+    setQuickAddText('');
+    quickAddRef.current?.focus();
+  };
+  // 入力中の解釈プレビュー（打ちながら「何が作られるか」を見せ、DSL の学習と打ち間違いの検知を助ける）。
+  const quickAddPreview = useMemo(() => {
+    const raw = quickAddText.trim();
+    if (!raw) return null;
+    return parseQuickAddInApp(raw);
+    // project を依存に含め、担当/前工程の解決を最新データで再計算する。
+  }, [quickAddText, project]);
+
   // 末尾ゴースト行: 最終行と同じ親・粒度で新規工程を起こし、その作業名入力へフォーカス（連続入力）。
   const addGhostRow = () => {
     const last = rows[rows.length - 1];
@@ -516,6 +547,45 @@ export function TableView() {
             <button onClick={bulkAssign}>担当を一括設定</button>
             <button className="danger" onClick={bulkDelete}>まとめて削除</button>
             <button className="ft-bulk-clear" onClick={clearMarked}>選択解除</button>
+          </span>
+        )}
+      </div>
+
+      <div className="outline-quickadd">
+        <span className="oq-icon" aria-hidden="true"><Icons.BoxPlus /></span>
+        <input
+          ref={quickAddRef}
+          className="oq-input"
+          value={quickAddText}
+          placeholder="クイック追加: 工程名 @担当 #粒度(大/中/小/詳細) 2h >前工程 → Enter"
+          aria-label="クイック追加（DSL・Enter で工程を追加）"
+          onChange={(e) => setQuickAddText(e.target.value)}
+          onKeyDown={(e) => {
+            if (isImeKeyEvent(e)) return; // IME 変換確定の Enter で追加しない
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commitQuickAdd();
+            } else if (e.key === 'Escape') {
+              e.stopPropagation();
+              setQuickAddText('');
+            }
+          }}
+        />
+        {quickAddPreview && (
+          <span className="oq-preview" role="status">
+            <strong>{quickAddPreview.name || '（無題）'}</strong>
+            {quickAddPreview.level && <em className="oq-chip">{QUICKADD_LEVEL_LABEL[quickAddPreview.level]}</em>}
+            {quickAddPreview.assignee && (
+              <em className={`oq-chip${quickAddPreview.assignee.isNew ? ' oq-chip-new' : ''}`}>
+                {quickAddPreview.assignee.name}{quickAddPreview.assignee.isNew ? '（新規）' : ''}
+              </em>
+            )}
+            {quickAddPreview.effortHours != null && <em className="oq-chip">{quickAddPreview.effortHours}h</em>}
+            {quickAddPreview.predecessor && (
+              <em className={`oq-chip${quickAddPreview.predecessor.matched ? '' : ' oq-chip-warn'}`}>
+                前:{quickAddPreview.predecessor.matched?.name ?? `${quickAddPreview.predecessor.input}（未一致）`}
+              </em>
+            )}
           </span>
         )}
       </div>
