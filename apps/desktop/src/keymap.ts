@@ -516,6 +516,18 @@ const KEY_LABEL: Record<string, string> = {
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
+/**
+ * ヒント文字列を OS 記法で組む（Mac: ⌘S / ⌘⇧C ・ Win: Ctrl+S / Ctrl+Shift+C）。
+ * 'mod'/'shift'/'alt' の各トークンをプラットフォーム記号へ、その他はそのまま連結する。
+ * パレット等の表示用ヒントを HelpDialog / chordKeys と同じ記号ソースに揃える（⌘ ハードコード解消）。
+ */
+export function modHint(...parts: string[]): string {
+  const mapped = parts.map((p) =>
+    p === 'mod' ? (isMac ? '⌘' : 'Ctrl') : p === 'shift' ? (isMac ? '⇧' : 'Shift') : p === 'alt' ? (isMac ? '⌥' : 'Alt') : p,
+  );
+  return isMac ? mapped.join('') : mapped.join('+');
+}
+
 /** Chord を表示用の kbd 配列にする(例: {key:'k',mod:true} → ['⌘','K']) */
 export function chordKeys(c: Chord, leader?: boolean): string[] {
   const keys: string[] = [];
