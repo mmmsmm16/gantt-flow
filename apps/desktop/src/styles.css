@@ -6548,7 +6548,7 @@ input.colored-text {
 }
 .proc-cap {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-strong);
   color: var(--accent);
   letter-spacing: 0.2em;
@@ -6580,7 +6580,7 @@ input.colored-text {
 }
 .proc-mg-h .proc-lv2 {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-caption);
   color: var(--muted);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
@@ -6642,7 +6642,7 @@ input.colored-text {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .proc-par {
-  font-size: 10px;
+  font-size: var(--fs-caption);
   color: var(--amber-ink);
   background: var(--amber-fill);
   border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--line));
@@ -6651,7 +6651,7 @@ input.colored-text {
   flex: none;
 }
 .proc-now {
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-strong);
   color: var(--on-accent);
   background: var(--accent);
@@ -6719,7 +6719,7 @@ input.colored-text {
 }
 .proc-purpose-tag {
   display: block;
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-strong);
   color: var(--accent);
   letter-spacing: 0.12em;
