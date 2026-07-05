@@ -5,7 +5,7 @@
 // AiFlowPreview が同一 decisions/edits/preview を共有するため、パネル外に置く）。プレビューの
 // id 安定（危険地帯 4）: 生成完了時に一度だけ buildAiPreview し、以後 decisions 変更では
 // 再 runBatch せず表示スタイルだけ変える。適用は resolveApproved の ops を本番 uuid で適用する。
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { BatchOp } from '@gantt-flow/core';
 import { useApp } from '../store';
@@ -43,6 +43,10 @@ interface AiSessionState {
   edits: EditMap;
   preview: AiPreview | null;
   editingOp: number | null;
+  /** フロー上の仮ノード承認（AiFlowPreview）を重畳表示するか（既定 ON）。カード操作とは独立の表示設定。 */
+  flowPreview: boolean;
+  /** フローの非フロー系バッジ → 対象カードへスクロール/強調するためのシグナル（seq でトリガ）。 */
+  cardFocus: { op: number; seq: number } | null;
 
   setMemo: (memo: string) => void;
   startStreaming: () => void;
@@ -53,6 +57,8 @@ interface AiSessionState {
   setEdit: (i: number, patch: ProposalEdit) => void;
   beginEdit: (i: number) => void;
   cancelEdit: () => void;
+  setFlowPreview: (on: boolean) => void;
+  focusCard: (op: number) => void;
   reset: () => void;
 }
 
@@ -72,6 +78,9 @@ const IDLE = {
 export const useAiSession = create<AiSessionState>((set) => ({
   memo: '',
   ...IDLE,
+  // 表示設定（flowPreview）は生成/リセットで揮発させない。cardFocus はシグナル（初期 null）。
+  flowPreview: true,
+  cardFocus: null,
   setMemo: (memo) => set({ memo }),
   startStreaming: () => set({ ...IDLE, phase: 'streaming' }),
   onProgress: (chunk) =>
@@ -89,6 +98,8 @@ export const useAiSession = create<AiSessionState>((set) => ({
     set((s) => ({ edits: { ...s.edits, [i]: { ...s.edits[i], ...patch } }, editingOp: null })),
   beginEdit: (i) => set({ editingOp: i }),
   cancelEdit: () => set({ editingOp: null }),
+  setFlowPreview: (on) => set({ flowPreview: on }),
+  focusCard: (op) => set((s) => ({ cardFocus: { op, seq: (s.cardFocus?.seq ?? 0) + 1 } })),
   reset: () => set({ memo: '', ...IDLE }),
 }));
 
@@ -181,12 +192,26 @@ export function AiPanel(): JSX.Element {
   const decisions = useAiSession((s) => s.decisions);
   const edits = useAiSession((s) => s.edits);
   const editingOp = useAiSession((s) => s.editingOp);
+  const flowPreview = useAiSession((s) => s.flowPreview);
+  const cardFocus = useAiSession((s) => s.cardFocus);
 
   // モードが変わったら（＝別の起動導線で開き直したら）セッションをまっさらにする。
   const modeKey = mode.kind === 'procedureDraft' ? `pd:${mode.targetTaskId}` : 'batch';
   useEffect(() => {
     useAiSession.getState().reset();
   }, [modeKey]);
+
+  // フローの非フロー系バッジ → 対象カードへスクロール＆一時ハイライト（フロー⇄カードの往復導線）。
+  const listRef = useRef<HTMLDivElement>(null);
+  const [flashOp, setFlashOp] = useState<number | null>(null);
+  useEffect(() => {
+    if (!cardFocus) return;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-op="${cardFocus.op}"]`);
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    setFlashOp(cardFocus.op);
+    const t = setTimeout(() => setFlashOp(null), 1400);
+    return () => clearTimeout(t);
+  }, [cardFocus]);
 
   const ops = preview?.ops ?? [];
   const editedOps = useMemo(() => applyEdits(ops, edits), [ops, edits]);
@@ -299,7 +324,22 @@ export function AiPanel(): JSX.Element {
         )}
 
         {phase === 'ready' && ops.length > 0 && (
-          <div className="prop-list">
+          <div className="ai-flowtoggle-row">
+            <span className="ai-flowtoggle-hint">仮ノードはフロー上で承認できます</span>
+            <button
+              type="button"
+              className={`ai-flowtoggle${flowPreview ? ' on' : ''}`}
+              aria-pressed={flowPreview}
+              onClick={() => useAiSession.getState().setFlowPreview(!flowPreview)}
+              title="フロー上に仮ノードを重畳して承認する（主戦場）"
+            >
+              フローで確認
+            </button>
+          </div>
+        )}
+
+        {phase === 'ready' && ops.length > 0 && (
+          <div className="prop-list" ref={listRef}>
             {ops.map((rawOp, i) => {
               const decision = decisions[i] ?? 'pending';
               const reason = resolved?.disabled.get(i);
@@ -311,7 +351,7 @@ export function AiPanel(): JSX.Element {
               const nameChanged = editedName !== undefined && editedName !== origName;
 
               return (
-                <div className={`prop ${cls}`} key={i}>
+                <div className={`prop ${cls}${flashOp === i ? ' flash' : ''}`} key={i} data-op={i}>
                   <div className="prop-h">
                     <span className="prop-kind">{KIND_LABEL[rawOp.op]}</span>
                     <span className={`prop-status ${cls}`}>{STATUS_LABEL[cls]}</span>

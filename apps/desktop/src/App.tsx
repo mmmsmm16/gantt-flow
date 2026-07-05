@@ -52,6 +52,7 @@ import { pushBackup } from './backups';
 import { BackupsDialog } from './ui/BackupsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
 import { AiPanel } from './ui/AiPanel';
+import { AiFlowOverlay } from './ui/AiFlowPreview';
 import { Tour, tourDone, shouldStartTourOnFirstTask } from './ui/Tour';
 import { startMirrorPublisher, openMirrorWindow, pickMirrorState } from './mirror';
 import { useDualWindow, openEditWindow } from './dualwindow';
@@ -1050,6 +1051,8 @@ export function App() {
               ) : (
                 <FlowCanvas />
               )}
+              {/* AI アシスト有効・パネルに提案プレビューがあるとき、フロー上に仮ノードを重畳（主戦場）。 */}
+              <AiFlowOverlay />
             </section>
           )}
           {showInspector && (
