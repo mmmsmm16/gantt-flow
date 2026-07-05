@@ -4,7 +4,7 @@ import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
 import { chordKeys, getActiveKeymap, isImeKeyEvent, isInteractiveTarget } from './keymap';
-import { clampScale, zoomScroll, loadFlowViewport, saveFlowViewport } from './flowZoom';
+import { clampScale, zoomScroll, centerScroll, loadFlowViewport, saveFlowViewport } from './flowZoom';
 import { confirmRemoveTasks, revealTask } from './taskOps';
 import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
@@ -62,6 +62,17 @@ export function FlowCanvas() {
   const singleKey = useUI((s) => s.singleKey);
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const select = useApp((s) => s.select);
+  // フロー内操作で選んだ選択は「自分側」＝表→フロー追従の中央寄せをしない（次の追従 effect を 1 回だけ抑止）。
+  // フロー内の選択はすべて selectFromFlow 経由にし、このワンショットで origin を区別する（表/パレット等は素の追従）。
+  const suppressFlowCenterRef = useRef(false);
+  const selectFromFlow = (taskId?: string) => {
+    // 実際に別工程へ変わるときだけ抑止フラグを立てる（同工程/解除では追従 effect が走らず
+    // フラグが残留して次の外部選択を誤って抑止するのを防ぐ）。追従 effect が 1 回で消費する。
+    if (taskId !== undefined && taskId !== useApp.getState().selectedTaskId) {
+      suppressFlowCenterRef.current = true;
+    }
+    select(taskId);
+  };
   const moveNode = useApp((s) => s.moveNode);
   const addTaskAt = useApp((s) => s.addTaskAt);
   const addTaskNextTo = useApp((s) => s.addTaskNextTo);
@@ -124,7 +135,7 @@ export function FlowCanvas() {
   // フロー上の I/O 表示（集約アイコン・出所チップ）をクリック → その工程を選択し、詳細パネルの
   // 該当 I/O 項目まで寄せる（追加もそこから既存 UI で。ダブルクリックでの新規工程作成は防ぐ）。
   const openIoInInspector = (taskId: string, io: 'inputs' | 'outputs', ioId?: string) => {
-    select(taskId);
+    selectFromFlow(taskId); // フロー内操作＝自分側。表→フロー中央寄せは抑止
     useUI.getState().setInspectorOpen(true);
     useUI.getState().focusInspectorIo(io, ioId);
   };
@@ -744,18 +755,34 @@ export function FlowCanvas() {
     };
   }, [edgeDrag, view, reconnectEdge]);
 
-  // 選択中の工程が変わったら、対応するフローノードが画面外のとき視点を寄せる（表→フロー追従）。
-  // 'nearest' なので見えている間はスクロールしない＝フロー側の操作で既に見えている時は動かない。
+  // 選択中の工程が変わったら、対応するフローノードが視界外のとき中央へ寄せる（表→フロー追従）。
+  // centerScroll は完全に見えているとき null＝据え置き（フロー側で既に見えていれば動かさない）。
+  // 「選択操作の反対側だけ追従」= フロー内で選んだ選択は selectFromFlow が抑止フラグを立て、この
+  // 追従を 1 回スキップ（自分側は動かさない）。ドラッグ/接続はフロー内操作なので同じ経路で抑止される。
+  // ズームは変えず、退避値と同じ論理座標×scale モデルで scrollLeft/Top を直接指定する（scaleRef で最新倍率）。
   useEffect(() => {
     if (!selectedTaskId || !view) return;
+    if (suppressFlowCenterRef.current) {
+      suppressFlowCenterRef.current = false; // ワンショット消費（残留させない）
+      return;
+    }
     const node = Object.values(view.nodes).find(
       (n) => n.kind === 'task' && n.taskId === selectedTaskId,
     );
     if (!node) return;
+    const el = canvasRef.current;
+    if (!el) return;
     const raf = requestAnimationFrame(() => {
-      document
-        .querySelector(`[data-nodeid="${CSS.escape(node.id)}"]`)
-        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const size = nodeSize(node);
+      const to = centerScroll(
+        { x: node.x, y: node.y, w: size.w, h: size.h },
+        { left: el.scrollLeft, top: el.scrollTop, w: el.clientWidth, h: el.clientHeight },
+        scaleRef.current,
+      );
+      if (to) {
+        el.scrollLeft = to.left;
+        el.scrollTop = to.top;
+      }
     });
     return () => cancelAnimationFrame(raf);
   }, [selectedTaskId, view]);
@@ -817,7 +844,7 @@ export function FlowCanvas() {
   // マイルストーンの菱形を選択（クリック）／未紐付け時は横ドラッグで対象ノードの x を更新（y は不変）。
   // bound（対象工程あり）のときは縦線 x が工程に自動追従するためドラッグ無効＝クリックで選択のみ。
   const selectMs = (taskId: string) => {
-    select(taskId);
+    selectFromFlow(taskId);
     setSel(null);
     setMultiSel(new Set());
   };
@@ -922,7 +949,7 @@ export function FlowCanvas() {
     if (!n) return;
     setMultiSel(new Set());
     if (n.kind === 'task') {
-      select(n.taskId); // インスペクタは開かない(選択のみ)
+      selectFromFlow(n.taskId); // インスペクタは開かない(選択のみ)。自分側＝表→フロー中央寄せは抑止
       setSel(null);
     } else {
       setSel({ kind: 'node', id });
@@ -1996,7 +2023,7 @@ export function FlowCanvas() {
                 // 選択済みノードの再クリック/再 Enter = 詳細パネルを開く(1回目は選択のみ)
                 useUI.getState().setInspectorOpen(true);
               } else {
-                select(n.taskId);
+                selectFromFlow(n.taskId);
               }
               setSel(null);
             } else {
@@ -2521,7 +2548,7 @@ export function FlowCanvas() {
                   <ContextItem
                     label="対象工程を設定…"
                     onClick={() => {
-                      select(taskId);
+                      selectFromFlow(taskId);
                       useUI.getState().setInspectorOpen(true);
                     }}
                   />
