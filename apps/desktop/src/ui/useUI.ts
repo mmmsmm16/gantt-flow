@@ -230,6 +230,9 @@ interface UIState {
   /** As-Is/To-Be 比較機能（比較ボタン・To-Beタブ・シナリオ切替）が有効か。既定 OFF。設定で切替。 */
   tobeEnabled: boolean;
   setTobeEnabled: (enabled: boolean) => void;
+  /** 改善効果サマリ（比較オーバーレイ）を開く。無効時は設定（general）を開き有効化を促す。
+      ショートカット（⌘⇧C）とパレットの両方から呼ぶ共通導線。 */
+  openComparison: () => void;
 
   /** メインのフロー表示シナリオ（As-Is=編集可 / To-Be=改善後を読み取り専用で投影）。ビュー状態。 */
   scenario: 'asis' | 'tobe';
@@ -485,6 +488,17 @@ export const useUI = create<UIState>((set, get) => ({
       overlay: !enabled && s.overlay === 'comparison' ? null : s.overlay,
       scenario: enabled ? s.scenario : 'asis',
     }));
+  },
+  openComparison: () => {
+    const s = get();
+    if (s.tobeEnabled) {
+      s.setOverlay('comparison');
+      return;
+    }
+    // 未有効時は黙って何もしない代わりに、設定で有効化する導線を出す（発見性）。
+    s.setSettingsTab('general');
+    s.setOverlay('settings');
+    s.toast('設定で As-Is / To-Be 比較を有効にしてください', 'info');
   },
 
   scenario: 'asis',

@@ -208,6 +208,9 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
         case 'view.summary':
           ui.setOverlay('summary');
           return true;
+        case 'view.comparison':
+          ui.openComparison(); // 無効時は設定へ誘導（openComparison 内で分岐）
+          return true;
         case 'view.procedure':
           ui.setMainView('procedure');
           return true;
