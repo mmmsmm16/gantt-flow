@@ -7303,6 +7303,21 @@ input.colored-text {
   margin: 0 0 var(--sp-2);
   color: var(--danger);
 }
+.ai-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+/* 副次アクション（設定導線）: アクセント塗りをやめて枠線ボタンに。 */
+.ai-gen-btn.ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ai-gen-btn.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent-strong);
+}
 .ai-empty {
   color: var(--muted);
   font-size: var(--fs-caption);

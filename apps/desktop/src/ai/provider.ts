@@ -49,6 +49,21 @@ export const AI_ERROR_TEXT: Record<AiErrorKind, string> = {
   unknown: '予期しないエラーが発生しました。もう一度お試しください。',
 };
 
+/**
+ * 例外を UI 表示用に写像する。AiError の具体 message（provider が付けた HTTP ステータスや
+ * 「API キーが未設定です」等）を保持し、`AI_ERROR_TEXT[kind]` で握り潰さない（B-01）。
+ * AiError でない例外だけ汎用文言へ寄せる。
+ */
+export function toDisplayError(e: unknown): { text: string; kind: AiErrorKind } {
+  const err = e instanceof AiError ? e : new AiError('unknown', AI_ERROR_TEXT.unknown);
+  return { text: err.message, kind: err.kind };
+}
+
+/** エラー表示に「AI 設定を開く」導線を出すべき種別か（認証エラー・AI 無効）。 */
+export function offersSettings(kind: AiErrorKind): boolean {
+  return kind === 'auth' || kind === 'disabled';
+}
+
 // ---- 提案スキーマ（手書き JSON Schema） ----
 //
 // 注: core の ProposalsSchema は zod v3 で構築されているが、公式 SDK の

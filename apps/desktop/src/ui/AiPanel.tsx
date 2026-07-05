@@ -13,10 +13,11 @@ import { useUI } from './useUI';
 import { cancelEditOnEscape, selectAllOnFocus } from '../inputBehaviors';
 import {
   requestProposals,
-  AiError,
-  AI_ERROR_TEXT,
   MockAiProvider,
+  toDisplayError,
+  offersSettings,
   type AiProvider,
+  type AiErrorKind,
 } from '../ai/provider';
 import { buildAiPreview, type AiPreview } from '../ai/preview';
 import {
@@ -39,6 +40,7 @@ interface AiSessionState {
   progress: string;
   detected: number;
   errorText: string | null;
+  errorKind: AiErrorKind | null;
   rawOps: BatchOp[];
   decisions: DecisionMap;
   edits: EditMap;
@@ -53,7 +55,7 @@ interface AiSessionState {
   startStreaming: () => void;
   onProgress: (chunk: string) => void;
   setGenerated: (rawOps: BatchOp[], preview: AiPreview) => void;
-  fail: (errorText: string) => void;
+  fail: (errorText: string, errorKind: AiErrorKind) => void;
   setDecision: (i: number, state: DecisionState) => void;
   setEdit: (i: number, patch: ProposalEdit) => void;
   beginEdit: (i: number) => void;
@@ -68,6 +70,7 @@ const IDLE = {
   progress: '',
   detected: 0,
   errorText: null,
+  errorKind: null as AiErrorKind | null,
   rawOps: [] as BatchOp[],
   decisions: {} as DecisionMap,
   edits: {} as EditMap,
@@ -93,7 +96,7 @@ export const useAiSession = create<AiSessionState>((set) => ({
     }),
   setGenerated: (rawOps, preview) =>
     set({ rawOps, preview, phase: 'ready', decisions: {}, edits: {}, editingOp: null }),
-  fail: (errorText) => set({ phase: 'error', errorText }),
+  fail: (errorText, errorKind) => set({ phase: 'error', errorText, errorKind }),
   setDecision: (i, state) => set((s) => ({ decisions: { ...s.decisions, [i]: state } })),
   setEdit: (i, patch) =>
     set((s) => ({ edits: { ...s.edits, [i]: { ...s.edits[i], ...patch } }, editingOp: null })),
@@ -162,8 +165,17 @@ async function generate(): Promise<void> {
     const preview = buildAiPreview(app.project, applyEdits(rawOps, {}), app.level, app.scopeParentId);
     useAiSession.getState().setGenerated(rawOps, preview);
   } catch (e) {
-    useAiSession.getState().fail(e instanceof AiError ? AI_ERROR_TEXT[e.kind] : AI_ERROR_TEXT.unknown);
+    // provider の具体 message（HTTP ステータス・未設定案内など）を握り潰さず表示する（B-01）。
+    const { text, kind } = toDisplayError(e);
+    useAiSession.getState().fail(text, kind);
   }
+}
+
+/** エラー表示の「AI 設定を開く」導線: 設定オーバーレイの AI タブを開く（B-01）。 */
+function openAiSettings(): void {
+  const ui = useUI.getState();
+  ui.setSettingsTab('ai');
+  ui.setOverlay('settings');
 }
 
 /** トースト用にエラーメッセージを要約（長すぎる例外文はここで切り詰める）。 */
@@ -207,6 +219,7 @@ export function AiPanel(): JSX.Element {
   const phase = useAiSession((s) => s.phase);
   const detected = useAiSession((s) => s.detected);
   const errorText = useAiSession((s) => s.errorText);
+  const errorKind = useAiSession((s) => s.errorKind);
   const preview = useAiSession((s) => s.preview);
   const decisions = useAiSession((s) => s.decisions);
   const edits = useAiSession((s) => s.edits);
@@ -332,9 +345,16 @@ export function AiPanel(): JSX.Element {
         {phase === 'error' && (
           <div className="ai-error" role="alert">
             <p>{errorText}</p>
-            <button type="button" className="ai-gen-btn" onClick={() => void generate()}>
-              再生成
-            </button>
+            <div className="ai-error-actions">
+              <button type="button" className="ai-gen-btn" onClick={() => void generate()}>
+                再生成
+              </button>
+              {errorKind !== null && offersSettings(errorKind) && (
+                <button type="button" className="ai-gen-btn ghost" onClick={openAiSettings}>
+                  AI 設定を開く
+                </button>
+              )}
+            </div>
           </div>
         )}
 

@@ -7,7 +7,16 @@ import type { Project } from '@gantt-flow/core';
 import { BatchOpSchema } from '@gantt-flow/core';
 import { useUI } from '../src/ui/useUI';
 import { saveProviderSettings, setApiKey } from '../src/ai/config';
-import { requestProposals, MockAiProvider, AiError, PROPOSALS_JSON_SCHEMA, type AiProvider } from '../src/ai/provider';
+import {
+  requestProposals,
+  MockAiProvider,
+  AiError,
+  AI_ERROR_TEXT,
+  toDisplayError,
+  offersSettings,
+  PROPOSALS_JSON_SCHEMA,
+  type AiProvider,
+} from '../src/ai/provider';
 
 // --- node 環境用の localStorage シム ---
 class MemStorage {
@@ -281,6 +290,37 @@ describe('MockAiProvider / providerOverride', () => {
     expect(ops).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(h.ctor).not.toHaveBeenCalled();
+  });
+});
+
+describe('toDisplayError / offersSettings（B-01: エラー文言の握り潰し解消 + 設定導線）', () => {
+  it('AiError の具体 message を保持し、AI_ERROR_TEXT[kind] で握り潰さない', () => {
+    const specific = 'API に接続できませんでした（HTTP 503）';
+    const info = toDisplayError(new AiError('unknown', specific));
+    expect(info.text).toBe(specific);
+    expect(info.text).not.toBe(AI_ERROR_TEXT.unknown);
+    expect(info.kind).toBe('unknown');
+  });
+
+  it('未設定案内（cfg===null の具体文言）も保持する', () => {
+    const msg = 'API キーが未設定です。設定から AI プロバイダのキーを入力してください。';
+    expect(toDisplayError(new AiError('unknown', msg)).text).toBe(msg);
+  });
+
+  it('AiError でない例外は汎用文言（unknown）へ寄せる', () => {
+    const info = toDisplayError(new TypeError('boom'));
+    expect(info.text).toBe(AI_ERROR_TEXT.unknown);
+    expect(info.kind).toBe('unknown');
+  });
+
+  it('offersSettings は auth / disabled にだけ設定導線を出す', () => {
+    expect(offersSettings('auth')).toBe(true);
+    expect(offersSettings('disabled')).toBe(true);
+    expect(offersSettings('rateLimit')).toBe(false);
+    expect(offersSettings('connection')).toBe(false);
+    expect(offersSettings('schema')).toBe(false);
+    expect(offersSettings('refusal')).toBe(false);
+    expect(offersSettings('unknown')).toBe(false);
   });
 });
 
