@@ -125,7 +125,7 @@ describe('requestProposals: プロバイダ設定なし（cfg===null）', () => 
     setApiKey('anthropic', '', false); // メモリ・localStorage 双方とも未設定にする（空文字は falsy）
 
     await expect(requestProposals(req())).rejects.toBeInstanceOf(AiError);
-    await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'unknown' });
+    await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'unconfigured' });
     expect(h.ctor).not.toHaveBeenCalled();
   });
 });
@@ -340,9 +340,12 @@ describe('toDisplayError / offersSettings（B-01: エラー文言の握り潰し
     expect(info.kind).toBe('unknown');
   });
 
-  it('未設定案内（cfg===null の具体文言）も保持する', () => {
+  it('未設定案内（cfg===null の具体文言）も保持し、設定導線を出す', () => {
     const msg = 'API キーが未設定です。設定から AI プロバイダのキーを入力してください。';
-    expect(toDisplayError(new AiError('unknown', msg)).text).toBe(msg);
+    const info = toDisplayError(new AiError('unconfigured', msg));
+    expect(info.text).toBe(msg);
+    expect(info.kind).toBe('unconfigured');
+    expect(offersSettings(info.kind)).toBe(true);
   });
 
   it('AiError でない例外は汎用文言（unknown）へ寄せる', () => {
@@ -351,9 +354,10 @@ describe('toDisplayError / offersSettings（B-01: エラー文言の握り潰し
     expect(info.kind).toBe('unknown');
   });
 
-  it('offersSettings は auth / disabled にだけ設定導線を出す', () => {
+  it('offersSettings は auth / disabled / unconfigured に設定導線を出す', () => {
     expect(offersSettings('auth')).toBe(true);
     expect(offersSettings('disabled')).toBe(true);
+    expect(offersSettings('unconfigured')).toBe(true);
     expect(offersSettings('rateLimit')).toBe(false);
     expect(offersSettings('connection')).toBe(false);
     expect(offersSettings('schema')).toBe(false);

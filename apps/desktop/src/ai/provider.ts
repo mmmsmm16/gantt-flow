@@ -22,6 +22,7 @@ export type { ProposalRequest } from './prompt';
 
 export type AiErrorKind =
   | 'disabled'
+  | 'unconfigured'
   | 'auth'
   | 'rateLimit'
   | 'connection'
@@ -41,6 +42,7 @@ export class AiError extends Error {
 // UI 文言（日本語・再生成可否を含む）。
 export const AI_ERROR_TEXT: Record<AiErrorKind, string> = {
   disabled: 'AI アシストは無効です。設定から有効にしてください。',
+  unconfigured: 'API キーが未設定です。設定から AI プロバイダのキーを入力してください。',
   auth: 'API キーが正しくありません。設定を確認してから、もう一度お試しください。',
   rateLimit: 'API の利用上限に達しました。しばらく待ってから再生成してください。',
   connection: 'API に接続できませんでした。ネットワークを確認して再生成してください。',
@@ -59,9 +61,9 @@ export function toDisplayError(e: unknown): { text: string; kind: AiErrorKind } 
   return { text: err.message, kind: err.kind };
 }
 
-/** エラー表示に「AI 設定を開く」導線を出すべき種別か（認証エラー・AI 無効）。 */
+/** エラー表示に「AI 設定を開く」導線を出すべき種別か（認証エラー・AI 無効・未設定）。 */
 export function offersSettings(kind: AiErrorKind): boolean {
-  return kind === 'auth' || kind === 'disabled';
+  return kind === 'auth' || kind === 'disabled' || kind === 'unconfigured';
 }
 
 // ---- 提案スキーマ（手書き JSON Schema） ----
@@ -349,7 +351,7 @@ export async function requestProposals(
   if (!provider) {
     const cfg = loadProviderConfig();
     if (cfg === null) {
-      throw new AiError('unknown', 'API キーが未設定です。設定から AI プロバイダのキーを入力してください。');
+      throw new AiError('unconfigured', AI_ERROR_TEXT.unconfigured);
     }
     provider = createProvider(cfg);
   }
