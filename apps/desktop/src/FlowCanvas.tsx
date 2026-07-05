@@ -949,8 +949,11 @@ export function FlowCanvas() {
     const s = clampScale(Math.min(1, scroller.clientWidth / contentW, scroller.clientHeight / contentH));
     setScale(s);
     requestAnimationFrame(() => {
-      scroller.scrollLeft = Math.max(0, (minX - pad) * s);
-      scroller.scrollTop = Math.max(0, (minY - pad) * s);
+      // 内容の外接矩形の中心をビューポート中心へ合わせる（上寄せ/左寄せをやめて中央に置く）。
+      const cx = ((minX + maxX) / 2) * s;
+      const cy = ((minY + maxY) / 2) * s;
+      scroller.scrollLeft = Math.max(0, cx - scroller.clientWidth / 2);
+      scroller.scrollTop = Math.max(0, cy - scroller.clientHeight / 2);
     });
   };
 

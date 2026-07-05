@@ -608,6 +608,16 @@ button.danger:hover {
   font-size: var(--fs-body);
   padding: 12px 4px;
 }
+.empty-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.empty-cta .empty-actions {
+  display: flex;
+  gap: 8px;
+}
 
 /* ---- Outline table ---- */
 .outline {

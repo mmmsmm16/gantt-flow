@@ -518,7 +518,15 @@ export function TableView() {
         findActive ? (
           <p className="empty">「{findQuery}」に一致する工程がありません。</p>
         ) : (
-          <p className="empty">「＋ 大工程」または「＋ 中工程」から作業を追加してください。</p>
+          <div className="empty empty-cta">
+            <p>まだ工程がありません。最初の作業を追加しましょう。</p>
+            <div className="empty-actions">
+              <button className="primary" onClick={() => addRootAndEdit('large')}>
+                ＋ 大工程を追加
+              </button>
+              <button onClick={() => addRootAndEdit('medium')}>＋ 中工程を追加</button>
+            </div>
+          </div>
         )
       ) : (
         <>
