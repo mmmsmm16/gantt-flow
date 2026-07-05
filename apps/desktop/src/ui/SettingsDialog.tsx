@@ -191,7 +191,7 @@ export function SettingsDialog() {
                 テーマ・シングルキー操作・ショートカットのカスタマイズ・表の列設定を
                 1 つの JSON ファイルとして保存し、別の PC やメンバーに引き継げます。
               </p>
-              <div className="settings-actions">
+              <div className="modal-actions">
                 <button
                   className="primary"
                   onClick={() => {

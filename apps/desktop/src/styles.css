@@ -4743,26 +4743,7 @@ input.colored-text {
   color: var(--faint);
   margin-top: 10px;
 }
-.settings-actions {
-  display: flex;
-  gap: 8px;
-}
-.settings-actions button {
-  font-size: var(--fs-body);
-  padding: 8px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  cursor: pointer;
-}
-.settings-actions button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-.settings-actions button:hover {
-  filter: brightness(1.05);
-}
+/* 設定の操作行は共通の .modal-actions（右寄せ・基底ボタンサイズ）を再利用する。 */
 /* ショートカットエディタ（タブ内） */
 .keybind-note {
   margin: 0 0 10px;
