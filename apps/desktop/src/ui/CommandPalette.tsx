@@ -298,6 +298,7 @@ function PaletteBody(handlers: FileHandlers) {
   const markedCount = useUI((s) => s.markedTaskIds.length);
   // 改善効果レポート系コマンドの表示ゲート（比較ボタン/メニューと同じ条件）。
   const tobeEnabled = useUI((s) => s.tobeEnabled);
+  const aiEnabled = useUI((s) => s.aiEnabled);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   // 引数モード: 選択中のコマンド（null=コマンド一覧）。Esc / 空欄 Backspace で一覧へ戻る。
@@ -832,12 +833,33 @@ function PaletteBody(handlers: FileHandlers) {
       // 改善効果サマリ（As-Is / To-Be 比較）。tobeEnabled でなくても常時表示し、無効時は設定へ誘導。
       { id: 'comparison', label: '改善効果サマリを開く（As-Is / To-Be 比較）', keywords: 'comparison hikaku 比較 改善 効果 as-is to-be トゥービー アズイズ サマリ 削減', hint: '⌘⇧C', run: () => ui.openComparison() },
       { id: 'help', label: 'ショートカット一覧', keywords: 'help shortcut ヘルプ', hint: '?', run: () => ui.setOverlay('help') },
+      {
+        id: 'ai-assist',
+        label: 'AI アシスト（メモから提案）',
+        keywords: 'ai assist teian 提案 メモ 生成 アシスト ヒアリング sparkle',
+        available: aiEnabled,
+        run: () => {
+          ui.setAiPanelMode({ kind: 'batch' });
+          ui.setAiPanelOpen(true);
+        },
+      },
+      {
+        // 無効時は項目ごと消えると発見できないため、有効化への導線を代わりに出す（C-03）。
+        id: 'ai-enable',
+        label: 'AI アシストを有効にする…（設定を開く）',
+        keywords: 'ai assist teian 提案 生成 アシスト 有効 設定 enable sparkle',
+        available: !aiEnabled,
+        run: () => {
+          ui.setSettingsTab('ai');
+          ui.setOverlay('settings');
+        },
+      },
       { id: 'settings-open', label: '設定を開く', keywords: 'settings settei 設定 環境設定 preferences', hint: '⌘,', run: () => { ui.setSettingsTab('general'); ui.setOverlay('settings'); } },
       { id: 'keybindings', label: 'ショートカット設定（キーの変更）', keywords: 'keybind shortcut settei ショートカット 設定 カスタマイズ キー vim', run: () => { ui.setSettingsTab('keys'); ui.setOverlay('settings'); } },
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },
     ];
-  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles, tobeEnabled]);
+  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles, tobeEnabled, aiEnabled]);
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 

@@ -91,6 +91,7 @@ export const ACTION_CLASS: Record<string, ActionClass> = {
   copyAsIsToToBe: 'forward',
   copyAsIsToToBeMany: 'forward',
   addToBeTask: 'forward',
+  applyApprovedBatch: 'forward',
   // --- 手順書（manual）ミューテータ ---
   upsertProcedurePurpose: 'forward',
   addStep: 'forward',

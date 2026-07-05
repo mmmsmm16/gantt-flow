@@ -38,6 +38,9 @@ import {
   addStep,
   removeStep,
   upsertAsset,
+  runBatch,
+  BatchOpSchema,
+  type BatchOp,
   type Project,
   type TaskDetailPatch,
   type TaskDetailToBe,
@@ -67,7 +70,6 @@ import {
   setLaneHeight,
   autoLayout,
 } from './geometry.js';
-import { runBatch, type BatchOp } from './batch.js';
 import { formatAudit } from './audit.js';
 import { formatCriticalPath, formatAutomationCandidates, formatWorkload } from './analysis.js';
 
@@ -83,8 +85,7 @@ const Phase = z.enum(['asis', 'tobe']);
 const AssigneeKind = z.enum(['person', 'department']);
 const OrientationEnum = z.enum(['horizontal', 'vertical']);
 
-// apply_batch の op スキーマ（議事録等からの一括構築）。task/parent/from/to は「この一括で作る工程の
-// ref(エイリアス)」か「既存 taskId」。assignee は名前指定可（無ければ部署として自動作成）。
+// apply_batch の op スキーマ（BatchOpSchema）は @gantt-flow/core へ一元化済み（import 済み）。
 const DetailPatchShape = z.object({
   how: z.string().optional(),
   system: z.string().optional(),
@@ -99,36 +100,6 @@ const DetailPatchShape = z.object({
   difficulty: Difficulty.optional(),
   status: Status.optional(),
 });
-const TobePatchShape = z.object({
-  effortMinutes: z.number().nonnegative().optional(),
-  ltDays: z.number().nonnegative().optional(),
-  difficulty: Difficulty.optional(),
-  automation: Automation.optional(),
-  rationale: z.string().optional(),
-  lifecycle: z.enum(['added', 'removed']).optional(),
-  assigneeId: z.string().optional(),
-});
-const BatchOpSchema = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('add_task'), ref: z.string().optional(), name: z.string(), level: Level, parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない') }),
-  z.object({ op: z.literal('upsert_task'), ref: z.string().optional(), name: z.string(), level: Level.optional(), parent: z.string().optional(), assignee: z.string().optional(), assigneeId: z.string().optional(), kind: z.enum(['milestone']).optional().describe('節目マーカー。子・出依存・工数を持たない。新規作成時のみ適用、既存工程の kind は変更しない') }),
-  z.object({ op: z.literal('add_dependency'), from: z.string(), to: z.string() }),
-  z.object({ op: z.literal('set_detail'), task: z.string(), patch: DetailPatchShape }),
-  z.object({ op: z.literal('set_tobe'), task: z.string(), patch: TobePatchShape }),
-  z.object({ op: z.literal('add_io'), task: z.string(), io: z.enum(['inputs', 'outputs']), name: z.string(), kind: IoKind, formInfo: z.string().optional(), source: z.string().optional() }),
-  z.object({ op: z.literal('add_issue'), task: z.string(), issue: z.string(), measure: z.string().optional() }),
-  z.object({ op: z.literal('set_procedure'), task: z.string(), purpose: z.string().optional() }),
-  z.object({ op: z.literal('add_step'), task: z.string(), action: z.string(), why: z.string().optional(), bodyMd: z.string().optional() }),
-  z.object({
-    op: z.literal('upsert_asset'),
-    ref: z.string().optional(),
-    id: z.string().optional(),
-    name: z.string(),
-    desc: z.string().optional(),
-    alias: z.string().optional(),
-    relPath: z.string().optional(),
-    url: z.string().optional(),
-  }),
-]);
 
 function text(s: string): CallToolResult {
   return { content: [{ type: 'text', text: s }] };
@@ -243,7 +214,7 @@ export function registerTools(server: McpServer, ws: Workspace): void {
     ({ operations, dryRun }) =>
       run(async () => {
         const s = ws.current();
-        const result = runBatch(s.project, operations as unknown as BatchOp[]);
+        const result = runBatch(s.project, operations as unknown as BatchOp[], uuid, new Date().toISOString());
         const c = result.created;
         const head = `工程${c.tasks} 依存${c.dependencies} 担当${c.assignees} 入出力${c.ios} 課題${c.issues}`;
         const warn = result.warnings.length ? `\n警告:\n- ${result.warnings.join('\n- ')}` : '';
@@ -282,7 +253,7 @@ export function registerTools(server: McpServer, ws: Workspace): void {
           { op: 'upsert_task', ref: '_t', name, level, parent: parentId, assignee, assigneeId, kind },
         ];
         if (detail && Object.keys(detail).length) ops.push({ op: 'set_detail', task: '_t', patch: detail });
-        const result = runBatch(s.project, ops);
+        const result = runBatch(s.project, ops, uuid, new Date().toISOString());
         await s.apply(() => result.project);
         const id = result.aliases['_t']!;
         return `upsert 完了。\n${formatTaskDetail(s.project, id)}`;

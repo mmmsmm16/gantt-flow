@@ -8,6 +8,9 @@ import { loadOverrides, saveOverrides, type Chord, type KeymapOverrides } from '
 
 export const SETTINGS_VERSION = 1;
 
+// ⚠️ セキュリティ規律: この SettingsFile（エクスポート/インポート）には **AI の API キーを
+// 一切含めない**。キーの存在場所は `ai/config.ts` のセッションメモリと `gf-ai-key-*` localStorage
+// だけで、collectSettings() の出力にも Project にも入れない（test/settings.test.ts で固定）。
 export interface SettingsFile {
   app: 'gantt-flow';
   kind: 'settings';

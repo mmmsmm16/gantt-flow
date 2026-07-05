@@ -1,0 +1,526 @@
+// フロー上の仮ノード承認（主戦場・モック §3）。
+//
+// preview.view（reconcile+tidy 済みの FlowLevelView）を既存フローと同じスイムレーン幾何で描き、
+// nodeMap 経由で各ノード/エッジを提案 op に紐付けて decision 状態で 6 状態のスタイルに分岐する
+// （既存=減光 / 仮=琥珀破線 / 承認=緑実線 / 否認=打消し / 無効=減光＋理由 / 修正中=アクセント破線＋input）。
+// 描画は MirrorView（軽量 SVG）/ FlowCompareView（SVG エッジ＋絶対配置 HTML ノード）の前例に倣う。
+//
+// カードリスト（AiPanel）と**同一の decisions/edits**（useAiSession）を共有するため、フローで承認
+// すればカードも即同期し、逆も同様。却下波及は resolveApproved の disabled をフロー上でも即反映する。
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  laneLayout,
+  lanesBottom,
+  nodeSize,
+  routeEdge,
+  type BatchOp,
+  type FlowNode,
+  type Id,
+} from '@gantt-flow/core';
+import { cancelEditOnEscape, selectAllOnFocus } from '../inputBehaviors';
+import {
+  resolveApproved,
+  applyEdits,
+  type DecisionMap,
+  type DecisionState,
+  type EditMap,
+  type ProposalEdit,
+} from '../ai/decisions';
+import type { AiPreview } from '../ai/preview';
+import { useAiSession } from './AiPanel';
+import { useUI } from './useUI';
+
+export type PreviewNodeStatus =
+  | 'existing'
+  | 'tentative'
+  | 'approved'
+  | 'rejected'
+  | 'invalid'
+  | 'editing';
+
+export interface AiFlowPreviewProps {
+  preview: AiPreview;
+  decisions: DecisionMap;
+  edits: EditMap;
+  editingOp: number | null;
+  /** 承認/否認（カードと同一ハンドラ）。 */
+  onDecide: (opIndex: number, state: DecisionState) => void;
+  /** ✎ 修正（インライン input を開く）。 */
+  onBeginEdit: (opIndex: number) => void;
+  /** onBlur / Enter で名称（担当）を確定。 */
+  onCommitEdit: (opIndex: number, patch: ProposalEdit) => void;
+  /** Escape でインライン修正を取り消す。 */
+  onCancelEdit: () => void;
+  /** 非フロー系提案のバッジから対象カードへジャンプ（任意・未指定なら no-op）。 */
+  onFocusCard?: (opIndex: number) => void;
+}
+
+const LEVEL_LABEL: Record<string, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
+
+// レーン幾何（flowSvg と同じ定数）。ノード x/y は reconcile+tidy が確定済み。
+const BAND_TOP = 24; // = LANE_TOP_Y
+const LABEL_W = 96;
+const PAD = 48;
+
+/** 提案 op の表示ステータス（decisions + resolveApproved の disabled + 修正中から純導出）。 */
+export function nodeStatusOf(
+  opIndex: number,
+  decisions: DecisionMap,
+  disabled: Map<number, string>,
+  editingOp: number | null,
+): PreviewNodeStatus {
+  if (editingOp === opIndex) return 'editing';
+  if (disabled.has(opIndex)) return 'invalid';
+  const d = decisions[opIndex] ?? 'pending';
+  if (d === 'approved') return 'approved';
+  if (d === 'rejected') return 'rejected';
+  return 'tentative';
+}
+
+const STATUS_BADGE: Record<Exclude<PreviewNodeStatus, 'existing'>, { cls: string; text: string }> = {
+  tentative: { cls: 'k', text: '仮' },
+  approved: { cls: 'ok', text: '✓承認済' },
+  rejected: { cls: 'no', text: '✕否認' },
+  invalid: { cls: 'inv', text: '—無効' },
+  editing: { cls: 'ed', text: '✎修正中' },
+};
+
+/** 提案 op を一言で説明（ポップオーバーの理由文＋修正中ノードの AI 案併記に使う）。 */
+function describeOp(o: BatchOp): string {
+  switch (o.op) {
+    case 'add_task':
+    case 'upsert_task':
+      return `「${o.name || '(無題)'}」${o.assignee ? ` ・ ${o.assignee}` : ''}（${LEVEL_LABEL[o.level ?? 'medium'] ?? ''}工程）`;
+    case 'add_dependency':
+      return `前後関係: ${o.from} → ${o.to}`;
+    default:
+      return '提案';
+  }
+}
+
+const NONFLOW_LABEL: Partial<Record<BatchOp['op'], string>> = {
+  set_procedure: '手順書',
+  add_step: '手順',
+  add_issue: '課題',
+  set_detail: '詳細',
+  set_tobe: 'To-Be',
+};
+
+/**
+ * フロー上の仮ノード承認プレビュー（純表示・props 駆動でテスト可能）。接続版は AiFlowOverlay。
+ */
+export function AiFlowPreview(props: AiFlowPreviewProps): JSX.Element {
+  const { preview, decisions, edits, editingOp, onDecide, onBeginEdit, onCommitEdit, onCancelEdit } = props;
+  const view = preview.view;
+  const nodeMap = preview.nodeMap;
+
+  // クリックで開いている仮ノードのポップオーバー（op index）。編集開始/外側クリック/Escape で閉じる。
+  const [openOp, setOpenOp] = useState<number | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const escCancel = useRef(false);
+
+  // 編集を畳み込んだ ops（表示ラベル）と、却下波及（無効化理由）を共有ロジックから導出。
+  const editedOps = useMemo(() => applyEdits(preview.ops, edits), [preview.ops, edits]);
+  const { disabled } = useMemo(() => resolveApproved(editedOps, decisions), [editedOps, decisions]);
+
+  // taskId -> それを生成する add_task/upsert_task の op index（＝提案ノード判定の唯一の根拠）。
+  const creatorOpOf = useMemo(() => {
+    const m = new Map<Id, number>();
+    preview.ops.forEach((o, i) => {
+      if (o.op === 'add_task' || o.op === 'upsert_task') {
+        const tid = nodeMap.opToTaskId.get(i);
+        if (tid) m.set(tid, i);
+      }
+    });
+    return m;
+  }, [preview.ops, nodeMap]);
+
+  // add_dependency の [from,to] -> op index（エッジを提案 op に紐付ける）。
+  const edgeOpOf = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [i, [f, t]] of nodeMap.edgeOps) m.set(`${f} ${t}`, i);
+    return m;
+  }, [nodeMap]);
+
+  // taskId -> 非フロー系提案 op（対象工程に「存在」を示す小バッジ）。
+  const nonFlowOf = useMemo(() => {
+    const m = new Map<Id, number[]>();
+    for (const i of nodeMap.nonFlowOps) {
+      const tid = nodeMap.opToTaskId.get(i);
+      if (!tid) continue; // 資料台帳等・対象工程を持たない op はフローに描かない（カードのみ）
+      (m.get(tid) ?? m.set(tid, []).get(tid)!).push(i);
+    }
+    return m;
+  }, [nodeMap]);
+
+  const statusOfTask = (tid: Id): PreviewNodeStatus => {
+    const op = creatorOpOf.get(tid);
+    return op === undefined ? 'existing' : nodeStatusOf(op, decisions, disabled, editingOp);
+  };
+
+  // 外側クリック / Escape でポップオーバーを閉じる（read-only オーバーレイ・編集操作と競合しない）。
+  useEffect(() => {
+    if (openOp === null) return;
+    const onDown = (e: PointerEvent) => {
+      const el = e.target as HTMLElement | null;
+      // 提案ノード（[data-ai-hit]）/ ポップオーバー内は維持。.fnode 全体だと既存工程
+      // （.fnode.existing 等・提案外）にもマッチして、それらをクリックしてもポップオーバーが
+      // 残ってしまう（レビュー指摘）ため、クリック可能な提案ノードにだけ付く属性で絞る。
+      if (el && el.closest('.fpop, [data-ai-hit]')) return;
+      setOpenOp(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpenOp(null);
+      }
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [openOp]);
+
+  // 幾何（view にのみ依存）。ノードは reconcile+tidy 済み座標をそのまま使う。
+  const geom = useMemo(() => {
+    const nodes = Object.values(view.nodes);
+    const hasLanes = view.level !== 'large';
+    const boxes = laneLayout(view.lanes);
+    let maxX = 480;
+    let maxY = 240;
+    for (const n of nodes) {
+      if (n.kind === 'doc') continue;
+      const s = nodeSize(n);
+      maxX = Math.max(maxX, n.x + s.w);
+      maxY = Math.max(maxY, n.y + s.h);
+    }
+    if (hasLanes) maxY = Math.max(maxY, lanesBottom(view.lanes));
+    // エッジは task/control ノードを障害物にして直角配線（画面/SVG と同じ routeEdge）。
+    const obstacles = nodes
+      .filter((n) => n.kind === 'task' || n.kind === 'control' || n.kind === 'comment')
+      .map((n) => ({ id: n.id, x: n.x, y: n.y, ...nodeSize(n) }));
+    const edges = Object.values(view.edges)
+      .filter((e) => e.role !== 'ioLink')
+      .map((e) => {
+        const s = view.nodes[e.source];
+        const t = view.nodes[e.target];
+        if (!s || !t || s.kind === 'doc' || t.kind === 'doc') return null;
+        const ss = nodeSize(s);
+        const ts = nodeSize(t);
+        const route = routeEdge(
+          { x: s.x, y: s.y, w: ss.w, h: ss.h },
+          { x: t.x, y: t.y, w: ts.w, h: ts.h },
+          obstacles.filter((o) => o.id !== e.source && o.id !== e.target),
+        );
+        return { id: e.id, source: s, target: t, d: route.d, label: route.label };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const taskNodes = nodes.filter((n): n is Extract<FlowNode, { kind: 'task' }> => n.kind === 'task');
+    const controlNodes = nodes.filter(
+      (n): n is Extract<FlowNode, { kind: 'control' }> => n.kind === 'control',
+    );
+    return {
+      hasLanes,
+      boxes,
+      edges,
+      taskNodes,
+      controlNodes,
+      width: maxX + PAD,
+      height: maxY + PAD,
+    };
+  }, [view]);
+
+  const controlLabel: Record<string, string> = { start: '開始', end: '終了', decision: '判断', merge: '合流' };
+
+  // 未確定件数（未判定+承認の仮ノード）。
+  const tentCount = useMemo(() => {
+    let n = 0;
+    for (const tid of creatorOpOf.keys()) {
+      const st = statusOfTask(tid);
+      if (st === 'tentative' || st === 'approved' || st === 'editing') n++;
+    }
+    return n;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creatorOpOf, decisions, disabled, editingOp]);
+
+  const edgeStatusOf = (from: FlowNode, to: FlowNode): PreviewNodeStatus => {
+    const fTid = from.kind === 'task' ? from.taskId : undefined;
+    const tTid = to.kind === 'task' ? to.taskId : undefined;
+    const fSt = fTid ? statusOfTask(fTid) : 'existing';
+    const tSt = tTid ? statusOfTask(tTid) : 'existing';
+    const bad = (s: PreviewNodeStatus) => s === 'rejected' || s === 'invalid';
+    const op = fTid && tTid ? edgeOpOf.get(`${fTid} ${tTid}`) : undefined;
+    if (op !== undefined) {
+      const os = nodeStatusOf(op, decisions, disabled, editingOp);
+      if (bad(os) || bad(fSt) || bad(tSt)) return 'invalid';
+      if (os === 'approved') return 'approved';
+      return 'tentative';
+    }
+    if (bad(fSt) || bad(tSt)) return 'invalid';
+    return 'existing';
+  };
+
+  const markerFor = (st: PreviewNodeStatus): string =>
+    st === 'approved' ? 'ar-green' : st === 'tentative' ? 'ar-amber' : 'ar-faint';
+
+  return (
+    <div className="aifp" ref={rootRef} role="group" aria-label="AI 提案フロープレビュー">
+      <div className="flow-toolbar">
+        <span className="aifp-title">AI 提案プレビュー</span>
+        <span className="prov-tent-count">仮のプロセス {tentCount} 個（未確定）</span>
+        <span className="flow-legend" aria-label="凡例">
+          <span className="lg"><span className="sw existing" />既存</span>
+          <span className="lg"><span className="sw tentative" />仮</span>
+          <span className="lg"><span className="sw approved" />承認済</span>
+          <span className="lg"><span className="sw rejected" />否認</span>
+          <span className="lg"><span className="sw invalid" />無効</span>
+        </span>
+      </div>
+
+      <div className="aifp-scroll">
+        <div className="aifp-canvas" style={{ width: geom.width, height: geom.height }}>
+          <svg className="aifp-svg" width={geom.width} height={geom.height} aria-hidden="true">
+            <defs>
+              {(['ar-amber', 'ar-green', 'ar-faint'] as const).map((id) => (
+                <marker
+                  key={id}
+                  id={id}
+                  markerWidth="9"
+                  markerHeight="9"
+                  refX="7.5"
+                  refY="3"
+                  orient="auto"
+                >
+                  <path
+                    d="M0,0 L7,3 L0,6 z"
+                    fill={id === 'ar-green' ? 'var(--ok)' : id === 'ar-amber' ? 'var(--amber)' : 'var(--edge)'}
+                  />
+                </marker>
+              ))}
+            </defs>
+
+            {/* スイムレーン（帯・区切り線・ラベル列）。担当レーンが無い大粒度では描かない。 */}
+            {geom.hasLanes && (
+              <g className="aifp-lanes">
+                {geom.boxes.map((b, i) => (
+                  <g key={b.lane.id}>
+                    {i % 2 === 1 && (
+                      <rect x={LABEL_W} y={b.top} width={geom.width - LABEL_W} height={b.height} className="aifp-lane-stripe" />
+                    )}
+                    <line x1={0} y1={b.top} x2={geom.width} y2={b.top} className="aifp-lane-line" />
+                    <text x={LABEL_W / 2} y={b.top + b.height / 2 + 4} className="aifp-lane-title" textAnchor="middle">
+                      {b.lane.title}
+                    </text>
+                  </g>
+                ))}
+                <rect x={0} y={BAND_TOP} width={LABEL_W} height={lanesBottom(view.lanes) - BAND_TOP} className="aifp-lane-col" />
+                <line x1={LABEL_W} y1={BAND_TOP} x2={LABEL_W} y2={lanesBottom(view.lanes)} className="aifp-lane-divider" />
+                <line x1={0} y1={lanesBottom(view.lanes)} x2={geom.width} y2={lanesBottom(view.lanes)} className="aifp-lane-line" />
+              </g>
+            )}
+
+            {/* エッジ（両端の状態で色/線種）。無効エッジには「無効」ラベルを添える。 */}
+            {geom.edges.map((e) => {
+              const st = edgeStatusOf(e.source, e.target);
+              return (
+                <g key={e.id}>
+                  <path d={e.d} className={`fedge ${st}`} markerEnd={`url(#${markerFor(st)})`} />
+                  {st === 'invalid' && (
+                    <text x={e.label.x} y={e.label.y - 4} className="fedge-label" textAnchor="middle">
+                      無効
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* 制御ノード（開始/終了/判断）は文脈用に控えめ表示（既存＝減光）。 */}
+          {geom.controlNodes.map((n) => {
+            const s = nodeSize(n);
+            return (
+              <div
+                key={n.id}
+                className="fnode-control"
+                style={{ left: n.x, top: n.y, width: s.w, height: s.h }}
+                title={controlLabel[n.control]}
+              >
+                {controlLabel[n.control]}
+              </div>
+            );
+          })}
+
+          {/* 工程ノード（6 状態）。提案ノードのみクリックでポップオーバー／修正。 */}
+          {geom.taskNodes.map((n) => {
+            const s = nodeSize(n);
+            const creatorOp = creatorOpOf.get(n.taskId);
+            const isProposal = creatorOp !== undefined;
+            const status = isProposal ? nodeStatusOf(creatorOp!, decisions, disabled, editingOp) : 'existing';
+            const editing = status === 'editing';
+            const origOp = creatorOp !== undefined ? preview.ops[creatorOp] : undefined;
+            const editedOp = creatorOp !== undefined ? editedOps[creatorOp] : undefined;
+            const name =
+              (editedOp && (editedOp as { name?: string }).name) ||
+              preview.result.project.core.tasks[n.taskId]?.name ||
+              '(無題)';
+            const nfOps = nonFlowOf.get(n.taskId) ?? [];
+            const reason = creatorOp !== undefined ? disabled.get(creatorOp) : undefined;
+            const badge = status !== 'existing' ? STATUS_BADGE[status] : null;
+
+            return (
+              <div
+                key={n.id}
+                className={`fnode ${status}`}
+                data-ai-hit={isProposal ? '' : undefined}
+                style={{ left: n.x, top: n.y, width: s.w, height: s.h }}
+                onClick={
+                  isProposal && !editing
+                    ? (e) => {
+                        e.stopPropagation();
+                        setOpenOp((cur) => (cur === creatorOp ? null : creatorOp!));
+                      }
+                    : undefined
+                }
+                title={reason ?? undefined}
+                role={isProposal ? 'button' : undefined}
+                tabIndex={isProposal && !editing ? 0 : undefined}
+                onKeyDown={
+                  isProposal && !editing
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setOpenOp((cur) => (cur === creatorOp ? null : creatorOp!));
+                        }
+                      }
+                    : undefined
+                }
+              >
+                {badge && <span className={`fbadge ${badge.cls}`}>{badge.text}</span>}
+                {nfOps.length > 0 && (
+                  <button
+                    type="button"
+                    className="fnode-nf"
+                    title={`${nfOps.map((i) => NONFLOW_LABEL[preview.ops[i]!.op] ?? '提案').join(' / ')}（カードで判定）`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onFocusCard?.(nfOps[0]!);
+                    }}
+                  >
+                    ＋{nfOps.length}
+                  </button>
+                )}
+
+                {editing ? (
+                  <>
+                    <input
+                      className="node-input"
+                      autoFocus
+                      defaultValue={name}
+                      aria-label="工程名を修正"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape' && !e.nativeEvent.isComposing) escCancel.current = true;
+                        cancelEditOnEscape(e);
+                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      }}
+                      {...selectAllOnFocus}
+                      onBlur={(e) => {
+                        if (escCancel.current) {
+                          escCancel.current = false;
+                          onCancelEdit();
+                        } else {
+                          onCommitEdit(creatorOp!, { name: e.target.value });
+                        }
+                      }}
+                    />
+                    {origOp && (
+                      <span className="node-hint">AI 案: {(origOp as { name?: string }).name || '(無題)'}</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="fnode-name">{name}</span>
+                    {reason && <span className="fnode-reason">{reason}</span>}
+                  </>
+                )}
+
+                {openOp === creatorOp && creatorOp !== undefined && !editing && (
+                  <div className="fpop" role="dialog" aria-label="提案の承認" onClick={(e) => e.stopPropagation()}>
+                    <div className="fpop-desc">{describeOp(editedOps[creatorOp]!)}</div>
+                    {reason && <div className="fpop-reason">{reason}</div>}
+                    <div className="fpop-actions">
+                      <button
+                        type="button"
+                        className="fpop-btn ok"
+                        onClick={() => {
+                          onDecide(creatorOp, 'approved');
+                          setOpenOp(null);
+                        }}
+                      >
+                        ✓ 承認
+                      </button>
+                      <button
+                        type="button"
+                        className="fpop-btn no"
+                        onClick={() => {
+                          onDecide(creatorOp, 'rejected');
+                          setOpenOp(null);
+                        }}
+                      >
+                        ✕ 否認
+                      </button>
+                      <button
+                        type="button"
+                        className="fpop-btn"
+                        onClick={() => {
+                          onBeginEdit(creatorOp);
+                          setOpenOp(null);
+                        }}
+                      >
+                        ✎ 修正
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 接続版オーバーレイ。useAiSession（カードと同一の decisions/edits/preview）を購読して
+ * AiFlowPreview へ渡す。App がフローペインへ重畳マウントする。
+ */
+export function AiFlowOverlay(): JSX.Element | null {
+  const preview = useAiSession((s) => s.preview);
+  const decisions = useAiSession((s) => s.decisions);
+  const edits = useAiSession((s) => s.edits);
+  const editingOp = useAiSession((s) => s.editingOp);
+  const flowPreview = useAiSession((s) => s.flowPreview);
+  const phase = useAiSession((s) => s.phase);
+  const aiEnabled = useUI((s) => s.aiEnabled);
+  const aiPanelOpen = useUI((s) => s.aiPanelOpen);
+
+  if (!aiEnabled || !aiPanelOpen || !flowPreview) return null;
+  if (!preview || phase !== 'ready' || preview.ops.length === 0) return null;
+
+  return (
+    <AiFlowPreview
+      preview={preview}
+      decisions={decisions}
+      edits={edits}
+      editingOp={editingOp}
+      onDecide={(i, state) => useAiSession.getState().setDecision(i, state)}
+      onBeginEdit={(i) => useAiSession.getState().beginEdit(i)}
+      onCommitEdit={(i, patch) => useAiSession.getState().setEdit(i, patch)}
+      onCancelEdit={() => useAiSession.getState().cancelEdit()}
+      onFocusCard={(i) => useAiSession.getState().focusCard(i)}
+    />
+  );
+}

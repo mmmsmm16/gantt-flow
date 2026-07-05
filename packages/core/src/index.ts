@@ -3,6 +3,7 @@ export * from './model/types';
 export * from './model/schema';
 export * from './ids';
 export * from './milestone';
+export * from './batch';
 export * from './codes';
 export * from './commands';
 export * from './sync/reconcileFlow';
