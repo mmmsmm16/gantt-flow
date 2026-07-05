@@ -9,6 +9,7 @@ export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'gf-theme';
 const MINIMAP_KEY = 'gf-minimap';
 const TOBE_KEY = 'gf-tobe';
+const AI_KEY = 'gf-ai';
 const CHROME_KEY = 'gf-chrome-hidden';
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
@@ -225,6 +226,11 @@ interface UIState {
   tobeEnabled: boolean;
   setTobeEnabled: (enabled: boolean) => void;
 
+  /** AI アシスト（オプトイン）が有効か。**既定 OFF**。OFF の間はネットワーク通信を一切行わない
+      （requestProposals が先頭で throw する）。localStorage `gf-ai` に永続。 */
+  aiEnabled: boolean;
+  setAiEnabled: (enabled: boolean) => void;
+
   /** メインのフロー表示シナリオ（As-Is=編集可 / To-Be=改善後を読み取り専用で投影）。ビュー状態。 */
   scenario: 'asis' | 'tobe';
   setScenario: (scenario: 'asis' | 'tobe') => void;
@@ -253,8 +259,8 @@ interface UIState {
   setOverlay: (overlay: 'help' | 'palette' | 'issues' | 'summary' | 'comparison' | 'backups' | 'settings' | null) => void;
 
   /** 設定ダイアログのアクティブタブ（パレットからの深リンク用）。 */
-  settingsTab: 'general' | 'keys' | 'data';
-  setSettingsTab: (tab: 'general' | 'keys' | 'data') => void;
+  settingsTab: 'general' | 'keys' | 'data' | 'ai';
+  setSettingsTab: (tab: 'general' | 'keys' | 'data' | 'ai') => void;
 
   /** フロー右下のミニマップを表示するか。localStorage 永続(既定 ON)。 */
   minimap: boolean;
@@ -479,6 +485,23 @@ export const useUI = create<UIState>((set, get) => ({
       overlay: !enabled && s.overlay === 'comparison' ? null : s.overlay,
       scenario: enabled ? s.scenario : 'asis',
     }));
+  },
+
+  aiEnabled: (() => {
+    try {
+      return localStorage.getItem(AI_KEY) === '1';
+    } catch {
+      return false;
+    }
+  })(),
+  setAiEnabled: (enabled) => {
+    try {
+      if (enabled) localStorage.setItem(AI_KEY, '1');
+      else localStorage.removeItem(AI_KEY);
+    } catch {
+      /* 永続化失敗は無視（メモリ上は反映済み） */
+    }
+    set({ aiEnabled: enabled });
   },
 
   scenario: 'asis',
