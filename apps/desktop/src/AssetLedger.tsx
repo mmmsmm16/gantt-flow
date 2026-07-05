@@ -141,6 +141,12 @@ export function AssetLedger(props: { onClose: () => void }): JSX.Element {
         </div>
       </details>
 
+      {assets.length === 0 && (
+        <p className="issues-empty">
+          資料がまだありません。手順書のステップから参照する資料（帳票・マニュアル・チェックリスト等）をここに登録します。
+        </p>
+      )}
+
       {assets.map((a) => {
         const usage = usageOf(manual, a.id);
         const r = resolveLocator(a.locator, aliases);
