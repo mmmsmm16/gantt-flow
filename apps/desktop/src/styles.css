@@ -7469,6 +7469,14 @@ input.colored-text {
   background: var(--line);
   color: var(--muted);
 }
+/* 第二フィルタで見送った件数の注記（依存先が未承認）。 */
+.applybar-note {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  text-align: center;
+}
 
 /* ===== フロー上の仮ノード承認（主戦場・モック §3） ===== */
 

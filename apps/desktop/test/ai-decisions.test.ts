@@ -7,6 +7,7 @@ import { runBatch, type BatchOp, type Project } from '@gantt-flow/core';
 import {
   resolveApproved,
   filterApplicable,
+  planApply,
   applyEdits,
   buildProposalNodeMap,
   DISABLED_REASON,
@@ -129,6 +130,28 @@ describe('filterApplicable（適用直前の第二フィルタ: pending producer
     const { apply: applicable, excluded } = filterApplicable(ops, apply);
     expect(applicable).toEqual(apply);
     expect(excluded.size).toBe(0);
+  });
+});
+
+describe('planApply（D-01: 適用バーの実適用件数＝第二フィルタ反映）', () => {
+  it('pending producer + approved consumer は applyIdx から外れ excluded に入る', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '親', level: 'medium' }, // 0 未判定
+      { op: 'add_task', ref: 'b', name: '子', level: 'small', parent: 'a' }, // 1 承認
+    ];
+    const plan = planApply(ops, { 1: 'approved' });
+    expect(plan.applyIdx).toEqual([]); // resolveApproved 単体なら 1 件だが第二フィルタで 0 件
+    expect(plan.excluded.has(1)).toBe(true);
+  });
+
+  it('producer も承認済みなら applyIdx に両方入り excluded は空', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '親', level: 'medium' },
+      { op: 'add_task', ref: 'b', name: '子', level: 'small', parent: 'a' },
+    ];
+    const plan = planApply(ops, { 0: 'approved', 1: 'approved' });
+    expect(plan.applyIdx).toEqual([0, 1]);
+    expect(plan.excluded.size).toBe(0);
   });
 });
 

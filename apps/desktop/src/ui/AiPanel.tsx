@@ -23,6 +23,7 @@ import { buildAiPreview, type AiPreview } from '../ai/preview';
 import {
   resolveApproved,
   filterApplicable,
+  planApply,
   applyEdits,
   type DecisionState,
   type DecisionMap,
@@ -251,7 +252,14 @@ export function AiPanel(): JSX.Element {
     () => (preview ? resolveApproved(editedOps, decisions) : null),
     [preview, editedOps, decisions],
   );
-  const applyCount = resolved?.apply.length ?? 0;
+  // 適用バーの件数は resolveApproved だけでなく filterApplicable（pending producer の
+  // 第二フィルタ）まで通した実適用件数を出す（D-01）。見送り分は注記に回す。
+  const plan = useMemo(
+    () => (preview ? planApply(editedOps, decisions) : null),
+    [preview, editedOps, decisions],
+  );
+  const applyCount = plan?.applyIdx.length ?? 0;
+  const excludedCount = plan?.excluded.size ?? 0;
   const nodeMap = preview?.nodeMap;
 
   const close = () => useUI.getState().setAiPanelOpen(false);
@@ -477,6 +485,9 @@ export function AiPanel(): JSX.Element {
           <button type="button" className="apply-btn" disabled={applyCount === 0} onClick={applyApproved}>
             承認 {applyCount} 件を確定（元に戻せます）
           </button>
+          {excludedCount > 0 && (
+            <span className="applybar-note">（{excludedCount} 件は依存先が未承認）</span>
+          )}
         </footer>
       )}
     </aside>

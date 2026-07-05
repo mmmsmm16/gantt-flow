@@ -135,6 +135,20 @@ export function filterApplicable(
   return { apply, excluded };
 }
 
+/** 承認確定バーが必要とする「実適用プラン」。resolveApproved（却下波及）→ filterApplicable
+    （pending producer の第二フィルタ）を貫き、実際に適用される index と見送り分をまとめて返す。 */
+export interface ApplyPlan {
+  /** 実際に適用する op の index。 */
+  applyIdx: number[];
+  /** 依存先未承認で見送った index → 理由。 */
+  excluded: Map<number, string>;
+}
+export function planApply(ops: BatchOp[], decisions: DecisionMap): ApplyPlan {
+  const { apply } = resolveApproved(ops, decisions);
+  const { apply: applyIdx, excluded } = filterApplicable(ops, apply);
+  return { applyIdx, excluded };
+}
+
 /**
  * インライン修正（名称・担当）を ops へ畳み込む。id は揺らさない（承認状態の対応が壊れない）。
  * 名称は工程/資料 op の name、担当は工程 op の assignee に反映（assigneeId はクリアして名前解決に寄せる）。
