@@ -183,10 +183,11 @@ export function FullTable() {
   // 絞り込み（AND 条件）。担当・課題あり・工数未入力・自動化区分。
   const [filters, setFilters] = useState<{
     assignee: string;
+    level: ProcessLevel | '';
     issues: boolean;
     noEffort: boolean;
     automation: Automation | '';
-  }>({ assignee: '', issues: false, noEffort: false, automation: '' });
+  }>({ assignee: '', level: '', issues: false, noEffort: false, automation: '' });
   const [resizing, setResizing] = useState<{ key: string; w: number } | null>(null);
   const [focusTask, setFocusTask] = useState<Id | null>(null);
   // 複合セル（課題/入出力）へ追加した直後、その新しい入力欄へフォーカス＆全選択する対象。
@@ -286,7 +287,7 @@ export function FullTable() {
 
   // 絞り込みを適用（表示行を減らすだけ。階層の文脈列は各行が祖先名を出すので破綻しない）。
   const filterActive =
-    !!filters.assignee || filters.issues || filters.noEffort || !!filters.automation;
+    !!filters.assignee || !!filters.level || filters.issues || filters.noEffort || !!filters.automation;
   if (filterActive) {
     rows = rows.filter((t) => {
       const d = project.details[t.id];
@@ -294,6 +295,7 @@ export function FullTable() {
         const name = t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
         if (name !== filters.assignee) return false;
       }
+      if (filters.level && t.level !== filters.level) return false;
       if (filters.issues && !(d?.issues ?? []).some((i) => i.issue.trim())) return false;
       if (filters.noEffort) {
         // 工数未入力＝末端工程で effortMinutes が無い（親はロールアップ表示なので対象外）。
@@ -304,7 +306,7 @@ export function FullTable() {
     });
   }
   const clearFilters = () =>
-    setFilters({ assignee: '', issues: false, noEffort: false, automation: '' });
+    setFilters({ assignee: '', level: '', issues: false, noEffort: false, automation: '' });
 
   // 逐次レンダリング: 描画するのは先頭 renderCount 行。末尾センチネルが見えたら拡張。
   const renderRows = rows.length > renderCount ? rows.slice(0, renderCount) : rows;
@@ -564,6 +566,19 @@ export function FullTable() {
           {assigneeNames.map((n) => (
             <option key={n} value={n}>
               担当: {n}
+            </option>
+          ))}
+        </select>
+        <select
+          className="ft-filter-sel"
+          value={filters.level}
+          aria-label="粒度で絞り込み"
+          onChange={(e) => setFilters((f) => ({ ...f, level: e.target.value as ProcessLevel | '' }))}
+        >
+          <option value="">粒度: すべて</option>
+          {LEVELS.map((l) => (
+            <option key={l.key} value={l.key}>
+              粒度: {l.label}
             </option>
           ))}
         </select>
