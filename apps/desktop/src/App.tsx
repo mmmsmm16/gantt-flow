@@ -3,6 +3,7 @@ import { findView, useApp } from './store';
 import {
   isProjectIntegrityError,
   isSchemaVersionTooNewError,
+  lintProject,
   type LockInfo,
   type ProcessLevel,
 } from '@gantt-flow/core';
@@ -33,7 +34,7 @@ import {
   isEmptyProjectForOutput,
   missingReferencedAssets,
 } from './persistence';
-import { countUnwrittenLeaves } from './handbook';
+import { summarizeForExport } from './validationPanel';
 import { formatWindowTitle, formatRecentTime, UNTITLED_LABEL } from './fileLabel';
 import { useUI } from './ui/useUI';
 import { Modal, Toaster, BusyOverlay } from './ui/Dialogs';
@@ -545,15 +546,20 @@ export function App() {
   };
   const onExportHandbook = async () => {
     if (!(await confirmEmptyOutput())) return;
-    // 手順書が未作成の工程があるなら、出力前に件数を示して確認する（未完成のまま配ってしまうのを防ぐ）。
-    const unwritten = countUnwrittenLeaves(useApp.getState().project);
-    if (unwritten > 0) {
+    // 納品前チェック（手順書未作成・担当未割当・工数未入力・整合性）。抜けがあれば件数を示して確認し、
+    // 「内容を確認」を選んだら出力せず検証パネルを開く（未完成のまま配ってしまうのを防ぐ・C-07 の発展）。
+    const summary = summarizeForExport(lintProject(useApp.getState().project));
+    if (summary) {
       const go = await useUI.getState().confirm({
-        message: `手順書が未作成の工程が ${unwritten} 件あります。このまま出力しますか？`,
-        confirmLabel: '出力する',
-        cancelLabel: 'キャンセル',
+        title: '納品前チェック',
+        message: `${summary} があります。このまま出力しますか？`,
+        confirmLabel: 'このまま出力',
+        cancelLabel: '内容を確認',
       });
-      if (!go) return;
+      if (!go) {
+        useUI.getState().setOverlay('validate');
+        return;
+      }
     }
     try {
       useUI.getState().setBusy('ハンドブックを書き出しています…');
