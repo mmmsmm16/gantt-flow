@@ -278,6 +278,11 @@ interface UIState {
   inspectorIoFocus: { io: 'inputs' | 'outputs'; ioId?: Id; seq: number } | null;
   focusInspectorIo: (io: 'inputs' | 'outputs', ioId?: Id) => void;
 
+  /** 手順書タブで指定工程の章まで外部からスクロール＆ジャンプするためのシグナル（seq でトリガ）。
+      検証パネル等が中工程を設定したあとに呼ぶ。ProcedureView が購読して該当章へ寄せる。null=非アクティブ。 */
+  procedureFocus: { taskId: Id; seq: number } | null;
+  focusProcedureChapter: (taskId: Id) => void;
+
   /** 両窓編集同期: 作成した工程をその場リネームで開くよう、対象ペイン（表/フロー）へ依頼するシグナル。
       発信元の窓で focusHint を受けた dualwindow ランタイムが set し、TableView/FlowCanvas が購読して
       該当ノード/行の名前編集を開く（seq でトリガ）。null=非アクティブ。 */
@@ -528,6 +533,10 @@ export const useUI = create<UIState>((set, get) => ({
   inspectorIoFocus: null,
   focusInspectorIo: (io, ioId) =>
     set((s) => ({ inspectorIoFocus: { io, ioId, seq: (s.inspectorIoFocus?.seq ?? 0) + 1 } })),
+
+  procedureFocus: null,
+  focusProcedureChapter: (taskId) =>
+    set((s) => ({ procedureFocus: { taskId, seq: (s.procedureFocus?.seq ?? 0) + 1 } })),
 
   renameRequest: null,
   requestRename: (taskId, surface) =>

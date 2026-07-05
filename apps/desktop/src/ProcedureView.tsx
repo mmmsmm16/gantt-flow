@@ -12,7 +12,7 @@ import { AssetLedger } from './AssetLedger';
 import { getAssetUrl } from './assetStore';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { isEditableTarget } from './keymap';
-import { hasChildren, isLeaf, ancestorsOf, resolveRef as resolveRefShared } from './procShared';
+import { hasChildren, isLeaf, ancestorsOf, midOf, resolveRef as resolveRefShared } from './procShared';
 
 const LEVEL_LABEL: Record<string, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
 
@@ -32,14 +32,6 @@ function resolveMidId(core: Core, selectedTaskId: Id | undefined, procedureMidId
   const tasks = byOrder(Object.values(core.tasks));
   const nonLeaf = tasks.find((t) => hasChildren(core, t.id));
   return (nonLeaf ?? tasks[0])?.id;
-}
-
-// taskId を含む中工程（子があれば自身・末端なら親、無ければ自身）。
-function midOf(core: Core, taskId: Id): Id | undefined {
-  const t = core.tasks[taskId];
-  if (!t) return undefined;
-  if (hasChildren(core, taskId)) return taskId;
-  return t.parentId && core.tasks[t.parentId] ? t.parentId : taskId;
 }
 
 const byOrder = (ts: ProcessTask[]): ProcessTask[] =>
@@ -125,6 +117,7 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   const procedureMidId = useUI((s) => s.procedureMidId);
   const setProcedureMidId = useUI((s) => s.setProcedureMidId);
+  const procedureFocus = useUI((s) => s.procedureFocus);
 
   const core = project.core;
   const details = project.details;
@@ -232,6 +225,24 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
     }
     setPendingFocus(null);
   }, [pendingFocus, project]);
+
+  // 外部（検証パネル等）からの章ジャンプ。seq が変わるたびに、対象工程の中工程へ切り替えて
+  // 既存の pendingScroll 経路で該当章まで寄せる（内部の jumpToTask と同じ着地・重複実装しない）。
+  useEffect(() => {
+    if (!procedureFocus) return;
+    const { taskId } = procedureFocus;
+    if (!core.tasks[taskId]) return;
+    const targetMid = midOf(core, taskId);
+    if (targetMid && targetMid !== midId) {
+      setSelStep(null);
+      useApp.getState().select(taskId);
+      setProcedureMidId(targetMid);
+    }
+    setPendingScroll(taskId);
+    // 依存は seq シグナル（procedureFocus）のみ。発火時点の core/midId をクロージャで読む
+    // （inspectorIoFocus と同型: 編集のたびに再スクロールしない）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [procedureFocus]);
 
   if (!midId) {
     return (
