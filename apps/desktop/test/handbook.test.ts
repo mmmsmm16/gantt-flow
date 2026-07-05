@@ -120,6 +120,25 @@ describe('buildHandbookHtml', () => {
     expect(html).toContain('data-assignee="倉庫"');
   });
 
+  it('担当フィルタ: 「非表示/淡色表示」トグルが出て、既定は非表示（非該当カードは display:none）', () => {
+    const html = buildHandbookHtml(sample(), opts());
+
+    // 表示方法トグルの UI（担当が 1 件以上あるサンプルでは必ず出る）。
+    expect(html).toContain('id="hb-fmode"');
+    expect(html).toContain('data-mode="hide"');
+    expect(html).toContain('data-mode="dim"');
+    // 既定は「非表示」ボタンが選択状態（is-on / aria-pressed="true"）。
+    expect(html).toContain('class="hb-fmode-btn is-on" data-mode="hide" aria-pressed="true"');
+
+    // 非該当カード・目次リンクは display:none で消える CSS が入る（淡色 .dim とは別クラス）。
+    expect(html).toContain('.hb-proc.f-hide{display:none;}');
+    expect(html).toContain('.hb-toc-link.f-hide{display:none;}');
+
+    // JS の既定モードは非表示（hideMode=true）で、フィルタは f-hide を付け外しする。
+    expect(html).toContain('var hideMode=true');
+    expect(html).toContain("toggle('f-hide',hideMode&&!on)");
+  });
+
   it('サイドバーの縦フローナビ: 手順書タブと同じ「箱＋縦の連結線」（.hb-mflow/.hb-mnode/.hb-mlink）で中工程が並ぶ', () => {
     const project = sample();
     const html = buildHandbookHtml(project, opts());

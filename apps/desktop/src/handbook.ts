@@ -274,6 +274,12 @@ function buildSidebar(
             );
           })
           .join('') +
+        `</div>` +
+        // 非該当工程を「非表示(既定)」にするか「淡色表示」にするかの小トグル。
+        // 既定を非表示にして hero の「自分がやる工程だけを表示」の文言と挙動を一致させる。
+        `<div class="hb-fmode" id="hb-fmode" role="group" aria-label="非該当工程の表示方法">` +
+        `<button type="button" class="hb-fmode-btn is-on" data-mode="hide" aria-pressed="true">非表示</button>` +
+        `<button type="button" class="hb-fmode-btn" data-mode="dim" aria-pressed="false">淡色表示</button>` +
         `</div>`
       : '';
 
@@ -632,6 +638,11 @@ strong{font-weight:700;}
 .hb-fchip:hover{border-color:var(--ink-3);}
 .hb-fchip.is-on{background:var(--ink);color:#fff;border-color:var(--ink);}
 .hb-fchip.is-on .dot{box-shadow:0 0 0 2px rgba(255,255,255,.35);}
+.hb-fmode{display:inline-flex;margin-top:10px;gap:2px;padding:2px;background:var(--bg);
+  border:1px solid var(--line-2);border-radius:999px;}
+.hb-fmode-btn{font:inherit;font-size:11px;cursor:pointer;border:0;background:none;color:var(--ink-2);
+  border-radius:999px;padding:3px 11px;}
+.hb-fmode-btn.is-on{background:var(--ink);color:#fff;}
 .hb-toc{padding:12px 10px 28px;flex:1;}
 .hb-toc-top{display:flex;align-items:center;gap:9px;text-decoration:none;color:var(--ink-2);
   font-size:13px;font-weight:600;padding:8px 12px;border-radius:8px;}
@@ -652,6 +663,7 @@ strong{font-weight:700;}
 /* 縦フローナビ（手順書タブの .proc-mflow/.proc-mnode/.proc-mlink と同じ「箱＋縦の連結線」表現）。 */
 .hb-mflow{display:flex;flex-direction:column;}
 .hb-mlink{width:2px;height:10px;background:var(--line-2);margin:0 0 0 calc(50% - 1px);}
+.hb-mlink.f-hide{display:none;}
 .hb-toc-link{display:flex;align-items:center;gap:7px;text-decoration:none;color:var(--ink-2);
   font-size:12px;padding:7px 10px;border-radius:8px;}
 .hb-toc-link.hb-mnode{border:1px solid var(--line-2);border-left:3px solid var(--hb-role,var(--line-2));background:var(--bg);}
@@ -667,6 +679,7 @@ strong{font-weight:700;}
 .hb-toc-link.active{background:var(--brand-tint);color:var(--brand-dark);border-color:var(--brand);font-weight:700;}
 .hb-toc-link.dim{opacity:.32;}
 .hb-toc-link.hide{display:none;}
+.hb-toc-link.f-hide{display:none;}
 .hb-toc-empty{display:none;padding:10px 22px;font-size:12px;color:var(--ink-3);}
 
 /* main + topbar */
@@ -736,6 +749,7 @@ strong{font-weight:700;}
 .hb-proc{border:1px solid var(--line);border-radius:14px;background:var(--bg);margin:14px 0;overflow:hidden;
   box-shadow:0 1px 2px rgba(20,30,45,.04);transition:opacity .15s;}
 .hb-proc.dim{opacity:.34;}
+.hb-proc.f-hide{display:none;}
 .hb-proc-head{display:flex;align-items:center;gap:12px;padding:15px 18px;border-left:4px solid var(--hb-role,#cbd2da);
   border-bottom:1px solid var(--line);background:linear-gradient(0deg,var(--panel),var(--bg));}
 .hb-proc-no{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ai);flex:none;}
@@ -870,6 +884,8 @@ strong{font-weight:700;}
   .hb-toc-links[hidden]{display:block !important;}
   .hb-proc,.hb-sub,.hb-step,.hb-cond,.hb-fig,.hb-led-card,.hb-pos{break-inside:avoid;}
   .hb-proc.dim,.hb-toc-link.dim{opacity:1 !important;}
+  /* 担当フィルタで非表示にした工程も、紙は「全体を1冊」で残さず刷る（淡色/非表示ともに解除）。 */
+  .hb-proc.f-hide{display:block !important;}
   .hb-proc{box-shadow:none;}
   /* 紙面では区切りが章見出しと泣き別れしないよう break-inside:avoid で足りるため、
      画面用の max-height/scroll(コンパクト表示)は解除して全体を描く。 */
@@ -953,6 +969,7 @@ const HANDBOOK_JS = `
   var fsText=document.getElementById('hb-fs-text');
   var fsCount=document.getElementById('hb-fs-count');
   var active=null;
+  var hideMode=true; // 既定は「非表示」（淡色表示は data-mode="dim" のトグルで切替）。
   function matchRole(el){
     var a=el.getAttribute('data-assignee');
     return active===null || !a || a===active;
@@ -961,10 +978,18 @@ const HANDBOOK_JS = `
     var n=0;
     procs.forEach(function(p){
       var on=matchRole(p);
-      p.classList.toggle('dim',!on);
+      p.classList.toggle('f-hide',hideMode&&!on);
+      p.classList.toggle('dim',!hideMode&&!on);
       if(active!==null && p.getAttribute('data-assignee')===active) n++;
     });
-    tocLinks.forEach(function(l){ l.classList.toggle('dim',!matchRole(l)); });
+    tocLinks.forEach(function(l){
+      var on=matchRole(l);
+      l.classList.toggle('f-hide',hideMode&&!on);
+      l.classList.toggle('dim',!hideMode&&!on);
+      // 目次の縦フロー連結線が宙に浮かないよう、非表示ノードの直前の線も一緒に畳む。
+      var prev=l.previousElementSibling;
+      if(prev&&prev.classList&&prev.classList.contains('hb-mlink')) prev.classList.toggle('f-hide',hideMode&&!on);
+    });
     if(fstate){
       if(active===null){ fstate.classList.remove('on'); }
       else{
@@ -980,6 +1005,17 @@ const HANDBOOK_JS = `
       active=b.hasAttribute('data-all')?null:b.getAttribute('data-assignee');
       if(fsDot) fsDot.style.background=b.getAttribute('data-color')||'#888';
       chipBox.querySelectorAll('.hb-fchip').forEach(function(c){ c.classList.toggle('is-on',c===b); });
+      applyFilter();
+    });
+  }
+  var fmode=document.getElementById('hb-fmode');
+  if(fmode){
+    fmode.addEventListener('click',function(e){
+      var b=e.target.closest('.hb-fmode-btn'); if(!b) return;
+      hideMode=b.getAttribute('data-mode')==='hide';
+      fmode.querySelectorAll('.hb-fmode-btn').forEach(function(c){
+        var on=c===b; c.classList.toggle('is-on',on); c.setAttribute('aria-pressed',String(on));
+      });
       applyFilter();
     });
   }
