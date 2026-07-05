@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ProcessLevel } from '@gantt-flow/core';
 import { computeEffortRollups, formatHours } from '@gantt-flow/core';
+import { getActiveKeymap, chordKeys, type KeyBinding } from '../keymap';
 import { useApp } from '../store';
 import { useUI, type PersistKind, type LockUiState } from './useUI';
 
@@ -53,6 +54,56 @@ export function persistIndicators(
   return { autosave, lock };
 }
 
+// アクティブペイン別のキー操作ヒント（右側の st-hint）。表示するキーは実効キーマップ
+// （getActiveKeymap＝ユーザー上書き＋シングルキーOFFフィルタ適用済み）から解決するので、
+// 「見えるヒント」と「実際に効くキー」が常に一致する。各スロットは候補 binding id を
+// 優先順に持ち、実効キーマップに在る最初のものを採用する（単キーは OFF 時に消えるため、
+// 自動的に矢印/修飾キー版へ落ちる＝OFF時は修飾キー系のみ・ON時は単キーも表示）。
+export interface KeyHint {
+  keys: string;
+  label: string;
+}
+interface HintSpec {
+  label: string;
+  slots: string[][];
+}
+
+const PANE_HINT_SPECS: Record<'table' | 'flow', HintSpec[]> = {
+  table: [
+    { label: '移動', slots: [['row-next', 'row-next-arrow'], ['row-prev', 'row-prev-arrow']] },
+    { label: '編集', slots: [['row-edit']] },
+    { label: '追加', slots: [['row-add']] },
+    { label: 'コマンド', slots: [['palette']] },
+    { label: '一覧', slots: [['help']] },
+  ],
+  flow: [
+    { label: '選択', slots: [['node-left'], ['node-right']] },
+    { label: '接続', slots: [['connect-mode']] },
+    { label: 'コマンド', slots: [['palette']] },
+    { label: '一覧', slots: [['help']] },
+  ],
+};
+
+function keyOf(km: KeyBinding[], ids: string[]): string | null {
+  for (const id of ids) {
+    const b = km.find((x) => x.id === id);
+    if (b) return chordKeys(b.chord, b.leader).join('');
+  }
+  return null;
+}
+
+// pane のキーヒントを実効キーマップから生成（最大 max 個。トーン・密度は従来維持）。
+export function paneKeyHints(km: KeyBinding[], pane: 'table' | 'flow', max = 5): KeyHint[] {
+  const out: KeyHint[] = [];
+  for (const spec of PANE_HINT_SPECS[pane]) {
+    const parts = spec.slots.map((s) => keyOf(km, s)).filter((x): x is string => x !== null);
+    if (parts.length === 0) continue;
+    out.push({ keys: parts.join('/'), label: spec.label });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 export function StatusBar() {
   const project = useApp((s) => s.project);
   const level = useApp((s) => s.level);
@@ -94,6 +145,16 @@ export function StatusBar() {
   const assignees = Object.keys(project.core.assignees).length;
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
 
+  // キーヒントは実効キーマップから生成（singleKey トグルでキャッシュが無効化されるので依存に入れる）。
+  const hintText = useMemo(
+    () =>
+      paneKeyHints(getActiveKeymap(), activePane)
+        .map((h) => `${h.keys} ${h.label}`)
+        .join('・'),
+    // singleKey は再計算トリガ（getActiveKeymap の中身が変わる）。
+    [activePane, singleKey],
+  );
+
   return (
     <footer className="statusbar" aria-label="ステータス">
       <span className="st-item" title="工程の総数（粒度別の内訳）">
@@ -117,13 +178,7 @@ export function StatusBar() {
         </span>
       ) : (
         <span className="st-item st-hint" title="ショートカット一覧は ? キー">
-          {activePane === 'table'
-            ? singleKey
-              ? 'j/k 移動・Enter 編集・n 追加・? 一覧'
-              : '↑↓ 移動・Enter 編集・⌘K コマンド・? 一覧'
-            : singleKey
-              ? '矢印で選択・Alt+矢印で移動・c 接続・? 一覧'
-              : '矢印で選択・c 接続・⌘K コマンド・? 一覧'}
+          {hintText}
         </span>
       )}
       <span className="st-sep" aria-hidden="true" />
