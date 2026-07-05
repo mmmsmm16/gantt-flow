@@ -62,6 +62,7 @@ export const FT_COLUMNS: readonly FtCol[] = [
   { key: 'status', label: '状況', width: 104, cls: 'ft-c-status', optional: true, cursorable: true, sortable: true },
   { key: 'prev', label: '前工程', width: 150, cls: 'ft-c-prev', optional: true, cursorable: true },
   { key: 'effort', label: '工数', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
+  { key: 'lt', label: 'LT(日)', width: 64, cls: 'ft-c-effort', optional: true, cursorable: true, sortable: true },
   { key: 'how', label: '業務内容', width: 200, cls: 'ft-c-text', optional: true, cursorable: true },
   { key: 'system', label: '使用システム', width: 170, cls: 'ft-c-text', optional: true, cursorable: true },
   { key: 'inputs', label: '入力', width: 168, cls: 'ft-c-io', optional: true, cursorable: true },
@@ -265,6 +266,7 @@ export function FullTable() {
 
   const sortValue = (key: string, t: ProcessTask): number | string => {
     if (key === 'effort') return effortRollups.get(t.id) ?? 0;
+    if (key === 'lt') return project.details[t.id]?.ltDays ?? 0;
     if (key === 'assignee') return t.assigneeId ? project.core.assignees[t.assigneeId]?.name ?? '' : '';
     if (key === 'difficulty') return DIFF_RANK[project.details[t.id]?.difficulty ?? ''] ?? 0;
     if (key === 'status') return STATUS_RANK[project.details[t.id]?.status ?? ''] ?? 0;
@@ -855,6 +857,41 @@ export function FullTable() {
                             clearEffortInvalid(e.target);
                             if (isEffortBlurUnchanged(e.target.value, d?.effortMinutes)) return; // 無編集 blur は書き換えない
                             if (res.minutes !== d?.effortMinutes) updateDetail(t.id, { effortMinutes: res.minutes });
+                          }}
+                        />
+                      )}
+                    </td>
+                  );
+                case 'lt':
+                  // リードタイム（着手〜完了の経過日数・待ち/停滞を含む）。末端工程に日で入力。
+                  // 親は集計せず空欄（LT は工数のように単純合算できないため）。
+                  return (
+                    <td key={c.key} className="ft-c-effort" onClick={(e) => e.stopPropagation()}>
+                      {ms || hasChildren ? (
+                        <span className="ms-cell-blank">—</span>
+                      ) : (
+                        <input
+                          className={`ft-in ft-num${cellCursorCls(t.id, 'lt')}`}
+                          data-cell="lt"
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={d?.ltDays != null ? String(d.ltDays) : ''}
+                          placeholder="例: 3 / 0.5"
+                          aria-label="リードタイム（日）"
+                          key={`lt-${d?.ltDays ?? ''}`}
+                          onKeyDown={cancelEditOnEscape}
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === '') {
+                              if (d?.ltDays != null) updateDetail(t.id, { ltDays: undefined });
+                              return;
+                            }
+                            const n = Number(raw);
+                            if (!Number.isFinite(n) || n < 0) {
+                              useUI.getState().toast('リードタイムは 0 以上の日数で入力してください（例: 3 や 0.5）', 'error');
+                              return;
+                            }
+                            if (n !== d?.ltDays) updateDetail(t.id, { ltDays: n });
                           }}
                         />
                       )}
