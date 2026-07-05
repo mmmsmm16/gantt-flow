@@ -4,6 +4,7 @@
 // 遅延探索してハイライトし、対象が無ければハイライトだけ省いてカードは可視域に出す。
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useUI } from './useUI';
+import { useApp } from '../store';
 
 const DONE_KEY = 'gf-tour-done-v1';
 
@@ -96,6 +97,30 @@ function sameRect(a: DOMRect | null, b: DOMRect | null): boolean {
   return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
 }
 
+// 自動前進の完了シグナル用の署名。ステップ開始時と比べて変われば「操作した」と判定する。
+type AppProject = ReturnType<typeof useApp.getState>['project'];
+function taskNamesSig(p: AppProject): string {
+  return Object.values(p.core.tasks)
+    .map((t) => `${t.id}:${t.name}`)
+    .join('|');
+}
+function nodePosSig(p: AppProject): string {
+  return p.flow.byLevel
+    .flatMap((v) => Object.values(v.nodes).map((n) => `${n.id}:${n.x},${n.y}`))
+    .join('|');
+}
+
+// ハイライト枠を可視域（フロー系ステップはフローペイン）に収める。対象がはみ出しても
+// 枠だけが画面外へ伸びないよう矩形を交差クリップし、交差ゼロなら枠を出さない（null）。
+function clampHighlight(rect: DOMRect, clip: { left: number; top: number; right: number; bottom: number }) {
+  const left = Math.max(rect.left, clip.left);
+  const top = Math.max(rect.top, clip.top);
+  const right = Math.min(rect.right, clip.right);
+  const bottom = Math.min(rect.bottom, clip.bottom);
+  if (right <= left || bottom <= top) return null;
+  return { left, top, width: right - left, height: bottom - top };
+}
+
 export function Tour() {
   const step = useUI((s) => s.tourStep);
   const setStep = useUI((s) => s.setTourStep);
@@ -151,12 +176,42 @@ export function Tour() {
       setCardStyle({ left: clampX((vw - cw) / 2), top: clampY((vh - ch) / 2) });
       return;
     }
+    // 対象の右横に置けるなら優先（表セルを指すステップで下の行を覆わない・A-2 対策）。
+    // 右に収まらなければ下 →上 →クランプの順で従来どおり。
+    const rightX = rect.right + m;
+    if (rightX + cw + m <= vw) {
+      setCardStyle({ left: rightX, top: clampY(rect.top) });
+      return;
+    }
     const left = clampX(rect.left + rect.width / 2 - cw / 2);
     const below = rect.bottom + m;
     const above = rect.top - ch - m;
     const top = below + ch + m <= vh ? below : above >= m ? above : clampY(below);
     setCardStyle({ left, top });
   }, [rect, step]);
+
+  // 操作完了で自動前進（案内どおり操作したら「次へ」を押さずに進む）。シグナルが取れる
+  // ステップのみ対象: 0=作業名を書き換えた / 1=ノードを動かした / 3=パレットを開いた。
+  // それ以外（2 のフロー育成・4 の手順書）は「次へ」ボタンのまま（誤検知で先へ飛ばさない）。
+  useEffect(() => {
+    if (step == null) return undefined;
+    let done = false;
+    const nameBase = taskNamesSig(useApp.getState().project);
+    const posBase = nodePosSig(useApp.getState().project);
+    const advance = () => {
+      if (done) return;
+      done = true;
+      setTimeout(() => setStep(step >= TOUR_STEPS.length - 1 ? null : step + 1), 500);
+    };
+    const check = () => {
+      if (done) return;
+      if (step === 0 && taskNamesSig(useApp.getState().project) !== nameBase) advance();
+      else if (step === 1 && nodePosSig(useApp.getState().project) !== posBase) advance();
+      else if (step === 3 && useUI.getState().overlay === 'palette') advance();
+    };
+    const t = setInterval(check, 300);
+    return () => clearInterval(t);
+  }, [step, setStep]);
 
   if (step == null || !cur) return null;
 
@@ -165,19 +220,24 @@ export function Tour() {
     setStep(null);
   };
   const next = () => {
-    if (step >= TOUR_STEPS.length - 1) finish();
-    else setStep(step + 1);
+    if (step != null && step >= TOUR_STEPS.length - 1) finish();
+    else if (step != null) setStep(step + 1);
   };
 
   // 先頭候補（具体要素）が無くフォールバックへ落ちたステップでは、正直な文言へ差し替える。
   const body = cur.emptyBody && !primaryFound ? cur.emptyBody : cur.body;
 
+  // ハイライト枠は可視域に交差クリップ（画面外へ枠が伸びない・A-3 のはみ出し対策）。
+  const hi = rect
+    ? clampHighlight(rect, { left: 4, top: 4, right: window.innerWidth - 4, bottom: window.innerHeight - 4 })
+    : null;
+
   return (
     <div className="tour-layer" role="dialog" aria-label="使い方ツアー">
-      {rect && (
+      {hi && (
         <div
           className="tour-highlight"
-          style={{ left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8 }}
+          style={{ left: hi.left - 4, top: hi.top - 4, width: hi.width + 8, height: hi.height + 8 }}
         />
       )}
       <div className="tour-card" ref={cardRef} style={cardStyle}>
