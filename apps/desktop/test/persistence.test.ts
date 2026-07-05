@@ -18,9 +18,12 @@ import {
   localDateYmd,
   missingReferencedAssets,
   exportHandbookFile,
+  startExternalWatch,
+  stopExternalWatch,
 } from '../src/persistence';
 import { bytesToB64, b64ToBytes } from '../src/b64';
 import { putAsset, __resetAssetStoreForTest } from '../src/assetStore';
+import { useUI } from '../src/ui/useUI';
 
 const gen = (prefix: string) => {
   let n = 0;
@@ -393,6 +396,79 @@ describe('openProjectFromFile（Tauri: 助言ロック）', () => {
     });
     expect(p?.meta.id).toBe(sample.meta.id);
     expect(calls.some((c) => c.cmd === 'steal_lock')).toBe(true);
+  });
+});
+
+describe('startExternalWatch（外部監視の恒久失敗通知・B-14）', () => {
+  it('stat が連続失敗すると閾値(30)で1回だけ info トーストを出し、以降スパムしない', async () => {
+    vi.useFakeTimers();
+    try {
+      const sample = createSampleProject(gen('watch'));
+      let statFails = false;
+      installTauri({
+        pick_open_path: () => '/tmp/watch.gflow',
+        stat_updated_at: () => {
+          if (statFails) throw '共有フォルダが見えません';
+          return '1';
+        },
+        open_project: () => containerB64(sample),
+        acquire_lock: () => ({ ok: true }),
+        refresh_lock: () => null,
+        release_lock: () => null,
+      });
+      useUI.setState({ toasts: [] });
+      await openProjectFromFile(); // filePath + lastKnownMtime を確定（この間の stat は成功）
+      statFails = true; // 以降の監視ポーリングでは stat が通らない（共有先が消えた相当）
+      const watchInfoToasts = () =>
+        useUI.getState().toasts.filter((t) => t.tone === 'info' && t.message.includes('変更監視'));
+
+      startExternalWatch(() => {});
+      await vi.advanceTimersByTimeAsync(29_000); // 29 回失敗（閾値未満）
+      expect(watchInfoToasts()).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1_000); // 30 回目で 1 回だけ通知
+      expect(watchInfoToasts()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(10_000); // さらに失敗が続いてもスパムしない
+      expect(watchInfoToasts()).toHaveLength(1);
+      stopExternalWatch();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stat が回復（成功）したら失敗計数はリセットされ、再度の連続失敗でまた通知できる', async () => {
+    vi.useFakeTimers();
+    try {
+      const sample = createSampleProject(gen('watch2'));
+      let statFails = false;
+      installTauri({
+        pick_open_path: () => '/tmp/watch2.gflow',
+        stat_updated_at: () => {
+          if (statFails) throw '共有フォルダが見えません';
+          return '1';
+        },
+        open_project: () => containerB64(sample),
+        acquire_lock: () => ({ ok: true }),
+        refresh_lock: () => null,
+        release_lock: () => null,
+      });
+      useUI.setState({ toasts: [] });
+      await openProjectFromFile();
+      const watchInfoToasts = () =>
+        useUI.getState().toasts.filter((t) => t.tone === 'info' && t.message.includes('変更監視'));
+
+      startExternalWatch(() => {});
+      statFails = true;
+      await vi.advanceTimersByTimeAsync(30_000); // 30 回失敗 → 1 回通知
+      expect(watchInfoToasts()).toHaveLength(1);
+      statFails = false; // 監視回復（stat が通る）→ 計数と通知フラグがリセットされる
+      await vi.advanceTimersByTimeAsync(2_000);
+      statFails = true;
+      await vi.advanceTimersByTimeAsync(30_000); // 再び 30 回連続失敗 → もう 1 回通知できる
+      expect(watchInfoToasts()).toHaveLength(2);
+      stopExternalWatch();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

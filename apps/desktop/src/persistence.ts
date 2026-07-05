@@ -413,10 +413,34 @@ export function downloadProjectJson(project: Project): string {
 // 別プロセス（MCP サーバ等）が現在開いているファイルを書き換えたら検知して onChange へ渡す。
 // 自分の保存とは lastKnownMtime / savingNow で区別する。ブラウザは絶対パスを持たないため対象外。
 
+// 外部変更監視の恒久失敗（共有フォルダが見えない・権限喪失など）を可視化するためのカウンタ。
+// stat が連続で失敗し閾値に達したら 1 回だけ通知し、成功（stat が読めた）でリセットする。
+// 書き込み途中の一時的な読込失敗（deserialize throw）は stat が読めていれば失敗に数えない
+//（数十秒に渡り stat すら通らない＝監視自体が壊れている場合だけ知らせる）。
+let watchFailCount = 0;
+let watchFailNotified = false;
+const WATCH_FAIL_THRESHOLD = 30; // 1 秒間隔なら約 30 秒の連続失敗
+
+function resetWatchFailure(): void {
+  watchFailCount = 0;
+  watchFailNotified = false;
+}
+function noteWatchFailure(): void {
+  watchFailCount += 1;
+  if (watchFailCount < WATCH_FAIL_THRESHOLD || watchFailNotified) return;
+  watchFailNotified = true; // 1 回だけ（毎秒スパムしない）
+  try {
+    useUI.getState().toast('共有ファイルの変更監視に失敗しています', 'info');
+  } catch {
+    /* UI 未初期化などは無視（fail-open） */
+  }
+}
+
 /** 監視を開始（既存の監視は止めて張り替え）。intervalMs ごとに mtime を比較する。 */
 export function startExternalWatch(onChange: (project: Project) => void, intervalMs = 1000): void {
   if (!isTauri()) return;
   stopExternalWatch();
+  resetWatchFailure(); // 張り替えのたびに失敗計数はまっさらから
   watchTimer = setInterval(() => void pollExternal(onChange), intervalMs);
 }
 
@@ -434,10 +458,13 @@ export function acknowledgeExternalChange(): void {
 async function pollExternal(onChange: (project: Project) => void): Promise<void> {
   if (watchBusy || savingNow || filePath === null || lastKnownMtime === null) return;
   watchBusy = true;
+  let statOk = false; // stat が読めた＝監視は機能している（失敗計数の判定に使う）
   try {
     const mtime = await statMtime(filePath);
+    if (mtime === null) return; // stat 失敗＝監視できていない（finally で失敗計上）
+    statOk = true;
     // 変化なし / 自分の保存後で既知 / 既に通知済みの同一変更 ならスキップ。
-    if (mtime === null || mtime === lastKnownMtime || mtime === lastSeenExternalMtime) return;
+    if (mtime === lastKnownMtime || mtime === lastSeenExternalMtime) return;
     const b64 = await invoke<string>('open_project', { path: filePath });
     const c = deserializeContainer(b64ToBytes(b64)); // 書き込み途中の壊れた中間状態なら throw → 次回拾う
     ingestAssets(c.assets); // 外部変更で増減した画像をメモリ層へ取り込む
@@ -448,6 +475,10 @@ async function pollExternal(onChange: (project: Project) => void): Promise<void>
     /* 監視はベストエフォート（読み取り失敗は次のポーリングで再試行） */
   } finally {
     watchBusy = false;
+    // stat が通れば監視は生きている（一時的な読込失敗はここで許容）。連続して stat すら
+    // 通らないときだけ失敗を積み、閾値で 1 回通知する。
+    if (statOk) resetWatchFailure();
+    else noteWatchFailure();
   }
 }
 
