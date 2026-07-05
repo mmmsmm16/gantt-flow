@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { ProcessTask, ProcessLevel, Id, TaskDetail } from '@gantt-flow/core';
+import type { ProcessTask, ProcessLevel, Id, TaskDetail, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
 import { buildPrevCandidateIndex } from './suggestions';
@@ -8,6 +8,7 @@ import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnch
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
+import { STATUS_OPTIONS, statusSelectClass } from './statusUi';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
@@ -759,6 +760,23 @@ export function TableView() {
                         />
                       )}
                     </td>
+                    {columnVisibility.status && (
+                    <td className="c-status" role="gridcell" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        className={`ol-status ${statusSelectClass(detail)}${cellCursorCls(t.id, 'status')}`}
+                        data-cell="status"
+                        value={detail?.status ?? ''}
+                        aria-label="状況（ヒアリング進行）"
+                        onChange={(e) => updateDetail(t.id, { status: (e.target.value || undefined) as TaskStatus | undefined })}
+                      >
+                        {STATUS_OPTIONS.map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    )}
                     {columnVisibility.prev && (
                     <td className="c-prev" role="gridcell" onClick={(e) => e.stopPropagation()}>
                       <div className="ft-prev">

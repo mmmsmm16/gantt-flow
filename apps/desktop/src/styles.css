@@ -937,6 +937,13 @@ button.danger:hover {
 .c-prev {
   width: 132px;
 }
+.c-status {
+  width: 104px;
+}
+.ol-status {
+  width: 100%;
+  font-size: var(--fs-label);
+}
 .prev-names {
   display: block;
   font-size: var(--fs-label);
@@ -4044,20 +4051,24 @@ kbd {
 }
 /* ステータス（ヒアリング進行）の色分け。文字色で状態を示す（select のまま軽量に） */
 .ft-status.st-heard,
-.insp-status.st-heard {
+.insp-status.st-heard,
+.ol-status.st-heard {
   color: var(--status-heard);
 }
 .ft-status.st-review,
-.insp-status.st-review {
+.insp-status.st-review,
+.ol-status.st-review {
   color: var(--status-review);
 }
 .ft-status.st-done,
-.insp-status.st-done {
+.insp-status.st-done,
+.ol-status.st-done {
   color: var(--status-done);
   font-weight: 600;
 }
 .ft-status.st-todo,
-.insp-status.st-todo {
+.insp-status.st-todo,
+.ol-status.st-todo {
   color: var(--faint);
 }
 /* 逐次レンダリングのセンチネル（ここが見えたら次のチャンクを描画） */

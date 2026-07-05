@@ -15,7 +15,7 @@ export interface SettingsFile {
   theme?: Theme;
   singleKey?: boolean;
   keybindings?: KeymapOverrides;
-  columns?: ColumnVisibility;
+  columns?: Partial<ColumnVisibility>; // 旧バージョンの設定は後から追加した列（status 等）を欠く
   ftColumns?: Record<string, boolean>;
   ftWidths?: Record<string, number>;
 }
@@ -85,7 +85,7 @@ export function parseSettingsFile(text: string): ParseResult {
       isObj(raw.columns) &&
       ['prev', 'effort', 'io'].every((k) => typeof (raw.columns as Record<string, unknown>)[k] === 'boolean')
     ) {
-      out.columns = raw.columns as unknown as ColumnVisibility;
+      out.columns = raw.columns as unknown as Partial<ColumnVisibility>;
     } else warnings.push('列設定(工程表)が不正のため読み飛ばしました。');
   }
   if (raw.ftColumns !== undefined) {

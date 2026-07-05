@@ -40,6 +40,7 @@ function readFtWidths(): Record<string, number> {
 // ヘッダ行・列メニュー(以上 TableView)と、ここでの表示トグルの永続化すべてを駆動する。
 // 列を増やすときはここに 1 エントリ追加し、TableView 側で本体の <td> を書くだけでよい。
 export const OUTLINE_OPTIONAL_COLUMNS = [
+  { key: 'status', label: '状況', width: 104 },
   { key: 'prev', label: '前工程', width: 132 },
   { key: 'effort', label: '工数', width: 78 },
   { key: 'io', label: '入/出・課題', width: 224 },
@@ -52,14 +53,19 @@ const DEFAULT_COLUMNS = Object.fromEntries(
   OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, true]),
 ) as ColumnVisibility;
 
+// 保存済み設定（キー欠けあり）を現行の全キーに正規化する。未知の列（後から追加した status など）が
+// 古い設定に無い場合は既定（表示）へフォールバックし、新列が既定で隠れないようにする。
+export function normalizeColumns(partial: Partial<ColumnVisibility>): ColumnVisibility {
+  return Object.fromEntries(
+    OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, partial[c.key] ?? DEFAULT_COLUMNS[c.key]]),
+  ) as ColumnVisibility;
+}
+
 function readInitialColumns(): ColumnVisibility {
   try {
     const saved = localStorage.getItem(COLS_KEY);
     if (saved) {
-      const parsed = JSON.parse(saved) as Partial<ColumnVisibility>;
-      return Object.fromEntries(
-        OUTLINE_OPTIONAL_COLUMNS.map((c) => [c.key, parsed[c.key] ?? DEFAULT_COLUMNS[c.key]]),
-      ) as ColumnVisibility;
+      return normalizeColumns(JSON.parse(saved) as Partial<ColumnVisibility>);
     }
   } catch {
     /* localStorage 不可/破損: 既定（全表示）にフォールバック */
@@ -252,7 +258,7 @@ interface UIState {
 
   /** 設定インポート用の一括反映（列設定）。undefined のキーは変更しない。 */
   hydrateSettings: (p: {
-    columns?: ColumnVisibility;
+    columns?: Partial<ColumnVisibility>;
     ftColumns?: Record<string, boolean>;
     ftWidths?: Record<string, number>;
   }) => void;
@@ -574,8 +580,9 @@ export const useUI = create<UIState>((set, get) => ({
     const patch: Record<string, unknown> = {};
     try {
       if (p.columns) {
-        localStorage.setItem(COLS_KEY, JSON.stringify(p.columns));
-        patch.columnVisibility = p.columns;
+        const cols = normalizeColumns(p.columns);
+        localStorage.setItem(COLS_KEY, JSON.stringify(cols));
+        patch.columnVisibility = cols;
       }
       if (p.ftColumns) {
         localStorage.setItem(FT_COLS_KEY, JSON.stringify(p.ftColumns));
