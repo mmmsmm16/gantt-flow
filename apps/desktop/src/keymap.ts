@@ -182,7 +182,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'zoom-in-eq', action: 'flow.zoomIn', context: 'flow', chord: { key: '=' }, lowRisk: true },
   { id: 'zoom-out', action: 'flow.zoomOut', context: 'flow', chord: { key: '-' }, lowRisk: true, help: { group: G.flow, label: 'ズームアウト' } },
   { id: 'zoom-reset', action: 'flow.zoomReset', context: 'flow', chord: { key: '0' }, lowRisk: true, help: { group: G.flow, label: 'ズームを 100% に' } },
-  { id: 'zoom-fit', action: 'flow.fit', context: 'flow', chord: { key: 'f' }, lowRisk: true, help: { group: G.flow, label: '全体表示(フィット)' } },
+  { id: 'zoom-fit', action: 'flow.fit', context: 'flow', chord: { key: 'f', shift: false }, lowRisk: true, help: { group: G.flow, label: '全体表示(フィット)' } },
+  { id: 'zoom-fit-sel', action: 'flow.fitSelection', context: 'flow', chord: { key: 'f', shift: true }, lowRisk: true, help: { group: G.flow, label: '選択にズーム(無選択は全体)' } },
   { id: 'node-rename', action: 'flow.rename', context: 'flow', chord: { key: 'enter' }, fixed: true, help: { group: G.flow, label: '工程名をその場編集' } },
   { id: 'node-rename-f2', action: 'flow.rename', context: 'flow', chord: { key: 'f2' }, fixed: true },
   // 接続モードは Esc 一発で取消でき(接続を確定するまで何も変えない)＝低リスク。既定で有効(UX#12)。
