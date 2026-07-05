@@ -12,12 +12,13 @@ import {
   addStepImage,
   upsertAsset,
   uuid,
+  runBatch,
+  type BatchOp,
   type Project,
 } from '@gantt-flow/core';
 import { Workspace } from '../src/session.js';
 import { loadProjectFile } from '../src/fileio.js';
 import { formatProcedure } from '../src/format.js';
-import { runBatch, type BatchOp } from '../src/batch.js';
 
 let dir: string;
 const path = () => join(dir, 'proc.gflow');
@@ -183,7 +184,7 @@ describe('apply_batch: set_procedure / add_step / upsert_asset', () => {
       { op: 'add_step', task: 't', action: '外観確認' },
       { op: 'upsert_asset', ref: 'doc1', name: 'マニュアル', alias: 'docs', relPath: 'm.pdf' },
     ];
-    const result = runBatch(s.project, ops);
+    const result = runBatch(s.project, ops, uuid, new Date().toISOString());
     expect(result.created.steps).toBe(2);
     expect(result.created.assets).toBe(1);
 

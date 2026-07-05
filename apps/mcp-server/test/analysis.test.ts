@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Project } from '@gantt-flow/core';
-import { runBatch, type BatchOp } from '../src/batch.js';
+import { type Project, uuid, runBatch, type BatchOp } from '@gantt-flow/core';
 import { computeCriticalPath, formatCriticalPath, formatAutomationCandidates, formatWorkload } from '../src/analysis.js';
 
 const empty = (): Project =>
@@ -20,7 +19,7 @@ function sample(): Project {
     { op: 'set_detail', task: 'c', patch: { ltDays: 1, effortMinutes: 30, difficulty: 'M', automation: 'system' } },
     { op: 'set_detail', task: 'd', patch: { ltDays: 5, effortMinutes: 120, difficulty: 'M', automation: 'partial' } },
   ];
-  return runBatch(empty(), ops).project;
+  return runBatch(empty(), ops, uuid, new Date().toISOString()).project;
 }
 
 describe('analyze_critical_path', () => {
