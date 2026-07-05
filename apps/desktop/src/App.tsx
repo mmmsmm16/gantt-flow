@@ -993,7 +993,7 @@ export function App() {
                 </>
               }
             >
-              <MenuItem onClick={onExportExcel}>Excel (.xlsx)（工程表・課題一覧・サマリ）</MenuItem>
+              <MenuItem onClick={onExportExcel}>Excel (.xlsx)（工程表・課題一覧・サマリ／To-Be入力時は改善効果も）</MenuItem>
               <MenuItem onClick={onExportCsv}>CSV (.csv)</MenuItem>
               <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
               <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
