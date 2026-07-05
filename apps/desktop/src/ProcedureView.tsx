@@ -449,7 +449,7 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
                       return (
                         <div className="proc-cond" key={c.id}>
                           <div className="proc-cond-row">
-                            <span className="proc-cond-if">⚠ 〜の場合:</span>
+                            <span className="proc-cond-if">条件</span>
                             <EditLine
                               className="proc-cond-when"
                               value={c.when}
