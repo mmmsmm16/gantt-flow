@@ -7651,7 +7651,7 @@ input.colored-text {
 }
 .fedge-label {
   fill: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-strong);
 }
 
@@ -7677,11 +7677,11 @@ input.colored-text {
   align-items: center;
   justify-content: center;
   padding: 0 10px;
-  border-radius: 9px;
+  border-radius: var(--radius);
   border: 1.5px solid var(--line-strong);
   background: var(--panel-2);
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-body);
   font-weight: var(--fw-strong);
   text-align: center;
   line-height: 1.15;
@@ -7701,7 +7701,7 @@ input.colored-text {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: 400;
   color: var(--muted);
 }
@@ -7828,7 +7828,7 @@ input.colored-text {
   left: 0;
   right: 0;
   bottom: -16px;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: 400;
   color: var(--faint);
   text-align: center;
