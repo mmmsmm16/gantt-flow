@@ -79,6 +79,11 @@
   --amber: #b9820a;
   --amber-fill: #f6ecc6;
   --amber-ink: #7a5407;
+  /* 朱書き（条件分岐の注記）＝ハンドブック handbook.ts の --shu 系と整合。
+     配布物（ライト専用）と同じ朱色。ダークは [data-theme] 側で可読な変種へ持ち上げる。 */
+  --shu: #a6371f;
+  --shu-fill: #f8ede8;
+  --shu-rule: #e0b6a8;
 
   /* 粒度＝中立の青グレー階段（DESIGN §13 #7 解消）。粒度は「構造」なので静かな濃淡で表し、
      色相は意味色（入/出/課題/成功/警告）に解放する＝1色相1意味。大=最濃→詳細=淡。
@@ -127,6 +132,10 @@
   --font-ui: 'Inter', 'Meiryo UI', system-ui, -apple-system, 'Hiragino Kaku Gothic ProN',
     'Yu Gothic UI', 'Noto Sans JP', Meiryo, sans-serif;
   --font-mono: 'Cascadia Code', ui-monospace, 'SF Mono', Consolas, 'Yu Gothic UI', monospace;
+  /* 明朝（見出しの組版）＝ハンドブック handbook.ts の --mincho と整合。和文明朝は OS 同梱を利用
+     （セルフホスト webfont は持たない）。手順書タブ/配布物の章・節の階層感を担う。 */
+  --font-serif: 'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'Hiragino Mincho Pro',
+    'Noto Serif JP', 'HGS明朝E', 'MS PMincho', serif;
 
   /* タイプスケール（5 段固定・端数 / 11px 未満禁止。DESIGN §5.2） */
   --fs-caption: 11px; /* チップ・補足・ステータスバー */
@@ -192,6 +201,11 @@
   --amber: #f0c453;
   --amber-fill: rgba(202, 138, 4, 0.2);
   --amber-ink: #f0c453;
+  /* 朱書き（ダーク）: 朱 #a6371f は暗地で沈むため、くすんだ明るい朱へ持ち上げて可読に。
+     塗り/罫は朱を透過で敷く（周辺トークンと同じ作法）。 */
+  --shu: #e79a83;
+  --shu-fill: rgba(166, 55, 31, 0.22);
+  --shu-rule: rgba(231, 154, 131, 0.42);
 
   /* 粒度（中立の青グレー階段・ダークは明度を持ち上げ。大=明→詳細=暗で序列維持） */
   --lvl-large: #c7d2e0;
@@ -6143,9 +6157,11 @@ input.colored-text {
 }
 
 /* ============================================================
-   手順書タブ（ProcedureView）。正: design_reference/procedure-mock.html
-   既存トークン（--panel/--ink/--line/--accent/--amber/--in/--danger 等）準拠。
-   モック固有色（琥珀の条件ボックス等）は theme 対応済みトークンで両テーマ可読。
+   手順書タブ（ProcedureView）。デザインの正 = handbook.ts の CSS
+   （Task 5: 編集画面＝配布物ハンドブックを同一のデザイン言語に統一）。
+   明朝の見出し組版・工程カードの余白と罫・条件分岐の「朱書き」・参照チップ・
+   ステップ番号の意匠をハンドブックへ寄せる。色は既存トークン（--accent/--in/
+   --shu/--font-serif 等）に載せて両テーマ対応（--shu はダークで可読な変種を定義）。
    ============================================================ */
 .procedure-view {
   flex: 1;
@@ -6167,21 +6183,24 @@ input.colored-text {
   font-size: var(--fs-body);
 }
 
-/* ---- サイドバー: 縦フローナビ ---- */
+/* ---- サイドバー: 縦フローナビ（ハンドブックの目次と同じトーン） ---- */
 .proc-side {
-  width: 240px;
+  width: 248px;
   flex: none;
   border-right: 1px solid var(--line);
-  padding: var(--sp-3) var(--sp-2);
+  padding: var(--sp-4) var(--sp-2);
   overflow-y: auto;
   background: var(--panel-2);
   font-size: var(--fs-label);
 }
 .proc-cap {
-  font-size: var(--fs-caption);
-  color: var(--faint);
-  letter-spacing: 0.08em;
-  padding: 0 var(--sp-2) var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--fw-strong);
+  color: var(--accent);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 0 var(--sp-2) var(--sp-3);
 }
 .proc-mg-h {
   display: flex;
@@ -6189,7 +6208,9 @@ input.colored-text {
   gap: var(--sp-2);
   padding: var(--sp-2);
   border-radius: var(--radius-sm);
+  font-family: var(--font-serif);
   font-weight: var(--fw-strong);
+  letter-spacing: 0.03em;
   color: var(--ink);
 }
 .proc-mg-h.dim {
@@ -6199,21 +6220,25 @@ input.colored-text {
 }
 .proc-mg-h.dim:hover {
   background: var(--hover);
+  color: var(--ink);
 }
 .proc-mg-h.current {
   color: var(--ink);
 }
 .proc-mg-h .proc-lv2 {
-  font-size: var(--fs-caption);
+  font-family: var(--font-mono);
+  font-size: 10px;
   color: var(--muted);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
-  padding: 0 4px;
+  padding: 0 5px;
   font-weight: var(--fw-regular);
+  letter-spacing: 0;
 }
 .proc-cov {
   margin-left: auto;
   font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
 }
 .proc-cov.ok {
   color: var(--ok);
@@ -6225,12 +6250,12 @@ input.colored-text {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 2px var(--sp-2) var(--sp-2) var(--sp-4);
+  padding: 2px var(--sp-2) var(--sp-3) var(--sp-4);
 }
 .proc-mnode {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 4px 9px;
+  padding: 5px 10px;
   background: var(--panel);
   font-size: var(--fs-label);
   color: var(--ink);
@@ -6239,9 +6264,11 @@ input.colored-text {
   gap: 6px;
   text-align: left;
   cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
 .proc-mnode:hover {
   border-color: var(--line-strong);
+  background: var(--hover);
 }
 .proc-mnode-name {
   overflow: hidden;
@@ -6283,8 +6310,7 @@ input.colored-text {
 .proc-mlink {
   width: 2px;
   height: 14px;
-  background: var(--faint);
-  opacity: 0.5;
+  background: var(--line-strong);
   margin-left: calc(50% - 1px);
 }
 
@@ -6302,38 +6328,48 @@ input.colored-text {
 }
 .proc-crumb b {
   color: var(--ink);
+  font-weight: var(--fw-strong);
 }
+/* 中工程の見出し（ハンドブックの節見出し = 明朝＋濃い下罫の「章扉」感）。 */
 .proc-doc-h {
   display: flex;
   align-items: baseline;
   gap: var(--sp-3);
   flex-wrap: wrap;
+  padding-bottom: var(--sp-2);
+  border-bottom: 2px solid var(--ink);
 }
 .proc-doc-h h2 {
-  font-size: var(--fs-display);
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.05em;
   margin: 0;
 }
 .proc-covbar {
   font-size: var(--fs-label);
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .proc-covbar b {
   color: var(--ok);
+  font-weight: var(--fw-strong);
 }
+/* 工程群の目的バンド（ハンドブック .hb-group-purpose のアクセント帯）。 */
 .proc-purpose {
-  margin: var(--sp-3) 0 var(--sp-6);
-  padding: var(--sp-2) var(--sp-3);
+  margin: var(--sp-4) 0 var(--sp-6);
+  padding: var(--sp-3);
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
   max-width: 60em;
 }
 .proc-purpose-tag {
   display: block;
-  font-size: var(--fs-caption);
+  font-size: 10.5px;
   font-weight: var(--fw-strong);
   color: var(--accent);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.12em;
   margin-bottom: var(--sp-1);
 }
 .proc-purpose-input {
@@ -6368,10 +6404,16 @@ input.colored-text {
   margin: var(--sp-4) 0 0;
 }
 
-/* ---- 章（工程ごとの手順） ---- */
+/* ---- 章（工程ごとの手順書カード。ハンドブック .hb-proc に相当） ---- */
 .proc-chap {
-  margin: 0 0 var(--sp-6);
+  margin: var(--sp-4) 0;
   scroll-margin-top: var(--sp-3);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
 }
 .proc-chap-h {
   display: flex;
@@ -6379,10 +6421,14 @@ input.colored-text {
   gap: var(--sp-3);
   border-bottom: 1px solid var(--line);
   padding-bottom: var(--sp-2);
+  margin-bottom: var(--sp-2);
   flex-wrap: wrap;
 }
 .proc-chap-h h3 {
-  font-size: var(--fs-title);
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.03em;
   margin: 0;
 }
 .proc-meta {
@@ -6432,16 +6478,16 @@ input.colored-text {
   box-shadow: var(--ring);
 }
 
-/* ---- ステップ ---- */
+/* ---- ステップ（ハンドブック .hb-step の意匠: 塗りの番号丸＋上罫の区切り） ---- */
 .proc-step {
   display: flex;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-2);
-  border-bottom: 1px dashed var(--line);
+  padding: var(--sp-3) var(--sp-1);
+  border-top: 1px solid var(--line);
   border-radius: var(--radius-sm);
 }
-.proc-step:last-of-type {
-  border-bottom: 0;
+.proc-step:first-of-type {
+  border-top: 0;
 }
 .proc-step.selected {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -6449,18 +6495,19 @@ input.colored-text {
 }
 .proc-stepno {
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  margin-top: 2px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  margin-top: 1px;
+  background: var(--accent);
+  border: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--fs-label);
   font-weight: var(--fw-strong);
-  color: var(--muted);
+  color: var(--on-accent);
+  font-variant-numeric: tabular-nums;
 }
 .proc-step-body {
   flex: 1;
@@ -6535,7 +6582,9 @@ input.colored-text {
 .proc-why {
   display: flex;
   align-items: baseline;
-  margin-top: 1px;
+  margin-top: var(--sp-1);
+  padding-left: 0.7em;
+  border-left: 2px solid var(--accent-soft);
 }
 .proc-why::before {
   content: '目的: ';
@@ -6593,24 +6642,31 @@ input.colored-text {
   border-color: var(--accent);
 }
 
-/* ---- 条件ボックス（琥珀） ---- */
+/* ---- 条件分岐の「朱書き」注記（ハンドブック .hb-cond。琥珀→朱に置換） ---- */
 .proc-cond {
   margin-top: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
-  border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--line));
-  background: var(--amber-fill);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--shu-rule);
+  border-left: 3px solid var(--shu);
+  background: var(--shu-fill);
+  border-radius: 0 var(--radius) var(--radius) 0;
   max-width: 56em;
 }
 .proc-cond-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
 }
+/* 「条件」バッジ（明朝＋朱の縁取り）。JSX 側でラベル文言を「条件」に置換。 */
 .proc-cond-if {
+  font-family: var(--font-serif);
   font-weight: var(--fw-strong);
-  color: var(--amber-ink);
-  font-size: var(--fs-label);
+  color: var(--shu);
+  font-size: var(--fs-caption);
+  letter-spacing: 0.12em;
+  border: 1px solid var(--shu);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
   flex: none;
 }
 .proc-cond-when {
@@ -6618,12 +6674,15 @@ input.colored-text {
   min-width: 0;
   border: none;
   background: transparent;
-  color: var(--amber-ink);
+  color: var(--shu);
   font: inherit;
   font-size: var(--fs-body);
   font-weight: var(--fw-strong);
   padding: 2px 4px;
   border-radius: var(--radius-sm);
+}
+.proc-cond-when::placeholder {
+  color: color-mix(in srgb, var(--shu) 60%, transparent);
 }
 .proc-cond-when:focus {
   outline: none;
@@ -6632,8 +6691,8 @@ input.colored-text {
 }
 .proc-cond-then {
   width: 100%;
-  margin-top: 4px;
-  border: 1px solid color-mix(in srgb, var(--amber) 30%, var(--line));
+  margin-top: var(--sp-1);
+  border: 1px solid var(--shu-rule);
   background: var(--input-bg);
   color: var(--ink);
   font: inherit;
@@ -6645,12 +6704,13 @@ input.colored-text {
 .proc-cond-then:focus {
   outline: none;
   box-shadow: var(--ring);
+  border-color: var(--shu);
 }
 .proc-cond-jump {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: var(--sp-1);
   flex-wrap: wrap;
 }
 .proc-cond-label {
@@ -6665,13 +6725,14 @@ input.colored-text {
   text-decoration: underline;
   text-underline-offset: 2px;
   font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
   padding: 0;
 }
 .proc-c-link.broken {
-  color: var(--danger);
+  color: var(--shu);
 }
 
-/* ---- 参照チップ ---- */
+/* ---- 参照チップ（ハンドブック .hb-mchip: 資料=ティール / 入出力=青 / 切れ=朱） ---- */
 .proc-chips {
   display: flex;
   flex-wrap: wrap;
@@ -6681,11 +6742,11 @@ input.colored-text {
 .proc-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: var(--fs-label);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-pill);
-  padding: 1px 4px 1px 10px;
+  padding: 2px 5px 2px 11px;
   color: var(--muted);
   background: var(--panel);
 }
@@ -6700,9 +6761,9 @@ input.colored-text {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 .proc-chip.broken {
-  color: var(--danger);
-  background: var(--danger-soft);
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+  color: var(--shu);
+  background: var(--shu-fill);
+  border-color: var(--shu-rule);
 }
 .proc-chip-x {
   border: none;
@@ -6869,7 +6930,10 @@ input.colored-text {
 }
 .drawer h4 {
   margin: 0 0 var(--sp-3);
-  font-size: var(--fs-body);
+  font-family: var(--font-serif);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.03em;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -6971,11 +7035,13 @@ input.colored-text {
 .asset .nm {
   flex: 1;
   min-width: 0;
+  font-family: var(--font-serif);
   font-weight: var(--fw-strong);
+  letter-spacing: 0.02em;
   border: none;
   background: transparent;
   color: var(--ink);
-  font: inherit;
+  font-size: var(--fs-body);
   padding: 1px 2px;
   border-radius: var(--radius-sm);
 }

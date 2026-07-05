@@ -1,7 +1,7 @@
 // persistence の保存/開く（Tauri バックエンド・競合検知・助言ロック）と CSV 読み込みのテスト。
 // Tauri 環境は window.__TAURI__.core.invoke をモックして再現する（node 環境のため DOM 依存の
 // エクスポート系: exportPngFile 等はここでは対象外）。
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   createSampleProject,
   serializeProject,
@@ -17,6 +17,7 @@ import {
   readTableFile,
   localDateYmd,
   missingReferencedAssets,
+  exportHandbookFile,
 } from '../src/persistence';
 import { bytesToB64, b64ToBytes } from '../src/b64';
 import { putAsset, __resetAssetStoreForTest } from '../src/assetStore';
@@ -571,6 +572,45 @@ describe('missingReferencedAssets（保存前の欠落画像検出）', () => {
   it('画像を参照しないプロジェクトは常に空配列', () => {
     const base = createSampleProject(gen('miss-none'));
     expect(missingReferencedAssets(base)).toEqual([]);
+  });
+});
+
+// exportSvgFile 等と同じ private download()（Blob + <a download> のクリック）を経由する。
+// document は node 環境に無いため最小スタブを張り、URL.createObjectURL/revokeObjectURL は
+// clearAssetStore テスト（assetStore.test.ts）と同様に vi.spyOn で捕捉する（実装差し替えはしない）。
+describe('exportHandbookFile（ハンドブック HTML の書き出し）', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (globalThis as { document?: unknown }).document;
+  });
+
+  it('safeName(title)-handbook.html という名前・text/html;charset=utf-8 で download する', () => {
+    const project = createSampleProject(gen('hb1'));
+    const clicks: { name: string; href: string }[] = [];
+    let capturedMime = '';
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      capturedMime = (blob as Blob).type;
+      return 'blob:mock-handbook';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    (globalThis as { document?: unknown }).document = {
+      createElement: () => {
+        const a: { href: string; download: string; click: () => void } = {
+          href: '',
+          download: '',
+          click: () => clicks.push({ name: a.download, href: a.href }),
+        };
+        return a;
+      },
+    };
+
+    const name = exportHandbookFile(project);
+
+    expect(name).toMatch(/-handbook\.html$/);
+    expect(name).not.toContain('：'); // safeName 通過(全角記号などは _ に置換済み)
+    expect(clicks).toHaveLength(1);
+    expect(clicks[0]).toEqual({ name, href: 'blob:mock-handbook' });
+    expect(capturedMime).toBe('text/html;charset=utf-8');
   });
 });
 

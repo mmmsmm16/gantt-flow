@@ -42,7 +42,9 @@ const EXT_TO_MIME: Record<string, string> = {
 function extForMime(mime: string): string {
   return EXT_BY_MIME[mime.toLowerCase().split(';')[0]!.trim()] ?? 'bin';
 }
-function mimeForFile(file: string): string {
+// 拡張子から MIME を引く（純関数・DOM 非依存）。handbook.ts が opts.assets の bytes を
+// data URI 化する際にも使う（内容ハッシュ名の拡張子は contentHashName 由来で安全）。
+export function mimeForFile(file: string): string {
   const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
   return EXT_TO_MIME[ext] ?? 'application/octet-stream';
 }

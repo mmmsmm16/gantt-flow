@@ -30,6 +30,7 @@ interface FileHandlers {
   onExportCsv: () => void;
   onExportSvg: () => void;
   onExportPng: () => void;
+  onExportHandbook: () => void;
   onPrint: () => void;
 }
 
@@ -707,6 +708,12 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'export-csv', label: 'CSV に書き出す', keywords: 'export csv', run: handlers.onExportCsv },
       { id: 'export-png', label: '画像 (PNG) に書き出す', keywords: 'export png gazou 画像 図', run: handlers.onExportPng },
       { id: 'export-svg', label: '画像 (SVG) に書き出す', keywords: 'export svg gazou 画像', run: handlers.onExportSvg },
+      {
+        id: 'export-handbook',
+        label: 'ハンドブック (HTML) に書き出す',
+        keywords: 'export handbook html hando bukku ハンドブック 手順書 書き出し 出力',
+        run: handlers.onExportHandbook,
+      },
       { id: 'print', label: '印刷 / PDF（工程表＋フロー図）', keywords: 'print insatsu 印刷 pdf', hint: '⌘P', run: handlers.onPrint },
       { id: 'undo', label: '元に戻す', keywords: 'undo modosu もどす', hint: '⌘Z', run: app.undo, available: canUndo },
       { id: 'redo', label: 'やり直し', keywords: 'redo yarinaoshi', hint: '⌘Y', run: app.redo, available: canRedo },

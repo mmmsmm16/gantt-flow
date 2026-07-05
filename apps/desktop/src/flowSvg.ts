@@ -16,6 +16,7 @@ import {
   type Project,
   type FlowLevelView,
   type FlowNode,
+  type Id,
   type Rect,
 } from '@gantt-flow/core';
 import { FLOW_LIGHT, TASK_COLORS } from './theme';
@@ -27,10 +28,27 @@ import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 const FONT_STACK =
   "'Inter', 'Meiryo UI', system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Noto Sans JP', Meiryo, sans-serif";
 
+// ハンドブックの「フロー上の位置」ハイライト用アクセント（--brand と同系統）。
+// theme.ts（FLOW_LIGHT/ダーク導出の単一の真実）は本機能では触らず、ここに直接定数化する。
+const HIGHLIGHT_STROKE = '#0e6f6a';
+const HIGHLIGHT_HALO = 'rgba(14,111,106,0.20)';
+const DIM_OPACITY = 0.4;
+
 const esc = (s: string) =>
   s.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
 
-export function buildFlowSvg(project: Project, view: FlowLevelView): string {
+export function buildFlowSvg(
+  project: Project,
+  view: FlowLevelView,
+  opts?: { highlightTaskIds?: Set<Id> },
+): string {
+  // ハイライト指定が無ければ従来どおり（isHi は常に false・dim は常に無効＝出力バイト不変）。
+  const hi = opts?.highlightTaskIds;
+  const isHi = (taskId: Id): boolean => hi !== undefined && hi.has(taskId);
+  // 「その他要素」(タスクノード以外の全て: バンド・レーン・MS・エッジ・課題/付箋線・課題/付箋/制御ノード)は
+  // ハイライト指定があれば対象を問わず一律減光する（対象タスクの隣にあっても薄くする＝ひと目で浮かせる）。
+  const otherDim = hi !== undefined;
+  const dimAttr = (on: boolean): string => (on ? ` opacity="${DIM_OPACITY}"` : '');
   const nodes = Object.values(view.nodes);
   // マイルストーン縦線（上部余白の菱形＋レーンを貫く破線）。導出は画面 FlowCanvas と共有＝一致を保証。
   const msGuides = deriveMilestoneGuides(project.core, view);
@@ -103,11 +121,11 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const sw = b.level === 'large' ? 1.6 : 1;
     const dash = b.level === 'large' ? '10 5' : '6 4';
     parts.push(
-      `<rect x="${b.x}" y="${b.top}" width="${b.width}" height="${b.height}" rx="12" fill="none" stroke="${FLOW_LIGHT.band}" stroke-width="${sw}" stroke-dasharray="${dash}"/>`,
+      `<rect x="${b.x}" y="${b.top}" width="${b.width}" height="${b.height}" rx="12" fill="none" stroke="${FLOW_LIGHT.band}" stroke-width="${sw}" stroke-dasharray="${dash}"${dimAttr(otherDim)}/>`,
     );
     const label = (b.level === 'large' ? '大' : b.level === 'medium' ? '中' : '小') + ': ' + b.label;
     parts.push(
-      `<text x="${b.x + 6}" y="${b.top + 14}" font-size="11" fill="${FLOW_LIGHT.bandLabel}">${esc(label)}</text>`,
+      `<text x="${b.x + 6}" y="${b.top + 14}" font-size="11" fill="${FLOW_LIGHT.bandLabel}"${dimAttr(otherDim)}>${esc(label)}</text>`,
     );
   }
 
@@ -115,43 +133,44 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
   // 担当レーンが無いビューでは描かない（「担当者名の無いレーン」を出さない）。
   if (hasLanes) {
     parts.push(
-      `<rect x="0" y="${BAND_TOP}" width="${LABEL_W}" height="${laneBottom - BAND_TOP}" fill="${FLOW_LIGHT.laneColBg}"/>`,
+      `<rect x="0" y="${BAND_TOP}" width="${LABEL_W}" height="${laneBottom - BAND_TOP}" fill="${FLOW_LIGHT.laneColBg}"${dimAttr(otherDim)}/>`,
     );
     boxes.forEach((box, i) => {
       if (i % 2 === 1)
         parts.push(
-          `<rect x="${LABEL_W}" y="${box.top}" width="${maxX}" height="${box.height}" fill="${FLOW_LIGHT.laneStripe}"/>`,
+          `<rect x="${LABEL_W}" y="${box.top}" width="${maxX}" height="${box.height}" fill="${FLOW_LIGHT.laneStripe}"${dimAttr(otherDim)}/>`,
         );
       parts.push(
-        `<line x1="0" y1="${box.top}" x2="${maxX}" y2="${box.top}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
+        `<line x1="0" y1="${box.top}" x2="${maxX}" y2="${box.top}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"${dimAttr(otherDim)}/>`,
       );
     });
     parts.push(
-      `<line x1="0" y1="${laneBottom}" x2="${maxX}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"/>`,
+      `<line x1="0" y1="${laneBottom}" x2="${maxX}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneLine}" stroke-width="1.2"${dimAttr(otherDim)}/>`,
     );
     parts.push(
-      `<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneDivider}" stroke-width="1.4"/>`,
+      `<line x1="${LABEL_W}" y1="${BAND_TOP}" x2="${LABEL_W}" y2="${laneBottom}" stroke="${FLOW_LIGHT.laneDivider}" stroke-width="1.4"${dimAttr(otherDim)}/>`,
     );
     for (const box of boxes) {
       // レーンの帯の中央に担当名（画面と揃える）。
       parts.push(
-        `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle">${esc(box.lane.title)}</text>`,
+        `<text x="${LABEL_W / 2}" y="${box.top + box.height / 2 + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.laneTitle}" text-anchor="middle"${dimAttr(otherDim)}>${esc(box.lane.title)}</text>`,
       );
     }
   }
 
   // マイルストーン: レーンを貫く縦破線＋上部余白の琥珀の菱形（回転した角丸四角）＋ラベル。
   // 導出は画面 FlowCanvas と共有（deriveMilestoneGuides）＝ WYSIWYG。
+  const msLineOpacity = otherDim ? DIM_OPACITY : 0.55;
   for (const g of msGuides) {
     parts.push(
-      `<line x1="${g.x}" y1="${MS_CY + 12}" x2="${g.x}" y2="${msLineBottom}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.55"/>`,
+      `<line x1="${g.x}" y1="${MS_CY + 12}" x2="${g.x}" y2="${msLineBottom}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.5" stroke-dasharray="6 4" opacity="${msLineOpacity}"/>`,
     );
     parts.push(
-      `<rect x="${g.x - 10}" y="${MS_CY - 10}" width="20" height="20" rx="4" transform="rotate(45 ${g.x} ${MS_CY})" fill="${FLOW_LIGHT.ms.fill}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.6"/>`,
+      `<rect x="${g.x - 10}" y="${MS_CY - 10}" width="20" height="20" rx="4" transform="rotate(45 ${g.x} ${MS_CY})" fill="${FLOW_LIGHT.ms.fill}" stroke="${FLOW_LIGHT.ms.stroke}" stroke-width="1.6"${dimAttr(otherDim)}/>`,
     );
     if (g.label) {
       parts.push(
-        `<text x="${g.x + 16}" y="${MS_CY + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.ms.text}">${esc(g.label)}</text>`,
+        `<text x="${g.x + 16}" y="${MS_CY + 4}" font-size="12" font-weight="600" fill="${FLOW_LIGHT.ms.text}"${dimAttr(otherDim)}>${esc(g.label)}</text>`,
       );
     }
   }
@@ -172,11 +191,11 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
       edgeObstacles.filter((o) => o.id !== e.source && o.id !== e.target),
     );
     parts.push(
-      `<path d="${route.d}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"/>`,
+      `<path d="${route.d}" fill="none" stroke="${FLOW_LIGHT.edge}" stroke-width="1.8" marker-end="url(#a)"${dimAttr(otherDim)}/>`,
     );
     if (e.label) {
       parts.push(
-        `<text x="${route.label.x}" y="${route.label.y - 4}" font-size="11" fill="${FLOW_LIGHT.edgeLabel}" text-anchor="middle">${esc(e.label)}</text>`,
+        `<text x="${route.label.x}" y="${route.label.y - 4}" font-size="11" fill="${FLOW_LIGHT.edgeLabel}" text-anchor="middle"${dimAttr(otherDim)}>${esc(e.label)}</text>`,
       );
     }
   }
@@ -195,7 +214,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     if (!t) continue;
     const c = issueLineTarget(t, nodes, project.details);
     parts.push(
-      `<line x1="${n.x + SIZE.issue.w / 2}" y1="${n.y + SIZE.issue.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"/>`,
+      `<line x1="${n.x + SIZE.issue.w / 2}" y1="${n.y + SIZE.issue.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"${dimAttr(otherDim)}/>`,
     );
   }
 
@@ -207,7 +226,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     const c = issueLineTarget(t, nodes, project.details);
     const cs = nodeSize(n);
     parts.push(
-      `<line x1="${n.x + cs.w / 2}" y1="${n.y + cs.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"/>`,
+      `<line x1="${n.x + cs.w / 2}" y1="${n.y + cs.h / 2}" x2="${c.x}" y2="${c.y}" stroke="${FLOW_LIGHT.issueLine}" stroke-width="1"${dimAttr(otherDim)}/>`,
     );
   }
 
@@ -221,13 +240,24 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
       // 工程カラー(任意)。塗りは淡背景+濃枠、文字色は text を使用(未設定は既定)。
       const d = project.details[n.taskId];
       const fill = d?.fillColor ? TASK_COLORS[d.fillColor].fill : FLOW_LIGHT.task.fill;
-      const stroke = d?.fillColor ? TASK_COLORS[d.fillColor].base : FLOW_LIGHT.task.stroke;
+      const baseStroke = d?.fillColor ? TASK_COLORS[d.fillColor].base : FLOW_LIGHT.task.stroke;
       const textFill = d?.textColor ? TASK_COLORS[d.textColor].text : FLOW_LIGHT.task.text;
+      // ハイライト対象: アクセントの太枠＋わずかなハロー、他の色分け(fill/textFill)は保つ。
+      // 非対象(hi 指定時のみ): 減光。hi 未指定なら highlighted=false・dimmed=false で従来どおり。
+      const highlighted = isHi(n.taskId);
+      const dimmed = hi !== undefined && !highlighted;
+      const stroke = highlighted ? HIGHLIGHT_STROKE : baseStroke;
+      const strokeW = highlighted ? 2.5 : 1.5;
+      if (highlighted) {
+        parts.push(
+          `<rect x="${n.x - 4}" y="${n.y - 4}" width="${s.w + 8}" height="${s.h + 8}" rx="13" fill="${HIGHLIGHT_HALO}"/>`,
+        );
+      }
       parts.push(
-        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`,
+        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}"${dimAttr(dimmed)}/>`,
       );
       parts.push(
-        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${textFill}" text-anchor="middle">${esc(name)}</text>`,
+        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="13" font-weight="600" fill="${textFill}" text-anchor="middle"${dimAttr(dimmed)}>${esc(name)}</text>`,
       );
     } else if (n.kind === 'issue') {
       if (!isPrimaryIssue(n)) continue; // 集約: 代表のみ描画
@@ -237,20 +267,20 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
       const padY = 7;
       const boxH = Math.max(s.h, padY * 2 + lines.length * lineH);
       parts.push(
-        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${boxH}" rx="6" fill="${FLOW_LIGHT.issue.fill}" stroke="${FLOW_LIGHT.issue.stroke}" stroke-width="1.5"/>`,
+        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${boxH}" rx="6" fill="${FLOW_LIGHT.issue.fill}" stroke="${FLOW_LIGHT.issue.stroke}" stroke-width="1.5"${dimAttr(otherDim)}/>`,
       );
       lines.forEach((tx, i) => {
         const label = texts.length > 1 ? `・${tx}` : tx;
         parts.push(
-          `<text x="${n.x + 8}" y="${n.y + padY + i * lineH + 11}" font-size="11" font-weight="600" fill="${FLOW_LIGHT.issue.stroke}">${esc(truncate(label, 16))}</text>`,
+          `<text x="${n.x + 8}" y="${n.y + padY + i * lineH + 11}" font-size="11" font-weight="600" fill="${FLOW_LIGHT.issue.stroke}"${dimAttr(otherDim)}>${esc(truncate(label, 16))}</text>`,
         );
       });
     } else if (n.kind === 'comment') {
       parts.push(
-        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="4" fill="${FLOW_LIGHT.comment.fill}" stroke="${FLOW_LIGHT.comment.stroke}" stroke-width="1.4"/>`,
+        `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="4" fill="${FLOW_LIGHT.comment.fill}" stroke="${FLOW_LIGHT.comment.stroke}" stroke-width="1.4"${dimAttr(otherDim)}/>`,
       );
       parts.push(
-        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="11" fill="${FLOW_LIGHT.comment.text}" text-anchor="middle">${esc(n.text)}</text>`,
+        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="11" fill="${FLOW_LIGHT.comment.text}" text-anchor="middle"${dimAttr(otherDim)}>${esc(n.text)}</text>`,
       );
     } else if (n.kind === 'control') {
       const label = { start: '開始', end: '終了', decision: '判断', merge: '合流' }[n.control];
@@ -258,15 +288,15 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
         const mx = n.x + s.w / 2;
         const my = n.y + s.h / 2;
         parts.push(
-          `<polygon points="${mx},${n.y} ${n.x + s.w},${my} ${mx},${n.y + s.h} ${n.x},${my}" fill="${FLOW_LIGHT.control.fill}" stroke="${FLOW_LIGHT.control.stroke}" stroke-width="1.6"/>`,
+          `<polygon points="${mx},${n.y} ${n.x + s.w},${my} ${mx},${n.y + s.h} ${n.x},${my}" fill="${FLOW_LIGHT.control.fill}" stroke="${FLOW_LIGHT.control.stroke}" stroke-width="1.6"${dimAttr(otherDim)}/>`,
         );
       } else {
         parts.push(
-          `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="16" fill="${FLOW_LIGHT.control.fill}" stroke="${FLOW_LIGHT.control.stroke}" stroke-width="1.6"/>`,
+          `<rect x="${n.x}" y="${n.y}" width="${s.w}" height="${s.h}" rx="16" fill="${FLOW_LIGHT.control.fill}" stroke="${FLOW_LIGHT.control.stroke}" stroke-width="1.6"${dimAttr(otherDim)}/>`,
         );
       }
       parts.push(
-        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="11" fill="${FLOW_LIGHT.control.text}" text-anchor="middle">${esc(label)}</text>`,
+        `<text x="${cx}" y="${n.y + s.h / 2 + 4}" font-size="11" fill="${FLOW_LIGHT.control.text}" text-anchor="middle"${dimAttr(otherDim)}>${esc(label)}</text>`,
       );
     }
   }
@@ -276,6 +306,7 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     task: FlowNode,
     io: 'input' | 'output',
     items: { name: string; kind: 'doc' | 'info' }[],
+    dim: boolean,
   ): void => {
     if (!items.length) return;
     const r = ioIconRect(task, io, items.length);
@@ -283,30 +314,32 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
     if (items[0]?.kind === 'info') {
       // 情報=3 角丸＋1 角を立てた角丸ボックス（DESIGN §8・画面と一致＝WYSIWYG）
       parts.push(
-        `<path d="${ioInfoChipPath(r, io)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+        `<path d="${ioInfoChipPath(r, io)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"${dimAttr(dim)}/>`,
       );
     } else {
       // 帳票=書類オブジェクト（角丸矩形＋右上ドッグイア。ドッグイアは枠色で塗る）
       parts.push(
-        `<path d="${ioDocBodyPath(r)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+        `<path d="${ioDocBodyPath(r)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.4"${dimAttr(dim)}/>`,
       );
-      parts.push(`<polygon points="${ioDocFoldPoints(r)}" fill="${pal.stroke}"/>`);
+      parts.push(`<polygon points="${ioDocFoldPoints(r)}" fill="${pal.stroke}"${dimAttr(dim)}/>`);
     }
     items.forEach((it, i) => {
       const ty = r.y + IO_ICON.padTop + i * IO_ICON.line + IO_ICON.line - 3;
       parts.push(
-        `<text x="${r.x + r.w / 2}" y="${ty}" font-size="10.5" font-weight="600" fill="${pal.stroke}" text-anchor="middle">${esc(it.name || '帳票')}</text>`,
+        `<text x="${r.x + r.w / 2}" y="${ty}" font-size="10.5" font-weight="600" fill="${pal.stroke}" text-anchor="middle"${dimAttr(dim)}>${esc(it.name || '帳票')}</text>`,
       );
     });
   };
   for (const n of nodes) {
     if (n.kind !== 'task' || isMs(n)) continue;
+    // I/O・出所チップは、対象タスク自体がハイライトされていれば減光しない（対象の一式を崩さない）。
+    const iconDim = hi !== undefined && !isHi(n.taskId);
     const d = project.details[n.taskId];
     const inputs = d?.inputs ?? [];
     const plain = inputs.filter((it) => !it.source?.trim());
     const sourced = inputs.filter((it) => it.source?.trim());
-    drawIoIcon(n, 'input', plain);
-    drawIoIcon(n, 'output', d?.outputs ?? []);
+    drawIoIcon(n, 'input', plain, iconDim);
+    drawIoIcon(n, 'output', d?.outputs ?? [], iconDim);
     // 出所付き入力帳票: 出所部署のレーンに帳票を置き、工程へ点線で結ぶ
     // （レーン照合・チップ矩形・「外部:」表示の規則は画面と共有: sourceChipLayout）。
     const pal = FLOW_LIGHT.ioIn;
@@ -314,16 +347,16 @@ export function buildFlowSvg(project: Project, view: FlowLevelView): string {
       const chip = sourceChipLayout(n, it.source ?? '', i, boxes);
       const cx = chip.x + chip.w / 2;
       parts.push(
-        `<line x1="${chip.line.x1}" y1="${chip.line.y1}" x2="${chip.line.x2}" y2="${chip.line.y2}" stroke="${pal.stroke}" stroke-width="1.4" stroke-dasharray="4 3"/>`,
+        `<line x1="${chip.line.x1}" y1="${chip.line.y1}" x2="${chip.line.x2}" y2="${chip.line.y2}" stroke="${pal.stroke}" stroke-width="1.4" stroke-dasharray="4 3"${dimAttr(iconDim)}/>`,
       );
       parts.push(
-        `<rect x="${chip.x}" y="${chip.y}" width="${chip.w}" height="${chip.h}" rx="6" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.2"/>`,
+        `<rect x="${chip.x}" y="${chip.y}" width="${chip.w}" height="${chip.h}" rx="6" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.2"${dimAttr(iconDim)}/>`,
       );
       parts.push(
-        `<text x="${cx}" y="${chip.y + 13}" font-size="11" font-weight="600" fill="${pal.stroke}" text-anchor="middle">${esc(it.name || '帳票')}</text>`,
+        `<text x="${cx}" y="${chip.y + 13}" font-size="11" font-weight="600" fill="${pal.stroke}" text-anchor="middle"${dimAttr(iconDim)}>${esc(it.name || '帳票')}</text>`,
       );
       parts.push(
-        `<text x="${cx}" y="${chip.y + 24}" font-size="8.5" fill="${FLOW_LIGHT.bandLabel}" text-anchor="middle">${esc(chip.label)}</text>`,
+        `<text x="${cx}" y="${chip.y + 24}" font-size="8.5" fill="${FLOW_LIGHT.bandLabel}" text-anchor="middle"${dimAttr(iconDim)}>${esc(chip.label)}</text>`,
       );
     });
   }
