@@ -182,6 +182,7 @@ export function App() {
   const tableWide = useUI((s) => s.tableWide);
   const flowWide = useUI((s) => s.flowWide);
   const chromeHidden = useUI((s) => s.chromeHidden);
+  const simpleToolbar = useUI((s) => s.simpleToolbar);
   const toggleChrome = useUI((s) => s.toggleChrome);
   const tableMode = useUI((s) => s.tableMode);
   const setTableMode = useUI((s) => s.setTableMode);
@@ -927,51 +928,60 @@ export function App() {
           >
             <Icons.Columns />
           </button>
-          <button
-            className="icon-btn"
-            onClick={() => useUI.getState().setOverlay('issues')}
-            aria-label="課題一覧"
-            title="課題一覧（工程横断）"
-          >
-            <Icons.ListChecks />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={() => useUI.getState().setOverlay('summary')}
-            aria-label="サマリ"
-            title="サマリ（担当別工数・自動化など）"
-          >
-            <Icons.ChartBar />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={() => useUI.getState().setOverlay('validate')}
-            aria-label="納品前チェック"
-            title="納品前チェック（手順書・担当・工数・整合性の抜けを点検）"
-          >
-            <Icons.ShieldCheck />
-          </button>
-          <Menu
-            className="icon-btn menu-trigger"
-            title="別ウィンドウで表示（マルチディスプレイ）"
-            label={
-              <>
-                <Icons.NewWindow />
-                <Icons.ChevronDown />
-              </>
-            }
-          >
-            <MenuItem onClick={() => openWindowOrWarn(() => openEditWindow())}>
-              編集用のサブウィンドウを開く（両窓で同時編集）
-            </MenuItem>
-            <div className="menu-sep" aria-hidden="true" />
-            <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('flow'))}>
-              フローを別ウィンドウで表示（閲覧専用）
-            </MenuItem>
-            <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('table'))}>
-              工程表を別ウィンドウで表示（閲覧専用）
-            </MenuItem>
-          </Menu>
+          {/* A2 はじめてモードでは点検・レポート系（課題一覧/サマリ/納品前/比較）と別窓を隠す。 */}
+          {!simpleToolbar && (
+            <button
+              className="icon-btn"
+              onClick={() => useUI.getState().setOverlay('issues')}
+              aria-label="課題一覧"
+              title="課題一覧（工程横断）"
+            >
+              <Icons.ListChecks />
+            </button>
+          )}
+          {!simpleToolbar && (
+            <button
+              className="icon-btn"
+              onClick={() => useUI.getState().setOverlay('summary')}
+              aria-label="サマリ"
+              title="サマリ（担当別工数・自動化など）"
+            >
+              <Icons.ChartBar />
+            </button>
+          )}
+          {!simpleToolbar && (
+            <button
+              className="icon-btn"
+              onClick={() => useUI.getState().setOverlay('validate')}
+              aria-label="納品前チェック"
+              title="納品前チェック（手順書・担当・工数・整合性の抜けを点検）"
+            >
+              <Icons.ShieldCheck />
+            </button>
+          )}
+          {!simpleToolbar && (
+            <Menu
+              className="icon-btn menu-trigger"
+              title="別ウィンドウで表示（マルチディスプレイ）"
+              label={
+                <>
+                  <Icons.NewWindow />
+                  <Icons.ChevronDown />
+                </>
+              }
+            >
+              <MenuItem onClick={() => openWindowOrWarn(() => openEditWindow())}>
+                編集用のサブウィンドウを開く（両窓で同時編集）
+              </MenuItem>
+              <div className="menu-sep" aria-hidden="true" />
+              <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('flow'))}>
+                フローを別ウィンドウで表示（閲覧専用）
+              </MenuItem>
+              <MenuItem onClick={() => openWindowOrWarn(() => openMirrorWindow('table'))}>
+                工程表を別ウィンドウで表示（閲覧専用）
+              </MenuItem>
+            </Menu>
+          )}
           {/* 条件付きボタンはグループ末尾に集約（表示/非表示で上の安定ボタンをずらさない）。 */}
           {collapseForInspector && (
             <button
@@ -983,7 +993,7 @@ export function App() {
               <Icons.Swap />
             </button>
           )}
-          {tobeEnabled && (
+          {!simpleToolbar && tobeEnabled && (
             <button
               className="icon-btn"
               onClick={() => useUI.getState().setOverlay('comparison')}
@@ -1066,14 +1076,16 @@ export function App() {
           >
             <Icons.Gear />
           </button>
-          <button
-            className="icon-btn"
-            onClick={() => useUI.getState().setOverlay('help')}
-            aria-label="キーボードショートカット"
-            title="キーボードショートカット (?)"
-          >
-            <Icons.Keyboard />
-          </button>
+          {!simpleToolbar && (
+            <button
+              className="icon-btn"
+              onClick={() => useUI.getState().setOverlay('help')}
+              aria-label="キーボードショートカット"
+              title="キーボードショートカット (?)"
+            >
+              <Icons.Keyboard />
+            </button>
+          )}
           <button
             className="icon-btn"
             onClick={toggleChrome}
@@ -1081,6 +1093,19 @@ export function App() {
             title="集中モード: 作業エリアを最大化（ツールバー＋各ビューの操作バーを隠す）Ctrl/⌘+\"
           >
             <Icons.Maximize />
+          </button>
+          {/* A2: 中核だけの「はじめて」と全機能を切り替える段階開示トグル。設定は残すので迷子にならない。 */}
+          <button
+            className={`icon-btn toolbar-mode-toggle${simpleToolbar ? '' : ' on'}`}
+            onClick={() => useUI.getState().toggleSimpleToolbar()}
+            aria-pressed={!simpleToolbar}
+            title={
+              simpleToolbar
+                ? '全機能を表示（点検・レポート／比較／別ウィンドウ／ヘルプなど）'
+                : 'シンプル表示に戻す（中核ボタンだけ）'
+            }
+          >
+            {simpleToolbar ? '全機能' : 'シンプル'}
           </button>
         </span>
       </header>

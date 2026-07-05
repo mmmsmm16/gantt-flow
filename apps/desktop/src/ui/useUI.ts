@@ -14,6 +14,7 @@ const MINIMAP_KEY = 'gf-minimap';
 const TOBE_KEY = 'gf-tobe';
 const AI_KEY = 'gf-ai';
 const CHROME_KEY = 'gf-chrome-hidden';
+const SIMPLE_TOOLBAR_KEY = 'gf-simple-toolbar'; // A2 はじめてモード。既定 simple（'0' 保存で全機能）。
 const COLS_KEY = 'gf-columns';
 const FT_COLS_KEY = 'gf-ft-columns';
 const FT_W_KEY = 'gf-ft-widths';
@@ -230,6 +231,9 @@ interface UIState {
       表示制御は App の .focus-mode クラス＋CSS で行う。localStorage 永続(既定 OFF=表示)。 */
   chromeHidden: boolean;
   toggleChrome: () => void;
+  /** A2 はじめてモード。true=中核ボタンのみ表示（上級機能は「全機能」から）。既定 true。 */
+  simpleToolbar: boolean;
+  toggleSimpleToolbar: () => void;
 
   /** 工程表の表示モード: アウトライン（階層＋インスペクタ） / 全項目フル表（全列1グリッド）。 */
   tableMode: 'outline' | 'full';
@@ -459,6 +463,25 @@ export const useUI = create<UIState>((set, get) => ({
       /* 永続化失敗は無視 */
     }
     set({ chromeHidden: next });
+  },
+
+  // A2 はじめてモード。既定は simple（未設定＝true）。全機能にしたときだけ '0' を保存する。
+  simpleToolbar: (() => {
+    try {
+      return localStorage.getItem(SIMPLE_TOOLBAR_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  })(),
+  toggleSimpleToolbar: () => {
+    const next = !get().simpleToolbar;
+    try {
+      if (next) localStorage.removeItem(SIMPLE_TOOLBAR_KEY); // simple が既定なので消す
+      else localStorage.setItem(SIMPLE_TOOLBAR_KEY, '0'); // 全機能を明示保存
+    } catch {
+      /* 永続化失敗は無視 */
+    }
+    set({ simpleToolbar: next });
   },
 
   tableMode: 'outline',
