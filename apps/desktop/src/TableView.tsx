@@ -14,7 +14,7 @@ import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
-import { revealTask, selectTask, confirmRemoveTasks } from './taskOps';
+import { revealTask, selectTask, confirmRemoveTasks, toastUndo } from './taskOps';
 import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
@@ -368,7 +368,14 @@ export function TableView() {
     taskId === selectedTaskId && activePane === 'table' && cursorCol === key ? ' cell-cursor' : '';
 
   const commitName = (t: ProcessTask, value: string) => {
-    if (value !== t.name) renameTask(t.id, value);
+    if (value === t.name) return;
+    renameTask(t.id, value);
+    // Excel 流の「選択セルへ打鍵＝全置換」で既存名を気づかず潰す事故の安全網。
+    // 旧名の面影が残らない全置換のときだけ「元に戻す」付きで知らせる（部分修正では出さない）。
+    const old = t.name.trim();
+    if (old && value.trim() && !value.includes(old) && !old.includes(value.trim())) {
+      toastUndo(`「${old}」を「${value.trim()}」に変更しました`);
+    }
   };
 
   // 入出/課題セルのポップオーバー項目クリック: 工程を選択し詳細パネルを開く。I/O は FB-1 の

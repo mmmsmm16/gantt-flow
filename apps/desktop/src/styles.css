@@ -785,6 +785,12 @@ button.danger:hover {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
 }
+/* セル入力の全選択（Enter移動直後の「打てば全置換」状態）をアクセント色で目立たせる */
+.grid input::selection,
+.ft-in::selection {
+  background: var(--accent);
+  color: #fff;
+}
 .grid input,
 .grid select {
   font: inherit;
