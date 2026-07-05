@@ -10,6 +10,7 @@ import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
+import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { isImeKeyEvent } from './keymap';
 import { confirmRemoveTasks } from './taskOps';
 import { useUI } from './ui/useUI';
@@ -680,7 +681,9 @@ export function FullTable() {
                       <span className="ft-name-cell">
                         {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
                         <input
-                          className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}`}
+                          className={`ft-in ft-name lvl-${c.level}${d?.textColor ? ' colored-text' : ''}${cellCursorCls(t.id, 'name')}${nameLenClass(t.name)}`}
+                          title={nameLenTitle(t.name)}
+                          onInput={onNameInput}
                           data-cell="name"
                           style={
                             d?.textColor

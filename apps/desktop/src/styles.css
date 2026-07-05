@@ -7189,3 +7189,15 @@ input.colored-text {
   justify-content: center;
   margin-top: 4px;
 }
+
+/* ---- 工程名のソフト上限（120字超）の警告リング（B-15） ---- */
+/* 入力は拒否せず、赤リング＋title で気づかせるだけ。共通クラス .name-overlong を
+   TableView / FullTable / FlowCanvas のリネーム入力へ付与する（src/nameLimit.ts）。
+   打鍵中（フォーカス時）も維持するため、各入力のフォーカス box-shadow を上回る
+   input.name-overlong:focus をファイル末尾（＝ソース順で最後）に置いて確実に勝たせる。 */
+.name-overlong {
+  box-shadow: inset 0 0 0 1.5px var(--red);
+}
+input.name-overlong:focus {
+  box-shadow: inset 0 0 0 1.5px var(--red);
+}

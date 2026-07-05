@@ -6,6 +6,7 @@ import { buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
+import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { useUI, OUTLINE_OPTIONAL_COLUMNS } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
@@ -691,7 +692,9 @@ export function TableView() {
                         )}
                         {ms && <span className="ms-badge" title="マイルストーン" aria-hidden="true" />}
                         <input
-                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${matched.has(t.id) ? ' name-match' : ''}${cellCursorCls(t.id, 'name')}`}
+                          className={`name-input${detail?.textColor ? ' colored-text' : ''}${matched.has(t.id) ? ' name-match' : ''}${cellCursorCls(t.id, 'name')}${nameLenClass(t.name)}`}
+                          title={nameLenTitle(t.name)}
+                          onInput={onNameInput}
                           data-cell="name"
                           style={
                             detail?.textColor

@@ -8,6 +8,7 @@ import { clampScale, zoomScroll, centerScroll, loadFlowViewport, saveFlowViewpor
 import { confirmRemoveTasks, revealTask } from './taskOps';
 import { TASK_COLORS } from './theme';
 import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spatialNav';
+import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { computeSnap, type SnapGuide, type SnapRect } from './snap';
 import * as Icons from './ui/icons';
 import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
@@ -1688,7 +1689,9 @@ export function FlowCanvas() {
                   divNodes の input には含まれない＝ここで同じ commit/cancel 規約を再現する）。 */}
               {editing ? (
                 <input
-                  className="node-edit ms-edit"
+                  className={`node-edit ms-edit${nameLenClass(project.core.tasks[g.taskId]?.name)}`}
+                  title={nameLenTitle(project.core.tasks[g.taskId]?.name)}
+                  onInput={onNameInput}
                   style={{ left: gx + 16, top: 4 }}
                   defaultValue={project.core.tasks[g.taskId]?.name ?? ''}
                   aria-label="工程名"
@@ -2179,7 +2182,9 @@ export function FlowCanvas() {
                 })()
               ) : n.kind === 'task' && editingTaskId === n.taskId ? (
                 <input
-                  className="node-edit"
+                  className={`node-edit${nameLenClass(project.core.tasks[n.taskId]?.name)}`}
+                  title={nameLenTitle(project.core.tasks[n.taskId]?.name)}
+                  onInput={onNameInput}
                   defaultValue={project.core.tasks[n.taskId]?.name ?? ''}
                   aria-label="工程名"
                   autoFocus
