@@ -14,7 +14,7 @@ import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
-import { revealTask, selectTask, confirmRemoveTasks, toastUndo } from './taskOps';
+import { revealTask, selectTask, confirmRemoveTasks, toastUndo, removeDependencyWithUndo } from './taskOps';
 import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
@@ -223,7 +223,6 @@ export function TableView() {
   const moveTaskDown = useApp((s) => s.moveTaskDown);
   const dropTask = useApp((s) => s.dropTask);
   const addDependency = useApp((s) => s.addDependency);
-  const removeDependency = useApp((s) => s.removeDependency);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
@@ -794,7 +793,7 @@ export function TableView() {
                               className="ft-x"
                               aria-label="前工程を解除"
                               title="前工程を解除"
-                              onClick={() => removeDependency(dep.id)}
+                              onClick={() => removeDependencyWithUndo(dep.id)}
                             >
                               ×
                             </button>

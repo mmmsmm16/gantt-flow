@@ -12,6 +12,7 @@ import { AssetLedger } from './AssetLedger';
 import { getAssetUrl } from './assetStore';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { isEditableTarget } from './keymap';
+import { removeStepWithUndo } from './taskOps';
 import { hasChildren, isLeaf, ancestorsOf, midOf, resolveRef as resolveRefShared } from './procShared';
 
 const LEVEL_LABEL: Record<string, string> = { large: '大', medium: '中', small: '小', detail: '詳細' };
@@ -171,7 +172,7 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
       if (isEditableTarget(document.activeElement)) return;
       const sel = selStepRef.current;
       if (e.key === 'Delete' && sel) {
-        useApp.getState().removeStep(sel.taskId, sel.stepId);
+        removeStepWithUndo(sel.taskId, sel.stepId);
         setSelStep(null);
         e.preventDefault();
         e.stopPropagation();
@@ -445,7 +446,7 @@ export function ProcedureView({ onExportHandbook }: ProcedureViewProps = {}): JS
                           className="proc-mini danger"
                           title="このステップを削除"
                           onClick={() => {
-                            useApp.getState().removeStep(taskId, step.id);
+                            removeStepWithUndo(taskId, step.id);
                             setSelStep(null);
                           }}
                         >

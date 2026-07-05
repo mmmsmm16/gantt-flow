@@ -25,6 +25,18 @@ export function removeIssueWithUndo(taskId: string, issueId: string): void {
   toastUndo('課題を削除しました');
 }
 
+/** 手順書ステップを削除し「元に戻す」トーストを出す（Delete キー・×ボタン共通）。 */
+export function removeStepWithUndo(taskId: string, stepId: string): void {
+  useApp.getState().removeStep(taskId, stepId);
+  toastUndo('手順ステップを削除しました');
+}
+
+/** 前後関係（依存）を解除し「元に戻す」トーストを出す（表・全項目表・詳細パネル共通）。 */
+export function removeDependencyWithUndo(depId: string, message = '前工程を解除しました'): void {
+  useApp.getState().removeDependency(depId);
+  toastUndo(message);
+}
+
 /**
  * 工程を選択し、粒度をその工程に合わせる（詳細パネルは開かない）。
  * 全体スコープで俯瞰中はスコープを維持（どの工程も見えている）。特定の親に絞って
