@@ -98,9 +98,9 @@ describe('keymap: findBinding', () => {
     expect(findBinding(ev({ key: 'N', shiftKey: true }), DEFAULT_KEYMAP, ['flow'], false)?.action).toBe(
       'flow.addNextNoConnect',
     );
-    // n(接続あり)は単キーなのでシングルキーOFFで消えるが、Shift+N は「修飾つき」扱いになったので残る。
+    // n(接続あり)は表の n と対称に lowRisk 指定したので、シングルキーOFFでも残る。Shift+N も同様。
     const off = filterKeymapForSingleKey(DEFAULT_KEYMAP, false);
-    expect(findBinding(ev({ key: 'n' }), off, ['flow'], false)).toBeUndefined();
+    expect(findBinding(ev({ key: 'n' }), off, ['flow'], false)?.action).toBe('flow.addNext');
     expect(findBinding(ev({ key: 'N', shiftKey: true }), off, ['flow'], false)?.action).toBe(
       'flow.addNextNoConnect',
     );

@@ -189,8 +189,8 @@ export const DEFAULT_KEYMAP: KeyBinding[] = [
   { id: 'connect-mode', action: 'flow.connect', context: 'flow', chord: { key: 'c' }, lowRisk: true, help: { group: G.flow, label: '接続モード(矢印で候補 → Enter)' } },
   // 次工程の追加(表の n / Shift+N=行追加と同じ体系)。n=右隣へ作成して依存を接続し名前編集まで、
   // Shift+N=接続なしで追加。未選択時はビューポート中央へ(接続なし)。
-  { id: 'node-add-next', action: 'flow.addNext', context: 'flow', chord: { key: 'n', shift: false }, help: { group: G.flow, label: '次工程を追加して接続(名前を編集)' } },
-  { id: 'node-add-next-plain', action: 'flow.addNextNoConnect', context: 'flow', chord: { key: 'n', shift: true }, help: { group: G.flow, label: '工程を追加(接続なし)' } },
+  { id: 'node-add-next', action: 'flow.addNext', context: 'flow', chord: { key: 'n', shift: false }, lowRisk: true, help: { group: G.flow, label: '次工程を追加して接続(名前を編集)' } },
+  { id: 'node-add-next-plain', action: 'flow.addNextNoConnect', context: 'flow', chord: { key: 'n', shift: true }, lowRisk: true, help: { group: G.flow, label: '工程を追加(接続なし)' } },
   // I/O の追加(選択中の工程)。i/o は単キー、Alt+I/O は常時有効の代替(Mac の Option 記号対策で code 判定)。
   { id: 'add-input', action: 'flow.addInput', context: 'flow', chord: { key: 'i' }, help: { group: G.flow, label: '入力を追加(選択工程)' } },
   { id: 'add-input-alt', action: 'flow.addInput', context: 'flow', chord: { code: 'KeyI', alt: true } },
