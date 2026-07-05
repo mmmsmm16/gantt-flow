@@ -237,18 +237,51 @@ describe('buildHandbookHtml', () => {
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;危険工程');
   });
 
-  it('フロー図: タスクノードのあるレベル/スコープの数ぶん <svg が出る', () => {
+  it('フロー図: タスクノードのあるレベル/スコープ(スコープなし)の数ぶん <svg が出る', () => {
     const project = sample();
     const html = buildHandbookHtml(project, opts());
-    const expectedCards = project.flow.byLevel.filter((v) => Object.values(v.nodes).some((n) => n.kind === 'task'))
-      .length;
-    expect(expectedCards).toBe(2); // サンプル = 大(全体)・中(受注業務スコープ)のみノードあり
+    const expectedCards = project.flow.byLevel.filter(
+      (v) => !v.scopeParentId && Object.values(v.nodes).some((n) => n.kind === 'task'),
+    ).length;
+    expect(expectedCards).toBe(1); // サンプル = 大(全体)のみ（中は受注業務スコープなので除外）
 
     // フロー図はフローセクション内にのみ出る（サイドバーの装飾アイコン SVG と混ざらないよう範囲を絞る）。
     const flowsHtml = html.slice(html.indexOf('id="hb-flows"'), html.indexOf('class="hb-main-body"'));
     // decorateFlowSvg は元図(buildFlowSvg)を入れ子 <svg> として埋め込むため、1 カードにつき <svg が 2 個。
     const svgCount = (flowsHtml.match(/<svg[ >]/g) ?? []).length;
     expect(svgCount).toBe(expectedCards * 2);
+  });
+
+  it('フロー図: スコープ付きビュー（scopeParentId あり）は本文に出ない、スコープ名表記も出ない', () => {
+    let project = sample();
+    // スコープ付きビュー（受注業務）を手動で作成＋追加。
+    // 既存ビューをクローンしてスコープパラメータを差し替え。
+    const largeTaskId = Object.values(project.core.tasks).find((t) => !t.parentId && t.level === 'large')!.id;
+    const midTaskId = Object.values(project.core.tasks).find((t) => t.parentId === largeTaskId && t.level === 'medium')!.id;
+    const scopedView = JSON.parse(JSON.stringify(project.flow.byLevel[0])); // 浅い複製で充分
+    scopedView.id = `view-scoped-${midTaskId}`;
+    scopedView.scopeParentId = midTaskId;
+    project.flow.byLevel.push(scopedView);
+
+    const html = buildHandbookHtml(project, opts());
+
+    // フロー図セクション内でのみチェック（他セクションと混ぶため）。
+    const flowsHtml = html.slice(html.indexOf('id="hb-flows"'), html.indexOf('class="hb-main-body"'));
+
+    // スコープなしビューのみカウント（修正後は scopeParentId がないもののみ出るはず）。
+    const scopelessViews = project.flow.byLevel.filter(
+      (v) => !v.scopeParentId && Object.values(v.nodes).some((n) => n.kind === 'task'),
+    );
+    const expectedFigures = scopelessViews.length;
+    // <figcaption> がカード数分出る。
+    const figCount = (flowsHtml.match(/<figcaption class="hb-fig-cap">/g) ?? []).length;
+    expect(figCount).toBe(expectedFigures);
+
+    // スコープ親タスク（受注業務）の名前がフロー図キャプションに出ない
+    // （修正前は「（受注業務）」のようなスコープ名が label に混ざるはず）。
+    const midTaskName = project.core.tasks[midTaskId]!.name;
+    const scopeNameInFigcaption = flowsHtml.includes(`（${midTaskName}）`);
+    expect(scopeNameInFigcaption).toBe(false);
   });
 
   it('決定論: 同一入力＋固定 now なら同一文字列', () => {

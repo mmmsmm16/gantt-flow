@@ -306,11 +306,11 @@ function buildFlowsSection(project: Project): string {
   const cards: string[] = [];
   let n = 0;
   for (const view of project.flow.byLevel) {
+    if (view.scopeParentId) continue;
     const taskNodes = Object.values(view.nodes).filter((nd) => nd.kind === 'task').length;
     if (taskNodes === 0) continue;
     n += 1;
-    const scopeName = view.scopeParentId ? project.core.tasks[view.scopeParentId]?.name : undefined;
-    const label = `${LEVEL_LABEL[view.level] ?? view.level}${scopeName ? `（${scopeName}）` : ''}`;
+    const label = LEVEL_LABEL[view.level] ?? view.level;
     const svg = decorateFlowSvg(buildFlowSvg(project, view), {
       title: label,
       subtitle: project.meta.title || 'プロジェクト',
