@@ -319,7 +319,7 @@ body {
   flex-wrap: wrap;
   gap: 10px;
   row-gap: 8px;
-  padding: 12px 16px;
+  padding: 8px 16px;
   background: var(--toolbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
@@ -540,8 +540,8 @@ button.danger:hover {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(520px, 42%) 1fr;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 12px;
   min-height: 0;
 }
 /* 案A: 詳細(インスペクタ)を開くと最大2ペイン（アクティブ側＋詳細）。3ペインにはしない。 */
@@ -559,7 +559,7 @@ button.danger:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 16px 16px;
+  padding: 12px;
 }
 /* キーボード操作の対象ペイン(activePane)。控えめな枠で「いまどちらに居るか」を示す。 */
 .pane.pane-active {
@@ -4002,7 +4002,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .ft-hint {
   color: var(--faint);
@@ -4045,7 +4045,7 @@ kbd {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-size: var(--fs-label);
 }
 .ft-filter-label {
