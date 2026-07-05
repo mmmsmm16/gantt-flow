@@ -2786,6 +2786,20 @@ kbd {
 .st-view {
   color: var(--muted);
 }
+/* 「標準表示に戻す」＝表示状態が標準から外れているときだけ出る復帰導線。 */
+.st-reset-view {
+  font: inherit;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.st-reset-view:hover {
+  background: var(--accent);
+  color: #fff;
+}
 .st-save {
   gap: 5px;
 }
