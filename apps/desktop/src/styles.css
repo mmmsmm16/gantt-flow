@@ -7760,27 +7760,36 @@ input.colored-text {
   left: 8px;
   padding: 0 6px;
   border-radius: var(--radius-pill);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   line-height: 16px;
-  color: #fff;
+  /* 塗り地×白は薄い意味色（特にダーク amber 1.7:1）で破綻するため、
+     兄弟の .fnode-nf と同じ「パネル地＋意味色の枠/文字（ink 系）」に統一。 */
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
   white-space: nowrap;
   pointer-events: none;
 }
 .fbadge.k {
-  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--amber-ink);
 }
 .fbadge.ok {
-  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--ok);
 }
 .fbadge.no {
-  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 .fbadge.inv {
-  background: var(--muted);
+  border-color: var(--muted);
+  color: var(--muted);
 }
 .fbadge.ed {
-  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* 非フロー系提案の小バッジ（手順書/課題等・判定はカード側） */
@@ -7793,8 +7802,8 @@ input.colored-text {
   border: 1px solid var(--accent);
   background: var(--panel);
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   line-height: 15px;
   cursor: pointer;
 }
