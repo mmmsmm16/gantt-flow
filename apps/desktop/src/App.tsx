@@ -1193,6 +1193,8 @@ export function App() {
         onExportSvg={onExportSvg}
         onExportPng={onExportPng}
         onExportHandbook={onExportHandbook}
+        onExportImprovementReport={onExportImprovementReport}
+        onExportImprovementExcel={onExportImprovementExcel}
         onPrint={onPrint}
         onOpenEditWindow={() => openWindowOrWarn(() => openEditWindow())}
         onOpenFlowWindow={() => openWindowOrWarn(() => openMirrorWindow('flow'))}

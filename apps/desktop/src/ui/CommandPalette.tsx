@@ -31,6 +31,8 @@ interface FileHandlers {
   onExportSvg: () => void;
   onExportPng: () => void;
   onExportHandbook: () => void;
+  onExportImprovementReport: () => void;
+  onExportImprovementExcel: () => void;
   onPrint: () => void;
   /** サブウィンドウ系（App の Menu と同じハンドラ。開けなければ警告トーストは App 側で出す）。 */
   onOpenEditWindow: () => void;
@@ -138,6 +140,30 @@ export function addTaskQuickCommand(hasSelection: boolean): Cmd {
       });
     },
   };
+}
+
+// 改善効果レポート出力の 2 コマンド（HTML / Excel）。available は比較ボタン/メニューと同じ tobeEnabled。
+// 無効時（To-Be 比較オフ）はパレットに出さない（App 側ハンドラが hasAnyToBeInput も別途ガードする）。
+export function improvementReportCommands(
+  handlers: Pick<FileHandlers, 'onExportImprovementReport' | 'onExportImprovementExcel'>,
+  tobeEnabled: boolean,
+): Cmd[] {
+  return [
+    {
+      id: 'export-improvement-report',
+      label: '改善効果レポート (HTML) に書き出す',
+      keywords: 'export improvement report kaizen 改善 効果 レポート as-is to-be 比較 html 書き出し 出力',
+      available: tobeEnabled,
+      run: handlers.onExportImprovementReport,
+    },
+    {
+      id: 'export-improvement-excel',
+      label: '改善効果 (Excel) に書き出す',
+      keywords: 'export improvement excel xlsx kaizen 改善 効果 as-is to-be 比較 書き出し 出力',
+      available: tobeEnabled,
+      run: handlers.onExportImprovementExcel,
+    },
+  ];
 }
 
 // ファイル操作コマンド。検索時に同名末尾の「〜を開く」系オーバーレイ名(設定を開く/サマリを開く等)へ
@@ -270,6 +296,8 @@ function PaletteBody(handlers: FileHandlers) {
   const selectedTaskId = useApp((s) => s.selectedTaskId);
   // 表の複数選択（marked）件数。担当設定など一括対応コマンドを「選択中の n 件に適用」に切り替える。
   const markedCount = useUI((s) => s.markedTaskIds.length);
+  // 改善効果レポート系コマンドの表示ゲート（比較ボタン/メニューと同じ条件）。
+  const tobeEnabled = useUI((s) => s.tobeEnabled);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   // 引数モード: 選択中のコマンド（null=コマンド一覧）。Esc / 空欄 Backspace で一覧へ戻る。
@@ -719,6 +747,7 @@ function PaletteBody(handlers: FileHandlers) {
         keywords: 'export handbook html hando bukku ハンドブック 手順書 書き出し 出力',
         run: handlers.onExportHandbook,
       },
+      ...improvementReportCommands(handlers, tobeEnabled),
       { id: 'print', label: '印刷 / PDF（工程表＋フロー図）', keywords: 'print insatsu 印刷 pdf', hint: '⌘P', run: handlers.onPrint },
       { id: 'undo', label: '元に戻す', keywords: 'undo modosu もどす', hint: '⌘Z', run: app.undo, available: canUndo },
       { id: 'redo', label: 'やり直し', keywords: 'redo yarinaoshi', hint: '⌘Y', run: app.redo, available: canRedo },
@@ -808,7 +837,7 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'settings-export', label: '設定をエクスポート / インポート', keywords: 'export import settei 設定 書き出し 取り込み 引き継ぎ', run: () => { ui.setSettingsTab('data'); ui.setOverlay('settings'); } },
       { id: 'tour', label: '使い方ツアーを開始', keywords: 'tour tsukaikata 使い方 ガイド guide オンボーディング', run: () => ui.setTourStep(0) },
     ];
-  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles]);
+  }, [handlers, canUndo, canRedo, selectedTaskId, markedCount, recentFiles, tobeEnabled]);
 
   const codes = useMemo(() => computeCodes(project.core), [project.core]);
 
