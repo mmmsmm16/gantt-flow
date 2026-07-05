@@ -12,6 +12,7 @@ import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spa
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { computeSnap, type SnapGuide, type SnapRect } from './snap';
 import * as Icons from './ui/icons';
+import { Menu, MenuItem } from './ui/Menu';
 import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 import {
   SIZE,
@@ -1579,10 +1580,6 @@ export function FlowCanvas() {
         >
           <Icons.BoxPlus />
         </button>
-        <button aria-label="開始" title="開始（スタジアム形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}><Icons.Play /></button>
-        <button aria-label="終了" title="終了（スタジアム形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}><Icons.Stop /></button>
-        <button aria-label="判断" title="判断（ひし形）" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}><Icons.Diamond /></button>
-        <button aria-label="合流" title="合流" onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}><Icons.Merge /></button>
         <button
           className="add-milestone"
           aria-label="マイルストーンを追加"
@@ -1595,23 +1592,34 @@ export function FlowCanvas() {
         >
           <Icons.MilestoneDiamond />
         </button>
-        <button
-          onClick={async () => {
-            const text = await useUI.getState().promptText({
-              title: '付箋を追加',
-              placeholder: 'コメント',
-              confirmLabel: '追加',
-            });
-            if (text !== null) {
-              const p = spawnPos(SIZE.comment.w, SIZE.comment.h);
-              addComment(text, p.x, p.y);
-            }
-          }}
-          aria-label="付箋を追加"
-          title="付箋を追加"
+        {/* BPMN 制御ノード（開始/終了/判断/合流）＋付箋は使用頻度が低いので「図形 ▾」に集約（工程・MS は独立維持）。 */}
+        <Menu
+          className="flow-shape-menu"
+          title="図形を追加（開始・終了・判断・合流・付箋）"
+          label={
+            <>
+              <Icons.Diamond />
+              図形
+              <Icons.ChevronDown />
+            </>
+          }
         >
-          <Icons.StickyNote />
-        </button>
+          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}>開始（スタジアム形）</MenuItem>
+          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}>終了（スタジアム形）</MenuItem>
+          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}>判断（ひし形）</MenuItem>
+          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}>合流</MenuItem>
+          <MenuItem
+            onClick={async () => {
+              const text = await useUI.getState().promptText({ title: '付箋を追加', placeholder: 'コメント', confirmLabel: '追加' });
+              if (text !== null) {
+                const p = spawnPos(SIZE.comment.w, SIZE.comment.h);
+                addComment(text, p.x, p.y);
+              }
+            }}
+          >
+            付箋
+          </MenuItem>
+        </Menu>
         <span className="palette-sep" aria-hidden="true" />
         <button
           className="palette-act"

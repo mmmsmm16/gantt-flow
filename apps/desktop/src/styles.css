@@ -1877,6 +1877,20 @@ button.danger:hover {
   color: var(--amber-ink);
   border-color: color-mix(in srgb, var(--amber) 42%, var(--line));
 }
+/* 「図形 ▾」メニュー: 正方形アイコンボタンの中でテキスト付きに広げる（開始/終了/判断/合流/付箋を集約）。 */
+.flow-palette .flow-shape-menu {
+  width: auto;
+  gap: 4px;
+  padding: 0 9px;
+  color: var(--muted);
+}
+.flow-palette .flow-shape-menu:hover {
+  color: var(--ink);
+}
+.flow-palette .flow-shape-menu svg {
+  width: 14px;
+  height: 14px;
+}
 .palette-zoom {
   margin-left: auto;
   display: inline-flex;
