@@ -149,6 +149,7 @@
   --fs-body: 13px; /* 本文・表データ・ノード名（基準） */
   --fs-title: 15px; /* ペイン見出し・ダイアログ表題 */
   --fs-display: 18px; /* 空状態の見出しなど（希少） */
+  --fs-kpi: 30px; /* 改善効果サマリの主要数値（スケール外・単発の特大表示） */
 
   /* ウェイト（400 / 600 の 2 段のみ。700 は廃止＝D-4） */
   --fw-regular: 400;
@@ -4835,11 +4836,15 @@ input.colored-text {
   --diff-h: #c2603f;
   --diff-m: #d99a2b;
   --diff-l: #4a9d7a;
+  /* 3色の中間トーン塗り（自動化セグ）に共通で乗せる濃字。白字は --diff-m で
+     2.4:1 と未達のため濃字に変更。塗りが両テーマとも中間トーンなので固定の濃色。 */
+  --diff-seg-ink: #26303c;
 }
 :root[data-theme='dark'] {
   --diff-h: #d77a57;
   --diff-m: #e8b15a;
   --diff-l: #5cb088;
+  --diff-seg-ink: #26303c;
 }
 
 .cmp-modal {
@@ -5070,7 +5075,7 @@ input.colored-text {
   color: var(--faint);
 }
 .cmp-headline.big .cmp-to {
-  font-size: 30px;
+  font-size: var(--fs-kpi);
   font-weight: var(--fw-strong);
   color: var(--ink);
   line-height: 1;
@@ -5234,8 +5239,8 @@ input.colored-text {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 10px;
+  color: var(--diff-seg-ink);
+  font-size: var(--fs-caption);
   font-variant-numeric: tabular-nums;
 }
 .cmp-auto-seg.diff-h {
@@ -5566,7 +5571,7 @@ input.colored-text {
   position: absolute;
   top: 0;
   left: 3px;
-  font-size: 9px;
+  font-size: var(--fs-caption);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
@@ -5666,7 +5671,7 @@ input.colored-text {
   left: 50%;
   transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 9.5px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-strong);
   padding: 1px 6px;
   border-radius: var(--radius-sm);
@@ -5688,7 +5693,7 @@ input.colored-text {
   position: absolute;
   bottom: -8px;
   right: 2px;
-  font-size: 9.5px;
+  font-size: var(--fs-caption);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
   background: var(--panel);
@@ -5708,7 +5713,7 @@ input.colored-text {
   z-index: 1;
 }
 .cmp-ghost span {
-  font-size: 9px;
+  font-size: var(--fs-caption);
   color: var(--faint);
 }
 
