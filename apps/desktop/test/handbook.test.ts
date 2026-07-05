@@ -1,7 +1,16 @@
 // buildHandbookHtml の規範アサーション（node 環境・renderToStaticMarkup 実証パターン: markdownLite.test.tsx）。
 // サンプルプロジェクト(createSampleProject)は手順書ダミーデータ入りのため、そのままフィクスチャに使う。
 import { describe, it, expect } from 'vitest';
-import { createSampleProject, addTask, addDependency, addStep, addStepCond, type Project } from '@gantt-flow/core';
+import {
+  createSampleProject,
+  addTask,
+  addDependency,
+  addStep,
+  addStepCond,
+  ensureLevelView,
+  reconcileProject,
+  type Project,
+} from '@gantt-flow/core';
 import { buildHandbookHtml, type HandbookOptions } from '../src/handbook';
 
 const gen = (prefix: string) => {
@@ -308,5 +317,45 @@ describe('buildHandbookHtml', () => {
     expect(html).not.toContain('リンク切れ');
     // 文書内の #アンカー欠落（dangling href）が無いことを機械的に検証する。
     assertAllFragmentLinksResolve(html);
+  });
+
+  describe('フロー上の位置（各中工程セクション冒頭のハイライト図）', () => {
+    it('中レベルの全スコープビューが無いプロジェクト(サンプル既定)では .hb-pos を出さない', () => {
+      // createSampleProject の既定ビューは「中(スコープ=受注業務)」「大(全体)」のみで、
+      // level='medium' かつ scopeParentId 無しのビューは無い（フォールバックで throw しない）。
+      const html = buildHandbookHtml(sample(), opts());
+      expect(html).not.toContain('class="hb-pos"');
+    });
+
+    it('全スコープ中ビューがあれば各中工程セクション冒頭に .hb-pos が出て、対象工程だけアクセント太枠になる', () => {
+      const idGen = gen('view');
+      let project = sample();
+      project = ensureLevelView(project, 'medium'); // scopeParentId 無しの全スコープ中ビューを追加
+      project = reconcileProject(project, idGen); // 全中工程ぶんのノードを配置
+
+      const html = buildHandbookHtml(project, opts());
+
+      // 全中工程 10 件ぶん(既存テスト同数)の位置カードが出る。
+      const posCount = (html.match(/class="hb-pos"/g) ?? []).length;
+      expect(posCount).toBe(10);
+      expect((html.match(/class="hb-pos-cap">フロー上の位置</g) ?? []).length).toBe(10);
+
+      // サンプルに milestone 工程は無いため、各カードは自身の中工程 1 件だけをハイライトする
+      // （アクセント太枠の出現回数の総和が中工程数と一致＝章の工程数と整合）。
+      const accentCount = (html.match(/stroke="#0e6f6a" stroke-width="2.5"/g) ?? []).length;
+      expect(accentCount).toBe(10);
+      // ハロー・減光もどこかに出る(ハイライト機能が実際に効いている)。
+      expect(html).toContain('rgba(14,111,106');
+      expect(html).toContain('opacity="0.4"');
+    });
+
+    it('全スコープ中ビューはあるがノード0件のプロジェクトでも .hb-pos を出さない(throw しない)', () => {
+      const idGen = gen('view0');
+      let project = sample();
+      project = ensureLevelView(project, 'medium'); // ノード0件のまま(reconcile しない)
+      expect(() => buildHandbookHtml(project, opts())).not.toThrow();
+      const html = buildHandbookHtml(project, opts());
+      expect(html).not.toContain('class="hb-pos"');
+    });
   });
 });

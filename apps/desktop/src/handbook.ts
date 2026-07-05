@@ -21,6 +21,7 @@ import type {
   StepImage,
   ProcedureStep,
   ProcedureNavItem,
+  FlowLevelView,
 } from '@gantt-flow/core';
 import { computeCodes, deriveProcedureNav } from '@gantt-flow/core';
 import { buildFlowSvg, decorateFlowSvg } from './flowSvg';
@@ -124,6 +125,35 @@ interface Render {
   codes: Record<Id, string>;
   anchored: ReadonlySet<Id>;
   roleColor: Map<string, string>;
+  /** 「フロー上の位置」カード用の全スコープ中ビュー（無ければ位置カードは省略）。 */
+  positionView?: FlowLevelView;
+}
+
+// 中レベルの全スコープビュー(level==='medium'・scopeParentId 無し)。ユーザーがそのタブを一度も
+// 開いていないプロジェクトでは view 自体が無い/ノード 0 のことが多いため、その場合は位置カードを
+// 丸ごと省略する(フォールバックで throw しない・空スコープを描かない)。
+function findPositionView(project: Project): FlowLevelView | undefined {
+  return project.flow.byLevel.find(
+    (v) =>
+      v.level === 'medium' &&
+      !v.scopeParentId &&
+      Object.values(v.nodes).some((n) => n.kind === 'task'),
+  );
+}
+
+// 中工程セクション冒頭の「フロー上の位置」カード。ハイライト対象は中工程自身＋配下の全末端
+// （章に載る工程と同じ集合=leavesOfMid の結果）。decorateFlowSvg は使わない(ヘッダー/凡例は不要)。
+function buildPositionCard(r: Render, mid: ProcessTask, leaves: ProcedureNavItem[]): string {
+  const view = r.positionView;
+  if (!view) return '';
+  const highlightTaskIds = new Set<Id>([mid.id, ...leaves.map((l) => l.taskId)]);
+  const svg = buildFlowSvg(r.project, view, { highlightTaskIds });
+  return (
+    `<figure class="hb-pos">` +
+    `<figcaption class="hb-pos-cap">フロー上の位置</figcaption>` +
+    `<div class="hb-pos-scroll">${svg}</div>` +
+    `</figure>`
+  );
 }
 
 // ---- 目次モデル（サイドバー用。工程カード＝中工程 1 件） ----
@@ -440,6 +470,7 @@ function buildProcCard(r: Render, used: Set<Id>, chapName: string, mid: ProcessT
   const core = project.core;
   const leaves = leavesOfMid(core, project.manual, mid);
   const selfLeaf = isLeaf(core, mid.id);
+  const posCard = buildPositionCard(r, mid, leaves);
 
   const assignee = assigneeNameOf(project, mid.id);
   const color = assignee ? roleColor.get(assignee) : undefined;
@@ -456,11 +487,11 @@ function buildProcCard(r: Render, used: Set<Id>, chapName: string, mid: ProcessT
 
   let body: string;
   if (selfLeaf) {
-    body = purposeBand + buildLeafBody(r, mid.id);
+    body = posCard + purposeBand + buildLeafBody(r, mid.id);
   } else if (leaves.length === 0) {
-    body = purposeBand + `<div class="hb-empty">この工程には末端工程がありません。</div>`;
+    body = posCard + purposeBand + `<div class="hb-empty">この工程には末端工程がありません。</div>`;
   } else {
-    body = purposeBand + leaves.map((lf) => buildSubBlock(r, used, lf)).join('');
+    body = posCard + purposeBand + leaves.map((lf) => buildSubBlock(r, used, lf)).join('');
   }
 
   const emptyClass = selfLeaf && (project.manual.procedures[mid.id]?.steps.length ?? 0) === 0 ? ' empty' : '';
@@ -716,6 +747,13 @@ strong{font-weight:700;}
 .hb-proc-time{flex:none;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);}
 .hb-proc-body{padding:6px 18px 16px;}
 
+/* フロー上の位置（中工程セクション冒頭のミニ図。ハイライトは buildFlowSvg 側で付与済み） */
+.hb-pos{margin:2px 0 14px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel);}
+.hb-pos-cap{margin:0;padding:7px 13px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--ink-3);
+  background:var(--panel-2);border-bottom:1px solid var(--line);text-transform:uppercase;}
+.hb-pos-scroll{max-height:260px;overflow:auto;background:var(--bg);}
+.hb-pos-scroll svg{display:block;}
+
 .hb-group-purpose{margin:14px 0 10px;padding:12px 15px;background:var(--ai-tint);border-left:3px solid var(--ai);border-radius:0 10px 10px 0;}
 .hb-group-purpose .k{display:block;font-size:10.5px;font-weight:700;letter-spacing:.12em;color:var(--ai);
   text-transform:uppercase;margin-bottom:4px;}
@@ -830,9 +868,12 @@ strong{font-weight:700;}
   .hb-chap-head{padding-top:0;}
   .hb-chap-body[hidden]{display:block !important;}
   .hb-toc-links[hidden]{display:block !important;}
-  .hb-proc,.hb-sub,.hb-step,.hb-cond,.hb-fig,.hb-led-card{break-inside:avoid;}
+  .hb-proc,.hb-sub,.hb-step,.hb-cond,.hb-fig,.hb-led-card,.hb-pos{break-inside:avoid;}
   .hb-proc.dim,.hb-toc-link.dim{opacity:1 !important;}
   .hb-proc{box-shadow:none;}
+  /* 紙面では区切りが章見出しと泣き別れしないよう break-inside:avoid で足りるため、
+     画面用の max-height/scroll(コンパクト表示)は解除して全体を描く。 */
+  .hb-pos-scroll{max-height:none;overflow:visible;}
   .caret{display:none !important;}
   a{color:var(--ink);text-decoration:none;}
 }
@@ -851,6 +892,25 @@ const HANDBOOK_JS = `
   function closeNav(){app.classList.remove('nav-open');}
   if(menu) menu.addEventListener('click',function(){app.classList.toggle('nav-open');});
   if(scrim) scrim.addEventListener('click',closeNav);
+
+  // 「フロー上の位置」カード: ミニ図は工程数ぶん横に長く、ハイライト対象が初期スクロール位置
+  // (左上)から外れて見えないことがある。初期表示でハイライト矩形が中央に来るようスクロールする
+  // (DOM 属性のみを読む静的処理・ユーザ文字列は扱わない)。
+  document.querySelectorAll('.hb-pos-scroll').forEach(function(box){
+    var svg=box.querySelector('svg');
+    if(!svg) return;
+    var hl=svg.querySelector('rect[stroke="#0e6f6a"]');
+    if(!hl) return;
+    var vb=(svg.getAttribute('viewBox')||'0 0 0 0').split(' ').map(Number);
+    var hx=parseFloat(hl.getAttribute('x'))||0;
+    var hy=parseFloat(hl.getAttribute('y'))||0;
+    var hw=parseFloat(hl.getAttribute('width'))||0;
+    var hh=parseFloat(hl.getAttribute('height'))||0;
+    var cx=(hx-vb[0])+hw/2;
+    var cy=(hy-vb[1])+hh/2;
+    box.scrollLeft=Math.max(0,cx-box.clientWidth/2);
+    box.scrollTop=Math.max(0,cy-box.clientHeight/2);
+  });
 
   document.querySelectorAll('.hb-toc a[href^="#"], .hb-cond-link[href^="#"]').forEach(function(a){
     a.addEventListener('click',function(e){
@@ -1000,15 +1060,16 @@ export function buildHandbookHtml(project: Project, opts: HandbookOptions): stri
   const roleColor = new Map<string, string>();
   assignees.forEach((a, i) => roleColor.set(a, ROLE_PALETTE[i % ROLE_PALETTE.length]!));
   const hasAssets = Object.keys(project.manual.assets).length > 0;
+  const positionView = findPositionView(project);
 
   // 1st pass(使い捨て): 実描画と同じ組み立てを走らせ「実際に id を出力する taskId」の完全集合を確定する
   // （buildCond のリンク化可否判定に使う）。この pass の文字列出力は破棄する。
   const anchored = new Set<Id>();
-  const r1: Render = { project, opts, codes, anchored, roleColor };
+  const r1: Render = { project, opts, codes, anchored, roleColor, positionView };
   buildMain(r1, anchored);
 
   const used = new Set<Id>();
-  const r: Render = { project, opts, codes, anchored, roleColor };
+  const r: Render = { project, opts, codes, anchored, roleColor, positionView };
   const sidebar = buildSidebar(r, chapters, assignees, hasAssets, dateY);
   const flows = buildFlowsSection(project);
   const main = buildMain(r, used);
