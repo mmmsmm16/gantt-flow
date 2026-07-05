@@ -470,6 +470,34 @@ function buildSubBlock(r: Render, used: Set<Id>, item: ProcedureNavItem): string
   );
 }
 
+// カードの全文検索用テキスト。工程コード/名だけでなく、配下末端のステップ本文(action/why/bodyMd)・
+// 条件(when/対処)・参照資料名/IO 名まで連結する（検索対象の拡大: C-06）。ユーザ文字列を含むため
+// 呼び出し側で escapeHtml を通して data 属性へ入れる（XSS 規律を維持）。
+function collectSearchText(r: Render, taskIds: Id[]): string {
+  const { project } = r;
+  const parts: string[] = [];
+  for (const id of taskIds) {
+    const t = project.core.tasks[id];
+    if (t?.name) parts.push(t.name);
+    const d = project.details[id];
+    if (d?.how?.trim()) parts.push(d.how);
+    const doc = project.manual.procedures[id];
+    if (doc?.purpose?.trim()) parts.push(doc.purpose);
+    for (const s of doc?.steps ?? []) {
+      if (s.action?.trim()) parts.push(s.action);
+      if (s.why?.trim()) parts.push(s.why);
+      if (s.bodyMd?.trim()) parts.push(s.bodyMd);
+      for (const c of s.conds) {
+        if (c.when?.trim()) parts.push(c.when);
+        if (c.thenMd?.trim()) parts.push(c.thenMd);
+      }
+      for (const rf of s.refs) parts.push(resolveRef(project, rf).label);
+    }
+  }
+  // 空白で連結。改行は検索の妨げになるので単一スペースへ畳む。
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
 // 中工程 1 件分の工程カード。mid 自身が末端ならカードが末端そのもの、そうでなければ末端をサブブロックで束ねる。
 function buildProcCard(r: Render, used: Set<Id>, chapName: string, mid: ProcessTask): string {
   const { project, codes, roleColor } = r;
@@ -504,10 +532,12 @@ function buildProcCard(r: Render, used: Set<Id>, chapName: string, mid: ProcessT
   const dataName = `${codeOf(codes, mid.id) ? codeOf(codes, mid.id) + ' ' : ''}${mid.name}`;
   const roleAttr = assignee ? ` data-assignee="${escapeHtml(assignee)}"` : '';
   const roleStyle = color ? ` style="--hb-role:${color}"` : '';
+  const searchIds = selfLeaf ? [mid.id] : [mid.id, ...leaves.map((l) => l.taskId)];
+  const searchText = collectSearchText(r, searchIds);
 
   return (
     `<article class="hb-proc${emptyClass}"${anchorAttr(used, mid.id)} data-anchor="hb-task-${escapeHtml(mid.id)}"` +
-    `${roleAttr} data-chap="${escapeHtml(chapName)}" data-name="${escapeHtml(dataName)}"${roleStyle}>` +
+    `${roleAttr} data-chap="${escapeHtml(chapName)}" data-name="${escapeHtml(dataName)}" data-search="${escapeHtml(searchText)}"${roleStyle}>` +
     `<div class="hb-proc-head"><span class="hb-proc-no">${escapeHtml(codeOf(codes, mid.id))}</span>` +
     `<h3>${escapeHtml(mid.name)}</h3>${roleTag}${timeTag}</div>` +
     `<div class="hb-proc-body">${body}</div>` +
@@ -1028,16 +1058,31 @@ const HANDBOOK_JS = `
 
   var search=document.getElementById('hb-search');
   var tocEmpty=document.getElementById('hb-toc-empty');
+  // 目次リンク(href=#hb-task-…)と本文カード(data-anchor=hb-task-…)は同じアンカーで対応づく。
+  var procBySearchAnchor={};
+  procs.forEach(function(p){ procBySearchAnchor[p.getAttribute('data-anchor')]=p; });
+  var firstHit=null;
+  function runSearch(){
+    var q=search.value.trim().toLowerCase();
+    var any=false; firstHit=null;
+    tocLinks.forEach(function(l){
+      // 照合対象: 目次テキスト(工程コード＋名) ＋ 対応カードの data-search(ステップ本文/条件/資料名/IO名)。
+      var hay=l.textContent;
+      var card=procBySearchAnchor[l.getAttribute('href').slice(1)];
+      if(card){ var ds=card.getAttribute('data-search'); if(ds) hay+=' '+ds; }
+      var hit=q===''||hay.toLowerCase().indexOf(q)!==-1;
+      l.classList.toggle('hide',!hit);
+      if(hit){ any=true; if(q!==''&&!firstHit&&card) firstHit=card; }
+    });
+    if(tocEmpty) tocEmpty.style.display=(q!==''&&!any)?'block':'none';
+  }
   if(search){
-    search.addEventListener('input',function(){
-      var q=search.value.trim().toLowerCase();
-      var any=false;
-      tocLinks.forEach(function(l){
-        var hit=q===''||l.textContent.toLowerCase().indexOf(q)!==-1;
-        l.classList.toggle('hide',!hit);
-        if(hit) any=true;
-      });
-      if(tocEmpty) tocEmpty.style.display=(q!==''&&!any)?'block':'none';
+    search.addEventListener('input',runSearch);
+    // Enter で最初の一致カードへスクロール（モバイルは drawer を閉じる）。
+    search.addEventListener('keydown',function(e){
+      if(e.key!=='Enter') return;
+      e.preventDefault();
+      if(firstHit){ firstHit.scrollIntoView({behavior:'smooth',block:'start'}); if(mq.matches) closeNav(); }
     });
   }
 

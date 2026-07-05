@@ -234,6 +234,39 @@ describe('buildHandbookHtml', () => {
     expect(noProcCount).toBe(leavesOf(project).length - 3);
   });
 
+  it('検索対象の拡大: 各カードの data-search にステップ本文・条件・資料名が連結される（工程名の外まで）', () => {
+    const project = sample();
+    const html = buildHandbookHtml(project, opts());
+
+    const searchAttrs = [...html.matchAll(/data-search="([^"]*)"/g)].map((m) => m[1] ?? '');
+    expect(searchAttrs.length).toBeGreaterThan(0);
+    // 工程名やコードには無い「ステップ本文(bodyMd の **FAX**)」が検索テキストに入る。
+    expect(searchAttrs.some((s) => s.includes('FAX'))).toBe(true);
+    // 参照資料名（asset ラベル）も検索対象に含まれる。
+    expect(searchAttrs.some((s) => s.includes('欠品時対応マニュアル'))).toBe(true);
+    // 検索スクリプトは data-search と Enter ジャンプを実装している。
+    expect(html).toContain("card.getAttribute('data-search')");
+    expect(html).toContain("if(e.key!=='Enter') return;");
+  });
+
+  it('検索用 data-search はエスケープされる（属性経由の XSS 防止）', () => {
+    const project = sample();
+    const s1 = taskByName(project, '注文書受領');
+    project.manual.procedures[s1.id]!.steps[0]!.action = '"><img onerror=alert(1)>危険手順';
+    const html = buildHandbookHtml(project, opts());
+
+    // 生タグとして注入されない。
+    expect(html).not.toContain('<img onerror=alert(1)>');
+    // data-search 属性値には生の < > " が現れない（全て escapeHtml 済み）。
+    const searchAttrs = [...html.matchAll(/data-search="([^"]*)"/g)].map((m) => m[1] ?? '');
+    for (const s of searchAttrs) {
+      expect(s.includes('<')).toBe(false);
+      expect(s.includes('>')).toBe(false);
+    }
+    // エスケープ済みの本文が検索テキストへ入っている。
+    expect(searchAttrs.some((s) => s.includes('危険手順'))).toBe(true);
+  });
+
   it('alias 解決: aliases={} なら alias/relPath 表記のまま(disconnected)、対応表を渡すと実パス結合が出る', () => {
     const project = sample();
     const disconnected = buildHandbookHtml(project, opts());
