@@ -961,17 +961,16 @@ button.danger:hover {
 .grid tr.is-milestone:hover > td {
   background: color-mix(in srgb, var(--amber-fill) 70%, var(--row-hover));
 }
-/* 表の菱形バッジ（作業名の先頭）。フローの .ms-diamond と同じ配色の小型版。 */
+/* 表の節目バッジ（作業名の先頭）。フローのピル（🏁）と識別子をそろえた小型版。 */
 .ms-badge {
   display: inline-block;
   flex: none;
-  width: 9px;
-  height: 9px;
-  margin-right: 5px;
-  background: var(--amber-fill);
-  border: 1.3px solid var(--amber);
-  border-radius: 2px;
-  transform: rotate(45deg);
+  margin-right: 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+.ms-badge::before {
+  content: "🏁";
 }
 /* マイルストーンでは持たない値（工程No/担当/工数など）の代わりに出す「—」。 */
 .ms-cell-blank {
