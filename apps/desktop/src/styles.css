@@ -771,7 +771,8 @@ button.danger:hover {
 }
 .grid td {
   border-bottom: 1px solid var(--line-faint);
-  padding: 6px 8px;
+  /* 行密度: 入力側の 6px パディングがヒット領域を担保するため、セル側は 2px に抑える */
+  padding: 2px 8px;
   vertical-align: middle;
 }
 .grid tbody tr {
@@ -959,7 +960,6 @@ button.danger:hover {
 }
 .prev-add {
   font-size: var(--fs-label);
-  margin-top: 2px;
 }
 .io-pip {
   display: inline-flex;
@@ -4273,7 +4273,7 @@ kbd {
 .ft-roll { display: block; padding: 6px 8px; text-align: right; color: var(--muted); }
 
 /* 前工程セル */
-.ft-prev { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; align-items: center; }
+.ft-prev { display: flex; flex-wrap: wrap; gap: 3px; padding: 1px 4px; align-items: center; }
 .ft-pill {
   display: inline-flex;
   align-items: center;
