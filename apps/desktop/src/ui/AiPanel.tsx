@@ -24,6 +24,7 @@ import {
   resolveApproved,
   filterApplicable,
   planApply,
+  planContinuation,
   applyEdits,
   NOT_APPROVED_REASON,
   type DecisionState,
@@ -57,6 +58,8 @@ interface AiSessionState {
   startStreaming: () => void;
   onProgress: (chunk: string) => void;
   setGenerated: (rawOps: BatchOp[], preview: AiPreview) => void;
+  /** 見送り分のセッション継続（D-02）: 適用済みを除いた残りプレビュー＋再インデックス判定で再開。 */
+  continueWith: (preview: AiPreview, decisions: DecisionMap, edits: EditMap) => void;
   fail: (errorText: string, errorKind: AiErrorKind) => void;
   setDecision: (i: number, state: DecisionState) => void;
   setEdit: (i: number, patch: ProposalEdit) => void;
@@ -98,6 +101,8 @@ export const useAiSession = create<AiSessionState>((set) => ({
     }),
   setGenerated: (rawOps, preview) =>
     set({ rawOps, preview, phase: 'ready', decisions: {}, edits: {}, editingOp: null }),
+  continueWith: (preview, decisions, edits) =>
+    set({ rawOps: preview.ops, preview, phase: 'ready', decisions, edits, editingOp: null }),
   fail: (errorText, errorKind) => set({ phase: 'error', errorText, errorKind }),
   setDecision: (i, state) => set((s) => ({ decisions: { ...s.decisions, [i]: state } })),
   setEdit: (i, patch) =>
@@ -191,24 +196,37 @@ function applyApproved(): void {
   if (!preview) return;
   const finalOps = applyEdits(preview.ops, edits); // 生成後のインライン修正を最終適用へ反映
   const { apply } = resolveApproved(finalOps, decisions);
-  if (!apply.length) return;
   // 適用直前の第二フィルタ: 「親(producer)が未判定のまま子(consumer)だけ承認」を取りこぼさない
   // （resolveApproved は rejected/disabled の波及だけを見るため、pending producer は素通りしてしまう）。
   const { apply: applicable, excluded } = filterApplicable(finalOps, apply);
   const applyOps = applicable.map((i) => finalOps[i]!);
-  const excludedNote = excluded.size > 0 ? `${excluded.size} 件は${NOT_APPROVED_REASON}見送りました` : '';
   if (!applyOps.length) {
-    if (excludedNote) useUI.getState().toast(excludedNote, 'info');
+    // 適用できる op が無い（承認したのは依存先未承認の消費 op のみ）。パネルは閉じない。
+    if (excluded.size > 0) {
+      useUI
+        .getState()
+        .toast(`${excluded.size} 件は${NOT_APPROVED_REASON}適用できません。先に依存先を承認してください。`, 'info');
+    }
     return;
   }
   try {
-    useApp.getState().applyApprovedBatch(applyOps); // 本番 uuid・commit 1 undo
-    const msg = excludedNote
-      ? `AI提案を適用しました（元に戻す: Ctrl+Z）／${excludedNote}`
-      : 'AI提案を適用しました（元に戻す: Ctrl+Z）';
-    useUI.getState().toast(msg, 'success');
-    useAiSession.getState().reset();
-    useUI.getState().setAiPanelOpen(false);
+    // 本番 uuid・commit 1 undo。二窓フォロワーでは forward され undefined が返るため空へ寄せる。
+    const aliases = useApp.getState().applyApprovedBatch(applyOps) ?? {};
+    if (excluded.size > 0) {
+      // 見送り分が残る（D-02）: パネルを閉じず、適用済みを除いた残りでセッションを続ける。
+      // 見送り分は pending へ戻し、適用済み producer への参照は実 taskId へ張り替える。
+      const app = useApp.getState();
+      const cont = planContinuation(finalOps, decisions, edits, applicable, excluded, aliases);
+      const nextPreview = buildAiPreview(app.project, cont.ops, app.level, app.scopeParentId);
+      useAiSession.getState().continueWith(nextPreview, cont.decisions, cont.edits);
+      useUI
+        .getState()
+        .toast(`適用しました。${excluded.size} 件は${NOT_APPROVED_REASON}残っています。`, 'success');
+    } else {
+      useUI.getState().toast('AI提案を適用しました（元に戻す: Ctrl+Z）', 'success');
+      useAiSession.getState().reset();
+      useUI.getState().setAiPanelOpen(false);
+    }
   } catch (e) {
     console.error('AI提案の適用に失敗しました', e);
     useUI.getState().toast(`提案の適用に失敗しました: ${summarizeError(e)}`, 'error');
