@@ -7842,15 +7842,18 @@ input.colored-text {
   position: absolute;
   top: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
+  /* 水平センタリングは transform ではなく translate プロパティで行い、
+     pop-in（transform ベース）の入場アニメと合成させて横ズレを防ぐ。 */
+  translate: -50% 0;
   z-index: 6;
   min-width: 188px;
   padding: 8px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--panel);
   box-shadow: var(--shadow-pop);
   cursor: default;
+  animation: pop-in var(--dur-1) var(--ease);
 }
 .fpop-desc {
   font-size: var(--fs-label);
