@@ -439,7 +439,7 @@ button {
   transition: background var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1), transform 0.05s;
 }
 button:hover {
-  background: var(--hdr);
+  background: var(--hover);
   border-color: var(--faint);
 }
 button:active {
