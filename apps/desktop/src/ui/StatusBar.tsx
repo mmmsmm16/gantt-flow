@@ -110,6 +110,7 @@ export function StatusBar() {
   const scopeParentId = useApp((s) => s.scopeParentId);
   const dirty = useApp((s) => s.dirty);
   const activePane = useUI((s) => s.activePane);
+  const mainView = useUI((s) => s.mainView);
   const leaderPending = useUI((s) => s.leaderPending);
   const singleKey = useUI((s) => s.singleKey);
   // 永続化の健全性（沈黙する失敗を可視化）: 直近の自動保存時刻・失敗・助言ロック状態。
@@ -146,13 +147,17 @@ export function StatusBar() {
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
 
   // キーヒントは実効キーマップから生成（singleKey トグルでキャッシュが無効化されるので依存に入れる）。
+  // 手順書タブは表/フローと操作系が異なる（ステップ選択・削除）ので、その実挙動に合わせた
+  // 固定ヒントへ差し替える（ProcedureView の window keydown: Delete=削除 / Esc=選択解除）。
   const hintText = useMemo(
     () =>
-      paneKeyHints(getActiveKeymap(), activePane)
-        .map((h) => `${h.keys} ${h.label}`)
-        .join('・'),
+      mainView === 'procedure'
+        ? 'クリックで選択・Delete で削除・Esc で解除'
+        : paneKeyHints(getActiveKeymap(), activePane)
+            .map((h) => `${h.keys} ${h.label}`)
+            .join('・'),
     // singleKey は再計算トリガ（getActiveKeymap の中身が変わる）。
-    [activePane, singleKey],
+    [activePane, singleKey, mainView],
   );
 
   return (
