@@ -4,6 +4,7 @@ import {
   isProjectIntegrityError,
   isSchemaVersionTooNewError,
   lintProject,
+  hasAnyToBeInput,
   type LockInfo,
   type ProcessLevel,
 } from '@gantt-flow/core';
@@ -22,6 +23,8 @@ import {
   exportSvgFile,
   exportPngFile,
   exportHandbookFile,
+  exportImprovementReportFile,
+  exportImprovementExcel,
   printProjectAndFlow,
   forgetFileHandle,
   openRecentFile,
@@ -583,6 +586,52 @@ export function App() {
       useUI.getState().setBusy(null);
     }
   };
+  // 改善効果レポート（As-Is / To-Be）。confirmEmptyOutput → hasAnyToBeInput ガードの順。
+  // To-Be 未入力だと ±0 が並ぶだけで読み手に何も伝わらないため、比較ダイアログの一括入力へ誘導する。
+  const guardToBeInput = (): boolean => {
+    if (hasAnyToBeInput(useApp.getState().project.details)) return true;
+    useUI
+      .getState()
+      .toast('To-Be が未入力です。比較ダイアログの一括入力から始めてください。', 'info');
+    return false;
+  };
+  const onExportImprovementReport = async () => {
+    if (!(await confirmEmptyOutput())) return;
+    if (!guardToBeInput()) return;
+    try {
+      useUI.getState().setBusy('改善効果レポートを書き出しています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const { name, html } = exportImprovementReportFile(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${name}）`, 'success', {
+        label: '開いて確認',
+        run: () =>
+          openWindowOrWarn(() => {
+            const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+            return window.open(url, '_blank');
+          }),
+      });
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（改善効果レポート）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
+    }
+  };
+  const onExportImprovementExcel = async () => {
+    if (!(await confirmEmptyOutput())) return;
+    if (!guardToBeInput()) return;
+    try {
+      useUI.getState().setBusy('改善効果（Excel）を書き出しています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const n = exportImprovementExcel(useApp.getState().project);
+      useUI.getState().toast(`出力しました（${n}）`, 'success');
+    } catch (err) {
+      console.error(err);
+      useUI.getState().toast('出力に失敗しました（改善効果 Excel）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
+    }
+  };
   const onPrint = async () => {
     if (!(await confirmEmptyOutput())) return;
     try {
@@ -949,6 +998,12 @@ export function App() {
               <MenuItem onClick={onExportPng}>画像 (PNG)</MenuItem>
               <MenuItem onClick={onExportSvg}>画像 (SVG)</MenuItem>
               <MenuItem onClick={onExportHandbook}>ハンドブック (HTML)</MenuItem>
+              {tobeEnabled && (
+                <MenuItem onClick={onExportImprovementReport}>改善効果レポート (HTML)</MenuItem>
+              )}
+              {tobeEnabled && (
+                <MenuItem onClick={onExportImprovementExcel}>改善効果 (.xlsx)</MenuItem>
+              )}
             </Menu>
             <button className="icon-btn" onClick={onPrint} aria-label="印刷 / PDF" title="印刷 / PDF（工程表＋フロー図）">
               <Icons.Printer />
