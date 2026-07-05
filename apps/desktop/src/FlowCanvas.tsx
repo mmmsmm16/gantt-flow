@@ -1018,7 +1018,7 @@ export function FlowCanvas() {
     const nudge = (dx: number, dy: number): boolean => {
       const t = keyTargets();
       if (!t.length) return false;
-      moveNodesBy(t, dx, dy);
+      moveNodesBy(t, dx, dy, true); // 矢印キー連打は 1 undo に畳み込む
       return true;
     };
     switch (action) {

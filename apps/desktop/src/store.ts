@@ -435,8 +435,9 @@ export interface AppState {
   removeAsset: (assetId: Id) => void;
   /** フロー上のドラッグ確定。別レーンへ落ちて担当が書き戻った場合は新しい担当名を返す（UI 通知用）。 */
   moveNode: (nodeId: FlowNodeId, x: number, y: number) => string | undefined;
-  /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。 */
-  moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number) => void;
+  /** 複数ノードをまとめて (dx,dy) 平行移動（1 undo 単位）。レーン再割当はしない。
+      coalesce=true（矢印キーの微調整）は同一対象・短時間の連打を 1 undo に畳み込む。 */
+  moveNodesBy: (nodeIds: FlowNodeId[], dx: number, dy: number, coalesce?: boolean) => void;
   /** フロー上で工程を新規作成し、ドロップ位置のレーン(担当)へ配置する（表へ自動反映）。作成 ID を返す。 */
   addTaskAt: (x: number, y: number) => Id | undefined;
   /** 並行工程を追加（前工程のみコピー）。フロー上は基準ノードの直下の空きへ配置。1 undo。 */
@@ -525,6 +526,10 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
   const LABEL_FALLBACK = '編集';
   let labels: (string | undefined)[] = [undefined];
   let labelCursor = 0;
+  // 連続ジェスチャ（矢印キーの微調整・レーン高さの連打）を 1 undo 単位に畳み込むための直近キー。
+  // 通常の push が挟まると null に戻り、次のジェスチャは新しい undo 単位になる。
+  let lastCoalesce: { key: string; at: number } | null = null;
+  const COALESCE_MS = 800;
   // history.push の直後に呼ぶ（history.size() は上限プルーニング後の実サイズ）。
   const recordLabel = (label?: string) => {
     labels = labels.slice(0, labelCursor + 1);
@@ -539,6 +544,7 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
   const pushHistory = (p: Project, label?: string) => {
     history.push(p);
     recordLabel(label);
+    lastCoalesce = null; // 通常の push はジェスチャ連鎖を切る（次の微調整で新 undo 単位）
   };
   const resetLabels = () => {
     labels = [undefined];
@@ -589,6 +595,34 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     if (!view) return;
     if (fn(view, p) === false) return;
     pushHistory(p, label);
+    sync();
+  };
+
+  // 連続ジェスチャ（矢印キーの微調整・レーン高さの連打）を 1 undo 単位に畳み込む editView。
+  // 直前の編集が「同一 coalesceKey」かつ「時間窓内」なら history に積まず先頭を置換する
+  // （replaceTop）。窓を超える／別対象の編集（pushHistory）が挟まると新しい undo 単位を切る。
+  const editViewCoalesced = (
+    fn: (view: FlowLevelView, project: Project) => void | false,
+    label: string,
+    coalesceKey: string,
+  ) => {
+    const { level, scopeParentId } = get();
+    const p = structuredClone(get().project);
+    const view = findView(p, level, scopeParentId);
+    if (!view) return;
+    if (fn(view, p) === false) return;
+    const now = Date.now();
+    const merge =
+      lastCoalesce !== null &&
+      lastCoalesce.key === coalesceKey &&
+      now - lastCoalesce.at < COALESCE_MS &&
+      history.canUndo(); // 先頭が初期状態のときは通常 push（置換すると undo できなくなる）
+    if (merge) {
+      replaceTop(p); // ラベル配列は据え置き（同一操作の継続）
+    } else {
+      pushHistory(p, label); // ここで lastCoalesce は null に戻る
+    }
+    lastCoalesce = { key: coalesceKey, at: now };
     sync();
   };
 
@@ -1218,9 +1252,9 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
     // 剛体移動として 0 未満へは行かせない: 個別クランプだと選択の一部だけ壁で止まり
     // 相対配置が歪むため、選択全体の最小 x/y が 0 を下回らないよう移動量そのものを
     // 削って揃える（全体表示の負座標救出＝fitView からも同じ関数を使う）。
-    moveNodesBy: (nodeIds, dx, dy) => {
+    moveNodesBy: (nodeIds, dx, dy, coalesce = false) => {
       if ((dx === 0 && dy === 0) || nodeIds.length === 0) return;
-      editView((view) => {
+      const apply = (view: FlowLevelView): void | false => {
         let minX = Infinity;
         let minY = Infinity;
         for (const id of nodeIds) {
@@ -1244,7 +1278,14 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
           }
         }
         if (!changed) return false;
-      }, 'ノードを移動');
+      };
+      // 矢印キーの微調整は連打を 1 undo に畳む。ドラッグ確定（coalesce=false）は従来どおり 1 回 1 undo。
+      if (coalesce) {
+        const key = `nudge:${[...nodeIds].sort().join(',')}`;
+        editViewCoalesced(apply, 'ノードを移動', key);
+      } else {
+        editView(apply, 'ノードを移動');
+      }
     },
 
     // フロー上で工程を新規作成 → ドロップ位置のレーン(担当)へ。1 操作 = 1 undo（作成と配置を 1 スナップショットに集約）。
@@ -1559,19 +1600,24 @@ export const appStateCreator: StateCreator<AppState> = (set, get) => {
       return !sameLayout(view, tidied);
     },
     setLaneHeight: (laneId, height) =>
-      editView((view) => {
-        const lane = view.lanes[laneId];
-        if (!lane) return false;
-        const clamped = Math.max(LANE_MIN_H, Math.round(height));
-        const delta = clamped - laneHeight(lane);
-        if (delta === 0) return false;
-        // 変更前の「次レーン基準 y」より下のノードは、レーン拡縮ぶん連動シフト（絶対 y の整合）。
-        const threshold = laneTaskBaseY(view.lanes, lane.order + 1);
-        lane.height = clamped;
-        for (const n of Object.values(view.nodes)) {
-          if (n.y >= threshold) n.y += delta;
-        }
-      }, 'レーン高さを変更'),
+      // 連続リサイズ（キー連打・ドラッグ確定の連発）を 1 undo に畳む（同一レーン・短時間）。
+      editViewCoalesced(
+        (view) => {
+          const lane = view.lanes[laneId];
+          if (!lane) return false;
+          const clamped = Math.max(LANE_MIN_H, Math.round(height));
+          const delta = clamped - laneHeight(lane);
+          if (delta === 0) return false;
+          // 変更前の「次レーン基準 y」より下のノードは、レーン拡縮ぶん連動シフト（絶対 y の整合）。
+          const threshold = laneTaskBaseY(view.lanes, lane.order + 1);
+          lane.height = clamped;
+          for (const n of Object.values(view.nodes)) {
+            if (n.y >= threshold) n.y += delta;
+          }
+        },
+        'レーン高さを変更',
+        `lane:${laneId}`,
+      ),
     moveLane: (laneId, dir) =>
       editView((view) => {
         // レーン幾何は laneLayout（唯一の正）から取る。boxes は order 昇順。

@@ -134,6 +134,34 @@ describe('app store（command → reconcile → history）', () => {
     expect((taskNodes(s)[0]!).x).toBe(origX);
   });
 
+  it('矢印キーの微調整（coalesce）連打は 1 undo に畳み込まれる', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = taskNodes(s)[0]!.id;
+    const origX = taskNodes(s)[0]!.x;
+    // 短時間の連続 nudge（coalesce=true）
+    s.getState().moveNodesBy([id], 8, 0, true);
+    s.getState().moveNodesBy([id], 8, 0, true);
+    s.getState().moveNodesBy([id], 8, 0, true);
+    expect(taskNodes(s)[0]!.x).toBe(origX + 24);
+    // 1 回の undo で 3 連打すべてが戻る（微調整前の位置へ）
+    s.getState().undo();
+    expect(taskNodes(s)[0]!.x).toBe(origX);
+  });
+
+  it('ドラッグ確定（coalesce なし）は 1 回ごとに別 undo 単位', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = taskNodes(s)[0]!.id;
+    const origX = taskNodes(s)[0]!.x;
+    s.getState().moveNodesBy([id], 8, 0); // coalesce=false（既定）
+    s.getState().moveNodesBy([id], 8, 0);
+    expect(taskNodes(s)[0]!.x).toBe(origX + 16);
+    // 1 回の undo では 1 段だけ戻る
+    s.getState().undo();
+    expect(taskNodes(s)[0]!.x).toBe(origX + 8);
+  });
+
   it('担当を付けるとレーンができる', () => {
     const s = createAppStore();
     s.getState().addTask('受付');
