@@ -134,6 +134,61 @@ describe('app store（command → reconcile → history）', () => {
     expect((taskNodes(s)[0]!).x).toBe(origX);
   });
 
+  it('矢印キーの微調整（coalesce）連打は 1 undo に畳み込まれる', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = taskNodes(s)[0]!.id;
+    const origX = taskNodes(s)[0]!.x;
+    // 短時間の連続 nudge（coalesce=true）
+    s.getState().moveNodesBy([id], 8, 0, true);
+    s.getState().moveNodesBy([id], 8, 0, true);
+    s.getState().moveNodesBy([id], 8, 0, true);
+    expect(taskNodes(s)[0]!.x).toBe(origX + 24);
+    // 1 回の undo で 3 連打すべてが戻る（微調整前の位置へ）
+    s.getState().undo();
+    expect(taskNodes(s)[0]!.x).toBe(origX);
+  });
+
+  it('粒度・工数の一括設定は 1 undo 単位で複数工程へ適用される', () => {
+    const s = createAppStore();
+    s.getState().addTask('A');
+    s.getState().addTask('B');
+    s.getState().addTask('C');
+    const a = idByName(s, 'A');
+    const b = idByName(s, 'B');
+    // 追加時の既定は中粒度。A・B だけ小粒度＋工数2hに一括設定（C は据え置き）。
+    s.getState().setLevelMany([a, b], 'small');
+    s.getState().setEffortMany([a, b], 120);
+    const tasks = () => s.getState().project.core.tasks;
+    const details = () => s.getState().project.details;
+    expect(tasks()[a]!.level).toBe('small');
+    expect(tasks()[b]!.level).toBe('small');
+    expect(tasks()[idByName(s, 'C')]!.level).toBe('medium'); // 対象外は不変
+    expect(details()[a]!.effortMinutes).toBe(120);
+    expect(details()[b]!.effortMinutes).toBe(120);
+    // 工数の一括設定は 1 undo で A・B 両方が戻る
+    s.getState().undo();
+    expect(details()[a]?.effortMinutes ?? undefined).toBeUndefined();
+    expect(details()[b]?.effortMinutes ?? undefined).toBeUndefined();
+    // さらに 1 undo で粒度も両方戻る
+    s.getState().undo();
+    expect(tasks()[a]!.level).toBe('medium');
+    expect(tasks()[b]!.level).toBe('medium');
+  });
+
+  it('ドラッグ確定（coalesce なし）は 1 回ごとに別 undo 単位', () => {
+    const s = createAppStore();
+    s.getState().addTask('受付');
+    const id = taskNodes(s)[0]!.id;
+    const origX = taskNodes(s)[0]!.x;
+    s.getState().moveNodesBy([id], 8, 0); // coalesce=false（既定）
+    s.getState().moveNodesBy([id], 8, 0);
+    expect(taskNodes(s)[0]!.x).toBe(origX + 16);
+    // 1 回の undo では 1 段だけ戻る
+    s.getState().undo();
+    expect(taskNodes(s)[0]!.x).toBe(origX + 8);
+  });
+
   it('担当を付けるとレーンができる', () => {
     const s = createAppStore();
     s.getState().addTask('受付');
@@ -1186,22 +1241,26 @@ describe('UX#6: ノード負座標のクランプと救出', () => {
 });
 
 describe('taskOps（store と UI をまたぐ手続き）', () => {
-  it('confirmRemoveTasks: キャンセルで false（削除しない）、OK で削除して true', async () => {
+  it('confirmRemoveTasks: 単一行は確認レスで即削除（トースト＋元に戻すに一本化）、複数件はキャンセルで false', async () => {
     useApp.getState().newProject();
     useApp.getState().addTask('受付');
-    const id = Object.values(useApp.getState().project.core.tasks)[0]!.id;
-    // キャンセル
-    let pr = confirmRemoveTasks([id]);
+    useApp.getState().addTask('検品');
+    const ids = Object.values(useApp.getState().project.core.tasks).map((t) => t.id);
+    // 複数件はモーダル確認あり: キャンセルで削除しない
+    const prMulti = confirmRemoveTasks(ids);
     expect(useUI.getState().dialog?.kind).toBe('confirm');
     useUI.getState().resolveDialog(false);
-    expect(await pr).toBe(false);
-    expect(useApp.getState().project.core.tasks[id]).toBeDefined();
-    // OK（単数形のメッセージ）
-    pr = confirmRemoveTasks([id]);
-    expect(useUI.getState().dialog?.message).toContain('「受付」');
-    useUI.getState().resolveDialog(true);
-    expect(await pr).toBe(true);
-    expect(useApp.getState().project.core.tasks[id]).toBeUndefined();
+    expect(await prMulti).toBe(false);
+    expect(Object.keys(useApp.getState().project.core.tasks)).toHaveLength(2);
+    // 単一行は確認レス（ダイアログを出さず即削除して true）
+    const single = ids[0]!;
+    const prSingle = confirmRemoveTasks([single]);
+    expect(useUI.getState().dialog).toBeNull();
+    expect(await prSingle).toBe(true);
+    expect(useApp.getState().project.core.tasks[single]).toBeUndefined();
+    // undo で復活（ToastAction「元に戻す」と同じ 1 undo）
+    useApp.getState().undo();
+    expect(useApp.getState().project.core.tasks[single]).toBeDefined();
   });
 
   it('confirmRemoveTasks: 複数件は一括削除（1 undo・件数表示）', async () => {

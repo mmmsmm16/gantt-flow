@@ -14,7 +14,7 @@ import { Menu, MenuCheckItem, MenuItem } from './ui/Menu';
 import { useRowSelectionKeys, scrollRowIntoView, shouldRoveRowFocus } from './ui/useRowSelectionKeys';
 import { useRowMultiSelect } from './ui/useRowMultiSelect';
 import { filterOutlineRows } from './outlineFilter';
-import { revealTask, selectTask, confirmRemoveTasks } from './taskOps';
+import { revealTask, selectTask, confirmRemoveTasks, toastUndo, removeDependencyWithUndo } from './taskOps';
 import { isImeKeyEvent, isEditableTarget } from './keymap';
 import { TASK_COLORS } from './theme';
 import * as Icons from './ui/icons';
@@ -223,7 +223,6 @@ export function TableView() {
   const moveTaskDown = useApp((s) => s.moveTaskDown);
   const dropTask = useApp((s) => s.dropTask);
   const addDependency = useApp((s) => s.addDependency);
-  const removeDependency = useApp((s) => s.removeDependency);
   // フローのレーン移動で担当が書き戻った工程は、担当セルを一時ハイライトして変更点を示す。
   const lastAssigneeSync = useApp((s) => s.lastAssigneeSync);
   const assigneeFlash = useFlashIds(lastAssigneeSync);
@@ -368,7 +367,14 @@ export function TableView() {
     taskId === selectedTaskId && activePane === 'table' && cursorCol === key ? ' cell-cursor' : '';
 
   const commitName = (t: ProcessTask, value: string) => {
-    if (value !== t.name) renameTask(t.id, value);
+    if (value === t.name) return;
+    renameTask(t.id, value);
+    // Excel 流の「選択セルへ打鍵＝全置換」で既存名を気づかず潰す事故の安全網。
+    // 旧名の面影が残らない全置換のときだけ「元に戻す」付きで知らせる（部分修正では出さない）。
+    const old = t.name.trim();
+    if (old && value.trim() && !value.includes(old) && !old.includes(value.trim())) {
+      toastUndo(`「${old}」を「${value.trim()}」に変更しました`);
+    }
   };
 
   // 入出/課題セルのポップオーバー項目クリック: 工程を選択し詳細パネルを開く。I/O は FB-1 の
@@ -512,7 +518,15 @@ export function TableView() {
         findActive ? (
           <p className="empty">「{findQuery}」に一致する工程がありません。</p>
         ) : (
-          <p className="empty">「＋ 大工程」または「＋ 中工程」から作業を追加してください。</p>
+          <div className="empty empty-cta">
+            <p>まだ工程がありません。最初の作業を追加しましょう。</p>
+            <div className="empty-actions">
+              <button className="primary" onClick={() => addRootAndEdit('large')}>
+                ＋ 大工程を追加
+              </button>
+              <button onClick={() => addRootAndEdit('medium')}>＋ 中工程を追加</button>
+            </div>
+          </div>
         )
       ) : (
         <>
@@ -787,7 +801,7 @@ export function TableView() {
                               className="ft-x"
                               aria-label="前工程を解除"
                               title="前工程を解除"
-                              onClick={() => removeDependency(dep.id)}
+                              onClick={() => removeDependencyWithUndo(dep.id)}
                             >
                               ×
                             </button>

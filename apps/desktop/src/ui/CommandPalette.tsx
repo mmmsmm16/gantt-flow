@@ -965,7 +965,9 @@ function PaletteBody(handlers: FileHandlers) {
   }, []);
 
   // 引数を確定して実行（validate → リピート記録 → runWithArg → 閉じる）。
-  const commitArg = (value: string, opt?: ArgOption) => {
+  // keepOpen（Shift+Enter）はパレットを閉じずに入力をリセットして続けて実行できる
+  //（工程の連続追加など）。
+  const commitArg = (value: string, opt?: ArgOption, keepOpen = false) => {
     if (!argCmd) return;
     const err = argCmd.arg?.validate?.(value) ?? null;
     if (err) {
@@ -982,18 +984,28 @@ function PaletteBody(handlers: FileHandlers) {
         run: () => fn(value, opt),
       });
     }
+    if (keepOpen) {
+      fn?.(value, opt);
+      // 引数モードのまま入力を空にして次の実行へ（連続追加）。
+      setQuery('');
+      setArgError(null);
+      setActive(0);
+      setTimeout(() => inputRef.current?.focus(), 0);
+      return;
+    }
     close();
     fn?.(value, opt);
   };
 
-  const runItem = (i: number) => {
+  const runItem = (i: number, keepOpen = false) => {
     const item = flat[i];
     if (!item) {
       // 引数モードで候補が無い: 自由入力可なら入力値で確定（空欄の確定も許す＝担当解除など）。
-      if (argCmd?.arg?.freeText) commitArg(query.trim());
+      if (argCmd?.arg?.freeText) commitArg(query.trim(), undefined, keepOpen);
       return;
     }
-    if (item.kind === 'arg') commitArg(item.a.opt.value, item.a.kind === 'opt' ? item.a.opt : undefined);
+    if (item.kind === 'arg')
+      commitArg(item.a.opt.value, item.a.kind === 'opt' ? item.a.opt : undefined, keepOpen);
     else if (item.kind === 'cmd') {
       if (item.c.arg) enterArgMode(item.c);
       else if (item.c.run) {
@@ -1018,7 +1030,8 @@ function PaletteBody(handlers: FileHandlers) {
       // 同じ Enter を再解釈してしまう(フローの工程名編集が開く等)。ここで止める。
       e.preventDefault();
       e.stopPropagation();
-      runItem(active);
+      // Shift+Enter は引数モードで「閉じずに連続実行」（工程の連続追加など）。
+      runItem(active, e.shiftKey && argCmd !== null);
     } else if (e.key === 'Backspace' && argCmd && query === '') {
       e.preventDefault();
       exitArgMode();
@@ -1055,6 +1068,11 @@ function PaletteBody(handlers: FileHandlers) {
             }}
             onKeyDown={onKeyDown}
           />
+          {argCmd && (
+            <kbd className="palette-esc palette-keephint" title="Shift+Enter で閉じずに続けて実行">
+              ⇧⏎ 連続
+            </kbd>
+          )}
           <kbd className="palette-esc">Esc</kbd>
         </div>
         {argError && <div className="palette-error">{argError}</div>}

@@ -109,6 +109,9 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
       onMouseLeave={() => timerRef.current?.resume()}
     >
       <span>{item.message}</span>
+      {item.count && item.count > 1 && (
+        <span className="toast-count" aria-label={`${item.count} 件`}>×{item.count}</span>
+      )}
       {item.action && (
         <button
           className="toast-action"

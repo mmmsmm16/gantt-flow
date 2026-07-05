@@ -108,6 +108,7 @@ export function StatusBar() {
   const project = useApp((s) => s.project);
   const level = useApp((s) => s.level);
   const scopeParentId = useApp((s) => s.scopeParentId);
+  const selectedTaskId = useApp((s) => s.selectedTaskId);
   const dirty = useApp((s) => s.dirty);
   const activePane = useUI((s) => s.activePane);
   const mainView = useUI((s) => s.mainView);
@@ -145,6 +146,7 @@ export function StatusBar() {
   const totalMin = roots.reduce((s, t) => s + (effortRollups.get(t.id) ?? 0), 0);
   const assignees = Object.keys(project.core.assignees).length;
   const scopeName = scopeParentId ? project.core.tasks[scopeParentId]?.name : null;
+  const selectedName = selectedTaskId ? project.core.tasks[selectedTaskId]?.name : null;
   // ヒアリング進捗（末端工程のうち着手済=heard+review+done の割合）。サマリと同一集計を共有。
   const hearing = useMemo(
     () => computeHearingProgress(project.core, project.details),
@@ -202,6 +204,14 @@ export function StatusBar() {
         <span className="st-item st-hint" title="ショートカット一覧は ? キー">
           {hintText}
         </span>
+      )}
+      {selectedName && (
+        <>
+          <span className="st-sep" aria-hidden="true" />
+          <span className="st-item st-selected" title="選択中の工程">
+            選択: <strong>{selectedName || '（無題）'}</strong>
+          </span>
+        </>
       )}
       <span className="st-sep" aria-hidden="true" />
       <span className="st-item st-view" title="フローで表示中の粒度とスコープ">

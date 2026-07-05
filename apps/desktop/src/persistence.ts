@@ -603,16 +603,16 @@ export function exportExcelFile(project: Project): string {
 }
 
 // 図に「タイトル・出力日・凡例」を載せた装飾版 SVG（共有/提出用）。
-function decoratedSvg(project: Project, view: FlowLevelView): string {
-  return decorateFlowSvg(buildFlowSvg(project, view), {
+function decoratedSvg(project: Project, view: FlowLevelView, includeIssues = true): string {
+  return decorateFlowSvg(buildFlowSvg(project, view, { includeIssues }), {
     title: project.meta.title || 'プロジェクト',
     subtitle: `業務フロー図 / 出力日: ${localDateYmd()}`,
   });
 }
 
-export function exportSvgFile(project: Project, view: FlowLevelView): string {
+export function exportSvgFile(project: Project, view: FlowLevelView, includeIssues = true): string {
   const name = `${safeName(project.meta.title)}-flow.svg`;
-  download(name, decoratedSvg(project, view), 'image/svg+xml');
+  download(name, decoratedSvg(project, view, includeIssues), 'image/svg+xml');
   return name;
 }
 
@@ -625,9 +625,13 @@ const loadImage = (url: string): Promise<HTMLImageElement> =>
   });
 
 // PNG 出力: 装飾版 SVG を 2倍解像度でラスタライズ（Word/PowerPoint へ貼りやすい）。
-export async function exportPngFile(project: Project, view: FlowLevelView): Promise<string> {
+export async function exportPngFile(
+  project: Project,
+  view: FlowLevelView,
+  includeIssues = true,
+): Promise<string> {
   const name = `${safeName(project.meta.title)}-flow.png`;
-  const svg = decoratedSvg(project, view);
+  const svg = decoratedSvg(project, view, includeIssues);
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
   try {
     const img = await loadImage(url);
@@ -694,7 +698,43 @@ const escapeHtml = (s: string) =>
 // ポップアップブロックを避けるため window.open ではなく iframe を使う。
 // 戻り値は成否（true=印刷用ドキュメントを組めた / false=iframe の文書が使えず出せなかった）。
 // 呼び出し側（App.onPrint）が false のとき error トーストで沈黙を破る。
-export function printProjectAndFlow(project: Project, view: FlowLevelView | undefined): boolean {
+export interface PrintOptions {
+  /** フロー図に課題（赤四角＋注釈線）を載せるか（既定 true）。 */
+  includeIssues?: boolean;
+  /** 課題一覧ページ（工程横断の課題・方策の表）を追加するか（既定 false）。 */
+  includeIssueListPage?: boolean;
+}
+
+// 課題一覧ページ（工程横断・No./工程/担当/課題/方策）の HTML を組む。課題が無ければ空文字。
+function issueListPageHtml(project: Project): string {
+  const codes = computeCodes(project.core);
+  const tasks = Object.values(project.core.tasks).sort((a, b) =>
+    (codes[a.id] ?? '').localeCompare(codes[b.id] ?? '', undefined, { numeric: true }),
+  );
+  const rows: string[] = [];
+  for (const t of tasks) {
+    const assignee = t.assigneeId ? (project.core.assignees[t.assigneeId]?.name ?? '') : '';
+    for (const iss of project.details[t.id]?.issues ?? []) {
+      if (!iss.issue.trim() && !iss.measure?.trim()) continue;
+      rows.push(
+        `<tr><td>${escapeHtml(codes[t.id] ?? '')}</td><td>${escapeHtml(t.name)}</td><td>${escapeHtml(assignee)}</td>` +
+          `<td>${escapeHtml(iss.issue).replace(/\n/g, '<br>')}</td><td>${escapeHtml(iss.measure ?? '').replace(/\n/g, '<br>')}</td></tr>`,
+      );
+    }
+  }
+  if (rows.length === 0) return '';
+  return (
+    `<h2>課題一覧</h2><table><thead><tr><th>No.</th><th>工程</th><th>担当</th><th>課題</th><th>方策</th></tr></thead>` +
+    `<tbody>${rows.join('')}</tbody></table>`
+  );
+}
+
+export function printProjectAndFlow(
+  project: Project,
+  view: FlowLevelView | undefined,
+  opts: PrintOptions = {},
+): boolean {
+  const { includeIssues = true, includeIssueListPage = false } = opts;
   const title = project.meta.title || 'プロジェクト';
   // 印刷も人間が読む出力なので前工程は作業名（XLSX 出力と同じ方針）。
   const rows = projectToRows(project, { depRef: 'name' });
@@ -704,7 +744,8 @@ export function printProjectAndFlow(project: Project, view: FlowLevelView | unde
   const tbody = body
     .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c).replace(/\n/g, '<br>')}</td>`).join('')}</tr>`)
     .join('');
-  const svg = view ? buildFlowSvg(project, view) : '';
+  const svg = view ? buildFlowSvg(project, view, { includeIssues }) : '';
+  const issuePage = includeIssueListPage ? issueListPageHtml(project) : '';
   const today = localDateYmd();
   const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
@@ -725,6 +766,7 @@ export function printProjectAndFlow(project: Project, view: FlowLevelView | unde
   <h2>工程表（手順一覧表）</h2>
   <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>
   ${svg ? `<h2>業務フロー図</h2><div class="figure">${svg}</div>` : ''}
+  ${issuePage}
 </body></html>`;
 
   const iframe = document.createElement('iframe');

@@ -3,7 +3,7 @@ import { useApp, findView, isBridgeEdge } from './store';
 import { useUI } from './ui/useUI';
 import { useFlashIds } from './ui/useFlash';
 import { pushKeyContext, registerContextHandler } from './ui/useGlobalHotkeys';
-import { chordKeys, getActiveKeymap, isImeKeyEvent, isInteractiveTarget } from './keymap';
+import { chordKeys, getActiveKeymap, isEditableTarget, isImeKeyEvent, isInteractiveTarget } from './keymap';
 import { clampScale, zoomScroll, centerScroll, loadFlowViewport, saveFlowViewport } from './flowZoom';
 import { confirmRemoveTasks, revealTask, toastUndo } from './taskOps';
 import { TASK_COLORS } from './theme';
@@ -24,6 +24,7 @@ import {
   issuePrimaryIds,
   laneLayout,
   lanesBottom,
+  nearestLaneOrder,
   nodeRect,
   nodeSize,
   routeEdge,
@@ -67,6 +68,8 @@ export function FlowCanvas() {
   // フロー内操作で選んだ選択は「自分側」＝表→フロー追従の中央寄せをしない（次の追従 effect を 1 回だけ抑止）。
   // フロー内の選択はすべて selectFromFlow 経由にし、このワンショットで origin を区別する（表/パレット等は素の追従）。
   const suppressFlowCenterRef = useRef(false);
+  // 直近に追従した選択。view 再生成（編集毎の reconcile）だけでは追従を再実行しない。
+  const lastCenteredTaskRef = useRef<string | undefined>(undefined);
   const selectFromFlow = (taskId?: string) => {
     // 実際に別工程へ変わるときだけ抑止フラグを立てる（同工程/解除では追従 effect が走らず
     // フラグが残留して次の外部選択を誤って抑止するのを防ぐ）。追従 effect が 1 回で消費する。
@@ -784,8 +787,14 @@ export function FlowCanvas() {
     if (!selectedTaskId || !view) return;
     if (suppressFlowCenterRef.current) {
       suppressFlowCenterRef.current = false; // ワンショット消費（残留させない）
+      lastCenteredTaskRef.current = selectedTaskId;
       return;
     }
+    // view の再生成（編集毎の reconcile）では追従しない。選択が実際に変わったときだけ寄せる。
+    if (lastCenteredTaskRef.current === selectedTaskId) return;
+    lastCenteredTaskRef.current = selectedTaskId;
+    // 表などの入力にフォーカスがある間（行の連続入力中）はフローを跳ねさせない。
+    if (isEditableTarget(document.activeElement)) return;
     const node = Object.values(view.nodes).find(
       (n) => n.kind === 'task' && n.taskId === selectedTaskId,
     );
@@ -941,8 +950,11 @@ export function FlowCanvas() {
     const s = clampScale(Math.min(1, scroller.clientWidth / contentW, scroller.clientHeight / contentH));
     setScale(s);
     requestAnimationFrame(() => {
-      scroller.scrollLeft = Math.max(0, (minX - pad) * s);
-      scroller.scrollTop = Math.max(0, (minY - pad) * s);
+      // 内容の外接矩形の中心をビューポート中心へ合わせる（上寄せ/左寄せをやめて中央に置く）。
+      const cx = ((minX + maxX) / 2) * s;
+      const cy = ((minY + maxY) / 2) * s;
+      scroller.scrollLeft = Math.max(0, cx - scroller.clientWidth / 2);
+      scroller.scrollTop = Math.max(0, cy - scroller.clientHeight / 2);
     });
   };
 
@@ -1007,7 +1019,7 @@ export function FlowCanvas() {
     const nudge = (dx: number, dy: number): boolean => {
       const t = keyTargets();
       if (!t.length) return false;
-      moveNodesBy(t, dx, dy);
+      moveNodesBy(t, dx, dy, true); // 矢印キー連打は 1 undo に畳み込む
       return true;
     };
     switch (action) {
@@ -1258,6 +1270,30 @@ export function FlowCanvas() {
     const s = nodeSize(n);
     return { cx: p.x + s.w / 2, cy: p.y + s.h / 2 };
   };
+  // レーンまたぎドラッグの事前予告: 単一の工程ノードをドラッグ中、落下先レーンの担当が
+  // 現在と変わるなら「担当→◯◯」を予告する（確定後トーストだけでなく、動かしている最中に気づける）。
+  // 複数選択の剛体ドラッグは moveNodesBy でレーン再割当しないため対象外。
+  const laneCross = (() => {
+    if (!drag || groupDrag || !hasLanes) return null;
+    const node = view.nodes[drag.id];
+    if (!node || node.kind !== 'task' || isMilestone(project.core, node.taskId)) return null;
+    const s = nodeSize(node);
+    const centerY = drag.y + s.h / 2;
+    const targetOrder = nearestLaneOrder(view.lanes, centerY);
+    const targetLane = Object.values(view.lanes).find((l) => l.order === targetOrder);
+    const task = project.core.tasks[node.taskId];
+    if (!targetLane?.assigneeId || !task || task.assigneeId === targetLane.assigneeId) return null;
+    const box = boxes.find((b) => b.lane.id === targetLane.id);
+    if (!box) return null;
+    return {
+      laneId: targetLane.id,
+      top: box.top,
+      height: box.height,
+      name: project.core.assignees[targetLane.assigneeId]?.name ?? '',
+      badgeX: drag.x,
+      badgeY: drag.y - 22,
+    };
+  })();
   // キーボードピッカーを任意の起点から開始（c キー・右クリック「ここから接続」・Shift+P の共通処理）。
   // mode='connect' は工程+制御ノード、'parallel'（並行化の基準選び）は工程のみが候補。
   const startKbConnect = (fromId: FlowNodeId, mode: 'connect' | 'parallel' = 'connect'): boolean => {
@@ -1786,6 +1822,19 @@ export function FlowCanvas() {
             });
             els.push(<line key="lh-bottom" className="lane-line" x1={0} y1={lanesBottomY} x2={FULL_W} y2={lanesBottomY} />);
             els.push(<line key="vdiv" className="lane-divider" x1={LABEL_W} y1={BAND_TOP} x2={LABEL_W} y2={lanesBottomY} />);
+            // レーンまたぎドラッグ中: 落下先レーン帯を強調（担当が変わる予告）。
+            if (laneCross) {
+              els.push(
+                <rect
+                  key="lane-cross"
+                  className="lane-cross-hi"
+                  x={0}
+                  y={laneCross.top}
+                  width={FULL_W + LABEL_W}
+                  height={laneCross.height}
+                />,
+              );
+            }
             if (laneResize) {
               const rb = boxes.find((b) => b.lane.id === laneResize.laneId);
               if (rb) {
@@ -2388,6 +2437,11 @@ export function FlowCanvas() {
             }
           />
         ))}
+        {laneCross && (
+          <div className="lane-cross-badge" style={{ left: laneCross.badgeX, top: laneCross.badgeY }}>
+            担当 → {laneCross.name || '（未割当）'}
+          </div>
+        )}
 
         </div>
 

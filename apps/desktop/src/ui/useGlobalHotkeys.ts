@@ -245,11 +245,12 @@ export function useGlobalHotkeys(handlers: GlobalHotkeyHandlers): void {
       // オーバーレイ等の表示中は停止(パレットの Ctrl+K トグルと、ヘルプ表示中の ? だけ例外)。
       // 一時 UI(コンテキストメニュー/ドロップダウン)中も停止するが、Esc は上の
       // closeTopLayer が先に処理するため「Esc でメニューを閉じる」は生きたまま。
+      // ツアー(コーチマーク)はモーダルではなくオーバーレイ扱い: 本文が n キーや ? を
+      // 案内しているため、表示中もショートカットを止めない(tourStep は blocked に含めない)。
       const blocked =
         ui.overlay !== null ||
         ui.dialog !== null ||
         ui.busy !== null ||
-        ui.tourStep !== null ||
         ui.hasTransientLayer();
       if (blocked) {
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {

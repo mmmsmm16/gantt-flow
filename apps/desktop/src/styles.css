@@ -319,7 +319,7 @@ body {
   flex-wrap: wrap;
   gap: 10px;
   row-gap: 8px;
-  padding: 12px 16px;
+  padding: 8px 16px;
   background: var(--toolbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
@@ -540,8 +540,8 @@ button.danger:hover {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(520px, 42%) 1fr;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 12px;
   min-height: 0;
 }
 /* 案A: 詳細(インスペクタ)を開くと最大2ペイン（アクティブ側＋詳細）。3ペインにはしない。 */
@@ -559,7 +559,7 @@ button.danger:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 16px 16px;
+  padding: 12px;
 }
 /* キーボード操作の対象ペイン(activePane)。控えめな枠で「いまどちらに居るか」を示す。 */
 .pane.pane-active {
@@ -607,6 +607,16 @@ button.danger:hover {
   color: var(--faint);
   font-size: var(--fs-body);
   padding: 12px 4px;
+}
+.empty-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.empty-cta .empty-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* ---- Outline table ---- */
@@ -771,7 +781,8 @@ button.danger:hover {
 }
 .grid td {
   border-bottom: 1px solid var(--line-faint);
-  padding: 6px 8px;
+  /* 行密度: 入力側の 6px パディングがヒット領域を担保するため、セル側は 2px に抑える */
+  padding: 2px 8px;
   vertical-align: middle;
 }
 .grid tbody tr {
@@ -783,6 +794,12 @@ button.danger:hover {
 .grid tr.selected {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
+}
+/* セル入力の全選択（Enter移動直後の「打てば全置換」状態）をアクセント色で目立たせる */
+.grid input::selection,
+.ft-in::selection {
+  background: var(--accent);
+  color: #fff;
 }
 .grid input,
 .grid select {
@@ -959,7 +976,6 @@ button.danger:hover {
 }
 .prev-add {
   font-size: var(--fs-label);
-  margin-top: 2px;
 }
 .io-pip {
   display: inline-flex;
@@ -2289,6 +2305,49 @@ button.danger:hover {
   justify-content: flex-end;
   gap: 8px;
 }
+/* 印刷オプションダイアログ */
+.print-modal {
+  max-width: 440px;
+}
+.print-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 14px 0 20px;
+}
+.print-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.print-label {
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+.print-select {
+  font: inherit;
+  font-size: var(--fs-body);
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+  min-width: 120px;
+}
+.print-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-body);
+  color: var(--ink);
+  cursor: pointer;
+  line-height: 1.5;
+}
+.print-check input {
+  margin-top: 3px;
+  flex: none;
+}
 .modal-actions .danger-solid {
   background: var(--red-solid);
   border-color: var(--red-solid);
@@ -2301,13 +2360,24 @@ button.danger:hover {
 
 .toaster {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  /* 右下はフロー図のミニマップと重なるため左下に置く（工程フローの操作を隠さない） */
+  left: 16px;
+  bottom: 40px;
   z-index: 110;
   display: flex;
   flex-direction: column;
   gap: 8px;
   max-width: min(380px, 90vw);
+}
+.toast-count {
+  flex: none;
+  align-self: center;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  color: var(--muted);
+  background: var(--panel-2);
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
 }
 .toast {
   display: flex;
@@ -2840,6 +2910,48 @@ kbd {
   color: var(--faint);
   font-weight: var(--fw-regular);
 }
+.issues-missing-badge {
+  margin-left: 8px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-regular);
+  color: var(--amber-ink, var(--amber));
+  background: var(--amber-fill);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+}
+.issues-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 4px;
+}
+.issues-filter-input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-label);
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+}
+.issues-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.issues-table tbody tr.il-nomeasure td {
+  background: color-mix(in srgb, var(--amber-fill) 45%, var(--panel));
+}
+.il-measure-missing {
+  color: var(--amber-ink, var(--amber));
+  font-size: var(--fs-caption);
+}
 .issues-head-actions {
   display: flex;
   align-items: center;
@@ -3202,6 +3314,22 @@ kbd {
   border-radius: var(--radius-pill);
   padding: 2px 8px;
   flex-shrink: 0;
+}
+/* 復元前の差分プレビュー: この世代に戻すと工程数がどう変わるか。 */
+.bk-diff {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+.bk-diff.up {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, var(--panel));
+}
+.bk-diff.down {
+  color: var(--amber-ink, var(--amber));
+  background: var(--amber-fill);
 }
 .backup-foot {
   margin: 12px 0 0;
@@ -3708,6 +3836,27 @@ kbd {
   width: 0;
   border-left: 1px dashed var(--accent-strong);
 }
+/* レーンまたぎドラッグの事前予告: 落下先レーン帯の強調（SVG rect）＋担当変更バッジ（HTML）。 */
+.lane-cross-hi {
+  fill: var(--accent);
+  opacity: 0.12;
+  pointer-events: none;
+}
+.lane-cross-badge {
+  position: absolute;
+  z-index: 8;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: 11px;
+  font-weight: var(--fw-strong);
+  line-height: 1.2;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  box-shadow: var(--shadow-pop);
+  pointer-events: none;
+}
 /* マイルストーン: レーン上の余白に琥珀の菱形＋全レーンを貫く縦破線（対象工程の右端に追従）。
    .ms-guide は .flow-scale 全面を覆うが透明・非操作（菱形だけが pointer-events を持つ）。
    spec: docs/superpowers/specs/2026-07-04-milestone-design.md §デスクトップ描画・UI */
@@ -4002,7 +4151,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .ft-hint {
   color: var(--faint);
@@ -4045,7 +4194,7 @@ kbd {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-size: var(--fs-label);
 }
 .ft-filter-label {
@@ -4243,7 +4392,7 @@ kbd {
   width: 100%;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 6px 8px;
+  padding: 4px 8px;
   background: transparent;
   color: var(--ink);
 }
@@ -4273,7 +4422,7 @@ kbd {
 .ft-roll { display: block; padding: 6px 8px; text-align: right; color: var(--muted); }
 
 /* 前工程セル */
-.ft-prev { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; align-items: center; }
+.ft-prev { display: flex; flex-wrap: wrap; gap: 3px; padding: 1px 4px; align-items: center; }
 .ft-pill {
   display: inline-flex;
   align-items: center;
@@ -4288,7 +4437,7 @@ kbd {
 .ft-add-sel { font-size: var(--fs-caption); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 2px 4px; }
 
 /* I/O セル */
-.ft-io { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; }
+.ft-io { display: flex; flex-wrap: wrap; gap: 3px; padding: 2px 4px; }
 .ft-iochip {
   display: inline-flex;
   align-items: center;
@@ -4308,8 +4457,8 @@ kbd {
 .ft-io-kind { font-size: var(--fs-caption); border: none; background: transparent; color: var(--muted); }
 
 /* 課題 / 方策セル（独立列。行ごとに 1 課題・1 方策が並ぶ） */
-.ft-issues { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
-.ft-issue-row { display: flex; align-items: center; gap: 2px; min-height: 28px; }
+.ft-issues { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px; }
+.ft-issue-row { display: flex; align-items: center; gap: 2px; min-height: 24px; }
 .ft-issue-row .ft-in { flex: 1; }
 
 /* 追加/削除ボタン */
@@ -4410,7 +4559,7 @@ kbd {
   width: 100%;
   resize: none;
   overflow: hidden;
-  min-height: 30px;
+  min-height: 26px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -4422,7 +4571,7 @@ kbd {
   appearance: none;
   -webkit-appearance: none;
   width: 24px;
-  height: 22px;
+  height: 20px;
   padding: 0;
   text-align: center;
   text-align-last: center;
@@ -4462,14 +4611,14 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  padding: 4px;
+  padding: 2px;
 }
 .ft-rowbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 1px solid transparent;
   background: transparent;

@@ -12,7 +12,7 @@ import { validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnch
 import { cancelEditOnEscape, selectAllOnFocus, nameEscapeAction } from './inputBehaviors';
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { isImeKeyEvent } from './keymap';
-import { confirmRemoveTasks, removeIoWithUndo, removeIssueWithUndo } from './taskOps';
+import { confirmRemoveTasks, removeDependencyWithUndo, removeIoWithUndo, removeIssueWithUndo } from './taskOps';
 import { useUI } from './ui/useUI';
 import { STATUS_OPTIONS, statusSelectClass } from './statusUi';
 import { useFlashIds } from './ui/useFlash';
@@ -166,7 +166,6 @@ export function FullTable() {
   const addIssueWithMeasure = useApp((s) => s.addIssueWithMeasure);
   const updateIssue = useApp((s) => s.updateIssue);
   const addDependency = useApp((s) => s.addDependency);
-  const removeDependency = useApp((s) => s.removeDependency);
   const addRootTask = useApp((s) => s.addRootTask);
   const addMilestone = useApp((s) => s.addMilestone);
   const addSiblingOf = useApp((s) => s.addSiblingOf);
@@ -398,6 +397,8 @@ export function FullTable() {
     onRowClick,
     clear: clearMarked,
     bulkAssign,
+    bulkLevel,
+    bulkEffort,
     bulkDelete,
   } = useRowMultiSelect({ orderedIds: rows.map((r) => r.id), onActivate: select });
 
@@ -535,7 +536,9 @@ export function FullTable() {
         {marked.size > 0 ? (
           <span className="ft-bulk" role="group" aria-label="一括操作">
             <strong>{marked.size}件選択中</strong>
-            <button onClick={bulkAssign}>担当を一括設定</button>
+            <button onClick={bulkAssign}>担当</button>
+            <button onClick={bulkLevel}>粒度</button>
+            <button onClick={bulkEffort}>工数</button>
             <button className="danger" onClick={bulkDelete}>まとめて削除</button>
             <button className="ft-bulk-clear" onClick={clearMarked}>選択解除</button>
           </span>
@@ -771,7 +774,7 @@ export function FullTable() {
                         {preds.map((dep) => (
                           <span className="ft-pill" key={dep.id}>
                             {byId[dep.from]?.name ?? ''}
-                            <button className="ft-x" aria-label="前工程を解除" title="前工程を解除" onClick={() => removeDependency(dep.id)}>
+                            <button className="ft-x" aria-label="前工程を解除" title="前工程を解除" onClick={() => removeDependencyWithUndo(dep.id)}>
                               ×
                             </button>
                           </span>

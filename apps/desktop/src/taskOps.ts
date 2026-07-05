@@ -1,8 +1,20 @@
 // 工程に対する UI 横断の手続き。store（ドメイン）と useUI（ダイアログ/パネル）をまたぐ操作を
 // ここに集約し、各ビュー（表・フロー・パレット等）での重複実装を防ぐ。
-import { isMilestone, type FlowNodeId } from '@gantt-flow/core';
+import { isMilestone, type FlowNodeId, type ProcessLevel } from '@gantt-flow/core';
 import { useApp } from './store';
 import { useUI, type ToastTone } from './ui/useUI';
+
+// 一括設定の粒度入力（大/中/小/詳細 または英字）を ProcessLevel へ。不正は null。
+const LEVEL_INPUT: Record<string, ProcessLevel> = {
+  大: 'large',
+  中: 'medium',
+  小: 'small',
+  詳細: 'detail',
+  large: 'large',
+  medium: 'medium',
+  small: 'small',
+  detail: 'detail',
+};
 
 /**
  * 破壊的操作の完了トーストに「元に戻す」アクションを付けて出す共通ヘルパ。
@@ -23,6 +35,18 @@ export function removeIoWithUndo(taskId: string, ioId: string): void {
 export function removeIssueWithUndo(taskId: string, issueId: string): void {
   useApp.getState().removeIssue(taskId, issueId);
   toastUndo('課題を削除しました');
+}
+
+/** 手順書ステップを削除し「元に戻す」トーストを出す（Delete キー・×ボタン共通）。 */
+export function removeStepWithUndo(taskId: string, stepId: string): void {
+  useApp.getState().removeStep(taskId, stepId);
+  toastUndo('手順ステップを削除しました');
+}
+
+/** 前後関係（依存）を解除し「元に戻す」トーストを出す（表・全項目表・詳細パネル共通）。 */
+export function removeDependencyWithUndo(depId: string, message = '前工程を解除しました'): void {
+  useApp.getState().removeDependency(depId);
+  toastUndo(message);
 }
 
 /**
@@ -79,23 +103,29 @@ export async function confirmRemoveTasks(
   const single = targets.length === 1 ? tasks[targets[0]!] : undefined;
   const flowNodes = opts?.alsoFlowNodes ?? [];
   const withFlow = flowNodes.length > 0;
-  const ok = await useUI.getState().confirm({
-    title: single ? '工程を削除' : '工程を一括削除',
-    message: single
-      ? `「${single.name || '（無題）'}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`
-      : `選択中の ${targets.length} 件の工程を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
-    confirmLabel: '削除',
-    danger: true,
-  });
-  if (!ok) return false;
+  // 単一行の削除は確認レス（トースト＋元に戻すの ToastAction 標準に一本化）。
+  // 一括削除・図形を伴う混在削除は影響範囲が広いため従来どおりモーダルで確認する。
+  if (!(single && !withFlow)) {
+    const ok = await useUI.getState().confirm({
+      title: single ? '工程を削除' : '工程を一括削除',
+      message: single
+        ? `「${single.name || '（無題）'}」を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`
+        : `選択中の ${targets.length} 件の工程を削除します（配下の工程は1つ上の階層へ繰り上げて残します）。`,
+      confirmLabel: '削除',
+      danger: true,
+    });
+    if (!ok) return false;
+  }
   const app = useApp.getState();
   // 図形を伴う混在削除は removeManyTasks に flowNodeIds を渡して 1 undo 単位に畳み込む
   // （単一工程でも removeTask 経路には乗せない＝図形が別 undo 単位に分かれるのを避ける）。
   if (withFlow) app.removeManyTasks(targets, flowNodes);
   else if (single) app.removeTask(single.id);
   else app.removeManyTasks(targets);
+  const hadChildren =
+    single && Object.values(tasks).some((t) => t.parentId === single.id);
   const taskLabel = single
-    ? `「${single.name || '（無題）'}」を削除しました`
+    ? `「${single.name || '（無題）'}」を削除しました${hadChildren ? '（配下は繰り上げ）' : ''}`
     : `${targets.length} 件の工程を削除しました`;
   toastUndo(withFlow ? `${taskLabel}（図形を含む）` : taskLabel);
   return true;
@@ -121,5 +151,50 @@ export async function bulkSetAssignee(taskIds: string[]): Promise<boolean> {
   });
   if (name === null) return false;
   useApp.getState().setAssigneeManyByName(targets, name);
+  return true;
+}
+
+/** 粒度の一括設定。大/中/小/詳細 を尋ね、変更を適用したら true。マイルストーンは対象外。 */
+export async function bulkSetLevel(taskIds: string[]): Promise<boolean> {
+  const core = useApp.getState().project.core;
+  const targets = taskIds.filter((id) => core.tasks[id] && !isMilestone(core, id));
+  if (targets.length === 0) {
+    useUI.getState().toast('粒度を変更できる工程が選択されていません。', 'info');
+    return false;
+  }
+  const input = await useUI.getState().promptText({
+    title: '粒度を一括設定',
+    message: `選択中の ${targets.length} 件の粒度を変更します。大 / 中 / 小 / 詳細 のいずれかを入力してください。`,
+    placeholder: '大 / 中 / 小 / 詳細',
+    confirmLabel: '設定',
+  });
+  if (input === null) return false;
+  const level = LEVEL_INPUT[input.trim()];
+  if (!level) {
+    useUI.getState().toast('「大 / 中 / 小 / 詳細」のいずれかを入力してください。', 'error');
+    return false;
+  }
+  useApp.getState().setLevelMany(targets, level);
+  return true;
+}
+
+/** 工数の一括設定。時間で尋ね（例: 2 / 0.5）、変更を適用したら true。 */
+export async function bulkSetEffort(taskIds: string[]): Promise<boolean> {
+  const core = useApp.getState().project.core;
+  const targets = taskIds.filter((id) => core.tasks[id]);
+  if (targets.length === 0) return false;
+  const input = await useUI.getState().promptText({
+    title: '工数を一括設定',
+    message: `選択中の ${targets.length} 件の工数を変更します（時間で入力・例: 2 や 0.5）。`,
+    placeholder: '工数（時間）',
+    confirmLabel: '設定',
+  });
+  if (input === null) return false;
+  const hours = Number(input.trim());
+  if (!Number.isFinite(hours) || hours < 0) {
+    useUI.getState().toast('工数は 0 以上の数値（時間）で入力してください。', 'error');
+    return false;
+  }
+  useApp.getState().setEffortMany(targets, Math.round(hours * 60));
   return true;
 }

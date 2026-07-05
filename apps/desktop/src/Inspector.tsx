@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { Automation, Difficulty, Id, IoItem, IoKind, IssueItem, ProcessLevel, TaskColor, TaskStatus } from '@gantt-flow/core';
 import { computeCodes, effortRollupMinutes, effortMinutesToHours, formatHours, deriveParentBridges, isMilestone } from '@gantt-flow/core';
 import { useApp } from './store';
-import { removeIoWithUndo, removeIssueWithUndo } from './taskOps';
+import { removeDependencyWithUndo, removeIoWithUndo, removeIssueWithUndo } from './taskOps';
 import { useUI } from './ui/useUI';
 import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
@@ -60,7 +60,6 @@ export function Inspector() {
   const updateIssue = useApp((s) => s.updateIssue);
   const setTaskCode = useApp((s) => s.setTaskCode);
   const addDependency = useApp((s) => s.addDependency);
-  const removeDependency = useApp((s) => s.removeDependency);
   const setAssigneeByName = useApp((s) => s.setAssigneeByName);
   const setTaskLevel = useApp((s) => s.setTaskLevel);
   const updateToBe = useApp((s) => s.updateToBe);
@@ -323,7 +322,7 @@ export function Inspector() {
           {preds.map((dep) => (
             <div className="dep-row" key={dep.id}>
               <span className="dep-name">{nameOf(dep.from)}</span>
-              <button className="x" aria-label="前工程を解除" title="前工程を解除" onClick={() => removeDependency(dep.id)}>
+              <button className="x" aria-label="前工程を解除" title="前工程を解除" onClick={() => removeDependencyWithUndo(dep.id)}>
                 ×
               </button>
             </div>
@@ -359,7 +358,7 @@ export function Inspector() {
               {succs.map((dep) => (
                 <div className="dep-row" key={dep.id}>
                   <span className="dep-name">{nameOf(dep.to)}</span>
-                  <button className="x" aria-label="次工程を解除" title="次工程を解除" onClick={() => removeDependency(dep.id)}>
+                  <button className="x" aria-label="次工程を解除" title="次工程を解除" onClick={() => removeDependencyWithUndo(dep.id, '次工程を解除しました')}>
                     ×
                   </button>
                 </div>

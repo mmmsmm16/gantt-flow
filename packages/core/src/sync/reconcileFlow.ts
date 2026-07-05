@@ -17,7 +17,7 @@ import type {
   FlowNodeId,
 } from '../model/types';
 import type { IdGen } from '../ids';
-import { placeInputDoc, placeOutputDoc, placeClear, obstaclesFor } from './autoPlace';
+import { placeInputDoc, placeOutputDoc, placeClear, obstaclesFor, SIZE } from './autoPlace';
 import { laneTaskBaseY } from './lanes';
 import { isMilestone } from '../milestone';
 
@@ -231,6 +231,20 @@ export function reconcileFlow(
   for (const n of Object.values(next.nodes)) {
     if (n.kind === 'task') taskNodeByTask.set(n.taskId, n);
   }
+  // 新規ノードの初期座標が既存ノード（手動配置・別インデックスで置かれた既存）と衝突しないか判定する。
+  // 既存ノードは動かさない（x/y 不変条件）ため、新規側だけを空き位置へ右送りする。判定対象は
+  // 「すでに next.nodes にある工程ノード」= 既存 + 本パスで先に置いた新規。新規のみ調整するので冪等
+  // （2 回目は全ノードが existing 側に入り、この分岐に来ない）。
+  // 同じ行(y)で x が矩形的に重なる工程ノードを返す（無ければ undefined）。
+  const taskHitAt = (x: number, y: number): FlowTaskNode | undefined =>
+    Object.values(next.nodes).find(
+      (n): n is FlowTaskNode =>
+        n.kind === 'task' &&
+        x < n.x + SIZE.task.w &&
+        x + SIZE.task.w > n.x &&
+        y < n.y + SIZE.task.h &&
+        y + SIZE.task.h > n.y,
+    );
   targets.forEach((t, i) => {
     const laneId = t.assigneeId ? laneByAssignee.get(t.assigneeId) : undefined;
     const existing = taskNodeByTask.get(t.id);
@@ -243,14 +257,19 @@ export function reconcileFlow(
       return;
     }
     const id = idGen();
-    const node: FlowTaskNode = {
-      id,
-      kind: 'task',
-      taskId: t.id,
-      x: MARGIN_X + i * COL_W,
-      y: laneTaskBaseY(next.lanes, laneOrderOf(t.assigneeId)),
-      laneId,
-    };
+    const y = laneTaskBaseY(next.lanes, laneOrderOf(t.assigneeId));
+    // 目標列（並び順のインデックス）から、ぶつかったノードの右端の先へ飛ばして必ず空きに収める。
+    // 各反復で x はぶつかった相手の右へ確実に進む＝有限回で衝突ゼロに到達（決定論）。
+    // COL_W < ノード幅×2 で手動配置ノードが 2 列を跨いでも、右端基準ジャンプなら取りこぼさない。
+    let x = MARGIN_X + i * COL_W;
+    const nodeCount = Object.keys(next.nodes).length;
+    for (let guard = 0; guard <= nodeCount; guard++) {
+      const hit = taskHitAt(x, y);
+      if (!hit) break;
+      // ぶつかった相手の右端の次の列へ。相手の x 起点で COL_W 刻みを保ち格子並びを崩さない。
+      x = Math.max(x + COL_W, hit.x + COL_W);
+    }
+    const node: FlowTaskNode = { id, kind: 'task', taskId: t.id, x, y, laneId };
     next.nodes[id] = node;
     taskNodeByTask.set(t.id, node);
     report.added.push(id);
