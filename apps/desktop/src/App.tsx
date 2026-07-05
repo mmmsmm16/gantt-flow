@@ -489,11 +489,16 @@ export function App() {
   const onExportExcel = async () => {
     if (!(await confirmEmptyOutput())) return;
     try {
+      useUI.getState().setBusy('Excel を書き出しています…');
+      // スピナーを描画してから重い同期処理へ（固まる前に 1 フレーム譲る。取り込みと同じ流儀）。
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
       const n = exportExcelFile(useApp.getState().project);
       useUI.getState().toast(`出力しました（${n}）`, 'success');
     } catch (err) {
       console.error(err);
       useUI.getState().toast('出力に失敗しました（Excel）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
     }
   };
   const onExportCsv = async () => {
@@ -541,17 +546,27 @@ export function App() {
   const onExportHandbook = async () => {
     if (!(await confirmEmptyOutput())) return;
     try {
+      useUI.getState().setBusy('ハンドブックを書き出しています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
       const name = exportHandbookFile(useApp.getState().project);
       useUI.getState().toast(`出力しました（${name}）`, 'success');
     } catch (err) {
       console.error(err);
       useUI.getState().toast('出力に失敗しました（ハンドブック）', 'error');
+    } finally {
+      useUI.getState().setBusy(null);
     }
   };
   const onPrint = async () => {
     if (!(await confirmEmptyOutput())) return;
-    const st = useApp.getState();
-    printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+    try {
+      useUI.getState().setBusy('印刷用に整えています…');
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      const st = useApp.getState();
+      printProjectAndFlow(st.project, findView(st.project, st.level, st.scopeParentId));
+    } finally {
+      useUI.getState().setBusy(null);
+    }
   };
 
   // Welcome から空の編集画面へ（プロジェクトは既に空＝作り直し不要。フラグだけ立てる）。
