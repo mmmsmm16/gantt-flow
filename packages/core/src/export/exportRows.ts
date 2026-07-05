@@ -50,7 +50,14 @@ export interface ProjectToRowsOptions {
   depRef?: 'code' | 'name';
 }
 
-export function projectToRows(project: Project, opts: ProjectToRowsOptions = {}): string[][] {
+/** 出力行に元の工程 id を添えた形（見出し行は id=null）。選択行だけの TSV コピー等で
+ *  行↔工程の対応が要るとき用。projectToRows はこれの cells だけを取り出す薄いラッパ。 */
+export interface ExportRow {
+  id: Id | null;
+  cells: string[];
+}
+
+export function projectToRowsWithIds(project: Project, opts: ProjectToRowsOptions = {}): ExportRow[] {
   const depRef = opts.depRef ?? 'code';
   const { tasks, dependencies, assignees } = project.core;
   const byParent = new Map<Id | undefined, ProcessTask[]>();
@@ -62,7 +69,7 @@ export function projectToRows(project: Project, opts: ProjectToRowsOptions = {})
 
   const nameOf = (id: Id) => tasks[id]?.name ?? '';
   const codes = computeCodes(project.core);
-  const rows: string[][] = [EXPORT_HEADER];
+  const rows: ExportRow[] = [{ id: null, cells: EXPORT_HEADER }];
 
   const walk = (parentId: Id | undefined) => {
     const arr = byParent.get(parentId) ?? [];
@@ -81,31 +88,38 @@ export function projectToRows(project: Project, opts: ProjectToRowsOptions = {})
             : codes[dep.from] ?? nameOf(dep.from),
         )
         .join('；');
-      rows.push([
-        no,
-        ms ? `◆ ${t.name}` : t.name,
-        ms ? '' : t.assigneeId ? assignees[t.assigneeId]?.name ?? '' : '',
-        LEVEL_LABEL[t.level],
-        prev,
-        (d?.inputs ?? []).map((x) => x.name).join('；'),
-        (d?.outputs ?? []).map((x) => x.name).join('；'),
-        (d?.issues ?? []).map((x) => (x.measure ? `${x.issue}→${x.measure}` : x.issue)).join('；'),
-        d?.how ?? '',
-        d?.system ?? '',
-        ms ? '' : d?.effortMinutes != null ? String(d.effortMinutes) : '',
-        d?.note ?? '',
-        d?.volume ?? '',
-        d?.exception ?? '',
-        d?.automation ? AUTOMATION_LABEL[d.automation] : '',
-        d?.dataLink ?? '',
-        d?.regulation ?? '',
-        d?.difficulty ?? '',
-      ]);
+      rows.push({
+        id: t.id,
+        cells: [
+          no,
+          ms ? `◆ ${t.name}` : t.name,
+          ms ? '' : t.assigneeId ? assignees[t.assigneeId]?.name ?? '' : '',
+          LEVEL_LABEL[t.level],
+          prev,
+          (d?.inputs ?? []).map((x) => x.name).join('；'),
+          (d?.outputs ?? []).map((x) => x.name).join('；'),
+          (d?.issues ?? []).map((x) => (x.measure ? `${x.issue}→${x.measure}` : x.issue)).join('；'),
+          d?.how ?? '',
+          d?.system ?? '',
+          ms ? '' : d?.effortMinutes != null ? String(d.effortMinutes) : '',
+          d?.note ?? '',
+          d?.volume ?? '',
+          d?.exception ?? '',
+          d?.automation ? AUTOMATION_LABEL[d.automation] : '',
+          d?.dataLink ?? '',
+          d?.regulation ?? '',
+          d?.difficulty ?? '',
+        ],
+      });
       walk(t.id);
     });
   };
   walk(undefined);
   return rows;
+}
+
+export function projectToRows(project: Project, opts: ProjectToRowsOptions = {}): string[][] {
+  return projectToRowsWithIds(project, opts).map((r) => r.cells);
 }
 
 // CSV 数式インジェクション（Formula/CSV Injection）対策。Excel/Sheets はセルが
@@ -125,6 +139,18 @@ function csvCell(s: string): string {
 
 export function rowsToCsv(rows: string[][]): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\n');
+}
+
+// クリップボード用 TSV（Excel 書き戻し）。列はタブ、行は CRLF（Excel の貼り付け慣習）。
+// 数式インジェクション対策は CSV と共通。タブ/改行/二重引用符を含むセルは "…" で囲み内部を "" にエスケープ
+// （そうしないと本文中のタブ・改行が列/行を破壊する）。
+function tsvCell(s: string): string {
+  const v = neutralizeFormula(s);
+  return /[\t\n\r"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+export function rowsToTsv(rows: string[][]): string {
+  return rows.map((r) => r.map(tsvCell).join('\t')).join('\r\n');
 }
 
 export function projectToCsv(project: Project): string {

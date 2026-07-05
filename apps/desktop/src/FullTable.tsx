@@ -4,7 +4,7 @@
 // 行操作（追加/削除/選択）と Enter でのセル移動をやりやすく。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ProcessTask, ProcessLevel, Id, Automation, Difficulty, IoKind, Dependency, TaskStatus } from '@gantt-flow/core';
-import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone } from '@gantt-flow/core';
+import { computeCodes, computeEffortRollups, effortMinutesToHours, formatHours, bridgePredMap, isMilestone, projectToRowsWithIds, rowsToTsv, EXPORT_HEADER } from '@gantt-flow/core';
 import { useApp } from './store';
 import { collectIoNames, buildPrevCandidateIndex } from './suggestions';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
@@ -434,6 +434,22 @@ export function FullTable() {
   //  Ctrl/⌘+Delete … 現在行を削除（確認あり）
   //  Enter/Tab（セル内編集中）… 確定して下/上・右/左の編集可能セルへ移動
   //  （editNavKeyDown=アウトラインと共通の規約。textarea の Enter は改行優先）
+  // 指定行を Excel 書き戻し用 TSV でコピー（マーク行が対象。無ければ表示中すべて）。
+  // 列は Excel/CSV 出力と同じ（EXPORT_HEADER・前工程は作業名）。数式インジェクションは core 側で無害化。
+  // 読み取り専用（プロジェクトを変更しない）。セルは常時 input のため「セル編集中か」で分岐できず、
+  // 行マーク＝明示的な行操作の意図とみなして起動する（Ctrl+C はマークがある時だけ横取り）。
+  const copyRowsAsTsv = (ids: Id[]) => {
+    if (!ids.length) return;
+    const byId = new Map(projectToRowsWithIds(project, { depRef: 'name' }).flatMap((r) => (r.id ? [[r.id, r.cells]] : [])));
+    const matrix: string[][] = [EXPORT_HEADER, ...ids.map((id) => byId.get(id)).filter((c): c is string[] => !!c)];
+    const n = matrix.length - 1;
+    navigator.clipboard
+      .writeText(rowsToTsv(matrix))
+      .then(() => useUI.getState().toast(`${n}行をコピーしました（Excel に貼り付けできます）。`, 'success'))
+      .catch(() => useUI.getState().toast('コピーできませんでした（ブラウザの許可が必要です）。', 'error'));
+  };
+  const markedIdsInOrder = () => rows.filter((r) => marked.has(r.id)).map((r) => r.id);
+
   const onGridKeyDown = (e: React.KeyboardEvent) => {
     if (isImeKeyEvent(e)) return; // IME 変換確定の Enter でセル移動しない
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -530,6 +546,7 @@ export function FullTable() {
             <button onClick={bulkAssign}>担当</button>
             <button onClick={bulkLevel}>粒度</button>
             <button onClick={bulkEffort}>工数</button>
+            <button onClick={() => copyRowsAsTsv(markedIdsInOrder())} title="選択行を Excel 書き戻し用の TSV でコピー（見出し付き・工程表と同じ列）">コピー</button>
             <button className="danger" onClick={bulkDelete}>まとめて削除</button>
             <button className="ft-bulk-clear" onClick={clearMarked}>選択解除</button>
           </span>
