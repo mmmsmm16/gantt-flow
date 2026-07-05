@@ -8,6 +8,7 @@ import { useUI } from './ui/useUI';
 import { parseEffortHoursToMinutes, parseLtDaysInput, validateEffort, markEffortInvalid, clearEffortInvalid, isEffortBlurUnchanged } from './parseEffort';
 import { cancelEditOnEscape, selectAllOnFocus } from './inputBehaviors';
 import { collectIoNames, prevCandidates } from './suggestions';
+import { STATUS_OPTIONS, statusSelectClass } from './statusUi';
 import { PrevCandidateOptions } from './PrevCandidateOptions';
 import { TASK_COLORS, TASK_COLOR_KEYS, TASK_COLOR_LABELS } from './theme';
 
@@ -224,16 +225,16 @@ export function Inspector() {
           </div>
           <label>状況（ヒアリング進行）</label>
           <select
-            className={`insp-status st-${d?.status ?? 'none'}`}
+            className={`insp-status ${statusSelectClass(d)}`}
             value={d?.status ?? ''}
             aria-label="状況（ヒアリング進行）"
             onChange={(e) => updateDetail(taskId, { status: (e.target.value || undefined) as TaskStatus | undefined })}
           >
-            <option value="">—（未着手）</option>
-            <option value="todo">未着手</option>
-            <option value="heard">ヒアリング済</option>
-            <option value="review">確認待ち</option>
-            <option value="done">確定</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.key === '' ? '—（未着手）' : s.label}
+              </option>
+            ))}
           </select>
           <label>塗り色（フローのノード）</label>
           <ColorSwatchRow
