@@ -32,6 +32,10 @@ interface FileHandlers {
   onExportPng: () => void;
   onExportHandbook: () => void;
   onPrint: () => void;
+  /** サブウィンドウ系（App の Menu と同じハンドラ。開けなければ警告トーストは App 側で出す）。 */
+  onOpenEditWindow: () => void;
+  onOpenFlowWindow: () => void;
+  onOpenTableWindow: () => void;
 }
 
 /** 引数モードの候補。value が確定値（runWithArg に渡る）。 */
@@ -240,6 +244,7 @@ function iconForCmd(c: Cmd) {
   if (has('help')) return <Icons.Keyboard />;
   if (has('palette')) return <Icons.Search />;
   if (has('chrome')) return <Icons.Maximize />;
+  if (has('window')) return <Icons.NewWindow />;
   if (has('pane') || has('layout') || has('table-mode') || has('go-') || has('scope') || has('level') || has('inspector'))
     return <Icons.Columns />;
   if (has('fill') || has('text-') || has('color')) return <Icons.Sparkles />;
@@ -787,6 +792,10 @@ function PaletteBody(handlers: FileHandlers) {
       { id: 'procedure-tab', label: '手順書タブを開く', keywords: 'procedure tejunsho 手順書 手順 マニュアル ノウハウ manual', hint: 'g p', run: () => ui.setMainView('procedure') },
       { id: 'toggle-chrome', label: '集中モード（ツールバー・操作バーを隠す / 表示）', keywords: 'chrome toolbar shuchu 集中 ツールバー 操作バー ヘッダ 隠す 非表示 最大化 全画面 focus zen', hint: '⌘\\', run: ui.toggleChrome },
       { id: 'minimap', label: 'ミニマップの表示を切り替え', keywords: 'minimap map ミニマップ 地図 俯瞰', run: () => useUI.getState().toggleMinimap() },
+      // サブウィンドウ系（マルチディスプレイ）。App のツールバー Menu と同じハンドラを呼ぶ。
+      { id: 'edit-window', label: '編集用のサブウィンドウを開く（両窓で同時編集）', keywords: 'window subwindow saburindou 編集 サブ 窓 ウィンドウ 別窓 マルチディスプレイ multi', run: handlers.onOpenEditWindow },
+      { id: 'flow-window', label: 'フローを別ウィンドウで表示（閲覧専用）', keywords: 'window mirror flow フロー 別窓 ウィンドウ 閲覧 ミラー マルチディスプレイ', run: handlers.onOpenFlowWindow },
+      { id: 'table-window', label: '工程表を別ウィンドウで表示（閲覧専用）', keywords: 'window mirror table 工程表 表 別窓 ウィンドウ 閲覧 ミラー マルチディスプレイ', run: handlers.onOpenTableWindow },
       { id: 'backups', label: 'バックアップから復元', keywords: 'backup fukugen 復元 バックアップ 世代 restore', run: () => ui.setOverlay('backups') },
       { id: 'issues', label: '課題一覧を開く', keywords: 'issue kadai 課題 一覧 list', run: () => ui.setOverlay('issues') },
       { id: 'summary', label: 'サマリを開く（工数・自動化）', keywords: 'summary dashboard サマリ 集計 工数', run: () => ui.setOverlay('summary') },

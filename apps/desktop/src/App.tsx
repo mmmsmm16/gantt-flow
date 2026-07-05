@@ -1129,6 +1129,9 @@ export function App() {
         onExportPng={onExportPng}
         onExportHandbook={onExportHandbook}
         onPrint={onPrint}
+        onOpenEditWindow={() => openWindowOrWarn(() => openEditWindow())}
+        onOpenFlowWindow={() => openWindowOrWarn(() => openMirrorWindow('flow'))}
+        onOpenTableWindow={() => openWindowOrWarn(() => openMirrorWindow('table'))}
       />
       <HelpDialog />
       <IssueListDialog />
