@@ -7175,10 +7175,10 @@ input.colored-text {
 }
 .ai-panel-h h4 {
   margin: 0;
-  font-family: var(--font-serif);
+  /* 明朝はハンドブック系限定。ペイン見出しは Inspector と同じ sans/--fw-strong に揃える。 */
   font-size: var(--fs-title);
   font-weight: var(--fw-strong);
-  letter-spacing: 0.02em;
+  color: var(--ink);
 }
 .ai-panel-h .ai-mode {
   font-size: var(--fs-caption);
@@ -7191,18 +7191,9 @@ input.colored-text {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ai-panel-h .close {
+/* 閉じるボタンは共有 .x を再利用（独自実装を撤去）。右端寄せのみ付与。 */
+.ai-panel-h .x {
   margin-left: auto;
-  border: none;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  font-size: var(--fs-title);
-  line-height: 1;
-  padding: 0 2px;
-}
-.ai-panel-h .close:hover {
-  color: var(--danger);
 }
 .ai-panel-body {
   flex: 1;
@@ -7235,9 +7226,15 @@ input.colored-text {
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   cursor: pointer;
   font-weight: var(--fw-strong);
+}
+/* 基底 button:hover が背景を --hdr に奪うと白文字×淡背景で破綻するため、
+   button.primary と同流儀のアクセント hover を明示する。 */
+.ai-gen-btn:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 .ai-gen-btn:disabled {
   opacity: 0.6;
@@ -7295,6 +7292,21 @@ input.colored-text {
 .gen .detected {
   flex: none;
 }
+/* 生成中のキャンセル（枠線ボタン・進捗行の右端）。 */
+.ai-cancel {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--fs-caption);
+}
+.ai-cancel:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
 
 .ai-error {
   padding: var(--sp-2);
@@ -7306,9 +7318,39 @@ input.colored-text {
   margin: 0 0 var(--sp-2);
   color: var(--danger);
 }
+.ai-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+/* 副次アクション（設定導線）: アクセント塗りをやめて枠線ボタンに。 */
+.ai-gen-btn.ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ai-gen-btn.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent-strong);
+}
 .ai-empty {
   color: var(--muted);
   font-size: var(--fs-caption);
+}
+/* 入力補正の警告（重複 ref のリネーム等）。カード一覧の上部に控えめに出す。 */
+.ai-warn {
+  padding: var(--sp-2);
+  border: 1px solid var(--warn, var(--amber));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn, var(--amber)) 12%, transparent);
+  font-size: var(--fs-caption);
+}
+.ai-warn p {
+  margin: 0;
+  color: var(--amber-ink, var(--ink));
+}
+.ai-warn p + p {
+  margin-top: var(--sp-1);
 }
 
 /* ---- カードリスト（§4） ---- */
@@ -7441,9 +7483,14 @@ input.colored-text {
   border: 1px solid var(--ok);
   border-radius: var(--radius-sm);
   background: var(--ok);
-  color: #fff;
+  color: var(--on-accent);
   cursor: pointer;
   font-weight: var(--fw-strong);
+}
+/* 基底 button:hover に背景を奪われないよう緑塗りの hover を明示（button.primary 流儀）。 */
+.apply-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 85%, var(--ink));
+  border-color: color-mix(in srgb, var(--ok) 85%, var(--ink));
 }
 .apply-btn:disabled {
   opacity: 0.5;
@@ -7451,6 +7498,14 @@ input.colored-text {
   border-color: var(--line);
   background: var(--line);
   color: var(--muted);
+}
+/* 第二フィルタで見送った件数の注記（依存先が未承認）。 */
+.applybar-note {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  text-align: center;
 }
 
 /* ===== フロー上の仮ノード承認（主戦場・モック §3） ===== */
@@ -7584,7 +7639,7 @@ input.colored-text {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--bg);
+  background: var(--canvas-bg);
 }
 .aifp-canvas {
   position: relative;
@@ -7595,20 +7650,19 @@ input.colored-text {
   pointer-events: none;
 }
 
-/* スイムレーン */
+/* スイムレーン（本キャンバス .lane-* と同じトークンで配色を揃える） */
 .aifp-lane-stripe {
-  fill: var(--panel-2);
-  opacity: 0.5;
+  fill: var(--lane-stripe);
 }
 .aifp-lane-line {
-  stroke: var(--line);
+  stroke: var(--lane-line);
   stroke-width: 1.2;
 }
 .aifp-lane-col {
-  fill: var(--panel-2);
+  fill: var(--lane-col);
 }
 .aifp-lane-divider {
-  stroke: var(--line-strong);
+  stroke: var(--lane-divider);
   stroke-width: 1.4;
 }
 .aifp-lane-title {
@@ -7641,7 +7695,7 @@ input.colored-text {
 }
 .fedge-label {
   fill: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-strong);
 }
 
@@ -7667,11 +7721,11 @@ input.colored-text {
   align-items: center;
   justify-content: center;
   padding: 0 10px;
-  border-radius: 9px;
+  border-radius: var(--radius);
   border: 1.5px solid var(--line-strong);
   background: var(--panel-2);
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-body);
   font-weight: var(--fw-strong);
   text-align: center;
   line-height: 1.15;
@@ -7691,7 +7745,7 @@ input.colored-text {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: 400;
   color: var(--muted);
 }
@@ -7749,27 +7803,36 @@ input.colored-text {
   left: 8px;
   padding: 0 6px;
   border-radius: var(--radius-pill);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   line-height: 16px;
-  color: #fff;
+  /* 塗り地×白は薄い意味色（特にダーク amber 1.7:1）で破綻するため、
+     兄弟の .fnode-nf と同じ「パネル地＋意味色の枠/文字（ink 系）」に統一。 */
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
   white-space: nowrap;
   pointer-events: none;
 }
 .fbadge.k {
-  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--amber-ink);
 }
 .fbadge.ok {
-  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--ok);
 }
 .fbadge.no {
-  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 .fbadge.inv {
-  background: var(--muted);
+  border-color: var(--muted);
+  color: var(--muted);
 }
 .fbadge.ed {
-  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* 非フロー系提案の小バッジ（手順書/課題等・判定はカード側） */
@@ -7782,8 +7845,8 @@ input.colored-text {
   border: 1px solid var(--accent);
   background: var(--panel);
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
   line-height: 15px;
   cursor: pointer;
 }
@@ -7809,7 +7872,7 @@ input.colored-text {
   left: 0;
   right: 0;
   bottom: -16px;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: 400;
   color: var(--faint);
   text-align: center;
@@ -7823,15 +7886,18 @@ input.colored-text {
   position: absolute;
   top: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
+  /* 水平センタリングは transform ではなく translate プロパティで行い、
+     pop-in（transform ベース）の入場アニメと合成させて横ズレを防ぐ。 */
+  translate: -50% 0;
   z-index: 6;
   min-width: 188px;
   padding: 8px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--panel);
   box-shadow: var(--shadow-pop);
   cursor: default;
+  animation: pop-in var(--dur-1) var(--ease);
 }
 .fpop-desc {
   font-size: var(--fs-label);

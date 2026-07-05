@@ -20,8 +20,8 @@ export type EditMap = Record<number, ProposalEdit>;
 
 /** 却下波及で下流を無効にした理由（UI 表示・フロー/カード共通）。 */
 export const DISABLED_REASON = '依存先が否認されたため';
-/** 適用直前フィルタ（filterApplicable）で除外した理由（トースト集計のみに使用・UI 常時表示はしない）。 */
-const NOT_APPROVED_REASON = '依存先が未承認のため';
+/** 適用直前フィルタ（filterApplicable）で除外した理由。トースト集計と適用バーの注記で共用する。 */
+export const NOT_APPROVED_REASON = '依存先が未承認のため';
 
 // producer になれる op（ref を宣言して後続 op から参照される）。
 const PRODUCER_OPS: ReadonlySet<BatchOp['op']> = new Set(['add_task', 'upsert_task', 'upsert_asset']);
@@ -133,6 +133,84 @@ export function filterApplicable(
 
   const apply = applyIdx.filter((i) => !excluded.has(i));
   return { apply, excluded };
+}
+
+/** 承認確定バーが必要とする「実適用プラン」。resolveApproved（却下波及）→ filterApplicable
+    （pending producer の第二フィルタ）を貫き、実際に適用される index と見送り分をまとめて返す。 */
+export interface ApplyPlan {
+  /** 実際に適用する op の index。 */
+  applyIdx: number[];
+  /** 依存先未承認で見送った index → 理由。 */
+  excluded: Map<number, string>;
+}
+export function planApply(ops: BatchOp[], decisions: DecisionMap): ApplyPlan {
+  const { apply } = resolveApproved(ops, decisions);
+  const { apply: applyIdx, excluded } = filterApplicable(ops, apply);
+  return { applyIdx, excluded };
+}
+
+/** 消費 ref（parent/from/to/task）を remap で張り替える（producer 自身の ref は保つ）。 */
+function remapConsumedRefs(
+  o: BatchOp,
+  remap: (t: string | undefined) => string | undefined,
+): BatchOp {
+  switch (o.op) {
+    case 'add_task':
+    case 'upsert_task':
+      return o.parent !== undefined ? { ...o, parent: remap(o.parent) } : o;
+    case 'add_dependency':
+      return { ...o, from: remap(o.from)!, to: remap(o.to)! };
+    case 'set_detail':
+    case 'set_tobe':
+    case 'add_io':
+    case 'add_issue':
+    case 'set_procedure':
+    case 'add_step':
+      return { ...o, task: remap(o.task)! };
+    default:
+      return o;
+  }
+}
+
+/**
+ * 適用済み op を除いた残りで承認セッションを継続するためのプラン（D-02・純関数）。
+ *  - applied: 今回適用した op の index。excluded: 依存先未承認で見送った index（filterApplicable）。
+ *  - aliases: 適用バッチの ref→実 taskId。残り op が「適用済み producer」を参照していれば実 id へ張り替える
+ *    （プレビュー再構築後もその工程へ正しく繋がる）。
+ * 残りは元の順序を保って 0..N に再インデックスし、**excluded は pending に戻す**（依存先を承認し直せる）。
+ */
+export function planContinuation(
+  ops: BatchOp[],
+  decisions: DecisionMap,
+  edits: EditMap,
+  applied: number[],
+  excluded: Map<number, string>,
+  aliases: Record<string, Id>,
+): { ops: BatchOp[]; decisions: DecisionMap; edits: EditMap } {
+  const appliedSet = new Set(applied);
+  // 適用済み producer の ref → 実 taskId。
+  const appliedRefToId = new Map<string, Id>();
+  ops.forEach((o, i) => {
+    if (!appliedSet.has(i)) return;
+    const ref = (o as { ref?: string }).ref;
+    if (ref !== undefined && aliases[ref] !== undefined) appliedRefToId.set(ref, aliases[ref]!);
+  });
+  const remap = (token: string | undefined): string | undefined =>
+    token !== undefined && appliedRefToId.has(token) ? appliedRefToId.get(token) : token;
+
+  const keptIdx = ops.map((_o, i) => i).filter((i) => !appliedSet.has(i));
+  const outOps: BatchOp[] = [];
+  const outDecisions: DecisionMap = {};
+  const outEdits: EditMap = {};
+  keptIdx.forEach((oldI, newI) => {
+    outOps.push(remapConsumedRefs(ops[oldI]!, remap));
+    // excluded は pending へ（未登録=pending なので単に転写しない）。それ以外の判定は保つ。
+    const d = excluded.has(oldI) ? undefined : decisions[oldI];
+    if (d !== undefined) outDecisions[newI] = d;
+    const e = edits[oldI];
+    if (e !== undefined) outEdits[newI] = e;
+  });
+  return { ops: outOps, decisions: outDecisions, edits: outEdits };
 }
 
 /**

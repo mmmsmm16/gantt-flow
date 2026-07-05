@@ -13,16 +13,21 @@ import { useUI } from './useUI';
 import { cancelEditOnEscape, selectAllOnFocus } from '../inputBehaviors';
 import {
   requestProposals,
-  AiError,
-  AI_ERROR_TEXT,
   MockAiProvider,
+  toDisplayError,
+  offersSettings,
   type AiProvider,
+  type AiErrorKind,
 } from '../ai/provider';
 import { buildAiPreview, type AiPreview } from '../ai/preview';
+import { openAiFlowLayout, restoreAiLayout } from './aiPaneLayout';
 import {
   resolveApproved,
   filterApplicable,
+  planApply,
+  planContinuation,
   applyEdits,
+  NOT_APPROVED_REASON,
   type DecisionState,
   type DecisionMap,
   type EditMap,
@@ -39,6 +44,7 @@ interface AiSessionState {
   progress: string;
   detected: number;
   errorText: string | null;
+  errorKind: AiErrorKind | null;
   rawOps: BatchOp[];
   decisions: DecisionMap;
   edits: EditMap;
@@ -53,7 +59,11 @@ interface AiSessionState {
   startStreaming: () => void;
   onProgress: (chunk: string) => void;
   setGenerated: (rawOps: BatchOp[], preview: AiPreview) => void;
-  fail: (errorText: string) => void;
+  /** 見送り分のセッション継続（D-02）: 適用済みを除いた残りプレビュー＋再インデックス判定で再開。 */
+  continueWith: (preview: AiPreview, decisions: DecisionMap, edits: EditMap) => void;
+  fail: (errorText: string, errorKind: AiErrorKind) => void;
+  /** 生成キャンセル（B-02）: idle に戻す（エラー扱いにしない）。memo は残す。 */
+  cancelGeneration: () => void;
   setDecision: (i: number, state: DecisionState) => void;
   setEdit: (i: number, patch: ProposalEdit) => void;
   beginEdit: (i: number) => void;
@@ -68,6 +78,7 @@ const IDLE = {
   progress: '',
   detected: 0,
   errorText: null,
+  errorKind: null as AiErrorKind | null,
   rawOps: [] as BatchOp[],
   decisions: {} as DecisionMap,
   edits: {} as EditMap,
@@ -93,7 +104,10 @@ export const useAiSession = create<AiSessionState>((set) => ({
     }),
   setGenerated: (rawOps, preview) =>
     set({ rawOps, preview, phase: 'ready', decisions: {}, edits: {}, editingOp: null }),
-  fail: (errorText) => set({ phase: 'error', errorText }),
+  continueWith: (preview, decisions, edits) =>
+    set({ rawOps: preview.ops, preview, phase: 'ready', decisions, edits, editingOp: null }),
+  fail: (errorText, errorKind) => set({ phase: 'error', errorText, errorKind }),
+  cancelGeneration: () => set({ phase: 'idle', progress: '', detected: 0 }),
   setDecision: (i, state) => set((s) => ({ decisions: { ...s.decisions, [i]: state } })),
   setEdit: (i, patch) =>
     set((s) => ({ edits: { ...s.edits, [i]: { ...s.edits[i], ...patch } }, editingOp: null })),
@@ -142,10 +156,15 @@ function hasAssignee(o: BatchOp): o is Extract<BatchOp, { op: 'add_task' | 'upse
   return o.op === 'add_task' || o.op === 'upsert_task';
 }
 
+// 進行中の生成を止めるための AbortController（1 本だけ。キャンセルボタンから abort する。B-02）。
+let genController: AbortController | null = null;
+
 async function generate(): Promise<void> {
   const session = useAiSession.getState();
   const app = useApp.getState();
   const mode = useUI.getState().aiPanelMode;
+  const controller = new AbortController();
+  genController = controller;
   session.startStreaming();
   try {
     const rawOps = await requestProposals(
@@ -157,13 +176,35 @@ async function generate(): Promise<void> {
       },
       (chunk) => useAiSession.getState().onProgress(chunk),
       injectedProvider ?? undefined,
+      controller.signal,
     );
     // 生成直後に一度だけ preview を固定する（id 安定・decisions 変更では作り直さない）。
     const preview = buildAiPreview(app.project, applyEdits(rawOps, {}), app.level, app.scopeParentId);
     useAiSession.getState().setGenerated(rawOps, preview);
   } catch (e) {
-    useAiSession.getState().fail(e instanceof AiError ? AI_ERROR_TEXT[e.kind] : AI_ERROR_TEXT.unknown);
+    // キャンセルはエラー扱いにせず idle へ戻す（B-02）。
+    if (controller.signal.aborted) {
+      useAiSession.getState().cancelGeneration();
+      return;
+    }
+    // provider の具体 message（HTTP ステータス・未設定案内など）を握り潰さず表示する（B-01）。
+    const { text, kind } = toDisplayError(e);
+    useAiSession.getState().fail(text, kind);
+  } finally {
+    if (genController === controller) genController = null;
   }
+}
+
+/** 生成中のキャンセル（B-02）。abort すると generate() の catch が idle へ戻す。 */
+function cancelGenerate(): void {
+  genController?.abort();
+}
+
+/** エラー表示の「AI 設定を開く」導線: 設定オーバーレイの AI タブを開く（B-01）。 */
+function openAiSettings(): void {
+  const ui = useUI.getState();
+  ui.setSettingsTab('ai');
+  ui.setOverlay('settings');
 }
 
 /** トースト用にエラーメッセージを要約（長すぎる例外文はここで切り詰める）。 */
@@ -177,24 +218,37 @@ function applyApproved(): void {
   if (!preview) return;
   const finalOps = applyEdits(preview.ops, edits); // 生成後のインライン修正を最終適用へ反映
   const { apply } = resolveApproved(finalOps, decisions);
-  if (!apply.length) return;
   // 適用直前の第二フィルタ: 「親(producer)が未判定のまま子(consumer)だけ承認」を取りこぼさない
   // （resolveApproved は rejected/disabled の波及だけを見るため、pending producer は素通りしてしまう）。
   const { apply: applicable, excluded } = filterApplicable(finalOps, apply);
   const applyOps = applicable.map((i) => finalOps[i]!);
-  const excludedNote = excluded.size > 0 ? `${excluded.size} 件は依存先が未承認のため見送りました` : '';
   if (!applyOps.length) {
-    if (excludedNote) useUI.getState().toast(excludedNote, 'info');
+    // 適用できる op が無い（承認したのは依存先未承認の消費 op のみ）。パネルは閉じない。
+    if (excluded.size > 0) {
+      useUI
+        .getState()
+        .toast(`${excluded.size} 件は${NOT_APPROVED_REASON}適用できません。先に依存先を承認してください。`, 'info');
+    }
     return;
   }
   try {
-    useApp.getState().applyApprovedBatch(applyOps); // 本番 uuid・commit 1 undo
-    const msg = excludedNote
-      ? `AI提案を適用しました（元に戻す: Ctrl+Z）／${excludedNote}`
-      : 'AI提案を適用しました（元に戻す: Ctrl+Z）';
-    useUI.getState().toast(msg, 'success');
-    useAiSession.getState().reset();
-    useUI.getState().setAiPanelOpen(false);
+    // 本番 uuid・commit 1 undo。二窓フォロワーでは forward され undefined が返るため空へ寄せる。
+    const aliases = useApp.getState().applyApprovedBatch(applyOps) ?? {};
+    if (excluded.size > 0) {
+      // 見送り分が残る（D-02）: パネルを閉じず、適用済みを除いた残りでセッションを続ける。
+      // 見送り分は pending へ戻し、適用済み producer への参照は実 taskId へ張り替える。
+      const app = useApp.getState();
+      const cont = planContinuation(finalOps, decisions, edits, applicable, excluded, aliases);
+      const nextPreview = buildAiPreview(app.project, cont.ops, app.level, app.scopeParentId);
+      useAiSession.getState().continueWith(nextPreview, cont.decisions, cont.edits);
+      useUI
+        .getState()
+        .toast(`適用しました。${excluded.size} 件は${NOT_APPROVED_REASON}残っています。`, 'success');
+    } else {
+      useUI.getState().toast('AI提案を適用しました（元に戻す: Ctrl+Z）', 'success');
+      useAiSession.getState().reset();
+      useUI.getState().setAiPanelOpen(false);
+    }
   } catch (e) {
     console.error('AI提案の適用に失敗しました', e);
     useUI.getState().toast(`提案の適用に失敗しました: ${summarizeError(e)}`, 'error');
@@ -207,6 +261,7 @@ export function AiPanel(): JSX.Element {
   const phase = useAiSession((s) => s.phase);
   const detected = useAiSession((s) => s.detected);
   const errorText = useAiSession((s) => s.errorText);
+  const errorKind = useAiSession((s) => s.errorKind);
   const preview = useAiSession((s) => s.preview);
   const decisions = useAiSession((s) => s.decisions);
   const edits = useAiSession((s) => s.edits);
@@ -219,6 +274,15 @@ export function AiPanel(): JSX.Element {
   useEffect(() => {
     useAiSession.getState().reset();
   }, [modeKey]);
+
+  // batch モードで開いている間はフローを主戦場として見えるようにし、閉じたら元へ戻す（E-01）。
+  // 手動でレイアウトを変えた場合は復元しない（restoreAiLayout が判定）。マウント/アンマウント一回のみ。
+  useEffect(() => {
+    if (useUI.getState().aiPanelMode.kind !== 'batch') return;
+    const snapshot = openAiFlowLayout(useUI.getState());
+    return () => restoreAiLayout(useUI.getState(), snapshot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // フローの非フロー系バッジ → 対象カードへスクロール＆一時ハイライト（フロー⇄カードの往復導線）。
   const listRef = useRef<HTMLDivElement>(null);
@@ -233,12 +297,20 @@ export function AiPanel(): JSX.Element {
   }, [cardFocus]);
 
   const ops = preview?.ops ?? [];
+  const warnings = preview?.warnings ?? [];
   const editedOps = useMemo(() => applyEdits(ops, edits), [ops, edits]);
   const resolved = useMemo(
     () => (preview ? resolveApproved(editedOps, decisions) : null),
     [preview, editedOps, decisions],
   );
-  const applyCount = resolved?.apply.length ?? 0;
+  // 適用バーの件数は resolveApproved だけでなく filterApplicable（pending producer の
+  // 第二フィルタ）まで通した実適用件数を出す（D-01）。見送り分は注記に回す。
+  const plan = useMemo(
+    () => (preview ? planApply(editedOps, decisions) : null),
+    [preview, editedOps, decisions],
+  );
+  const applyCount = plan?.applyIdx.length ?? 0;
+  const excludedCount = plan?.excluded.size ?? 0;
   const nodeMap = preview?.nodeMap;
 
   const close = () => useUI.getState().setAiPanelOpen(false);
@@ -285,13 +357,13 @@ export function AiPanel(): JSX.Element {
   return (
     <aside className="ai-panel" role="dialog" aria-label="AI アシスト">
       <header className="ai-panel-h">
-        <h4>✨ AI アシスト</h4>
+        <h4>AI アシスト</h4>
         {mode.kind === 'procedureDraft' && (
           <span className="ai-mode" title="手順書ドラフトの対象工程">
             手順書: {targetName}
           </span>
         )}
-        <button type="button" className="close" aria-label="AI パネルを閉じる" onClick={close}>
+        <button type="button" className="x" aria-label="AI パネルを閉じる" onClick={close}>
           ×
         </button>
       </header>
@@ -326,20 +398,38 @@ export function AiPanel(): JSX.Element {
               <span />
             </div>
             <span className="detected">検出: {detected} 件…</span>
+            <button type="button" className="ai-cancel" onClick={cancelGenerate}>
+              キャンセル
+            </button>
           </div>
         )}
 
         {phase === 'error' && (
           <div className="ai-error" role="alert">
             <p>{errorText}</p>
-            <button type="button" className="ai-gen-btn" onClick={() => void generate()}>
-              再生成
-            </button>
+            <div className="ai-error-actions">
+              <button type="button" className="ai-gen-btn" onClick={() => void generate()}>
+                再生成
+              </button>
+              {errorKind !== null && offersSettings(errorKind) && (
+                <button type="button" className="ai-gen-btn ghost" onClick={openAiSettings}>
+                  AI 設定を開く
+                </button>
+              )}
+            </div>
           </div>
         )}
 
         {phase === 'ready' && ops.length === 0 && (
           <p className="ai-empty">提案が見つかりませんでした。メモを具体的にして再生成してください。</p>
+        )}
+
+        {phase === 'ready' && warnings.length > 0 && (
+          <div className="ai-warn" role="status">
+            {warnings.map((w, i) => (
+              <p key={i}>{w}</p>
+            ))}
+          </div>
         )}
 
         {phase === 'ready' && ops.length > 0 && (
@@ -457,6 +547,9 @@ export function AiPanel(): JSX.Element {
           <button type="button" className="apply-btn" disabled={applyCount === 0} onClick={applyApproved}>
             承認 {applyCount} 件を確定（元に戻せます）
           </button>
+          {excludedCount > 0 && (
+            <span className="applybar-note">（{excludedCount} 件は{NOT_APPROVED_REASON}見送り）</span>
+          )}
         </footer>
       )}
     </aside>

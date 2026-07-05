@@ -7,6 +7,8 @@ import { runBatch, type BatchOp, type Project } from '@gantt-flow/core';
 import {
   resolveApproved,
   filterApplicable,
+  planApply,
+  planContinuation,
   applyEdits,
   buildProposalNodeMap,
   DISABLED_REASON,
@@ -129,6 +131,64 @@ describe('filterApplicable（適用直前の第二フィルタ: pending producer
     const { apply: applicable, excluded } = filterApplicable(ops, apply);
     expect(applicable).toEqual(apply);
     expect(excluded.size).toBe(0);
+  });
+});
+
+describe('planApply（D-01: 適用バーの実適用件数＝第二フィルタ反映）', () => {
+  it('pending producer + approved consumer は applyIdx から外れ excluded に入る', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '親', level: 'medium' }, // 0 未判定
+      { op: 'add_task', ref: 'b', name: '子', level: 'small', parent: 'a' }, // 1 承認
+    ];
+    const plan = planApply(ops, { 1: 'approved' });
+    expect(plan.applyIdx).toEqual([]); // resolveApproved 単体なら 1 件だが第二フィルタで 0 件
+    expect(plan.excluded.has(1)).toBe(true);
+  });
+
+  it('producer も承認済みなら applyIdx に両方入り excluded は空', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '親', level: 'medium' },
+      { op: 'add_task', ref: 'b', name: '子', level: 'small', parent: 'a' },
+    ];
+    const plan = planApply(ops, { 0: 'approved', 1: 'approved' });
+    expect(plan.applyIdx).toEqual([0, 1]);
+    expect(plan.excluded.size).toBe(0);
+  });
+});
+
+describe('planContinuation（D-02: 見送り分のセッション継続）', () => {
+  it('適用済みを除いて再インデックスし、見送り分（excluded）は pending に戻す', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '独立', level: 'medium' }, // 0 適用済み
+      { op: 'add_task', ref: 'p', name: '親', level: 'medium' }, // 1 未判定で残す
+      { op: 'add_task', ref: 'c', name: '子', level: 'small', parent: 'p' }, // 2 承認だが見送り
+    ];
+    const decisions: DecisionMap = { 0: 'approved', 2: 'approved' };
+    const excluded = new Map<number, string>([[2, '依存先が未承認のため']]);
+    const cont = planContinuation(ops, decisions, {}, [0], excluded, {});
+    // 適用済み(0)が除かれ、1→0 / 2→1 に再インデックス。
+    expect(cont.ops).toHaveLength(2);
+    expect(cont.ops[0]).toMatchObject({ ref: 'p', name: '親' });
+    expect(cont.ops[1]).toMatchObject({ ref: 'c', name: '子' });
+    // 親(旧1)は未判定のまま、子(旧2=excluded)は pending へ戻る（判定を持たない）。
+    expect(cont.decisions[0]).toBeUndefined();
+    expect(cont.decisions[1]).toBeUndefined();
+  });
+
+  it('残り op が適用済み producer を参照していれば実 taskId へ張り替える', () => {
+    const ops: BatchOp[] = [
+      { op: 'add_task', ref: 'a', name: '受注', level: 'medium' }, // 0 適用済み
+      { op: 'add_dependency', from: 'a', to: 'b' }, // 1 残り（a は適用済み・b は未適用）
+      { op: 'add_task', ref: 'b', name: '出荷', level: 'medium' }, // 2 残り
+    ];
+    const cont = planContinuation(ops, { 0: 'approved' }, {}, [0], new Map(), {
+      a: 'REAL_A',
+    });
+    // 0 が除かれ、1→0 / 2→1。dependency の from は実 id へ、to は未適用なので ref 維持。
+    const dep = cont.ops[0] as { op: string; from: string; to: string };
+    expect(dep.op).toBe('add_dependency');
+    expect(dep.from).toBe('REAL_A');
+    expect(dep.to).toBe('b');
   });
 });
 

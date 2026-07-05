@@ -7,7 +7,16 @@ import type { Project } from '@gantt-flow/core';
 import { BatchOpSchema } from '@gantt-flow/core';
 import { useUI } from '../src/ui/useUI';
 import { saveProviderSettings, setApiKey } from '../src/ai/config';
-import { requestProposals, MockAiProvider, AiError, PROPOSALS_JSON_SCHEMA, type AiProvider } from '../src/ai/provider';
+import {
+  requestProposals,
+  MockAiProvider,
+  AiError,
+  AI_ERROR_TEXT,
+  toDisplayError,
+  offersSettings,
+  PROPOSALS_JSON_SCHEMA,
+  type AiProvider,
+} from '../src/ai/provider';
 
 // --- node 環境用の localStorage シム ---
 class MemStorage {
@@ -116,7 +125,7 @@ describe('requestProposals: プロバイダ設定なし（cfg===null）', () => 
     setApiKey('anthropic', '', false); // メモリ・localStorage 双方とも未設定にする（空文字は falsy）
 
     await expect(requestProposals(req())).rejects.toBeInstanceOf(AiError);
-    await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'unknown' });
+    await expect(requestProposals(req())).rejects.toMatchObject({ kind: 'unconfigured' });
     expect(h.ctor).not.toHaveBeenCalled();
   });
 });
@@ -281,6 +290,79 @@ describe('MockAiProvider / providerOverride', () => {
     expect(ops).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(h.ctor).not.toHaveBeenCalled();
+  });
+});
+
+describe('B-02: キャンセル / タイムアウト（AbortSignal 引き回し）', () => {
+  it('requestProposals は signal を providerOverride の generateProposals へ渡す', async () => {
+    useUI.getState().setAiEnabled(true);
+    const spy = vi.fn<AiProvider['generateProposals']>(async () => opsJson([]));
+    const override: AiProvider = { generateProposals: spy };
+    const controller = new AbortController();
+    await requestProposals(req(), undefined, override, controller.signal);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]![2]).toBe(controller.signal); // 第 3 引数 = signal
+  });
+
+  it('Azure は fetch に signal を付与する（AbortSignal.timeout 併用）', async () => {
+    useUI.getState().setAiEnabled(true);
+    saveProviderSettings({ kind: 'azure-openai', azure: AZ });
+    setApiKey('azure-openai', 'AZKEY', false);
+    const fetchSpy = vi.fn(async () => mkRes(200, { choices: [{ message: { content: opsJson([]) } }] }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await requestProposals(req());
+    const init = (fetchSpy.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('Anthropic は messages.stream の options に signal を渡す', async () => {
+    useUI.getState().setAiEnabled(true);
+    saveProviderSettings({ kind: 'anthropic', model: 'claude-sonnet-5' });
+    setApiKey('anthropic', 'ANKEY', false);
+    h.finalMessage.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: opsJson([]) }],
+    });
+    const controller = new AbortController();
+    await requestProposals(req(), undefined, undefined, controller.signal);
+    const call = h.streamMock.mock.calls[0] as unknown as [unknown, { signal?: AbortSignal }];
+    expect(call[1]?.signal).toBe(controller.signal);
+  });
+});
+
+describe('toDisplayError / offersSettings（B-01: エラー文言の握り潰し解消 + 設定導線）', () => {
+  it('AiError の具体 message を保持し、AI_ERROR_TEXT[kind] で握り潰さない', () => {
+    const specific = 'API に接続できませんでした（HTTP 503）';
+    const info = toDisplayError(new AiError('unknown', specific));
+    expect(info.text).toBe(specific);
+    expect(info.text).not.toBe(AI_ERROR_TEXT.unknown);
+    expect(info.kind).toBe('unknown');
+  });
+
+  it('未設定案内（cfg===null の具体文言）も保持し、設定導線を出す', () => {
+    const msg = 'API キーが未設定です。設定から AI プロバイダのキーを入力してください。';
+    const info = toDisplayError(new AiError('unconfigured', msg));
+    expect(info.text).toBe(msg);
+    expect(info.kind).toBe('unconfigured');
+    expect(offersSettings(info.kind)).toBe(true);
+  });
+
+  it('AiError でない例外は汎用文言（unknown）へ寄せる', () => {
+    const info = toDisplayError(new TypeError('boom'));
+    expect(info.text).toBe(AI_ERROR_TEXT.unknown);
+    expect(info.kind).toBe('unknown');
+  });
+
+  it('offersSettings は auth / disabled / unconfigured に設定導線を出す', () => {
+    expect(offersSettings('auth')).toBe(true);
+    expect(offersSettings('disabled')).toBe(true);
+    expect(offersSettings('unconfigured')).toBe(true);
+    expect(offersSettings('rateLimit')).toBe(false);
+    expect(offersSettings('connection')).toBe(false);
+    expect(offersSettings('schema')).toBe(false);
+    expect(offersSettings('refusal')).toBe(false);
+    expect(offersSettings('unknown')).toBe(false);
   });
 });
 
