@@ -12,7 +12,6 @@ import { nearestInDirection, firstVisual, alignTarget, type NavDir } from './spa
 import { nameLenClass, nameLenTitle, onNameInput } from './nameLimit';
 import { computeSnap, type SnapGuide, type SnapRect } from './snap';
 import * as Icons from './ui/icons';
-import { Menu, MenuItem } from './ui/Menu';
 import { ioInfoChipPath, ioDocBodyPath, ioDocFoldPoints } from './flowShapes';
 import {
   SIZE,
@@ -207,7 +206,14 @@ export function FlowCanvas() {
   const [sel, setSel] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null);
   // 右クリックメニュー（ノード/矢印/複数選択）。位置はカーソルの画面座標（fixed 配置）。
   // kind='multi' は複数選択を右クリックしたとき（選択を維持したまま一括メニューを出す）。
-  const [ctxMenu, setCtxMenu] = useState<{ kind: 'node' | 'edge' | 'multi'; id: string; x: number; y: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    kind: 'node' | 'edge' | 'multi' | 'canvas';
+    id: string;
+    x: number;
+    y: number;
+    /** kind='canvas' のとき、図形を置くカーソル位置（キャンバス論理座標）。 */
+    at?: { x: number; y: number };
+  } | null>(null);
   // レーンの高さ手動リサイズ（プレビュー中の高さを保持）。
   const [laneResize, setLaneResize] = useState<{ laneId: string; height: number } | null>(null);
   // B1: ドラッグ/接続中の端オートスクロール。lastPointer=最新カーソル(client)+Alt、
@@ -313,7 +319,7 @@ export function FlowCanvas() {
     const connect = getActiveKeymap().find((b) => b.action === 'flow.connect');
     const pieces = ['○ドラッグで矢印'];
     if (connect) pieces.push(`${chordKeys(connect.chord, connect.leader).join('')} で接続モード`);
-    pieces.push('Shift+ドラッグで範囲選択', 'Delete で削除');
+    pieces.push('右クリックで図形を追加', 'Shift+ドラッグで範囲選択', 'Delete で削除');
     return pieces.join(' / ');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [singleKey]);
@@ -481,6 +487,16 @@ export function FlowCanvas() {
     const p = relPoint(e);
     const id = addTaskAt(p.x - SIZE.task.w / 2, p.y - SIZE.task.h / 2);
     if (id) setEditingTaskId(id); // 作成直後にその場リネーム（「新規工程」の量産を防ぐ）
+  };
+
+  // 空白を右クリック → その位置に図形を追加するメニュー（旧「図形」ボタンの置き換え）。
+  // ノード/矢印/入力上は各自の右クリック（またはネイティブ編集）へ委ねる（onCanvasDoubleClick と同じ除外）。
+  const onCanvasContextMenu = (e: React.MouseEvent) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('.node, .ms-diamond, .handle, .del, button, input, a, .lane-rail, .flow-minimap, .edge-toolbar, .io-icon, .io-source')) return;
+    if (el.closest('svg.edges') && el.classList.contains('edge-hit')) return;
+    e.preventDefault();
+    setCtxMenu({ kind: 'canvas', id: '', x: e.clientX, y: e.clientY, at: relPoint(e) });
   };
 
   const relPoint = (e: { clientX: number; clientY: number }) => {
@@ -1592,34 +1608,8 @@ export function FlowCanvas() {
         >
           <Icons.MilestoneDiamond />
         </button>
-        {/* BPMN 制御ノード（開始/終了/判断/合流）＋付箋は使用頻度が低いので「図形 ▾」に集約（工程・MS は独立維持）。 */}
-        <Menu
-          className="flow-shape-menu"
-          title="図形を追加（開始・終了・判断・合流・付箋）"
-          label={
-            <>
-              <Icons.Diamond />
-              図形
-              <Icons.ChevronDown />
-            </>
-          }
-        >
-          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('start', p.x, p.y); }}>開始</MenuItem>
-          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('end', p.x, p.y); }}>終了</MenuItem>
-          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('decision', p.x, p.y); }}>判断（分岐）</MenuItem>
-          <MenuItem onClick={() => { const p = spawnPos(SIZE.control.w, SIZE.control.h); addControlNode('merge', p.x, p.y); }}>合流</MenuItem>
-          <MenuItem
-            onClick={async () => {
-              const text = await useUI.getState().promptText({ title: '付箋を追加', placeholder: 'コメント', confirmLabel: '追加' });
-              if (text !== null) {
-                const p = spawnPos(SIZE.comment.w, SIZE.comment.h);
-                addComment(text, p.x, p.y);
-              }
-            }}
-          >
-            付箋
-          </MenuItem>
-        </Menu>
+        {/* BPMN 制御ノード（開始/終了/判断/合流）と付箋は使用頻度が低いので、ツールバーからは外し
+            キャンバスの右クリック「ここに追加」へ移した（工程・MS は独立ボタンのまま）。 */}
         <span className="palette-sep" aria-hidden="true" />
         <button
           className="palette-act"
@@ -1695,6 +1685,7 @@ export function FlowCanvas() {
         aria-activedescendant={activeDescId}
         onPointerDown={onCanvasPointerDown}
         onDoubleClick={onCanvasDoubleClick}
+        onContextMenu={onCanvasContextMenu}
       >
         <div
           className="flow-scale"
@@ -2573,6 +2564,43 @@ export function FlowCanvas() {
       {ctxMenu &&
         (() => {
           const close = () => setCtxMenu(null);
+          if (ctxMenu.kind === 'canvas') {
+            // 空白右クリック「ここに追加」。カーソル論理座標（at）を中心に各図形を置く（top-left へ換算）。
+            const at = ctxMenu.at ?? { x: 0, y: 0 };
+            const addControlAt = (kind: ControlKind) =>
+              addControlNode(kind, at.x - SIZE.control.w / 2, at.y - SIZE.control.h / 2);
+            return (
+              <FlowContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={close}>
+                <ContextItem
+                  label="工程をここに追加"
+                  onClick={() => {
+                    const id = addTaskAt(at.x - SIZE.task.w / 2, at.y - SIZE.task.h / 2);
+                    if (id) setEditingTaskId(id);
+                  }}
+                />
+                <ContextItem
+                  label="マイルストーンをここに"
+                  onClick={() => {
+                    const id = addMilestone(at.x - SIZE.task.w / 2, at.y - SIZE.task.h / 2);
+                    if (id) setEditingTaskId(id);
+                  }}
+                />
+                <div className="menu-sep" role="separator" />
+                <ContextItem label="開始" onClick={() => addControlAt('start')} />
+                <ContextItem label="終了" onClick={() => addControlAt('end')} />
+                <ContextItem label="判断（分岐）" onClick={() => addControlAt('decision')} />
+                <ContextItem label="合流" onClick={() => addControlAt('merge')} />
+                <div className="menu-sep" role="separator" />
+                <ContextItem
+                  label="付箋"
+                  onClick={async () => {
+                    const text = await useUI.getState().promptText({ title: '付箋を追加', placeholder: 'コメント', confirmLabel: '追加' });
+                    if (text !== null) addComment(text, at.x - SIZE.comment.w / 2, at.y - SIZE.comment.h / 2);
+                  }}
+                />
+              </FlowContextMenu>
+            );
+          }
           if (ctxMenu.kind === 'multi') {
             // 複数選択の一括メニュー（既存の一括アクションを呼ぶだけ）。工程/制御/付箋を仕分けて
             // 削除、工程は複製・選択整列。工程が無ければ複製は出さない。

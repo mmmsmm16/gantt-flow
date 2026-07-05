@@ -1878,23 +1878,6 @@ button.danger:hover {
   color: var(--amber-ink);
   border-color: color-mix(in srgb, var(--amber) 42%, var(--line));
 }
-/* 「図形 ▾」メニュー: 正方形アイコンボタンの中でテキスト付きに広げる（開始/終了/判断/合流/付箋を集約）。
-   `button.` を付けて :not(.menu-item) の 30px 正方形化（同特異度・先行）に勝たせる。 */
-.flow-palette button.flow-shape-menu {
-  width: auto;
-  height: 30px;
-  gap: 4px;
-  padding: 0 9px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.flow-palette button.flow-shape-menu:hover {
-  color: var(--ink);
-}
-.flow-palette button.flow-shape-menu svg {
-  width: 14px;
-  height: 14px;
-}
 .palette-zoom {
   margin-left: auto;
   display: inline-flex;
