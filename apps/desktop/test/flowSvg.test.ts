@@ -300,8 +300,8 @@ describe('buildFlowSvg のハイライト(opts.highlightTaskIds)', () => {
   });
 });
 
-describe('buildFlowSvg のマイルストーン描画（菱形・縦線・ラベル）', () => {
-  it('紐付きマイルストーンは菱形(rotate45)＋破線ガイド＋ラベルを描き、レーン内の工程boxは描かない', () => {
+describe('buildFlowSvg のマイルストーン描画（ピル・縦線・ラベル）', () => {
+  it('紐付きマイルストーンは🏁付きピル＋実線ガイド＋ラベルを描き、レーン内の工程boxは描かない', () => {
     let p = createSampleProject(counter());
     const view = mediumView(p);
     const parentId = view.scopeParentId!;
@@ -316,8 +316,10 @@ describe('buildFlowSvg のマイルストーン描画（菱形・縦線・ラベ
     expect(guide.bound).toBe(true); // 前工程あり＝自動追従
 
     const svg = buildFlowSvg(p, view2);
-    expect(svg).toContain('rotate(45'); // 菱形（回転した角丸四角）
-    expect(svg).toContain('opacity="0.55"'); // MS 縦破線ガイド（bands の破線と区別できる固有の属性）
+    expect(svg).toContain('rx="11"'); // ピル（角丸長方形・高さ22→rx11）
+    expect(svg).toContain('🏁'); // 節目マーカー（案A）
+    expect(svg).not.toContain('rotate(45'); // 旧・菱形は描かない
+    expect(svg).toContain('opacity="0.8"'); // MS 縦の実線ガイド（bands と区別できる固有の属性）
     expect(svg).toContain('検収完了'); // MS ラベル
 
     // レーン内の通常工程box(rx="9")の数は、非MS工程の数と一致する＝MSはboxとして描かない

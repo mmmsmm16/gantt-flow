@@ -3965,42 +3965,51 @@ kbd {
 .ms-guide-line {
   position: absolute;
   width: 0;
-  border-left: 1.5px dashed var(--amber);
-  opacity: 0.55;
+  border-left: 2px solid var(--amber);
+  opacity: 0.8;
 }
-.ms-diamond {
+/* 案A: 節目名を持つ琥珀のピル（🏁＋名前）。縦線の真上に中央寄せ。菱形の代わりにクリック/ドラッグ/選択の対象。 */
+.ms-pill {
   position: absolute;
   z-index: 6;
-  width: 26px;
-  height: 26px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
   box-sizing: border-box;
-  border-radius: 5px;
   background: var(--amber-fill);
-  border: 1.6px solid var(--amber);
-  transform: rotate(45deg);
+  border: 1.5px solid var(--amber);
+  border-radius: var(--radius-pill);
+  padding: 3px 11px;
+  color: var(--amber-ink);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(120, 84, 7, 0.15);
   pointer-events: auto;
   cursor: pointer;
 }
-.ms-diamond.draggable {
+.ms-pill .ms-flag {
+  font-size: 11px;
+  line-height: 1;
+}
+.ms-pill .ms-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ms-pill.draggable {
   cursor: grab;
 }
-.ms-diamond.selected {
+.ms-pill.selected {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 45%, transparent);
 }
-.ms-label {
-  position: absolute;
-  z-index: 6;
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-strong);
-  color: var(--amber-ink);
-  white-space: nowrap;
-  pointer-events: none;
-}
-/* MS のその場リネーム入力。菱形と同様 .ms-guide の非操作を上書きし、ラベル位置に置く。 */
+/* MS のその場リネーム入力。ピルと同じ位置（線の真上・中央寄せ）に置く。 */
 .ms-edit {
   position: absolute;
   z-index: 7;
-  width: 140px;
+  width: 150px;
+  transform: translateX(-50%);
   text-align: left;
   pointer-events: auto;
 }
