@@ -6,6 +6,9 @@ import { loadSingleKeyEnabled, saveSingleKeyEnabled } from '../keymap';
 type Id = string;
 
 export type Theme = 'light' | 'dark';
+
+/** AI パネルの起動モード。batch=メモから提案 / procedureDraft=対象工程を固定した手順書ドラフト。 */
+export type AiPanelMode = { kind: 'batch' } | { kind: 'procedureDraft'; targetTaskId: Id };
 const STORAGE_KEY = 'gf-theme';
 const MINIMAP_KEY = 'gf-minimap';
 const TOBE_KEY = 'gf-tobe';
@@ -230,6 +233,13 @@ interface UIState {
       （requestProposals が先頭で throw する）。localStorage `gf-ai` に永続。 */
   aiEnabled: boolean;
   setAiEnabled: (enabled: boolean) => void;
+
+  /** AI アシストパネル（右ドロワー）が開いているか。ビュー状態（undo 非対象・非永続）。 */
+  aiPanelOpen: boolean;
+  setAiPanelOpen: (open: boolean) => void;
+  /** AI パネルの起動モード。batch=メモから提案 / procedureDraft=対象工程の手順書ドラフト。 */
+  aiPanelMode: AiPanelMode;
+  setAiPanelMode: (m: AiPanelMode) => void;
 
   /** メインのフロー表示シナリオ（As-Is=編集可 / To-Be=改善後を読み取り専用で投影）。ビュー状態。 */
   scenario: 'asis' | 'tobe';
@@ -501,8 +511,14 @@ export const useUI = create<UIState>((set, get) => ({
     } catch {
       /* 永続化失敗は無視（メモリ上は反映済み） */
     }
-    set({ aiEnabled: enabled });
+    // 無効化したら開いている AI パネルを閉じる（通信導線を残さない）。
+    set({ aiEnabled: enabled, ...(enabled ? {} : { aiPanelOpen: false }) });
   },
+
+  aiPanelOpen: false,
+  setAiPanelOpen: (open) => set({ aiPanelOpen: open }),
+  aiPanelMode: { kind: 'batch' },
+  setAiPanelMode: (aiPanelMode) => set({ aiPanelMode }),
 
   scenario: 'asis',
   setScenario: (scenario) => set({ scenario }),
