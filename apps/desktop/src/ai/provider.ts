@@ -139,8 +139,28 @@ const ADAPTIVE_THINKING_MODELS: ReadonlySet<AiModel> = new Set(['claude-opus-4-8
 // ---- プロバイダ IF ----
 
 export interface AiProvider {
-  /** プロンプトを組み立てて生成し、**JSON テキスト**を返す（検証は共通層 requestProposals が行う）。 */
-  generateProposals(req: ProposalRequest, onProgress?: (chunk: string) => void): Promise<string>;
+  /** プロンプトを組み立てて生成し、**JSON テキスト**を返す（検証は共通層 requestProposals が行う）。
+      signal でキャンセル（AbortSignal）を受け取れる。 */
+  generateProposals(
+    req: ProposalRequest,
+    onProgress?: (chunk: string) => void,
+    signal?: AbortSignal,
+  ): Promise<string>;
+}
+
+/** 複数の AbortSignal を 1 つに束ねる（AbortSignal.any が無い環境向けフォールバック付き）。 */
+function combineSignals(signals: AbortSignal[]): AbortSignal {
+  const anyFn = (AbortSignal as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === 'function') return anyFn(signals);
+  const ctrl = new AbortController();
+  for (const s of signals) {
+    if (s.aborted) {
+      ctrl.abort((s as { reason?: unknown }).reason);
+      break;
+    }
+    s.addEventListener('abort', () => ctrl.abort((s as { reason?: unknown }).reason), { once: true });
+  }
+  return ctrl.signal;
 }
 
 // ---- Anthropic（公式 SDK・dangerouslyAllowBrowser） ----
@@ -154,19 +174,23 @@ export class AnthropicProvider implements AiProvider {
   async generateProposals(
     req: ProposalRequest,
     onProgress?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     try {
-      const stream = this.client.messages.stream({
-        model: this.cfg.model,
-        max_tokens: 64000,
-        // claude-haiku-4-5 は非対応のため送らない（上の ADAPTIVE_THINKING_MODELS 参照）。
-        ...(ADAPTIVE_THINKING_MODELS.has(this.cfg.model)
-          ? { thinking: { type: 'adaptive' as const } }
-          : {}),
-        system: buildSystemPrompt(),
-        messages: [{ role: 'user', content: buildUserPrompt(req) }],
-        output_config: { format: { type: 'json_schema', schema: PROPOSALS_JSON_SCHEMA } },
-      });
+      const stream = this.client.messages.stream(
+        {
+          model: this.cfg.model,
+          max_tokens: 64000,
+          // claude-haiku-4-5 は非対応のため送らない（上の ADAPTIVE_THINKING_MODELS 参照）。
+          ...(ADAPTIVE_THINKING_MODELS.has(this.cfg.model)
+            ? { thinking: { type: 'adaptive' as const } }
+            : {}),
+          system: buildSystemPrompt(),
+          messages: [{ role: 'user', content: buildUserPrompt(req) }],
+          output_config: { format: { type: 'json_schema', schema: PROPOSALS_JSON_SCHEMA } },
+        },
+        { signal },
+      );
       if (onProgress) stream.on('text', (t: string) => onProgress(t));
       const final = await stream.finalMessage();
 
@@ -211,6 +235,7 @@ export class AzureOpenAiProvider implements AiProvider {
   async generateProposals(
     req: ProposalRequest,
     _onProgress?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     // 末尾スラッシュを正規化して URL を組み立てる。
     const base = this.cfg.endpoint.replace(/\/+$/, '');
@@ -220,11 +245,18 @@ export class AzureOpenAiProvider implements AiProvider {
     const system = buildSystemPrompt();
     const user = buildUserPrompt(req);
 
+    // ストリーミングしない Azure は 120 秒のタイムアウトを併用（キャンセル signal があれば束ねる）。
+    const timeout = AbortSignal.timeout(120000);
+    const reqSignal = signal ? combineSignals([signal, timeout]) : timeout;
+
     // 1回目: response_format = json_schema（strict）。
-    let res = await this.post(url, system, user, {
-      type: 'json_schema',
-      json_schema: { name: 'proposals', schema: PROPOSALS_JSON_SCHEMA, strict: true },
-    });
+    let res = await this.post(
+      url,
+      system,
+      user,
+      { type: 'json_schema', json_schema: { name: 'proposals', schema: PROPOSALS_JSON_SCHEMA, strict: true } },
+      reqSignal,
+    );
 
     // 400（未対応デプロイ等）なら json_object にフォールバックし、システム側で JSON を明示指示。
     if (res.status === 400) {
@@ -233,6 +265,7 @@ export class AzureOpenAiProvider implements AiProvider {
         system + '\n\n重要: 応答は必ず JSON オブジェクトのみで返してください（説明文を混ぜない）。',
         user,
         { type: 'json_object' },
+        reqSignal,
       );
     }
 
@@ -256,6 +289,7 @@ export class AzureOpenAiProvider implements AiProvider {
     system: string,
     user: string,
     responseFormat: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<Response> {
     return fetch(url, {
       method: 'POST',
@@ -267,8 +301,9 @@ export class AzureOpenAiProvider implements AiProvider {
         ],
         response_format: responseFormat,
       }),
+      signal,
     }).catch(() => {
-      // ネットワーク例外 → connection。
+      // ネットワーク例外・中断（キャンセル/タイムアウト）→ connection。
       throw new AiError('connection', AI_ERROR_TEXT.connection);
     });
   }
@@ -281,6 +316,7 @@ export class MockAiProvider implements AiProvider {
   async generateProposals(
     _req: ProposalRequest,
     onProgress?: (chunk: string) => void,
+    _signal?: AbortSignal,
   ): Promise<string> {
     onProgress?.(this.cannedJson);
     return this.cannedJson;
@@ -301,6 +337,7 @@ export async function requestProposals(
   req: ProposalRequest,
   onProgress?: (chunk: string) => void,
   providerOverride?: AiProvider,
+  signal?: AbortSignal,
 ): Promise<BatchOp[]> {
   // ① オプトインガード（最重要・この throw が provider 構築/fetch/SDK 生成より前）。
   if (!useUI.getState().aiEnabled) {
@@ -318,7 +355,7 @@ export async function requestProposals(
   }
 
   // ③ 生成（JSON テキスト取得）。
-  const jsonText = await provider.generateProposals(req, onProgress);
+  const jsonText = await provider.generateProposals(req, onProgress, signal);
 
   // ④ 共通検証（最終防衛線）。ZodError/SyntaxError は AiError('schema') へ写像。
   try {

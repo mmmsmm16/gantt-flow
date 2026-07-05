@@ -7292,6 +7292,21 @@ input.colored-text {
 .gen .detected {
   flex: none;
 }
+/* 生成中のキャンセル（枠線ボタン・進捗行の右端）。 */
+.ai-cancel {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--fs-caption);
+}
+.ai-cancel:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
 
 .ai-error {
   padding: var(--sp-2);

@@ -61,6 +61,8 @@ interface AiSessionState {
   /** 見送り分のセッション継続（D-02）: 適用済みを除いた残りプレビュー＋再インデックス判定で再開。 */
   continueWith: (preview: AiPreview, decisions: DecisionMap, edits: EditMap) => void;
   fail: (errorText: string, errorKind: AiErrorKind) => void;
+  /** 生成キャンセル（B-02）: idle に戻す（エラー扱いにしない）。memo は残す。 */
+  cancelGeneration: () => void;
   setDecision: (i: number, state: DecisionState) => void;
   setEdit: (i: number, patch: ProposalEdit) => void;
   beginEdit: (i: number) => void;
@@ -104,6 +106,7 @@ export const useAiSession = create<AiSessionState>((set) => ({
   continueWith: (preview, decisions, edits) =>
     set({ rawOps: preview.ops, preview, phase: 'ready', decisions, edits, editingOp: null }),
   fail: (errorText, errorKind) => set({ phase: 'error', errorText, errorKind }),
+  cancelGeneration: () => set({ phase: 'idle', progress: '', detected: 0 }),
   setDecision: (i, state) => set((s) => ({ decisions: { ...s.decisions, [i]: state } })),
   setEdit: (i, patch) =>
     set((s) => ({ edits: { ...s.edits, [i]: { ...s.edits[i], ...patch } }, editingOp: null })),
@@ -152,10 +155,15 @@ function hasAssignee(o: BatchOp): o is Extract<BatchOp, { op: 'add_task' | 'upse
   return o.op === 'add_task' || o.op === 'upsert_task';
 }
 
+// 進行中の生成を止めるための AbortController（1 本だけ。キャンセルボタンから abort する。B-02）。
+let genController: AbortController | null = null;
+
 async function generate(): Promise<void> {
   const session = useAiSession.getState();
   const app = useApp.getState();
   const mode = useUI.getState().aiPanelMode;
+  const controller = new AbortController();
+  genController = controller;
   session.startStreaming();
   try {
     const rawOps = await requestProposals(
@@ -167,15 +175,28 @@ async function generate(): Promise<void> {
       },
       (chunk) => useAiSession.getState().onProgress(chunk),
       injectedProvider ?? undefined,
+      controller.signal,
     );
     // 生成直後に一度だけ preview を固定する（id 安定・decisions 変更では作り直さない）。
     const preview = buildAiPreview(app.project, applyEdits(rawOps, {}), app.level, app.scopeParentId);
     useAiSession.getState().setGenerated(rawOps, preview);
   } catch (e) {
+    // キャンセルはエラー扱いにせず idle へ戻す（B-02）。
+    if (controller.signal.aborted) {
+      useAiSession.getState().cancelGeneration();
+      return;
+    }
     // provider の具体 message（HTTP ステータス・未設定案内など）を握り潰さず表示する（B-01）。
     const { text, kind } = toDisplayError(e);
     useAiSession.getState().fail(text, kind);
+  } finally {
+    if (genController === controller) genController = null;
   }
+}
+
+/** 生成中のキャンセル（B-02）。abort すると generate() の catch が idle へ戻す。 */
+function cancelGenerate(): void {
+  genController?.abort();
 }
 
 /** エラー表示の「AI 設定を開く」導線: 設定オーバーレイの AI タブを開く（B-01）。 */
@@ -367,6 +388,9 @@ export function AiPanel(): JSX.Element {
               <span />
             </div>
             <span className="detected">検出: {detected} 件…</span>
+            <button type="button" className="ai-cancel" onClick={cancelGenerate}>
+              キャンセル
+            </button>
           </div>
         )}
 
