@@ -58,8 +58,8 @@ describe('tourDone（初回フラグ・永続）', () => {
 });
 
 describe('TOUR_STEPS（具体要素のハイライト対象）', () => {
-  it('4 ステップで、各先頭候補はペイン全体ではなく具体要素セレクタ', () => {
-    expect(TOUR_STEPS).toHaveLength(4);
+  it('5 ステップで、作業系（1〜4）の先頭候補はペイン全体ではなく具体要素セレクタ', () => {
+    expect(TOUR_STEPS).toHaveLength(5);
     // 先頭候補（実際に狙う対象）が具体要素であること（旧: ペイン全体は使わない）。
     const primaries = TOUR_STEPS.map((s) => s.selectors[0]);
     expect(primaries).toEqual([
@@ -67,16 +67,23 @@ describe('TOUR_STEPS（具体要素のハイライト対象）', () => {
       '.node.task',
       '.flow-palette .add-task',
       '.toolbar [aria-label="コマンド・工程を検索"]',
+      '.view-tabs button[title^="手順書"]',
     ]);
-    // どの先頭候補も「ペインまるごと」ではない。
+    // どの先頭候補も「ペインまるごと」ではない（フォールバックのペイン/ツールバー以外）。
     for (const p of primaries) {
-      expect(['.table-pane', '.flow-pane', '.toolbar']).not.toContain(p);
+      expect(['.table-pane', '.flow-pane', '.toolbar', '.view-tabs']).not.toContain(p);
     }
   });
   it('各ステップは不在時に落ちないようフォールバック候補を持つ', () => {
     for (const s of TOUR_STEPS) {
       expect(s.selectors.length).toBeGreaterThanOrEqual(2);
     }
+  });
+  it('対象UI不在時の正直な文言（emptyBody）を作業系ステップ（1〜3）が持つ', () => {
+    // 具体要素が実在しないことがある表(1)・フロー(2,3)には emptyBody を用意する。
+    expect(TOUR_STEPS[0]?.emptyBody).toBeTruthy();
+    expect(TOUR_STEPS[1]?.emptyBody).toBeTruthy();
+    expect(TOUR_STEPS[2]?.emptyBody).toBeTruthy();
   });
 });
 
